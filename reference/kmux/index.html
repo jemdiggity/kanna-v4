@@ -2,10 +2,10 @@
 <!--
   kmux reference mockup.
   A single-file, dependency-free model of kmux's design and behaviour:
-  panes (term / web / ios), fractional splits, the pane lifecycle, and the
-  control protocol. The console speaks kanna commands, which are turned into
-  protocol requests and handled by the same core the UI uses.
-  Everything inside panes is simulated.
+  windows, tabs, panes (term / web / ios), fractional splits, the pane
+  lifecycle, and the control protocol. The console speaks kanna commands,
+  which are turned into protocol requests and handled by the same core the
+  UI uses. Everything inside panes is simulated.
 -->
 <html lang="en">
 <head>
@@ -26,18 +26,31 @@
   input { font: inherit; color: inherit; background: transparent; border: 0; outline: none; }
 
   #app { display: flex; flex-direction: column; height: 100%; }
-  .window { flex: 1; min-height: 0; display: grid; grid-template-rows: 32px 30px 1fr; }
-  .titlebar { display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
-  .titlebar .dots { letter-spacing: 3px; color: #555b66; }
-  .titlebar b { font-weight: 600; }
-  .titlebar .spacer { flex: 1; }
-  .titlebar .note { color: var(--dim); font-size: 12px; }
-  .menubar button { border: 0; background: transparent; padding: 2px 8px; }
+  .menubar { display: flex; align-items: center; gap: 2px; height: 26px; padding: 0 10px; background: #1b1e25; border-bottom: 1px solid var(--border); }
+  .menubar b { margin-right: 8px; }
+  .menubar button { border: 0; background: transparent; padding: 1px 8px; }
   .menubar button:hover { background: var(--panel-2); }
+  .menubar .spacer { flex: 1; }
+  .menubar .note { color: var(--dim); font-size: 12px; }
 
-  #tabs { display: flex; align-items: stretch; gap: 2px; padding: 0 6px; background: var(--panel); border-bottom: 1px solid var(--border); overflow-x: auto; }
+  #desktop { position: relative; flex: 1; min-height: 0; overflow: hidden; background: radial-gradient(circle at 30% 20%, #262c3c, #0c0e12 70%); }
+  .desktop-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--dim); }
+  .desktop-empty div { display: flex; gap: 6px; }
+
+  .win { position: absolute; display: flex; flex-direction: column; background: var(--panel); border: 1px solid #3a404c; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .win.key { box-shadow: 0 18px 50px rgba(0,0,0,.6); border-color: #4a5160; }
+  .win-titlebar { flex: none; display: flex; align-items: center; height: 28px; padding: 0 10px; user-select: none; }
+  .win:not(.key) .win-titlebar { color: var(--dim); }
+  .lights { display: flex; gap: 7px; }
+  .light { width: 12px; height: 12px; padding: 0; border: 0; border-radius: 50%; background: #4a4f5a; }
+  .win.key .light.close { background: #ff5f57; } .win.key .light.min { background: #febc2e; } .win.key .light.max { background: #28c840; }
+  .win-title { flex: 1; padding-right: 50px; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .win-resize { position: absolute; right: 0; bottom: 0; z-index: 6; width: 14px; height: 14px; cursor: nwse-resize; }
+
+  .win-tabs { flex: none; display: flex; align-items: stretch; gap: 2px; height: 28px; padding: 0 6px; border-bottom: 1px solid var(--border); overflow-x: auto; }
   .tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 0; background: transparent; color: var(--dim); border-bottom: 2px solid transparent; white-space: nowrap; }
   .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .win:not(.key) .tab.active { border-bottom-color: var(--dim); }
   .tab .x { opacity: .5; } .tab .x:hover { opacity: 1; color: var(--red); }
   .tab-add { border: 0; background: transparent; color: var(--dim); }
   .tab.dragging { opacity: .5; }
@@ -46,10 +59,11 @@
   .tab.drop-target, .tab-add.drop-target { background: var(--panel-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
   .pane.dragging { opacity: .5; }
   .drop-hint { position: fixed; z-index: 15; display: flex; align-items: center; justify-content: center; background: rgba(122,162,247,.22); border: 2px solid var(--accent); color: var(--accent); font: 600 12px var(--mono); pointer-events: none; }
-  .drop-hint[hidden] { display: none; }
+  .drop-hint.new-win { border-style: dashed; border-radius: 10px; }
+  .drop-hint[hidden], .drag-tip[hidden] { display: none; }
 
-  #stage { display: flex; min-height: 0; min-width: 0; }
-  #stage > * { flex: 1; }
+  .stage { flex: 1; display: flex; min-height: 0; min-width: 0; }
+  .stage > * { flex: 1; }
   .split { display: flex; min-width: 0; min-height: 0; }
   .split.row { flex-direction: row; }
   .split.column { flex-direction: column; }
@@ -60,7 +74,7 @@
   .drag-tip { position: fixed; z-index: 20; padding: 2px 6px; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 4px; font: 11px var(--mono); color: var(--accent); pointer-events: none; }
 
   .pane { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden; }
-  #stage.multi .pane.focused::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--accent); pointer-events: none; z-index: 3; }
+  .win.key .stage.multi .pane.focused::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--accent); pointer-events: none; z-index: 3; }
   .pane-close { position: absolute; top: 6px; right: 6px; z-index: 4; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; opacity: 0; transition: opacity .12s; }
   .pane:hover .pane-close { opacity: .8; }
   .pane-close:hover { opacity: 1 !important; background: var(--red); }
@@ -105,16 +119,13 @@
   .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; opacity: .7; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--dim); border: 1px dashed var(--border); border-radius: 6px; }
-  .empty div { display: flex; gap: 6px; }
-
-  .menu { position: fixed; z-index: 10; display: flex; flex-direction: column; min-width: 120px; padding: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
-  .menu button { display: flex; justify-content: space-between; gap: 24px; text-align: left; border: 0; background: transparent; }
+  .menu { position: fixed; z-index: 30; display: flex; flex-direction: column; min-width: 120px; padding: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+  .menu button { display: flex; justify-content: space-between; gap: 24px; text-align: left; border: 0; background: transparent; white-space: nowrap; }
   .menu button:hover { background: var(--panel); }
   .menu .key { color: var(--dim); font-size: 12px; }
   .menu hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--border); }
 
-  #console { display: flex; flex-direction: column; height: min(34vh, 280px); border-top: 3px dashed var(--yellow); background: #121419; }
+  #console { display: flex; flex-direction: column; height: min(30vh, 260px); border-top: 3px dashed var(--yellow); background: #121419; }
   #console.collapsed { height: auto; }
   #console.collapsed #log, #console.collapsed #cmdform { display: none; }
   .console-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 12px; }
@@ -131,16 +142,13 @@
 </head>
 <body>
 <div id="app">
-  <div class="window">
-    <header class="titlebar">
-      <span class="dots">●●●</span><b>kmux</b>
-      <nav class="menubar"><button id="menu-pane">Pane</button><button id="menu-view">View</button></nav>
-      <span class="spacer"></span>
-      <span class="note">reference mockup · use ⌥ for ⌘W and ⌘T (the browser keeps those)</span>
-    </header>
-    <nav id="tabs"></nav>
-    <main id="stage"></main>
-  </div>
+  <header class="menubar">
+    <b>kmux</b>
+    <button id="menu-pane">Pane</button><button id="menu-view">View</button><button id="menu-window">Window</button>
+    <span class="spacer"></span>
+    <span class="note">reference mockup · use ⌥ for ⌘N, ⌘T, ⌘W, ⇧⌘W and ⌘` (the browser keeps those)</span>
+  </header>
+  <main id="desktop"></main>
   <section id="console">
     <div class="console-head">
       <span class="mock-tag">MOCKUP ONLY</span>
@@ -156,8 +164,11 @@
 <script>
 // ---------------------------------------------------------------------------
 // State
-// node := { t: 'pane', id } | { t: 'split', dir: 'row'|'column', kids: [{ node, size }] }
-// sizes are fractions of the parent split and always sum to 1.
+// window := { id, tabs, active, focused, zoomed, x, y, w, h, z }
+// tab    := { id, root, title?, lastFocus }
+// node   := { t: 'pane', id } | { t: 'split', dir: 'row'|'column', kids: [{ node, size }] }
+// Sizes are fractions of the parent split and always sum to 1.
+// Empty containers close: a tab without panes, then a window without tabs.
 // ---------------------------------------------------------------------------
 const DEVICES = ['iPhone 16', 'iPhone 16 Pro', 'iPhone SE (3rd generation)', 'iPad Air (M2)'];
 const MIN_PX = 80;
@@ -165,7 +176,7 @@ const NICE = [1/4, 1/3, 1/2, 2/3, 3/4];
 let S;
 
 function freshState() {
-  return { panes: {}, tabs: [], active: null, focused: null, zoomed: null, urlEdit: null, servers: {}, n: { pane: 0, tab: 0, req: 0 } };
+  return { panes: {}, windows: [], key: null, urlEdit: null, servers: {}, n: { pane: 0, tab: 0, win: 0, req: 0, z: 0 } };
 }
 
 const $ = s => document.querySelector(s);
@@ -180,6 +191,7 @@ function h(tag, attrs = {}, ...kids) {
   for (const c of kids.flat()) if (c != null && c !== false) el.append(c.nodeType ? c : String(c));
   return el;
 }
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 class KErr extends Error { constructor(code, message) { super(message); this.code = code; } }
 const kerr = (code, msg) => new KErr(code, msg);
@@ -206,17 +218,56 @@ function fmtFrac(x) {
 }
 
 // ---------------------------------------------------------------------------
-// Tree helpers
+// Windows and tabs
 // ---------------------------------------------------------------------------
-function makeTab(activate = true) {
-  const t = { id: 't' + (++S.n.tab), root: null };
-  S.tabs.push(t);
-  if (activate) S.active = t.id;
+const winById = id => S.windows.find(w => w.id === id);
+const keyWin = () => winById(S.key);
+const allTabs = () => S.windows.flatMap(w => w.tabs);
+const tabById = id => allTabs().find(t => t.id === id);
+const winOfTab = t => S.windows.find(w => w.tabs.includes(t));
+const activeTabOf = w => w && (w.tabs.find(t => t.id === w.active) || w.tabs[0]);
+const desktopSize = () => { const d = $('#desktop'); return { W: d.clientWidth || 1000, H: d.clientHeight || 600 }; };
+
+function makeWindow() {
+  const { W, H } = desktopSize();
+  const k = keyWin();
+  let geo = k ? { x: k.x + 32, y: k.y + 32, w: k.w, h: k.h } : { x: 24, y: 18, w: W - 48, h: H - 36 };
+  if (geo.x + geo.w > W || geo.y + geo.h > H) geo = { x: 24, y: 18, w: Math.min(geo.w, W - 48), h: Math.min(geo.h, H - 36) };
+  const w = { id: 'w' + (++S.n.win), tabs: [], active: null, focused: null, zoomed: null, ...geo, z: ++S.n.z };
+  S.windows.push(w);
+  S.key = w.id;
+  return w;
+}
+function makeTab(w, activate = true) {
+  const t = { id: 't' + (++S.n.tab), root: null, lastFocus: null };
+  w.tabs.push(t);
+  if (activate || !w.active) w.active = t.id;
   return t;
 }
-const tabById = id => S.tabs.find(t => t.id === id);
-const activeTab = () => tabById(S.active) || makeTab();
+function raise(w) { w.z = ++S.n.z; S.key = w.id; }
+function targetWin(ref) {
+  if (ref == null) return keyWin() || makeWindow();
+  if (ref === 'new') return makeWindow();
+  const w = winById(ref);
+  if (!w) throw kerr('not_found', `no window "${ref}"`);
+  return w;
+}
+function dropEmpty() {
+  for (const w of S.windows) {
+    const at = Math.max(0, w.tabs.findIndex(t => t.id === w.active));
+    w.tabs = w.tabs.filter(t => t.root);
+    if (!w.tabs.some(t => t.id === w.active)) w.active = w.tabs[Math.min(at, w.tabs.length - 1)]?.id ?? null;
+    const ids = paneIds(activeTabOf(w)?.root);
+    if (!ids.includes(w.focused)) w.focused = ids.includes(activeTabOf(w)?.lastFocus) ? activeTabOf(w).lastFocus : ids[0] ?? null;
+    if (w.zoomed && !ids.includes(w.zoomed)) w.zoomed = null;
+  }
+  S.windows = S.windows.filter(w => w.tabs.length);
+  if (!keyWin()) S.key = [...S.windows].sort((a, b) => b.z - a.z)[0]?.id ?? null;
+}
 
+// ---------------------------------------------------------------------------
+// Layout trees
+// ---------------------------------------------------------------------------
 function locate(node, id, parent = null, index = -1) {
   if (!node) return null;
   if (node.t === 'pane') return node.id === id ? { node, parent, index } : null;
@@ -227,7 +278,10 @@ function locate(node, id, parent = null, index = -1) {
   return null;
 }
 function findPane(id) {
-  for (const tab of S.tabs) { const loc = locate(tab.root, id); if (loc) return { tab, ...loc }; }
+  for (const win of S.windows) for (const tab of win.tabs) {
+    const loc = locate(tab.root, id);
+    if (loc) return { win, tab, ...loc };
+  }
   return null;
 }
 const paneIds = node => !node ? [] : node.t === 'pane' ? [node.id] : node.kids.flatMap(k => paneIds(k.node));
@@ -247,11 +301,7 @@ function detach(id) {
     f.parent.kids.forEach(k => { k.size = gone < 1 ? k.size / (1 - gone) : 1 / n; });
     f.tab.root = normalize(f.tab.root);
   }
-  if (S.zoomed === id) S.zoomed = null;
-}
-function dropEmptyTabs() {
-  S.tabs = S.tabs.filter(t => t.root || t.id === S.active);
-  if (!tabById(S.active) && S.tabs.length) S.active = S.tabs[0].id;
+  if (f.win.zoomed === id) f.win.zoomed = null;
 }
 function toTree(node, size) {
   if (!node) return null;
@@ -262,35 +312,35 @@ function toTree(node, size) {
   return out;
 }
 function tabTitle(t) {
-  const ids = paneIds(t.root);
+  if (!t) return '';
   if (t.title) return t.title;
-  if (!ids.length) return 'empty';
-  return ids.map(id => S.panes[id].name || id).join(' · ');
+  const ids = paneIds(t.root);
+  return ids.length ? ids.map(id => S.panes[id].name || id).join(' · ') : 'empty';
 }
-function resolvePane(ref) {
-  return Object.values(S.panes).find(p => p.id === ref || p.name === ref);
-}
+const resolvePane = ref => Object.values(S.panes).find(p => p.id === ref || p.name === ref);
 function need(ref) {
   if (!ref) throw kerr('bad_request', 'missing pane');
   const p = resolvePane(ref);
   if (!p) throw kerr('not_found', `no pane "${ref}"`);
   return p;
 }
+function needTab(ref) {
+  const t = tabById(ref);
+  if (!t) throw kerr('not_found', `no tab "${ref}"`);
+  return t;
+}
 const label = p => p.name ? `${p.name} (${p.id})` : p.id;
 
-// Put a new pane next to the focused one. Same-direction parents absorb it
-// as a sibling; otherwise the focused pane is replaced by a new split.
-function place(paneId, { split = 'auto', size = 0.5, tab = false }) {
+function place(paneId, w, { split = 'auto', size = 0.5, tab = false }) {
   const node = { t: 'pane', id: paneId };
-  const t = tab ? makeTab() : activeTab();
-  S.zoomed = null;
+  const t = tab || !w.tabs.length ? makeTab(w) : activeTabOf(w);
+  w.zoomed = null;
   if (!t.root) { t.root = node; return; }
   const ids = paneIds(t.root);
-  const target = ids.includes(S.focused) ? S.focused : ids[ids.length - 1];
+  const target = ids.includes(w.focused) ? w.focused : ids[ids.length - 1];
   const dir = split === 'right' ? 'row' : split === 'down' ? 'column' : autoDir(target);
   insertBeside(t, target, node, dir, true, size);
 }
-// Insert `node` next to the target pane, taking `size` of the target's space.
 function insertBeside(t, targetId, node, dir, after, size) {
   const loc = locate(t.root, targetId);
   if (loc.parent && loc.parent.dir === dir) {
@@ -334,7 +384,7 @@ function createPane(type, a) {
 }
 function setState(p, state, extra = {}) {
   Object.assign(p, extra, { state });
-  if (state !== 'starting') { p.waiters.splice(0).forEach(fn => fn()); }
+  if (state !== 'starting') p.waiters.splice(0).forEach(fn => fn());
   render();
 }
 const settled = p => p.state !== 'starting' ? Promise.resolve() : new Promise(r => p.waiters.push(r));
@@ -362,6 +412,8 @@ function kill(p) {
   p.gen++;
   stopServer(p);
   p.waiters.splice(0).forEach(fn => fn());
+  delete S.panes[p.id];
+  p.state = 'closed';
 }
 
 // --- simulated terminal ----------------------------------------------------
@@ -379,7 +431,7 @@ function runTerm(p, line) {
   else if (c === 'ls') termPrint(p, 'README.md  build  node_modules  package.json  src');
   else if (c === 'help') termPrint(p, 'simulated shell: echo, ls, pwd, cd, clear, npm run dev (ctrl+c stops), exit [code]');
   else if (c === 'exit') { setState(p, 'exited', { exitCode: Number(rest[0]) || 0 }); return; }
-  else if (line.trim() === 'npm run dev' || line.trim() === 'npm start') { startServer(p); }
+  else if (line.trim() === 'npm run dev' || line.trim() === 'npm start') startServer(p);
   else termPrint(p, `zsh: command not found: ${c}`, 'err');
   render();
 }
@@ -425,15 +477,23 @@ function summary(p) {
 }
 
 // ---------------------------------------------------------------------------
-// kmux core: handles control-protocol requests (see docs/kmux-spec.md §8)
+// kmux core: handles control-protocol requests (see docs/kmux-spec.md §7)
 // ---------------------------------------------------------------------------
+function focusPane(p) {
+  const f = findPane(p.id);
+  f.win.active = f.tab.id;
+  if (f.win.zoomed && f.win.zoomed !== p.id) f.win.zoomed = null;
+  f.win.focused = p.id;
+  raise(f.win);
+}
+
 async function handle(req) {
   const { id, cmd, args = {} } = req;
   const ok = x => ({ id, ok: true, ...x });
   try {
     switch (cmd) {
       case 'capabilities':
-        return ok({ mux: 'kmux', paneTypes: ['term', 'web', 'ios'], features: ['fractionalSizing', 'namedPanes', 'tabs', 'zoom', 'lifecycle'] });
+        return ok({ mux: 'kmux', paneTypes: ['term', 'web', 'ios'], features: ['windows', 'tabs', 'fractionalSizing', 'namedPanes', 'zoom', 'move', 'lifecycle'] });
 
       case 'open': {
         const { type } = args;
@@ -444,14 +504,17 @@ async function handle(req) {
         if (!(size > 0 && size < 1)) throw kerr('bad_request', 'size must be a fraction between 0 and 1');
         if (type === 'web' && !args.url) throw kerr('bad_request', 'web panes need a url');
         if (type === 'ios' && !args.app) throw kerr('bad_request', 'ios panes need an app');
+        const w = targetWin(args.window);
         const p = createPane(type, args);
-        place(p.id, { split: args.split || 'auto', size, tab: !!args.tab });
-        S.focused = p.id;
+        place(p.id, w, { split: args.split || 'auto', size, tab: !!args.tab });
+        w.focused = p.id;
+        raise(w);
         start(p);
-        if (args.wait === false) return ok({ pane: summary(p) });
+        const res = () => ({ pane: summary(p), window: findPane(p.id)?.win.id ?? w.id });
+        if (args.wait === false) return ok(res());
         await settled(p);
         if (p.state === 'failed') throw kerr('start_failed', p.error);
-        return ok({ pane: summary(p) });
+        return ok(res());
       }
 
       case 'arrange': {
@@ -475,20 +538,79 @@ async function handle(req) {
           const scale = unsized ? 1 : 1 / given;
           return { t: 'split', dir: n.split, kids: n.children.map((c, i) => ({ node: build(c), size: (sizes[i] ?? fill) * scale })) };
         };
-        const root = normalize(build(args.layout)); // validate everything before changing anything
-        const t = activeTab();
+        const root = normalize(build(args.layout));
+        const w = targetWin(args.window);
+        const t = activeTabOf(w) || makeTab(w);
         used.forEach(detach);
         const leftovers = paneIds(t.root);
         t.root = root;
         if (leftovers.length) {
-          const nt = makeTab(false);
+          const nt = makeTab(w, false);
           nt.title = 'unarranged';
           nt.root = normalize({ t: 'split', dir: 'row', kids: leftovers.map(id => ({ node: { t: 'pane', id }, size: 1 / leftovers.length })) });
         }
-        S.zoomed = null;
-        dropEmptyTabs();
+        w.zoomed = null;
+        w.active = t.id;
+        if (!used.includes(w.focused)) w.focused = used[0];
+        raise(w);
+        dropEmpty();
         render();
-        return ok({ layout: toTree(t.root) });
+        return ok({ window: w.id, layout: toTree(t.root) });
+      }
+
+      case 'move': {
+        const p = need(args.pane);
+        const from = findPane(p.id);
+        if (args.to) {
+          const target = need(args.to);
+          const side = args.side || 'swap';
+          if (!['left', 'right', 'top', 'bottom', 'swap'].includes(side)) throw kerr('bad_request', 'side must be left, right, top, bottom or swap');
+          if (target.id === p.id) return ok({ window: from.win.id });
+          if (side === 'swap') {
+            const b = findPane(target.id);
+            from.node.id = target.id;
+            b.node.id = p.id;
+            if (from.win.focused === p.id) from.win.focused = target.id;
+          } else {
+            detach(p.id);
+            insertBeside(findPane(target.id).tab, target.id, { t: 'pane', id: p.id },
+              side === 'left' || side === 'right' ? 'row' : 'column', side === 'right' || side === 'bottom', 0.5);
+          }
+        } else {
+          let dest;
+          if (args.tab && args.tab !== 'new') dest = needTab(args.tab);
+          else if (args.tab === 'new') dest = makeTab(args.window ? targetWin(args.window) : from.win);
+          else if (args.window) { const w = targetWin(args.window); dest = w.tabs.length ? activeTabOf(w) : makeTab(w); }
+          else throw kerr('bad_request', 'move needs to + side, tab, or window');
+          if (dest === from.tab) return ok({ window: from.win.id });
+          detach(p.id);
+          appendToTab(dest, p.id);
+        }
+        focusPane(p);
+        dropEmpty();
+        render();
+        const f = findPane(p.id);
+        return ok({ window: f.win.id, tab: f.tab.id, layout: toTree(f.tab.root) });
+      }
+
+      case 'move-tab': {
+        const t = needTab(args.tab);
+        const src = winOfTab(t);
+        const dest = targetWin(args.window ?? src.id);
+        let index = args.index == null ? dest.tabs.length : Number(args.index);
+        if (!Number.isInteger(index) || index < 0) throw kerr('bad_request', 'index must be a whole number ≥ 0');
+        const fromIdx = src.tabs.indexOf(t);
+        src.tabs.splice(fromIdx, 1);
+        if (src === dest && index > fromIdx) index--;
+        dest.tabs.splice(Math.min(index, dest.tabs.length), 0, t);
+        dest.active = t.id;
+        const ids = paneIds(t.root);
+        dest.focused = ids.includes(t.lastFocus) ? t.lastFocus : ids[0];
+        dest.zoomed = null;
+        raise(dest);
+        dropEmpty();
+        render();
+        return ok({ window: dest.id, tabs: dest.tabs.map(x => x.id) });
       }
 
       case 'resize': {
@@ -506,71 +628,47 @@ async function handle(req) {
 
       case 'list':
         return ok({
-          windows: [{ id: 'w1', tabs: S.tabs.map(t => ({ id: t.id, title: tabTitle(t), active: t.id === S.active, layout: toTree(t.root) })) }],
+          windows: S.windows.map(w => ({
+            id: w.id, key: w.id === S.key,
+            tabs: w.tabs.map(t => ({ id: t.id, title: tabTitle(t), active: t.id === w.active, layout: toTree(t.root) })),
+          })),
           panes: Object.values(S.panes).map(summary),
         });
 
       case 'focus': {
-        const p = need(args.pane);
-        S.active = findPane(p.id).tab.id;
-        if (S.zoomed && S.zoomed !== p.id) S.zoomed = null;
-        S.focused = p.id;
+        if (args.pane) focusPane(need(args.pane));
+        else if (args.tab) {
+          const t = needTab(args.tab), w = winOfTab(t), ids = paneIds(t.root);
+          w.active = t.id;
+          w.zoomed = null;
+          w.focused = ids.includes(t.lastFocus) ? t.lastFocus : ids[0];
+          raise(w);
+        } else if (args.window) raise(targetWin(args.window));
+        else throw kerr('bad_request', 'focus needs a pane, tab or window');
         render();
-        return ok({});
-      }
-
-      case 'move': {
-        const p = need(args.pane);
-        if (args.tab) {
-          const t = args.tab === 'new' ? null : tabById(args.tab);
-          if (args.tab !== 'new' && !t) throw kerr('not_found', `no tab "${args.tab}"`);
-          if (t && findPane(p.id).tab === t) return ok({});
-          detach(p.id);
-          const dest = t || makeTab(false);
-          appendToTab(dest, p.id);
-          S.active = dest.id;
-        } else {
-          const target = need(args.to);
-          const side = args.side || 'swap';
-          if (!['left', 'right', 'top', 'bottom', 'swap'].includes(side)) throw kerr('bad_request', 'side must be left, right, top, bottom or swap');
-          if (target.id === p.id) return ok({});
-          if (side === 'swap') {
-            const a = findPane(p.id), b = findPane(target.id);
-            a.node.id = target.id;
-            b.node.id = p.id;
-          } else {
-            detach(p.id);
-            const t = findPane(target.id).tab;
-            insertBeside(t, target.id, { t: 'pane', id: p.id }, side === 'left' || side === 'right' ? 'row' : 'column', side === 'right' || side === 'bottom', 0.5);
-          }
-          S.active = findPane(p.id).tab.id;
-        }
-        S.focused = p.id;
-        S.zoomed = null;
-        dropEmptyTabs();
-        render();
-        return ok({ layout: toTree(findPane(p.id).tab.root) });
+        return ok({ window: S.key });
       }
 
       case 'zoom': {
         const p = need(args.pane);
-        S.active = findPane(p.id).tab.id;
-        S.focused = p.id;
-        S.zoomed = S.zoomed === p.id ? null : p.id;
+        const was = findPane(p.id).win.zoomed === p.id;
+        focusPane(p);
+        const w = findPane(p.id).win;
+        w.zoomed = was ? null : p.id;
         render();
-        return ok({ zoomed: !!S.zoomed });
+        return ok({ zoomed: !!w.zoomed });
       }
 
       case 'close': {
-        const p = need(args.pane);
-        kill(p);
-        detach(p.id);
-        delete S.panes[p.id];
-        p.state = 'closed';
-        dropEmptyTabs();
-        if (S.focused === p.id) S.focused = paneIds(activeTab().root)[0] || null;
+        let victims;
+        if (args.pane) victims = [need(args.pane)];
+        else if (args.tab) victims = paneIds(needTab(args.tab).root).map(i => S.panes[i]);
+        else if (args.window) { const w = targetWin(args.window); victims = w.tabs.flatMap(t => paneIds(t.root)).map(i => S.panes[i]); }
+        else throw kerr('bad_request', 'close needs a pane, tab or window');
+        victims.forEach(p => { detach(p.id); kill(p); });
+        dropEmpty();
         render();
-        return ok({});
+        return ok({ closed: victims.map(p => p.id) });
       }
 
       case 'restart': {
@@ -604,13 +702,13 @@ async function handle(req) {
         throw kerr('bad_request', `unknown command "${cmd}"`);
     }
   } catch (e) {
-    if (e instanceof KErr) return { id, ok: false, error: { code: e.code, message: e.message } };
+    if (e instanceof KErr) { dropEmpty(); render(); return { id, ok: false, error: { code: e.code, message: e.message } }; }
     throw e;
   }
 }
 
 // ---------------------------------------------------------------------------
-// kanna side: command line -> protocol request (see docs/kanna-spec.md §5–6)
+// kanna side: command line -> protocol request (see docs/kanna-spec.md)
 // ---------------------------------------------------------------------------
 const usage = msg => Object.assign(new Error(msg), { usage: true });
 
@@ -637,7 +735,6 @@ function parseLayout(src) {
   }
   let p = 0;
   const peek = () => toks[p];
-  // "/" binds tighter than "|"
   const row = () => { const k = [col()]; while (peek()?.t === '|') { p++; k.push(col()); } return k.length === 1 ? k[0] : { split: 'row', children: k }; };
   const col = () => { const k = [atom()]; while (peek()?.t === '/') { p++; k.push(atom()); } return k.length === 1 ? k[0] : { split: 'column', children: k }; };
   const atom = () => {
@@ -668,36 +765,58 @@ function toRequest(line) {
     const a = rest[i];
     if (!a.startsWith('--')) { pos.push(a); continue; }
     const k = a.slice(2);
-    if (['tab', 'no-wait', 'json'].includes(k)) flags[k] = true;
+    const hasValue = rest[i + 1] != null && !rest[i + 1].startsWith('--');
+    if (k === 'tab') flags.tab = ['focus', 'close'].includes(cmd) && hasValue ? rest[++i] : true;
+    else if (['no-wait', 'json'].includes(k)) flags[k] = true;
     else if (k === 'split') flags.split = ['right', 'down', 'auto'].includes(rest[i + 1]) ? rest[++i] : 'auto';
-    else if (['name', 'cmd', 'cwd', 'app', 'device', 'size', 'mux', 'to', 'side', 'to-tab'].includes(k)) {
-      if (i + 1 >= rest.length) throw usage(`--${k} needs a value`);
+    else if (['name', 'cmd', 'cwd', 'app', 'device', 'size', 'mux', 'to', 'side', 'to-tab', 'to-window', 'window', 'index'].includes(k)) {
+      if (!hasValue) throw usage(`--${k} needs a value`);
       flags[k] = rest[++i];
     } else throw usage(`unknown flag --${k}`);
   }
   if (flags.mux && flags.mux !== 'kmux') throw usage(`this mockup only models kmux (got --mux ${flags.mux})`);
   const needPos = (n, what) => { if (pos.length < n) throw usage(`${cmd} needs ${what}`); };
+  const target = () => {
+    if (pos[0]) return { pane: pos[0] };
+    if (typeof flags.tab === 'string') return { tab: flags.tab };
+    if (flags.window) return { window: flags.window };
+    throw usage(`${cmd} needs a pane, --tab TAB or --window WIN`);
+  };
   switch (cmd) {
     case 'open': {
       needPos(1, 'a pane type: term, web or ios');
       const args = { type: pos[0] };
       if (pos[0] === 'web') { needPos(2, 'a URL'); args.url = pos[1]; }
-      for (const k of ['name', 'cmd', 'cwd', 'app', 'device', 'size']) if (flags[k] != null) args[k] = flags[k];
+      for (const k of ['name', 'cmd', 'cwd', 'app', 'device', 'size', 'window']) if (flags[k] != null) args[k] = flags[k];
       args.split = flags.split || 'auto';
       if (flags.tab) { args.tab = true; delete args.split; }
       if (flags['no-wait']) args.wait = false;
       return { cmd: 'open', args };
     }
-    case 'arrange': needPos(1, 'a layout, e.g. \'a | (b / c)\''); return { cmd, args: { layout: parseLayout(pos.join(' ')) } };
-    case 'resize': needPos(2, 'a pane and a size'); return { cmd, args: { pane: pos[0], size: pos[1] } };
+    case 'arrange': {
+      needPos(1, 'a layout, e.g. \'a | (b / c)\'');
+      const args = { layout: parseLayout(pos.join(' ')) };
+      if (flags.window) args.window = flags.window;
+      return { cmd, args };
+    }
     case 'move':
       needPos(1, 'a pane');
-      if (flags['to-tab']) return { cmd, args: { pane: pos[0], tab: flags['to-tab'] } };
-      if (!flags.to) throw usage('move needs --to PANE [--side left|right|top|bottom|swap] or --to-tab TAB|new');
+      if (flags['to-tab']) return { cmd, args: { pane: pos[0], tab: flags['to-tab'], ...(flags.window ? { window: flags.window } : {}) } };
+      if (flags['to-window']) return { cmd, args: { pane: pos[0], window: flags['to-window'] } };
+      if (!flags.to) throw usage('move needs --to PANE [--side …], --to-tab TAB|new or --to-window WIN|new');
       return { cmd, args: { pane: pos[0], to: flags.to, side: flags.side || 'swap' } };
+    case 'move-tab': {
+      needPos(1, 'a tab');
+      const args = { tab: pos[0] };
+      if (flags['to-window']) args.window = flags['to-window'];
+      if (flags.index != null) args.index = Number(flags.index);
+      return { cmd, args };
+    }
+    case 'resize': needPos(2, 'a pane and a size'); return { cmd, args: { pane: pos[0], size: pos[1] } };
     case 'list': case 'capabilities': return { cmd, args: {} };
     case 'mux': return { cmd: 'capabilities', args: {} };
-    case 'focus': case 'close': case 'restart': case 'zoom': needPos(1, 'a pane'); return { cmd, args: { pane: pos[0] } };
+    case 'focus': case 'close': return { cmd, args: target() };
+    case 'restart': case 'zoom': needPos(1, 'a pane'); return { cmd, args: { pane: pos[0] } };
     case 'send': needPos(2, 'a pane and text'); return { cmd, args: { pane: pos[0], text: pos.slice(1).join(' ') } };
     case 'navigate': needPos(2, 'a pane and a URL'); return { cmd, args: { pane: pos[0], url: pos[1] } };
     case undefined: throw usage('empty command');
@@ -708,11 +827,13 @@ function toRequest(line) {
 const EXIT = { bad_request: 2, layout_invalid: 2, not_found: 4, name_taken: 1, wrong_type: 1, start_failed: 1 };
 const HELP = `commands (the "kanna" prefix is optional; raw JSON requests work too):
   open term [--cmd CMD] [--cwd DIR]        open web URL        open ios --app APP [--device NAME]
-      shared: --name N  --split [right|down]  --size 1/3  --tab  --no-wait
-  arrange 'a:2/3 | (b / c:1/3)'            "|" side by side, "/" stacked, ( ) group, :size
-  move PANE --to OTHER [--side left|right|top|bottom|swap]      move PANE --to-tab TAB|new
-  resize PANE 1/3    list    focus PANE    zoom PANE    close PANE    restart PANE
-  send PANE TEXT     navigate PANE URL     mux`;
+      shared: --name N  --split [right|down]  --size 1/3  --tab  --window WIN|new  --no-wait
+  arrange 'a:2/3 | (b / c:1/3)' [--window WIN]     "|" side by side, "/" stacked, ( ) group, :size
+  move PANE --to OTHER [--side left|right|top|bottom|swap]
+  move PANE --to-tab TAB|new [--window WIN]        move PANE --to-window WIN|new
+  move-tab TAB [--to-window WIN|new] [--index N]
+  focus PANE | --tab TAB | --window WIN            close PANE | --tab TAB | --window WIN
+  resize PANE 1/3    zoom PANE    restart PANE    send PANE TEXT    navigate PANE URL    list    mux`;
 
 // ---------------------------------------------------------------------------
 // Console
@@ -760,164 +881,86 @@ $('#cmd').addEventListener('keydown', e => {
 // Rendering
 // ---------------------------------------------------------------------------
 function render() {
-  const t = tabById(S.active);
-  if (t && locate(t.root, S.focused)) t.lastFocus = S.focused;
-  renderTabs();
-  renderStage();
-}
-
-// --- navigation ---------------------------------------------------------------
-function focusInput(id) {
-  const el = document.querySelector(`[data-keep="term:${id}"]`);
-  if (el) el.focus(); else document.activeElement?.blur();
-}
-function switchTab(id) {
-  const t = tabById(id);
-  S.active = id;
-  S.zoomed = null;
-  const ids = paneIds(t.root);
-  S.focused = ids.includes(t.lastFocus) ? t.lastFocus : ids[0] ?? null;
-  render();
-  focusInput(S.focused);
-}
-function cycleTab(d) {
-  const i = S.tabs.findIndex(t => t.id === S.active), n = S.tabs.length;
-  if (n > 1) switchTab(S.tabs[(i + d + n) % n].id);
-}
-async function cyclePane(d) {
-  const ids = paneIds(activeTab().root), n = ids.length;
-  if (n < 2) return;
-  const next = ids[(ids.indexOf(S.focused) + d + n) % n];
-  await ui({ cmd: 'focus', args: { pane: next } });
-  focusInput(next);
-}
-
-// --- dragging -----------------------------------------------------------------
-// Tabs: drag along the tab bar to reorder.
-function startTabDrag(e, t, btn) {
-  if (e.button !== 0 || e.target.classList.contains('x')) return;
-  const x0 = e.clientX;
-  let dragging = false, insertAt = -1;
-  const tabEls = () => [...document.querySelectorAll('#tabs .tab')];
-  const clear = () => tabEls().forEach(x => x.classList.remove('drop-before', 'drop-after'));
-  const move = ev => {
-    if (!dragging && Math.abs(ev.clientX - x0) < 5) return;
-    dragging = true;
-    btn.classList.add('dragging');
-    const els = tabEls();
-    insertAt = els.findIndex(x => { const r = x.getBoundingClientRect(); return ev.clientX < r.left + r.width / 2; });
-    if (insertAt < 0) insertAt = els.length;
-    clear();
-    if (insertAt < els.length) els[insertAt].classList.add('drop-before'); else els[els.length - 1].classList.add('drop-after');
-  };
-  const up = () => {
-    window.removeEventListener('pointermove', move);
-    btn.classList.remove('dragging');
-    clear();
-    if (!dragging) return;
-    const from = S.tabs.indexOf(t);
-    S.tabs.splice(from, 1);
-    S.tabs.splice(insertAt > from ? insertAt - 1 : insertAt, 0, t);
-    render();
-  };
-  window.addEventListener('pointermove', move);
-  window.addEventListener('pointerup', up, { once: true });
-}
-
-// Panes: ⌘-drag (or ⌥-drag) onto another pane’s edge to dock it there, onto its
-// centre to swap, onto a tab to move it to that tab, or onto + for a new tab.
-function startPaneDrag(e, p, el) {
-  if (e.button !== 0 || !(e.metaKey || e.altKey)) return;
-  e.preventDefault();
-  const ghost = h('div', { class: 'drag-tip' }, `move ${p.name || p.id}`);
-  const hint = h('div', { class: 'drop-hint', hidden: true });
-  document.body.append(ghost, hint);
-  el.classList.add('dragging');
-  let drop = null;
-  const clear = () => document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
-  const move = ev => {
-    ghost.style.left = `${ev.clientX + 12}px`;
-    ghost.style.top = `${ev.clientY + 12}px`;
-    clear();
-    hint.hidden = true;
-    drop = null;
-    const under = document.elementFromPoint(ev.clientX, ev.clientY);
-    const tabEl = under?.closest('.tab, .tab-add');
-    if (tabEl) {
-      const tab = tabEl.dataset.tab || 'new';
-      if (tab === 'new' || findPane(p.id).tab.id !== tab) { tabEl.classList.add('drop-target'); drop = { tab }; }
-      return;
-    }
-    const target = under?.closest('.pane');
-    if (!target || target.dataset.id === p.id) return;
-    const r = target.getBoundingClientRect();
-    const fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
-    let side = 'swap';
-    if (!(fx > .3 && fx < .7 && fy > .3 && fy < .7)) {
-      const dist = { left: fx, right: 1 - fx, top: fy, bottom: 1 - fy };
-      side = Object.keys(dist).reduce((a, b) => dist[a] <= dist[b] ? a : b);
-    }
-    drop = { to: target.dataset.id, side };
-    const [x, y, w, hgt] = { left: [0, 0, .5, 1], right: [.5, 0, .5, 1], top: [0, 0, 1, .5], bottom: [0, .5, 1, .5], swap: [0, 0, 1, 1] }[side];
-    Object.assign(hint.style, { left: `${r.left + x * r.width}px`, top: `${r.top + y * r.height}px`, width: `${w * r.width}px`, height: `${hgt * r.height}px` });
-    hint.textContent = side === 'swap' ? 'swap' : '';
-    hint.hidden = false;
-  };
-  const up = () => {
-    window.removeEventListener('pointermove', move);
-    ghost.remove(); hint.remove(); clear();
-    el.classList.remove('dragging');
-    if (drop?.tab) ui({ cmd: 'move', args: { pane: p.id, tab: drop.tab } });
-    else if (drop) ui({ cmd: 'move', args: { pane: p.id, to: drop.to, side: drop.side } });
-  };
-  window.addEventListener('pointermove', move);
-  window.addEventListener('pointerup', up, { once: true });
-}
-
-function renderTabs() {
-  const el = $('#tabs');
-  el.innerHTML = '';
-  S.tabs.forEach(t => {
-    el.append(h('button', {
-      class: 'tab' + (t.id === S.active ? ' active' : ''), dataset: { tab: t.id },
-      onclick: () => switchTab(t.id),
-      onpointerdown: e => startTabDrag(e, t, e.currentTarget),
-    }, tabTitle(t), h('span', {
-      class: 'x', title: 'Close tab',
-      onclick: async e => { e.stopPropagation(); for (const id of paneIds(t.root)) await ui({ cmd: 'close', args: { pane: id } }); S.tabs = S.tabs.filter(x => x !== t || S.tabs.length === 1); if (!tabById(S.active)) S.active = S.tabs[0].id; render(); },
-    }, '×')));
-  });
-  el.append(h('button', { class: 'tab-add', title: 'New tab', onclick: () => ui({ cmd: 'open', args: { type: 'term', tab: true } }) }, '+'));
-}
-
-function renderStage() {
-  const stage = $('#stage');
+  for (const w of S.windows) {
+    const t = activeTabOf(w);
+    if (t && locate(t.root, w.focused)) t.lastFocus = w.focused;
+  }
+  const desk = $('#desktop');
   const a = document.activeElement;
   const keep = a && a.dataset && a.dataset.keep;
-  stage.innerHTML = '';
-  const t = activeTab();
-  if (!t.root) {
-    stage.append(h('div', { class: 'empty' }, 'This tab is empty.', h('div', {},
-      ['term', 'web', 'ios'].map(type => h('button', { onclick: () => ui({ cmd: 'open', args: defaultsFor(type) }) }, 'open ' + type)))));
+  desk.innerHTML = '';
+  if (!S.windows.length) {
+    desk.append(h('div', { class: 'desktop-empty' }, 'No windows.', h('div', {},
+      ['term', 'web', 'ios'].map(type => h('button', { onclick: () => ui({ cmd: 'open', args: { ...defaultsFor(type), window: 'new' } }) }, `new ${type} window`)))));
     return;
   }
-  const root = S.zoomed && locate(t.root, S.zoomed) ? { t: 'pane', id: S.zoomed } : t.root;
-  stage.classList.toggle('multi', root.t === 'split');
-  stage.append(renderNode(root, 1));
-  stage.querySelectorAll('.term-body').forEach(b => { b.scrollTop = b.scrollHeight; });
+  for (const w of S.windows) desk.append(renderWindow(w));
+  desk.querySelectorAll('.term-body').forEach(b => { b.scrollTop = b.scrollHeight; });
   const want = S.urlEdit ? 'url:' + S.urlEdit : keep;
   if (want) {
-    const el = stage.querySelector(`[data-keep="${want}"]`);
+    const el = desk.querySelector(`[data-keep="${want}"]`);
     if (el) { el.focus(); const n = el.value.length; el.setSelectionRange(want === keep ? n : 0, n); }
   }
 }
 
-function renderNode(node, share) {
-  if (node.t === 'pane') return renderPane(S.panes[node.id], share);
+function activateWin(w) {
+  if (S.key === w.id) return;
+  raise(w);
+  document.querySelectorAll('.win').forEach(x => {
+    x.classList.toggle('key', x.dataset.win === w.id);
+    if (x.dataset.win === w.id) x.style.zIndex = w.z;
+  });
+}
+
+function renderWindow(w) {
+  const t = activeTabOf(w);
+  const el = h('div', {
+    class: 'win' + (w.id === S.key ? ' key' : ''), dataset: { win: w.id },
+    style: `left:${w.x}px;top:${w.y}px;width:${w.w}px;height:${w.h}px;z-index:${w.z}`,
+    onpointerdown: () => activateWin(w),
+  });
+  el.append(
+    h('div', { class: 'win-titlebar', onpointerdown: e => startWinDrag(e, w, el) },
+      h('span', { class: 'lights' },
+        h('button', { class: 'light close', title: 'Close window', onclick: () => ui({ cmd: 'close', args: { window: w.id } }) }),
+        h('span', { class: 'light min' }), h('span', { class: 'light max' })),
+      h('span', { class: 'win-title' }, `${tabTitle(t)} — ${w.id}`)),
+    renderTabs(w));
+  const root = w.zoomed && locate(t?.root, w.zoomed) ? { t: 'pane', id: w.zoomed } : t?.root;
+  el.append(h('div', { class: 'stage' + (root?.t === 'split' ? ' multi' : '') }, root ? renderNode(root, w) : null));
+  el.append(h('div', { class: 'win-resize', onpointerdown: e => startWinResize(e, w, el) }));
+  return el;
+}
+
+function renderTabs(w) {
+  const bar = h('div', { class: 'win-tabs', dataset: { win: w.id } });
+  w.tabs.forEach(t => {
+    bar.append(h('button', {
+      class: 'tab' + (t.id === w.active ? ' active' : ''), dataset: { tab: t.id },
+      onclick: () => { if (!suppressClick) switchTab(w, t); },
+      onpointerdown: e => startTabDrag(e, t, e.currentTarget),
+      oncontextmenu: e => {
+        e.preventDefault();
+        showMenuAt(e.clientX, e.clientY, [
+          ['Move tab to new window', () => ui({ cmd: 'move-tab', args: { tab: t.id, window: 'new' } })],
+          ['Close tab', () => ui({ cmd: 'close', args: { tab: t.id } })],
+        ]);
+      },
+    }, tabTitle(t), h('span', {
+      class: 'x', title: 'Close tab',
+      onclick: e => { e.stopPropagation(); ui({ cmd: 'close', args: { tab: t.id } }); },
+    }, '×')));
+  });
+  bar.append(h('button', { class: 'tab-add', title: 'New tab', dataset: { win: w.id }, onclick: () => ui({ cmd: 'open', args: { type: 'term', tab: true, window: w.id } }) }, '+'));
+  return bar;
+}
+
+function renderNode(node, w, share = 1) {
+  if (node.t === 'pane') return renderPane(S.panes[node.id], w);
   const el = h('div', { class: `split ${node.dir}` });
   node.kids.forEach((k, i) => {
     if (i > 0) el.append(divider(node, i - 1));
-    const c = renderNode(k.node, k.size);
+    const c = renderNode(k.node, w, k.size);
     c.style.flex = `${k.size} ${k.size} 0px`;
     el.append(c);
   });
@@ -939,7 +982,7 @@ function divider(split, i) {
     const tip = h('div', { class: 'drag-tip' });
     document.body.append(tip);
     const move = ev => {
-      const pos = Math.max(min, Math.min(span - min, (row ? ev.clientX : ev.clientY) - start));
+      const pos = clamp((row ? ev.clientX : ev.clientY) - start, min, span - min);
       let s = pair * pos / span;
       const snap = NICE.find(f => Math.abs(s - f) < 0.015 && f < pair);
       if (snap) s = snap;
@@ -968,19 +1011,22 @@ function defaultsFor(type) {
   return { type };
 }
 
-// --- pane actions: shared by the Pane menu, the right-click menu and hotkeys ---
+// --- pane actions: shared by menus and hotkeys --------------------------------
 async function splitFrom(p, dir, type) {
-  if (p) S.focused = p.id;
-  const res = await ui({ cmd: 'open', args: { ...defaultsFor(type), split: dir } });
+  const w = p ? findPane(p.id).win : keyWin();
+  if (p) w.focused = p.id;
+  const res = await ui({ cmd: 'open', args: { ...defaultsFor(type), split: dir, ...(w ? { window: w.id } : {}) } });
   if (type === 'web' && res.ok) { S.urlEdit = res.pane.id; render(); }
 }
 function editUrl(p) { if (p?.type === 'web') { S.urlEdit = p.id; render(); } }
+const focusedPane = () => S.panes[keyWin()?.focused];
 function paneMenu(p) {
   if (!p) return [
     ['New terminal', () => splitFrom(null, 'auto', 'term')],
     ['New web pane', () => splitFrom(null, 'auto', 'web')],
     ['New iOS pane', () => splitFrom(null, 'auto', 'ios')],
   ];
+  const zoomed = findPane(p.id).win.zoomed === p.id;
   return [
     ['Split right', () => splitFrom(p, 'right', 'term'), '⌘D'],
     ['Split down', () => splitFrom(p, 'down', 'term'), '⇧⌘D'],
@@ -994,28 +1040,42 @@ function paneMenu(p) {
     ['Previous pane', () => cyclePane(-1), '⌘['],
     '-',
     p.type === 'web' ? ['Open URL…', () => editUrl(p), '⌘L'] : null,
-    [S.zoomed === p.id ? 'Unzoom' : 'Zoom', () => ui({ cmd: 'zoom', args: { pane: p.id } }), '⇧⌘↩'],
+    [zoomed ? 'Unzoom' : 'Zoom', () => ui({ cmd: 'zoom', args: { pane: p.id } }), '⇧⌘↩'],
+    ['Move to new window', () => ui({ cmd: 'move', args: { pane: p.id, window: 'new' } })],
     ['Restart', () => ui({ cmd: 'restart', args: { pane: p.id } }), '⌘R'],
     ['Close', () => ui({ cmd: 'close', args: { pane: p.id } }), '⌘W'],
   ].filter(Boolean);
 }
+const newTab = () => ui({ cmd: 'open', args: { type: 'term', tab: true, ...(keyWin() ? { window: keyWin().id } : {}) } });
+const newWindow = () => ui({ cmd: 'open', args: { type: 'term', window: 'new' } });
 const viewMenu = () => [
-  ['New tab', () => ui({ cmd: 'open', args: { type: 'term', tab: true } }), '⌘T'],
+  ['New tab', newTab, '⌘T'],
   ['Next tab', () => cycleTab(1), '⇧⌘]'],
   ['Previous tab', () => cycleTab(-1), '⇧⌘['],
   '-',
   [$('#console').classList.contains('collapsed') ? 'Show mockup console' : 'Hide mockup console', toggleConsole],
 ];
+const windowMenu = () => [
+  ['New window', newWindow, '⌘N'],
+  ['Close window', () => keyWin() && ui({ cmd: 'close', args: { window: S.key } }), '⇧⌘W'],
+  '-',
+  ['Next window', () => cycleWin(1), '⌘`'],
+  ['Previous window', () => cycleWin(-1), '⇧⌘`'],
+  ['Move tab to new window', () => keyWin() && ui({ cmd: 'move-tab', args: { tab: keyWin().active, window: 'new' } })],
+  ...(S.windows.length ? ['-'] : []),
+  ...S.windows.map(w => [`${w.id === S.key ? '✓ ' : '   '}${w.id} — ${tabTitle(activeTabOf(w))}`, () => ui({ cmd: 'focus', args: { window: w.id } })]),
+];
 
-function renderPane(p) {
+function renderPane(p, w) {
   const el = h('div', {
-    class: `pane${p.id === S.focused ? ' focused' : ''}`, dataset: { id: p.id },
+    class: `pane${p.id === w.focused ? ' focused' : ''}`, dataset: { id: p.id },
     onmousedown: () => {
-      if (S.focused === p.id) return;
-      S.focused = p.id;
-      document.querySelectorAll('.pane').forEach(x => x.classList.toggle('focused', x.dataset.id === p.id));
+      if (w.focused === p.id) return;
+      w.focused = p.id;
+      activeTabOf(w).lastFocus = p.id;
+      document.querySelectorAll(`.win[data-win="${w.id}"] .pane`).forEach(x => x.classList.toggle('focused', x.dataset.id === p.id));
     },
-    oncontextmenu: e => { e.preventDefault(); S.focused = p.id; render(); showMenuAt(e.clientX, e.clientY, paneMenu(p)); },
+    oncontextmenu: e => { e.preventDefault(); w.focused = p.id; raise(w); render(); showMenuAt(e.clientX, e.clientY, paneMenu(p)); },
     onpointerdown: e => startPaneDrag(e, p, e.currentTarget),
   });
   const body = h('div', { class: 'pane-body' });
@@ -1036,7 +1096,7 @@ function termView(p) {
   if (p.state === 'starting') lines.append(h('div', { class: 'term-line' }, 'starting shell…'));
   wrap.append(lines);
   if (p.state === 'exited') {
-    wrap.append(h('div', { class: 'banner' }, `[process exited with code ${p.exitCode}] — ↻ to restart, ✕ to close`));
+    wrap.append(h('div', { class: 'banner' }, `[process exited with code ${p.exitCode}] — ⌘R to restart, ⌘W to close`));
   } else if (p.state === 'running') {
     const input = h('input', { value: p.draft, dataset: { keep: 'term:' + p.id }, spellcheck: 'false' });
     input.addEventListener('input', () => { p.draft = input.value; });
@@ -1104,40 +1164,241 @@ function iosView(p) {
     h('div', { class: 'device-label' }, `${p.device} · ${appName}`));
 }
 
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+function focusInput(id) {
+  const el = document.querySelector(`[data-keep="term:${id}"]`);
+  if (el) el.focus(); else document.activeElement?.blur();
+}
+function switchTab(w, t) {
+  const ids = paneIds(t.root);
+  w.active = t.id;
+  w.zoomed = null;
+  w.focused = ids.includes(t.lastFocus) ? t.lastFocus : ids[0] ?? null;
+  raise(w);
+  render();
+  focusInput(w.focused);
+}
+function cycleTab(d) {
+  const w = keyWin();
+  if (!w || w.tabs.length < 2) return;
+  const i = w.tabs.findIndex(t => t.id === w.active), n = w.tabs.length;
+  switchTab(w, w.tabs[(i + d + n) % n]);
+}
+async function cyclePane(d) {
+  const w = keyWin();
+  const ids = paneIds(activeTabOf(w)?.root), n = ids.length;
+  if (n < 2) return;
+  const next = ids[(ids.indexOf(w.focused) + d + n) % n];
+  await ui({ cmd: 'focus', args: { pane: next } });
+  focusInput(next);
+}
+async function cycleWin(d) {
+  const n = S.windows.length;
+  if (n < 2) return;
+  const i = S.windows.findIndex(w => w.id === S.key);
+  const next = S.windows[(i + d + n) % n];
+  await ui({ cmd: 'focus', args: { window: next.id } });
+  focusInput(next.focused);
+}
+
+// ---------------------------------------------------------------------------
+// Dragging: windows, tabs, panes
+// ---------------------------------------------------------------------------
+let suppressClick = false;
+function track(move, up) {
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', ev => { window.removeEventListener('pointermove', move); up(ev); }, { once: true });
+}
+function desktopPoint(ev) {
+  const r = $('#desktop').getBoundingClientRect();
+  if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) return null;
+  return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+}
+function showNewWindowHint(hint, ev, w) {
+  Object.assign(hint.style, { left: `${ev.clientX - 30}px`, top: `${ev.clientY - 14}px`, width: `${w}px`, height: `${Math.round(w * 0.62)}px` });
+  hint.textContent = 'new window';
+  hint.className = 'drop-hint new-win';
+  hint.hidden = false;
+}
+function placeNewWindow(id, pt, srcW) {
+  const w = winById(id);
+  if (!w || !pt) return;
+  const { W, H } = desktopSize();
+  w.w = Math.min(srcW, W - 20);
+  w.h = Math.min(Math.round(srcW * 0.62), H - 20);
+  w.x = clamp(pt.x - 30, 0, W - w.w);
+  w.y = clamp(pt.y - 14, 0, H - w.h);
+  render();
+}
+
+function startWinDrag(e, w, el) {
+  if (e.button !== 0 || e.target.closest('button')) return;
+  e.preventDefault();
+  const x0 = e.clientX, y0 = e.clientY, wx = w.x, wy = w.y;
+  const { W, H } = desktopSize();
+  track(ev => {
+    w.x = clamp(wx + ev.clientX - x0, 80 - w.w, W - 80);
+    w.y = clamp(wy + ev.clientY - y0, 0, H - 28);
+    el.style.left = `${w.x}px`;
+    el.style.top = `${w.y}px`;
+  }, () => {});
+}
+function startWinResize(e, w, el) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  activateWin(w);
+  const x0 = e.clientX, y0 = e.clientY, w0 = w.w, h0 = w.h;
+  track(ev => {
+    w.w = Math.max(320, w0 + ev.clientX - x0);
+    w.h = Math.max(220, h0 + ev.clientY - y0);
+    el.style.width = `${w.w}px`;
+    el.style.height = `${w.h}px`;
+  }, () => {});
+}
+
+// Tabs: drag within or between tab bars to reorder or move; onto the desktop for a new window.
+function startTabDrag(e, t, btn) {
+  if (e.button !== 0 || e.target.classList.contains('x')) return;
+  const x0 = e.clientX, y0 = e.clientY;
+  let dragging = false, drop = null;
+  const srcW = winOfTab(t).w;
+  const hint = h('div', { class: 'drop-hint', hidden: true });
+  document.body.append(hint);
+  const clear = () => document.querySelectorAll('.drop-before, .drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+  track(ev => {
+    if (!dragging && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+    dragging = true;
+    btn.classList.add('dragging');
+    clear();
+    hint.hidden = true;
+    drop = null;
+    const under = document.elementFromPoint(ev.clientX, ev.clientY);
+    const bar = under?.closest('.win-tabs');
+    if (bar) {
+      const els = [...bar.querySelectorAll('.tab')];
+      let i = els.findIndex(x => { const r = x.getBoundingClientRect(); return ev.clientX < r.left + r.width / 2; });
+      if (i < 0) i = els.length;
+      if (i < els.length) els[i].classList.add('drop-before'); else els[els.length - 1]?.classList.add('drop-after');
+      drop = { window: bar.dataset.win, index: i };
+    } else if (under === $('#desktop')) {
+      showNewWindowHint(hint, ev, srcW * 0.6);
+      drop = { window: 'new', pt: desktopPoint(ev) };
+    }
+  }, async () => {
+    hint.remove();
+    clear();
+    btn.classList.remove('dragging');
+    if (!dragging) return;
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; });
+    if (!drop) return;
+    const res = await ui({ cmd: 'move-tab', args: { tab: t.id, window: drop.window, ...(drop.index != null ? { index: drop.index } : {}) } });
+    if (res.ok && drop.window === 'new') placeNewWindow(res.window, drop.pt, srcW * 0.6);
+  });
+}
+
+// Panes: ⌘-drag (or ⌥-drag) onto another pane's edge to dock, its centre to swap,
+// a tab to move there, + for a new tab in that window, or the desktop for a new window.
+function startPaneDrag(e, p, el) {
+  if (e.button !== 0 || !(e.metaKey || e.altKey)) return;
+  e.preventDefault();
+  const srcW = findPane(p.id).win.w;
+  const ghost = h('div', { class: 'drag-tip' }, `move ${p.name || p.id}`);
+  const hint = h('div', { class: 'drop-hint', hidden: true });
+  document.body.append(ghost, hint);
+  el.classList.add('dragging');
+  let drop = null;
+  const clear = () => document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+  track(ev => {
+    ghost.style.left = `${ev.clientX + 12}px`;
+    ghost.style.top = `${ev.clientY + 12}px`;
+    clear();
+    hint.hidden = true;
+    hint.className = 'drop-hint';
+    drop = null;
+    const under = document.elementFromPoint(ev.clientX, ev.clientY);
+    const tabEl = under?.closest('.tab, .tab-add');
+    if (tabEl) {
+      if (tabEl.dataset.tab) {
+        if (findPane(p.id).tab.id !== tabEl.dataset.tab) { tabEl.classList.add('drop-target'); drop = { tab: tabEl.dataset.tab }; }
+      } else { tabEl.classList.add('drop-target'); drop = { tab: 'new', window: tabEl.dataset.win }; }
+      return;
+    }
+    if (under === $('#desktop')) {
+      showNewWindowHint(hint, ev, srcW * 0.6);
+      drop = { window: 'new', pt: desktopPoint(ev) };
+      return;
+    }
+    const target = under?.closest('.pane');
+    if (!target || target.dataset.id === p.id) return;
+    const r = target.getBoundingClientRect();
+    const fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
+    let side = 'swap';
+    if (!(fx > .3 && fx < .7 && fy > .3 && fy < .7)) {
+      const dist = { left: fx, right: 1 - fx, top: fy, bottom: 1 - fy };
+      side = Object.keys(dist).reduce((a, b) => dist[a] <= dist[b] ? a : b);
+    }
+    drop = { to: target.dataset.id, side };
+    const [x, y, w, hgt] = { left: [0, 0, .5, 1], right: [.5, 0, .5, 1], top: [0, 0, 1, .5], bottom: [0, .5, 1, .5], swap: [0, 0, 1, 1] }[side];
+    Object.assign(hint.style, { left: `${r.left + x * r.width}px`, top: `${r.top + y * r.height}px`, width: `${w * r.width}px`, height: `${hgt * r.height}px` });
+    hint.textContent = side === 'swap' ? 'swap' : '';
+    hint.hidden = false;
+  }, async () => {
+    ghost.remove(); hint.remove(); clear();
+    el.classList.remove('dragging');
+    if (!drop) return;
+    if (drop.to) ui({ cmd: 'move', args: { pane: p.id, to: drop.to, side: drop.side } });
+    else if (drop.tab) ui({ cmd: 'move', args: { pane: p.id, tab: drop.tab, ...(drop.window ? { window: drop.window } : {}) } });
+    else {
+      const res = await ui({ cmd: 'move', args: { pane: p.id, window: 'new' } });
+      if (res.ok) placeNewWindow(res.window, drop.pt, srcW * 0.6);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Menus and hotkeys
+// ---------------------------------------------------------------------------
 let menuEl = null;
 function showMenuAt(x, y, items) {
   hideMenu();
   menuEl = h('div', { class: 'menu' }, items.map(it => it === '-' ? h('hr') :
     h('button', { onclick: () => { hideMenu(); it[1](); } }, h('span', {}, it[0]), it[2] ? h('span', { class: 'key' }, it[2]) : null)));
   document.body.append(menuEl);
-  menuEl.style.left = `${Math.max(8, Math.min(x, innerWidth - menuEl.offsetWidth - 8))}px`;
-  menuEl.style.top = `${Math.max(8, Math.min(y, innerHeight - menuEl.offsetHeight - 8))}px`;
+  menuEl.style.left = `${clamp(x, 8, innerWidth - menuEl.offsetWidth - 8)}px`;
+  menuEl.style.top = `${clamp(y, 8, innerHeight - menuEl.offsetHeight - 8)}px`;
 }
-function showMenu(anchor, items) { const r = anchor.getBoundingClientRect(); showMenuAt(r.left, r.bottom + 4, items); }
+function showMenu(anchor, items) { const r = anchor.getBoundingClientRect(); showMenuAt(r.left, r.bottom + 2, items); }
 function hideMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
 document.addEventListener('mousedown', e => {
   if (menuEl && !menuEl.contains(e.target)) hideMenu();
   if (S.urlEdit && !e.target.closest('.url-edit')) { S.urlEdit = null; render(); }
 });
-$('#menu-pane').addEventListener('click', e => showMenu(e.currentTarget, paneMenu(S.panes[S.focused])));
+$('#menu-pane').addEventListener('click', e => showMenu(e.currentTarget, paneMenu(focusedPane())));
 $('#menu-view').addEventListener('click', e => showMenu(e.currentTarget, viewMenu()));
+$('#menu-window').addEventListener('click', e => showMenu(e.currentTarget, windowMenu()));
 
-// kmux binds these to ⌘. The browser lets the mockup take ⌘D, ⇧⌘D, ⌘R, ⌘L and ⇧⌘↩,
-// but never ⌘W or ⌘T, so every shortcut also works with ⌥ instead of ⌘.
-const BROWSER_OWNED = ['KeyW', 'KeyT'];
+// kmux binds these to ⌘. The browser never hands ⌘N, ⌘T, ⌘W or ⌘` to a page,
+// so every shortcut also works with ⌥ in place of ⌘.
+const BROWSER_OWNED = ['KeyN', 'KeyT', 'KeyW', 'Backquote'];
 document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey === e.altKey) return;
   if (e.metaKey && BROWSER_OWNED.includes(e.code)) return;
-  const p = S.panes[S.focused];
+  const p = focusedPane();
   const actions = {
     KeyD: () => splitFrom(p, e.shiftKey ? 'down' : 'right', 'term'),
-    KeyT: () => ui({ cmd: 'open', args: { type: 'term', tab: true } }),
-    KeyW: () => p && ui({ cmd: 'close', args: { pane: p.id } }),
+    KeyT: newTab,
+    KeyN: newWindow,
+    KeyW: () => e.shiftKey ? keyWin() && ui({ cmd: 'close', args: { window: S.key } }) : p && ui({ cmd: 'close', args: { pane: p.id } }),
     KeyR: () => p && ui({ cmd: 'restart', args: { pane: p.id } }),
     KeyL: () => editUrl(p),
     Enter: () => e.shiftKey && p && ui({ cmd: 'zoom', args: { pane: p.id } }),
     BracketLeft: () => e.shiftKey ? cycleTab(-1) : cyclePane(-1),
     BracketRight: () => e.shiftKey ? cycleTab(1) : cyclePane(1),
+    Backquote: () => cycleWin(e.shiftKey ? -1 : 1),
   };
   if (actions[e.code]) { e.preventDefault(); hideMenu(); actions[e.code](); }
 });
@@ -1146,6 +1407,7 @@ function toggleConsole() {
   const c = $('#console');
   c.classList.toggle('collapsed');
   $('#toggle-console').textContent = c.classList.contains('collapsed') ? 'Show' : 'Hide';
+  render();
 }
 $('#toggle-console').addEventListener('click', toggleConsole);
 
@@ -1155,26 +1417,28 @@ $('#toggle-console').addEventListener('click', toggleConsole);
 function reset(withShell = true) {
   S && Object.values(S.panes).forEach(kill);
   S = freshState();
-  makeTab();
   $('#log').innerHTML = '';
   if (withShell) {
+    const w = makeWindow();
     const p = createPane('term', {});
-    place(p.id, {});
-    S.focused = p.id;
+    place(p.id, w, {});
+    w.focused = p.id;
     start(p);
   }
   render();
   log('info', 'kmux mockup ready. Type help, or press "Run demo".');
-  log('info', 'In kmux: right-click a pane or use the Pane menu. ⌘D split right · ⇧⌘D split down · ⌘T new tab · ⌘W close · ⌘R restart · ⇧⌘↩ zoom · ⌘L open URL · ⌘[ ⌘] panes · ⇧⌘[ ⇧⌘] tabs (⌥ works in place of ⌘; use it for ⌘T and ⌘W here). Drag tabs to reorder; ⌘-drag a pane onto another pane’s edge, centre (swap) or a tab.');
+  log('info', 'In kmux: menus in the menu bar, right-click a pane or tab. ⌘D / ⇧⌘D split · ⌘[ ⌘] panes · ⇧⌘[ ⇧⌘] tabs · ⌘` windows · ⌘T tab · ⌘N window · ⌘W close pane · ⇧⌘W close window · ⌘R restart · ⇧⌘↩ zoom · ⌘L open URL. ⌥ works in place of ⌘.');
+  log('info', 'Drag a window by its title bar, resize from its corner. Drag tabs within or between windows, or onto the desktop. ⌘-drag a pane onto a pane edge, a pane centre (swap), a tab, + or the desktop.');
 }
 
 const DEMO = [
   'open term --name server --cmd "npm run dev"',
   'open web http://localhost:3000 --name site --split right --size 1/3',
   'open ios --name phone --app ./build/MyApp.app --split down --size 1/3',
-  'list',
   "arrange 'site:1/4 | server:1/2 | phone'",
-  'resize server 1/3',
+  'open term --name logs --window new',
+  'move phone --to-window w2',
+  'list',
 ];
 let demoRunning = false;
 $('#demo').addEventListener('click', async () => {
