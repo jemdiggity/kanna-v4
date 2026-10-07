@@ -76,12 +76,9 @@
 
   .pane { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden; }
   .win.key .stage.multi .pane.focused::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--accent); pointer-events: none; z-index: 3; }
-  .pane-close { position: absolute; top: 6px; right: 6px; z-index: 4; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; opacity: 0; transition: opacity .12s; }
-  .pane:hover .pane-close { opacity: .8; }
   .pane-grip { position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 4; padding: 0 10px; height: 14px; line-height: 10px; border-radius: 0 0 6px 6px; background: rgba(0,0,0,.55); color: #fff; font-size: 14px; letter-spacing: 1px; cursor: grab; opacity: 0; transition: opacity .12s; user-select: none; }
   .pane:hover .pane-grip { opacity: .8; }
   .pane-grip:hover { opacity: 1 !important; background: var(--accent); }
-  .pane-close:hover { opacity: 1 !important; background: var(--red); }
   .url-edit { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5; width: min(85%, 420px); display: flex; padding: 4px 10px; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
   .url-edit input { flex: 1; min-width: 0; font-size: 12px; }
   .pane-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
@@ -597,10 +594,7 @@ function renderPane(p, w) {
   el.append(body, h('div', {
     class: 'pane-grip', title: `Drag to move ${p.name || p.id}`,
     onpointerdown: e => startPaneDrag(e, p, el),
-  }, '⋯'), h('button', {
-    class: 'pane-close', title: `Close ${p.name || p.id}`,
-    onclick: e => { e.stopPropagation(); ui({ cmd: 'close', args: { pane: p.id } }); },
-  }, '✕'));
+  }, '⋯'));
   return el;
 }
 

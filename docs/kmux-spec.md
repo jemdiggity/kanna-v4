@@ -114,11 +114,11 @@ Every size is a **fraction of its parent split**. The fractions in a split alway
 ### 4.1 No chrome
 
 - Panes have no header, title or border.
-- While the pointer is over a pane, a **✕** close button appears in its top-right corner and a **⋯** drag handle at the top centre, as in Ghostty.
+- While the pointer is over a pane, a **⋯** drag handle appears at the top centre, as in Ghostty. There is no close button: close a pane with ⌘W, the Pane menu, or by right-clicking it.
 - The focused pane has a thin accent outline, shown only in the key window and only when the tab has more than one pane.
 - Errors and exits are shown inside the pane itself (see below).
 
-![On hover: the ⋯ drag handle at the top and ✕ in the corner](img/kmux/pane-hover.png)
+![On hover: the ⋯ drag handle at the top of the pane](img/kmux/pane-hover.png)
 
 ![No chrome: an exited terminal, a web pane waiting for its server and an iOS pane that failed to start](img/kmux/pane-states.png)
 
@@ -166,7 +166,7 @@ The menu bar has **Pane**, **View** and **Window** menus. Right-clicking a pane 
 | Zoom / unzoom | ⇧⌘↩ | Pane menu |
 | Move pane to new window | — | Pane menu |
 | Restart | ⌘R | Pane menu |
-| Close pane | ⌘W | Pane menu, hover ✕ |
+| Close pane | ⌘W | Pane menu |
 | New tab | ⌘T | View menu, **+** |
 | Next / previous tab | ⇧⌘] / ⇧⌘[ | View menu |
 | New window | ⌘N | Window menu |

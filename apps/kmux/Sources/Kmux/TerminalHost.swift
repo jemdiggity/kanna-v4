@@ -29,7 +29,6 @@ final class TerminalHost: PaneHost {
         let terminal = TerminalSurfaceView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         terminal.onFocus = { [weak self] in self?.onFocus?(id) }
         let view = PaneView(id: id, content: terminal)
-        view.onClose = { [weak self] in self?.onCloseRequest?(id) }
         views[id] = view
         let started = runtime.attach(terminal, command: pane.command, cwd: pane.cwd)
         DispatchQueue.main.async { [weak self] in
