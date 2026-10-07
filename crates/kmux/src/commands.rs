@@ -17,8 +17,9 @@ pub struct Command {
     pub examples: &'static [(&'static str, &'static str)],
     /// Turns the command's arguments into a protocol request's `args`.
     pub parse: fn(&mut Args) -> Result<Value, Failure>,
-    /// Prints a successful reply for people (`--json` prints it as is).
-    pub show: fn(&Value) -> String,
+    /// Prints a successful reply for people (`--json` prints it as is),
+    /// given the request's args and the reply.
+    pub show: fn(&Value, &Value) -> String,
 }
 
 pub const GROUPS: &[&str] = &["Panes", "Tabs and windows", "Information"];
@@ -30,7 +31,7 @@ pub static COMMANDS: &[Command] = &[
         summary: "Open a terminal pane (or a web pane) and wait until it is running.",
         usage: "kmux open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--no-wait]\n       kmux open web URL [same placement options]",
         options: &[
-            ("--cmd CMD", "Shell command line to run, e.g. \"npm run dev\". Default: an interactive shell."),
+            ("--cmd CMD", "Shell command line to run in your login shell, e.g. \"npm run dev\". Put it in single quotes if it uses $VARS or ;, so your own shell leaves it alone. Default: an interactive shell."),
             ("--cwd DIR", "Working directory."),
             ("--name NAME", "A name to refer to the pane by in later commands, instead of its ID."),
             ("--split right|down|auto", "Where the new pane goes relative to the focused pane. auto (default) splits along the longer side."),
@@ -44,6 +45,7 @@ pub static COMMANDS: &[Command] = &[
             ("kmux open --name server --cmd \"npm run dev\"", "Run a dev server in a pane named server."),
             ("kmux open --name logs --split right --size 1/3 --cmd \"tail -f app.log\"", "Put a log tail in the right third."),
             ("kmux open --tab", "Open a shell in a new tab."),
+            ("kmux open --name build --split down --size 1/4 --cmd 'for i in 1 2 3; do echo step $i; done'", "A quarter-height pane below, running a loop."),
             ("kmux open --window new --name scratch", "Open a shell in a new window."),
         ],
         parse: parse_open,
@@ -66,10 +68,14 @@ pub static COMMANDS: &[Command] = &[
         summary: "Bring a pane, tab or window to the front and give it the keyboard.",
         usage: "kmux focus PANE\n       kmux focus --tab TAB\n       kmux focus --window WINDOW",
         options: &[("--tab TAB", "Focus a tab."), ("--window WINDOW", "Focus a window.")],
-        notes: "",
-        examples: &[("kmux focus server", "Focus the pane named server.")],
+        notes: "Focusing a pane in another tab or window switches to it. Focusing another pane cancels zoom.",
+        examples: &[("kmux focus server", "Focus the pane named server."), ("kmux focus --tab t1", "Switch to tab t1.")],
         parse: |args| target(args, "focus"),
-        show: |reply| format!("key window is now {}", reply["window"].as_str().unwrap_or("?")),
+        show: |args, reply| match (args["pane"].as_str(), args["tab"].as_str()) {
+            (Some(pane), _) => format!("focused {pane} (key window {})", reply["window"].as_str().unwrap_or("?")),
+            (_, Some(tab)) => format!("switched to {tab} (key window {})", reply["window"].as_str().unwrap_or("?")),
+            _ => format!("key window is now {}", reply["window"].as_str().unwrap_or("?")),
+        },
     },
     Command {
         name: "zoom",
@@ -77,10 +83,13 @@ pub static COMMANDS: &[Command] = &[
         summary: "Toggle zoom: the pane fills its tab until you zoom again or focus another pane.",
         usage: "kmux zoom PANE",
         options: &[],
-        notes: "",
+        notes: "The pane doesn't need to be focused first: zooming focuses it, switching tab or window if needed.",
         examples: &[("kmux zoom logs", "Zoom the logs pane (run again to unzoom).")],
         parse: |args| Ok(json!({ "pane": pane(args, "zoom")? })),
-        show: |reply| if reply["zoomed"] == json!(true) { "zoomed".into() } else { "unzoomed".into() },
+        show: |args, reply| {
+            let pane = args["pane"].as_str().unwrap_or("pane");
+            if reply["zoomed"] == json!(true) { format!("{pane} is zoomed (run again to unzoom)") } else { format!("{pane} is no longer zoomed") }
+        },
     },
     Command {
         name: "restart",
@@ -91,7 +100,7 @@ pub static COMMANDS: &[Command] = &[
         notes: "",
         examples: &[("kmux restart server", "Restart the server pane's command.")],
         parse: |args| Ok(json!({ "pane": pane(args, "restart")? })),
-        show: output::pane_state,
+        show: |_, reply| output::pane_state(reply),
     },
     Command {
         name: "send",
@@ -106,7 +115,7 @@ pub static COMMANDS: &[Command] = &[
             let text = args.rest().ok_or_else(|| usage("send", "missing TEXT"))?;
             Ok(json!({ "pane": pane, "text": text }))
         },
-        show: |_| String::new(),
+        show: |_, _| String::new(),
     },
     Command {
         name: "resize",
@@ -121,7 +130,7 @@ pub static COMMANDS: &[Command] = &[
             let size = args.positional().ok_or_else(|| usage("resize", "missing FRACTION"))?;
             Ok(json!({ "pane": pane, "size": size }))
         },
-        show: output::layout,
+        show: |_, reply| output::layout(reply),
     },
     Command {
         name: "move",
@@ -153,7 +162,7 @@ pub static COMMANDS: &[Command] = &[
             }
             Ok(Value::Object(out))
         },
-        show: output::layout,
+        show: |_, reply| output::layout(reply),
     },
     Command {
         name: "arrange",
@@ -176,7 +185,7 @@ pub static COMMANDS: &[Command] = &[
             }
             Ok(out)
         },
-        show: output::layout,
+        show: |_, reply| output::layout(reply),
     },
     Command {
         name: "rename-tab",
@@ -191,7 +200,7 @@ pub static COMMANDS: &[Command] = &[
             let title = args.rest().ok_or_else(|| usage("rename-tab", "missing TITLE"))?;
             Ok(json!({ "tab": tab, "title": title }))
         },
-        show: |reply| format!("{} is now \"{}\"", reply["tab"].as_str().unwrap_or("?"), reply["title"].as_str().unwrap_or("")),
+        show: |_, reply| format!("{} is now \"{}\"", reply["tab"].as_str().unwrap_or("?"), reply["title"].as_str().unwrap_or("")),
     },
     Command {
         name: "move-tab",
@@ -213,7 +222,7 @@ pub static COMMANDS: &[Command] = &[
             }
             Ok(out)
         },
-        show: |reply| format!("{}: {}", reply["window"].as_str().unwrap_or("?"), output::join(&reply["tabs"])),
+        show: |_, reply| format!("{}: {}", reply["window"].as_str().unwrap_or("?"), output::join(&reply["tabs"])),
     },
     Command {
         name: "navigate",
@@ -228,7 +237,7 @@ pub static COMMANDS: &[Command] = &[
             let url = args.positional().ok_or_else(|| usage("navigate", "missing URL"))?;
             Ok(json!({ "pane": pane, "url": url }))
         },
-        show: output::pane_state,
+        show: |_, reply| output::pane_state(reply),
     },
     Command {
         name: "list",
@@ -239,7 +248,7 @@ pub static COMMANDS: &[Command] = &[
         notes: "Layouts are written as `a:2/3 | b` (side by side) and `a / b` (stacked). `*` marks the key window, the active tab and the focused pane.",
         examples: &[("kmux list", "See everything that is open."), ("kmux list --json", "The same, as JSON.")],
         parse: |_| Ok(json!({})),
-        show: output::list,
+        show: |_, reply| output::list(reply),
     },
     Command {
         name: "capabilities",
@@ -250,7 +259,7 @@ pub static COMMANDS: &[Command] = &[
         notes: "",
         examples: &[("kmux capabilities", "See which commands this kmux supports.")],
         parse: |_| Ok(json!({})),
-        show: |reply| format!("pane types: {}\ncommands: {}", output::join(&reply["paneTypes"]), output::join(&reply["commands"])),
+        show: |_, reply| format!("pane types: {}\ncommands: {}", output::join(&reply["paneTypes"]), output::join(&reply["commands"])),
     },
 ];
 

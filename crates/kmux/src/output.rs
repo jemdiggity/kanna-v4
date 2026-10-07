@@ -23,16 +23,29 @@ fn state(pane: &Value) -> String {
     }
 }
 
-pub fn opened(reply: &Value) -> String {
-    format!("opened {} in {}, {}", label(&reply["pane"]), reply["window"].as_str().unwrap_or("?"), state(&reply["pane"]))
+pub fn opened(_: &Value, reply: &Value) -> String {
+    format!(
+        "opened {} in window {}, tab {}: {}",
+        label(&reply["pane"]),
+        reply["window"].as_str().unwrap_or("?"),
+        reply["tab"].as_str().unwrap_or("?"),
+        state(&reply["pane"])
+    )
 }
 
-pub fn closed(reply: &Value) -> String {
-    format!("closed {}", join(&reply["closed"]))
+pub fn closed(args: &Value, reply: &Value) -> String {
+    let panes = join(&reply["closed"]);
+    match (args["window"].as_str(), args["tab"].as_str()) {
+        (Some(window), _) => format!("closed window {window} (panes {panes})"),
+        (_, Some(tab)) => format!("closed tab {tab} (panes {panes})"),
+        _ => format!("closed {panes}"),
+    }
 }
 
 pub fn pane_state(reply: &Value) -> String {
-    format!("{} is {}", label(&reply["pane"]), state(&reply["pane"]))
+    let pane = &reply["pane"];
+    let what = pane["cmd"].as_str().or(pane["url"].as_str()).map(|c| format!(" ({c})")).unwrap_or_default();
+    format!("{}{what} is {}", label(pane), state(pane))
 }
 
 pub fn layout(reply: &Value) -> String {

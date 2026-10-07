@@ -132,7 +132,10 @@ public final class Core {
         onChange()
         host?.start(pane)
 
-        let reply = { [model] () -> [String: JSON] in ["pane": model.summary(pane), "window": .string(model.locate(pane.id)?.window.id ?? window.id)] }
+        let reply = { [model] () -> [String: JSON] in
+            let location = model.locate(pane.id)
+            return ["pane": model.summary(pane), "window": .string(location?.window.id ?? window.id), "tab": location.map { .string($0.tab.id) } ?? nil]
+        }
         if args["wait"]?.bool == false { return reply() }
         await settled(pane)
         if pane.state == .failed { throw KmuxError("start_failed", pane.error ?? "\(pane.label) failed to start") }

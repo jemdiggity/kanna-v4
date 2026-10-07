@@ -336,7 +336,7 @@ async function handle(req) {
         findPane(p.id).tab.lastFocus = p.id;
         raise(w);
         start(p);
-        const res = () => ({ pane: summary(p), window: findPane(p.id)?.win.id ?? w.id });
+        const res = () => ({ pane: summary(p), window: findPane(p.id)?.win.id ?? w.id, tab: findPane(p.id)?.tab.id ?? null });
         if (args.wait === false) return ok(res());
         await settled(p);
         if (p.state === 'failed') throw kerr('start_failed', p.error);

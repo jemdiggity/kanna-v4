@@ -79,14 +79,14 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
         return Err(commands::usage(command.name, &format!("unexpected argument \"{extra}\"")));
     }
     let mut mux = Kmux::connect()?;
-    let reply = match mux.call(command.name, request) {
+    let reply = match mux.call(command.name, request.clone()) {
         Ok(reply) => reply,
         Err(error) => return Err(explain(command, Failure::from(error), &mut mux)),
     };
     if json_output {
         println!("{reply}");
     } else {
-        let text = (command.show)(&reply);
+        let text = (command.show)(&request, &reply);
         if !text.is_empty() {
             println!("{text}");
         }
@@ -143,7 +143,8 @@ fn overview() -> String {
          Quick start:\n  \
          kmux open --name server --cmd \"npm run dev\"\n  \
          kmux open --name logs --split right --size 1/3 --cmd \"tail -f app.log\"\n  \
-         kmux list\n\
+         kmux list\n  \
+         kmux open --window new --name scratch      (a new window)\n\
          \n\
          Not every kmux build has every command yet: `kmux capabilities` lists what the running one supports.\n\
          --json prints the reply from kmux as JSON. kmux must be running; the CLI starts it if it isn't.\n\
