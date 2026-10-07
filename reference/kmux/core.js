@@ -309,13 +309,16 @@ function focusPane(p) {
   raise(f.win);
 }
 
+const COMMANDS = ['capabilities', 'open', 'arrange', 'move', 'move-tab', 'rename-tab', 'resize', 'list', 'focus', 'zoom', 'close', 'restart', 'send', 'navigate'];
+
 async function handle(req) {
   const { id, cmd, args = {} } = req;
   const ok = x => ({ id, ok: true, ...x });
   try {
     switch (cmd) {
       case 'capabilities':
-        return ok({ mux: 'kmux', paneTypes: ['term', 'web', 'ios'], features: ['windows', 'tabs', 'fractionalSizing', 'namedPanes', 'zoom', 'move', 'lifecycle'] });
+        return ok({ mux: 'kmux', paneTypes: ['term', 'web', 'ios'], commands: COMMANDS,
+          features: ['windows', 'tabs', 'fractionalSizing', 'namedPanes', 'zoom', 'move', 'lifecycle'] });
 
       case 'open': {
         const { type } = args;

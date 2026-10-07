@@ -77,7 +77,7 @@ public final class Core {
     private func run(_ cmd: String, _ args: JSON) async throws -> [String: JSON] {
         switch cmd {
         case "capabilities":
-            return ["mux": "kmux", "paneTypes": ["term"], "features": ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle"]]
+            return ["mux": "kmux", "paneTypes": ["term"], "commands": .array(Self.commands.sorted().map(JSON.string)), "features": ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle"]]
         case "open": return try await open(args)
         case "list": return list()
         case "close": return try close(args)

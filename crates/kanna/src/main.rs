@@ -1,8 +1,6 @@
 //! kanna: drives a mux from the command line (docs/kanna-spec.md).
 
-mod kmux;
-
-use kmux::{Error, Kmux};
+use kmux_client::{exit, fail, Args, Failure, Kmux};
 use serde_json::{json, Map, Value};
 use std::process::ExitCode;
 
@@ -13,40 +11,6 @@ commands:
   list
   close PANE
   mux";
-
-/// Exit codes from docs/kanna-spec.md §8.
-mod exit {
-    pub const FAILED: u8 = 1;
-    pub const USAGE: u8 = 2;
-    pub const UNREACHABLE: u8 = 3;
-    pub const NOT_FOUND: u8 = 4;
-    pub const UNSUPPORTED: u8 = 5;
-}
-
-struct Failure {
-    code: u8,
-    message: String,
-}
-
-fn fail(code: u8, message: impl Into<String>) -> Failure {
-    Failure { code, message: message.into() }
-}
-
-impl From<Error> for Failure {
-    fn from(error: Error) -> Failure {
-        match error {
-            Error::Unreachable(message) => fail(exit::UNREACHABLE, message),
-            Error::Mux { code, message } => {
-                let exit = match code.as_str() {
-                    "not_found" => exit::NOT_FOUND,
-                    "bad_request" | "layout_invalid" => exit::USAGE,
-                    _ => exit::FAILED,
-                };
-                fail(exit, message)
-            }
-        }
-    }
-}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -96,7 +60,7 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             }
             let kind = args.positional().ok_or_else(|| fail(exit::USAGE, "open needs a pane type: term, web or ios"))?;
             request.insert("type".into(), json!(kind));
-            args.finish()?;
+            finish(&args)?;
             let mut mux = Kmux::connect()?;
             let capabilities = mux.call("capabilities", json!({}))?;
             let supported = capabilities["paneTypes"].as_array().is_some_and(|types| types.contains(&json!(kind)));
@@ -109,18 +73,18 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             print(&reply, label);
         }
         "list" => {
-            args.finish()?;
+            finish(&args)?;
             let reply = Kmux::connect()?.call("list", json!({}))?;
             print(&reply, format_list(&reply));
         }
         "close" => {
             let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "close needs a pane"))?;
-            args.finish()?;
+            finish(&args)?;
             let reply = Kmux::connect()?.call("close", json!({ "pane": pane }))?;
             print(&reply, String::new());
         }
         "mux" => {
-            args.finish()?;
+            finish(&args)?;
             let reply = Kmux::connect()?.call("capabilities", json!({}))?;
             let list = |key: &str| {
                 reply[key].as_array().map(|v| v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default()
@@ -167,42 +131,9 @@ fn layout_has(node: &Value, pane: &Value) -> bool {
     node["children"].as_array().is_some_and(|kids| kids.iter().any(|kid| layout_has(kid, pane)))
 }
 
-/// A small argument reader: flags and options may appear anywhere.
-struct Args(Vec<String>);
-
-impl Args {
-    fn new(args: Vec<String>) -> Args {
-        Args(args)
-    }
-
-    fn flag(&mut self, name: &str) -> bool {
-        let before = self.0.len();
-        self.0.retain(|a| a != name);
-        self.0.len() != before
-    }
-
-    fn option(&mut self, name: &str) -> Result<Option<String>, Failure> {
-        let prefix = format!("{name}=");
-        if let Some(i) = self.0.iter().position(|a| a.starts_with(&prefix)) {
-            return Ok(Some(self.0.remove(i)[prefix.len()..].to_string()));
-        }
-        let Some(i) = self.0.iter().position(|a| a == name) else { return Ok(None) };
-        if i + 1 >= self.0.len() {
-            return Err(fail(exit::USAGE, format!("{name} needs a value")));
-        }
-        self.0.remove(i);
-        Ok(Some(self.0.remove(i)))
-    }
-
-    fn positional(&mut self) -> Option<String> {
-        let i = self.0.iter().position(|a| !a.starts_with("--"))?;
-        Some(self.0.remove(i))
-    }
-
-    fn finish(&self) -> Result<(), Failure> {
-        match self.0.first() {
-            None => Ok(()),
-            Some(extra) => Err(fail(exit::USAGE, format!("unexpected argument \"{extra}\""))),
-        }
+fn finish(args: &Args) -> Result<(), Failure> {
+    match args.first() {
+        None => Ok(()),
+        Some(extra) => Err(fail(exit::USAGE, format!("unexpected argument \"{extra}\""))),
     }
 }

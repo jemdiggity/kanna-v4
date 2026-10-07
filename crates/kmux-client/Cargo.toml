@@ -1,0 +1,8 @@
+[package]
+name = "kmux-client"
+version.workspace = true
+edition.workspace = true
+description = "Client for the kmux control socket, shared by the kmux and kanna CLIs."
+
+[dependencies]
+serde_json = "1"

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/kanna"]
+members = ["crates/kanna", "crates/kmux", "crates/kmux-client"]
 resolver = "2"
 
 [workspace.package]

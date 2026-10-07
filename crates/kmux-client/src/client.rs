@@ -1,4 +1,4 @@
-//! Client for the kmux control socket: newline-delimited JSON requests and
+//! The kmux control socket: newline-delimited JSON requests and
 //! replies (docs/kmux-spec.md §7).
 
 use serde_json::{json, Value};

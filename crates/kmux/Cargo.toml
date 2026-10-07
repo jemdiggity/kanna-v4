@@ -1,0 +1,13 @@
+[package]
+name = "kmux-cli"
+version.workspace = true
+edition.workspace = true
+description = "Command line for the kmux terminal multiplexer."
+
+[[bin]]
+name = "kmux"
+path = "src/main.rs"
+
+[dependencies]
+kmux-client = { path = "../kmux-client" }
+serde_json = "1"
