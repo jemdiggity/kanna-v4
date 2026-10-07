@@ -28,6 +28,8 @@ public final class Core {
     /// Whether a pane is wider than it is tall, for `split: auto`.
     public var paneIsWide: (String) -> Bool = { _ in true }
     public var startTimeout: Duration = .seconds(10)
+    /// Commands the app adds, such as `debug.snapshot`.
+    public var extraCommands: [String: @MainActor (JSON) async throws -> [String: JSON]] = [:]
 
     private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
 
@@ -48,7 +50,7 @@ public final class Core {
         guard pane.state == .starting else { return }
         let id = pane.id
         let timeout = Task { [startTimeout] in
-            try? await Task.sleep(for: startTimeout)
+            guard (try? await Task.sleep(for: startTimeout)) != nil, self.model.panes[id]?.state == .starting else { return }
             self.update(id, state: .failed, error: "did not start within \(startTimeout)")
         }
         await withCheckedContinuation { waiters[id, default: []].append($0) }
@@ -79,7 +81,9 @@ public final class Core {
         case "open": return try await open(args)
         case "list": return list()
         case "close": return try close(args)
-        default: throw KmuxError("bad_request", "unknown command \"\(cmd)\"")
+        default:
+            guard let extra = extraCommands[cmd] else { throw KmuxError("bad_request", "unknown command \"\(cmd)\"") }
+            return try await extra(args)
         }
     }
 
@@ -89,7 +93,7 @@ public final class Core {
         return pane
     }
 
-    func targetWindow(_ ref: JSON?) throws -> Window {
+    public func targetWindow(_ ref: JSON?) throws -> Window {
         switch ref?.string {
         case nil: return model.keyWindow ?? model.makeWindow()
         case "new": return model.makeWindow()

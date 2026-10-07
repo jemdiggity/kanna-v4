@@ -79,6 +79,18 @@ func makeCore() -> (Core, FakeHost) {
         #expect(reply["error"]?["message"] == "command not found")
     }
 
+    @Test func startTimeoutOnlyFailsPanesStillStarting() async throws {
+        let (core, host) = makeCore()
+        core.startTimeout = .milliseconds(50)
+        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "ok"]])
+        core.host = nil
+        let reply = await core.handle(["cmd": "open", "args": ["type": "term", "name": "stuck"]])
+        #expect(reply["error"]?["code"] == "start_failed")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(core.model.pane("ok")?.state == .running)
+        _ = host
+    }
+
     @Test func errors() async {
         let (core, _) = makeCore()
         _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "a"]])

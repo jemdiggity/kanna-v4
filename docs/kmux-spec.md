@@ -278,7 +278,9 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 | Platform | A native macOS app (AppKit). |
 | Terminal | Ghostty (GhosttyKit), reusing kanna-v3's build pipeline and terminal view. Start from **upstream Ghostty**: kanna-v3's fork existed to stream terminals from a daemon, and kmux has no persisted terminals for now. |
 | iOS pane | The native iOS Simulator. **Deferred:** not part of the first native builds. |
-| Transport | A **persistent connection** over the Unix socket: a client keeps one connection open and sends many requests over it. |
+| Transport | A **persistent connection** over the Unix socket: a client keeps one connection open and sends many requests over it. Messages are **newline-delimited JSON** (one request or reply per line), answered in order. The socket is `~/Library/Application Support/kmux/kmux.sock` (or `$KMUX_SOCKET`), readable only by the user. |
+| Shortcuts | Come from the user's **Ghostty config**, as in kanna-v3, with the shortcuts in [section 5](#5-menus-and-shortcuts) as defaults. |
+| Pane commands | A `term` pane's `cmd` is a shell command line, run by the user's login shell. |
 | Process model | kmux is a single app that runs its own terminals and listens on the control socket itself. Later, we fork our own mux and move to a kanna-v3-style app-plus-daemon. |
 | Reuse | Copy the kanna-v3 pieces kmux needs and trim them, without depending on v3. |
 | kanna CLI | Rust. |
@@ -289,14 +291,12 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 | # | Question | Needs |
 |---|----------|-------|
 | 1 | **iOS pane placement (deferred):** mirror the Simulator's screen into the pane, or keep the real Simulator window positioned over it? | A native prototype, once the Simulator is back in scope. |
-| 2 | **Transport details:** framing (newline-delimited JSON, or length-prefixed frames as in kanna-v3), the socket path (`~/Library/Application Support/kmux/kmux.sock` is assumed) and permissions. | Decision during the native scaffold. |
-| 3 | **Events:** can clients subscribe to changes (pane exited, URL changed)? | Decision, then extend the model. |
-| 4 | **Pane identity:** without chrome, is the tab title enough to tell panes apart, or should the name show on hover? | Your call, then try it in the model. |
-| 5 | **Tab commands:** should the protocol let clients rename tabs? | Decision. |
-| 6 | **Persistence:** should windows and layouts survive an app restart? | Decision. This ties into the later daemon. |
-| 7 | **Web navigation:** back/forward history and keyboard shortcuts? | Your call. |
-| 8 | **Ghostty keybindings:** should kmux shortcuts come from the user's Ghostty config, as in kanna-v3, or be fixed? | Decision. |
-| 9 | **Performance:** targets for pane start time, input latency and memory per pane. kanna-v3 aimed for under 50 ms of typing latency. | A benchmark utility (the rdd "performance reference"). |
+| 2 | **Events:** can clients subscribe to changes (pane exited, URL changed)? | Decision, then extend the model. |
+| 3 | **Pane identity:** without chrome, is the tab title enough to tell panes apart, or should the name show on hover? | Your call, then try it in the model. |
+| 4 | **Tab commands:** should the protocol let clients rename tabs? | Decision. |
+| 5 | **Persistence:** should windows and layouts survive an app restart? | Decision. This ties into the later daemon. |
+| 6 | **Web navigation:** back/forward history and keyboard shortcuts? | Your call. |
+| 7 | **Performance:** targets for pane start time, input latency and memory per pane. kanna-v3 aimed for under 50 ms of typing latency. | A benchmark utility (the rdd "performance reference"). |
 
 ---
 

@@ -1,0 +1,208 @@
+//! kanna: drives a mux from the command line (docs/kanna-spec.md).
+
+mod kmux;
+
+use kmux::{Error, Kmux};
+use serde_json::{json, Map, Value};
+use std::process::ExitCode;
+
+const USAGE: &str = "usage: kanna [--mux kmux] [--json] <command>
+
+commands:
+  open term [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down] [--size FRACTION] [--tab] [--window ID|new] [--no-wait]
+  list
+  close PANE
+  mux";
+
+/// Exit codes from docs/kanna-spec.md §8.
+mod exit {
+    pub const FAILED: u8 = 1;
+    pub const USAGE: u8 = 2;
+    pub const UNREACHABLE: u8 = 3;
+    pub const NOT_FOUND: u8 = 4;
+    pub const UNSUPPORTED: u8 = 5;
+}
+
+struct Failure {
+    code: u8,
+    message: String,
+}
+
+fn fail(code: u8, message: impl Into<String>) -> Failure {
+    Failure { code, message: message.into() }
+}
+
+impl From<Error> for Failure {
+    fn from(error: Error) -> Failure {
+        match error {
+            Error::Unreachable(message) => fail(exit::UNREACHABLE, message),
+            Error::Mux { code, message } => {
+                let exit = match code.as_str() {
+                    "not_found" => exit::NOT_FOUND,
+                    "bad_request" | "layout_invalid" => exit::USAGE,
+                    _ => exit::FAILED,
+                };
+                fail(exit, message)
+            }
+        }
+    }
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(failure) => {
+            eprintln!("kanna: {}", failure.message);
+            ExitCode::from(failure.code)
+        }
+    }
+}
+
+fn run(args: Vec<String>) -> Result<(), Failure> {
+    let mut args = Args::new(args);
+    let json_output = args.flag("--json");
+    if let Some(mux) = args.option("--mux")? {
+        if mux != "kmux" {
+            return Err(fail(exit::UNSUPPORTED, format!("the {mux} backend isn't supported yet; use --mux kmux")));
+        }
+    } else if let Ok(mux) = std::env::var("KANNA_MUX") {
+        if !mux.is_empty() && mux != "kmux" {
+            return Err(fail(exit::UNSUPPORTED, format!("the {mux} backend (from KANNA_MUX) isn't supported yet")));
+        }
+    }
+    let command = args.positional().ok_or_else(|| fail(exit::USAGE, USAGE))?;
+    let print = |reply: &Value, human: String| {
+        if json_output {
+            println!("{reply}");
+        } else if !human.is_empty() {
+            println!("{human}");
+        }
+    };
+
+    match command.as_str() {
+        "open" => {
+            let mut request = Map::new();
+            for (flag, key) in [("--cmd", "cmd"), ("--cwd", "cwd"), ("--name", "name"), ("--split", "split"), ("--size", "size"), ("--window", "window")] {
+                if let Some(value) = args.option(flag)? {
+                    request.insert(key.into(), json!(value));
+                }
+            }
+            if args.flag("--tab") {
+                request.insert("tab".into(), json!(true));
+            }
+            if args.flag("--no-wait") {
+                request.insert("wait".into(), json!(false));
+            }
+            let kind = args.positional().ok_or_else(|| fail(exit::USAGE, "open needs a pane type: term, web or ios"))?;
+            request.insert("type".into(), json!(kind));
+            args.finish()?;
+            let mut mux = Kmux::connect()?;
+            let capabilities = mux.call("capabilities", json!({}))?;
+            let supported = capabilities["paneTypes"].as_array().is_some_and(|types| types.contains(&json!(kind)));
+            if !supported {
+                return Err(fail(exit::UNSUPPORTED, format!("kmux can't show {kind} panes yet")));
+            }
+            let reply = mux.call("open", Value::Object(request))?;
+            let pane = &reply["pane"];
+            let label = pane["name"].as_str().or(pane["id"].as_str()).unwrap_or_default().to_string();
+            print(&reply, label);
+        }
+        "list" => {
+            args.finish()?;
+            let reply = Kmux::connect()?.call("list", json!({}))?;
+            print(&reply, format_list(&reply));
+        }
+        "close" => {
+            let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "close needs a pane"))?;
+            args.finish()?;
+            let reply = Kmux::connect()?.call("close", json!({ "pane": pane }))?;
+            print(&reply, String::new());
+        }
+        "mux" => {
+            args.finish()?;
+            let reply = Kmux::connect()?.call("capabilities", json!({}))?;
+            let list = |key: &str| {
+                reply[key].as_array().map(|v| v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default()
+            };
+            print(&reply, format!("mux: kmux\npane types: {}\nfeatures: {}", list("paneTypes"), list("features")));
+        }
+        "help" | "--help" | "-h" => println!("{USAGE}"),
+        other => return Err(fail(exit::USAGE, format!("unknown command \"{other}\"\n{USAGE}"))),
+    }
+    Ok(())
+}
+
+fn format_list(reply: &Value) -> String {
+    let empty = vec![];
+    let panes = reply["panes"].as_array().unwrap_or(&empty);
+    let mut rows = vec![["ID".to_string(), "NAME".into(), "TYPE".into(), "STATE".into(), "WINDOW".into()]];
+    for pane in panes {
+        let id = pane["id"].as_str().unwrap_or_default();
+        let window = reply["windows"]
+            .as_array()
+            .unwrap_or(&empty)
+            .iter()
+            .find(|w| w["tabs"].as_array().unwrap_or(&empty).iter().any(|t| layout_has(&t["layout"], pane)))
+            .and_then(|w| w["id"].as_str())
+            .unwrap_or("-");
+        let state = match pane["exitCode"].as_i64() {
+            Some(code) => format!("{} ({code})", pane["state"].as_str().unwrap_or_default()),
+            None => pane["state"].as_str().unwrap_or_default().to_string(),
+        };
+        rows.push([id.into(), pane["name"].as_str().unwrap_or("-").into(), pane["type"].as_str().unwrap_or_default().into(), state, window.into()]);
+    }
+    let widths: Vec<usize> = (0..5).map(|i| rows.iter().map(|r| r[i].len()).max().unwrap_or(0)).collect();
+    rows.iter()
+        .map(|row| row.iter().zip(&widths).map(|(cell, w)| format!("{cell:w$}")).collect::<Vec<_>>().join("  ").trim_end().to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Layout trees name panes by name when they have one, else by ID.
+fn layout_has(node: &Value, pane: &Value) -> bool {
+    if let Some(name) = node["pane"].as_str() {
+        return Some(name) == pane["name"].as_str().or(pane["id"].as_str());
+    }
+    node["children"].as_array().is_some_and(|kids| kids.iter().any(|kid| layout_has(kid, pane)))
+}
+
+/// A small argument reader: flags and options may appear anywhere.
+struct Args(Vec<String>);
+
+impl Args {
+    fn new(args: Vec<String>) -> Args {
+        Args(args)
+    }
+
+    fn flag(&mut self, name: &str) -> bool {
+        let before = self.0.len();
+        self.0.retain(|a| a != name);
+        self.0.len() != before
+    }
+
+    fn option(&mut self, name: &str) -> Result<Option<String>, Failure> {
+        let prefix = format!("{name}=");
+        if let Some(i) = self.0.iter().position(|a| a.starts_with(&prefix)) {
+            return Ok(Some(self.0.remove(i)[prefix.len()..].to_string()));
+        }
+        let Some(i) = self.0.iter().position(|a| a == name) else { return Ok(None) };
+        if i + 1 >= self.0.len() {
+            return Err(fail(exit::USAGE, format!("{name} needs a value")));
+        }
+        self.0.remove(i);
+        Ok(Some(self.0.remove(i)))
+    }
+
+    fn positional(&mut self) -> Option<String> {
+        let i = self.0.iter().position(|a| !a.starts_with("--"))?;
+        Some(self.0.remove(i))
+    }
+
+    fn finish(&self) -> Result<(), Failure> {
+        match self.0.first() {
+            None => Ok(()),
+            Some(extra) => Err(fail(exit::USAGE, format!("unexpected argument \"{extra}\""))),
+        }
+    }
+}
