@@ -1,0 +1,941 @@
+<!doctype html>
+<!--
+  kmux reference mockup.
+  A single-file, dependency-free model of kmux's design and behaviour:
+  panes (term / web / ios), fractional splits, the pane lifecycle, and the
+  control protocol. The console speaks kanna commands, which are turned into
+  protocol requests and handled by the same core the UI uses.
+  Everything inside panes is simulated.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kmux mockup</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212a; --border: #2a2f3a;
+    --text: #d7dae0; --dim: #8b93a1; --accent: #7aa2f7; --green: #9ece6a;
+    --red: #f7768e; --yellow: #e0af68; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  button { font: inherit; color: inherit; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  input { font: inherit; color: inherit; background: transparent; border: 0; outline: none; }
+
+  #app { display: grid; grid-template-rows: 32px 30px 1fr auto; height: 100%; }
+  .titlebar { display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .titlebar .dots { letter-spacing: 3px; color: #555b66; }
+  .titlebar b { font-weight: 600; }
+  .titlebar .note { color: var(--dim); font-size: 12px; }
+
+  #tabs { display: flex; align-items: stretch; gap: 2px; padding: 0 6px; background: var(--panel); border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 0; background: transparent; color: var(--dim); border-bottom: 2px solid transparent; white-space: nowrap; }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab .x { opacity: .5; } .tab .x:hover { opacity: 1; color: var(--red); }
+  .tab-add { border: 0; background: transparent; color: var(--dim); }
+
+  #stage { display: flex; padding: 6px; min-height: 0; min-width: 0; }
+  #stage > * { flex: 1; }
+  .split { display: flex; min-width: 0; min-height: 0; }
+  .split.row { flex-direction: row; }
+  .split.column { flex-direction: column; }
+  .split.row > .divider { width: 6px; cursor: col-resize; }
+  .split.column > .divider { height: 6px; cursor: row-resize; }
+  .divider { flex: 0 0 auto; border-radius: 3px; touch-action: none; }
+  .divider:hover, .divider.dragging { background: var(--accent); opacity: .5; }
+
+  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .pane.focused { border-color: var(--accent); }
+  .pane-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 8px; background: var(--panel-2); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; font-size: 12px; }
+  .pane-head .name { font-weight: 600; }
+  .pane-head .meta { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+  .pane-head .share { color: var(--accent); font-family: var(--mono); font-size: 11px; }
+  .pane-head .spacer { flex: 1; }
+  .pane-head button { padding: 0 6px; border-color: transparent; background: transparent; color: var(--dim); }
+  .pane-head button:hover { color: var(--text); border-color: var(--border); }
+  .badge { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 0 6px; border-radius: 8px; border: 1px solid currentColor; }
+  .badge.starting { color: var(--yellow); } .badge.running { color: var(--green); }
+  .badge.exited { color: var(--dim); } .badge.failed { color: var(--red); }
+  .pane-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+
+  .term { flex: 1; display: flex; flex-direction: column; min-height: 0; background: #0b0d10; font-family: var(--mono); font-size: 12px; }
+  .term-body { flex: 1; overflow: auto; padding: 6px 8px 0; white-space: pre-wrap; word-break: break-all; }
+  .term-line.cmd { color: var(--text); } .term-line { color: #b7bcc6; }
+  .term-line.err { color: var(--red); } .term-line.ok { color: var(--green); }
+  .term-input { display: flex; padding: 0 8px 6px; }
+  .term-input span { color: var(--accent); white-space: pre; }
+  .term-input input { flex: 1; font-family: var(--mono); font-size: 12px; }
+  .banner { margin: 6px 8px; padding: 4px 8px; border: 1px dashed var(--border); color: var(--dim); font-family: var(--mono); font-size: 11px; }
+
+  .web { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .web-bar { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
+  .web-bar input { flex: 1; min-width: 0; padding: 2px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
+  .web-view { flex: 1; overflow: auto; background: #f6f7f9; color: #1d2330; }
+  .web-wait { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #6b7280; text-align: center; padding: 12px; }
+  .site-nav { display: flex; justify-content: space-between; padding: 10px 16px; background: #fff; border-bottom: 1px solid #e5e7eb; font-weight: 600; }
+  .site-hero { padding: 28px 16px; }
+  .site-hero h1 { margin: 0 0 6px; font-size: 22px; }
+  .site-hero p { margin: 0; color: #4b5563; }
+  .site-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; padding: 0 16px 16px; }
+  .site-cards div { height: 64px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
+
+  .ios { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px; min-height: 0; background: #12141a; }
+  .phone { position: relative; height: calc(100% - 24px); max-height: 640px; aspect-ratio: 9 / 19.5; max-width: 100%; border: 6px solid #2b2f38; border-radius: 28px; background: #000; overflow: hidden; }
+  .notch { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: 34%; height: 14px; background: #2b2f38; border-radius: 10px; z-index: 2; }
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; background: #f2f2f7; color: #111; font-size: 11px; cursor: pointer; overflow: hidden; }
+  .screen.boot { background: #000; color: #aaa; align-items: center; justify-content: center; gap: 8px; cursor: default; }
+  .status { display: flex; justify-content: space-between; padding: 24px 14px 4px; font-weight: 600; font-size: 10px; }
+  .app-title { padding: 8px 14px; font-size: 18px; font-weight: 700; }
+  .app-row { margin: 0 10px 6px; padding: 10px; background: #fff; border-radius: 8px; }
+  .app-btn { margin: auto 10px 14px; padding: 9px; text-align: center; background: #0a84ff; color: #fff; border-radius: 9px; font-weight: 600; }
+  .ripple { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: rgba(10,132,255,.35); pointer-events: none; animation: ripple .5s ease-out forwards; }
+  @keyframes ripple { to { transform: scale(2.4); opacity: 0; } }
+  .device-label { color: var(--dim); font-size: 11px; }
+
+  .fail { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; text-align: center; color: var(--red); }
+  .fail pre { margin: 0; white-space: pre-wrap; color: var(--text); font-family: var(--mono); font-size: 12px; }
+  .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; opacity: .7; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--dim); border: 1px dashed var(--border); border-radius: 6px; }
+  .empty div { display: flex; gap: 6px; }
+
+  .menu { position: fixed; z-index: 10; display: flex; flex-direction: column; min-width: 120px; padding: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+  .menu button { text-align: left; border: 0; background: transparent; }
+  .menu button:hover { background: var(--panel); }
+
+  #console { display: flex; flex-direction: column; height: min(34vh, 280px); border-top: 1px solid var(--border); background: var(--panel); }
+  .console-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 12px; }
+  .console-head .spacer { flex: 1; }
+  #log { flex: 1; overflow: auto; padding: 6px 10px; font-family: var(--mono); font-size: 12px; }
+  #log div { white-space: pre-wrap; word-break: break-word; }
+  .l-in { color: var(--text); } .l-req { color: var(--dim); } .l-res { color: var(--green); }
+  .l-err { color: var(--red); } .l-info { color: var(--dim); } .l-exit { color: var(--dim); font-size: 11px; }
+  #cmdform { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--border); font-family: var(--mono); }
+  #cmdform span { color: var(--accent); }
+  #cmd { flex: 1; font-family: var(--mono); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="titlebar"><span class="dots">●●●</span><b>kmux</b><span class="note">reference mockup — pane contents are simulated</span></header>
+  <nav id="tabs"></nav>
+  <main id="stage"></main>
+  <section id="console">
+    <div class="console-head">
+      <span>Control console — kanna commands become kmux protocol requests. UI actions are logged as the same requests.</span>
+      <span class="spacer"></span>
+      <button id="demo">Run demo</button><button id="reset">Reset</button>
+    </div>
+    <div id="log"></div>
+    <form id="cmdform" autocomplete="off"><span>$ kanna</span><input id="cmd" placeholder="open web http://localhost:3000 --split right --size 1/3   (type help)"></form>
+  </section>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// State
+// node := { t: 'pane', id } | { t: 'split', dir: 'row'|'column', kids: [{ node, size }] }
+// sizes are fractions of the parent split and always sum to 1.
+// ---------------------------------------------------------------------------
+const DEVICES = ['iPhone 16', 'iPhone 16 Pro', 'iPhone SE (3rd generation)', 'iPad Air (M2)'];
+const MIN_PX = 80;
+const NICE = [1/4, 1/3, 1/2, 2/3, 3/4];
+let S;
+
+function freshState() {
+  return { panes: {}, tabs: [], active: null, focused: null, zoomed: null, servers: {}, n: { pane: 0, tab: 0, req: 0 } };
+}
+
+const $ = s => document.querySelector(s);
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'dataset') Object.assign(el.dataset, v);
+    else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) el.append(c.nodeType ? c : String(c));
+  return el;
+}
+
+class KErr extends Error { constructor(code, message) { super(message); this.code = code; } }
+const kerr = (code, msg) => new KErr(code, msg);
+
+// ---------------------------------------------------------------------------
+// Fractions
+// ---------------------------------------------------------------------------
+function frac(v) {
+  if (typeof v === 'number') return v;
+  const s = String(v ?? '').trim();
+  let m;
+  if ((m = /^(\d*\.?\d+)\/(\d*\.?\d+)$/.exec(s))) return Number(m[1]) / Number(m[2]);
+  if ((m = /^(\d*\.?\d+)%$/.exec(s))) return Number(m[1]) / 100;
+  if (/^\d*\.?\d+$/.test(s)) return Number(s);
+  throw kerr('bad_request', `"${s}" is not a fraction (try 1/3)`);
+}
+function fmtFrac(x) {
+  if (Math.abs(x - 1) < 1e-6) return '1';
+  for (let d = 2; d <= 8; d++) {
+    const n = Math.round(x * d);
+    if (n > 0 && Math.abs(x - n / d) < 0.004) return `${n}/${d}`;
+  }
+  return `${Math.round(x * 100)}%`;
+}
+
+// ---------------------------------------------------------------------------
+// Tree helpers
+// ---------------------------------------------------------------------------
+function makeTab(activate = true) {
+  const t = { id: 't' + (++S.n.tab), root: null };
+  S.tabs.push(t);
+  if (activate) S.active = t.id;
+  return t;
+}
+const tabById = id => S.tabs.find(t => t.id === id);
+const activeTab = () => tabById(S.active) || makeTab();
+
+function locate(node, id, parent = null, index = -1) {
+  if (!node) return null;
+  if (node.t === 'pane') return node.id === id ? { node, parent, index } : null;
+  for (let i = 0; i < node.kids.length; i++) {
+    const r = locate(node.kids[i].node, id, node, i);
+    if (r) return r;
+  }
+  return null;
+}
+function findPane(id) {
+  for (const tab of S.tabs) { const loc = locate(tab.root, id); if (loc) return { tab, ...loc }; }
+  return null;
+}
+const paneIds = node => !node ? [] : node.t === 'pane' ? [node.id] : node.kids.flatMap(k => paneIds(k.node));
+function normalize(node) {
+  if (!node || node.t === 'pane') return node;
+  node.kids.forEach(k => { k.node = normalize(k.node); });
+  return node.kids.length === 1 ? node.kids[0].node : node;
+}
+function detach(id) {
+  const f = findPane(id);
+  if (!f) return;
+  if (!f.parent) f.tab.root = null;
+  else {
+    const gone = f.parent.kids[f.index].size;
+    f.parent.kids.splice(f.index, 1);
+    const n = f.parent.kids.length;
+    f.parent.kids.forEach(k => { k.size = gone < 1 ? k.size / (1 - gone) : 1 / n; });
+    f.tab.root = normalize(f.tab.root);
+  }
+  if (S.zoomed === id) S.zoomed = null;
+}
+function dropEmptyTabs() {
+  S.tabs = S.tabs.filter(t => t.root || t.id === S.active);
+  if (!tabById(S.active) && S.tabs.length) S.active = S.tabs[0].id;
+}
+function toTree(node, size) {
+  if (!node) return null;
+  const out = node.t === 'pane'
+    ? { pane: S.panes[node.id].name || node.id }
+    : { split: node.dir, children: node.kids.map(k => toTree(k.node, k.size)) };
+  if (size != null && size < 1 - 1e-6) out.size = fmtFrac(size);
+  return out;
+}
+function tabTitle(t) {
+  const ids = paneIds(t.root);
+  if (t.title) return t.title;
+  if (!ids.length) return 'empty';
+  return ids.map(id => S.panes[id].name || id).join(' · ');
+}
+function resolvePane(ref) {
+  return Object.values(S.panes).find(p => p.id === ref || p.name === ref);
+}
+function need(ref) {
+  if (!ref) throw kerr('bad_request', 'missing pane');
+  const p = resolvePane(ref);
+  if (!p) throw kerr('not_found', `no pane "${ref}"`);
+  return p;
+}
+const label = p => p.name ? `${p.name} (${p.id})` : p.id;
+
+// Put a new pane next to the focused one. Same-direction parents absorb it
+// as a sibling; otherwise the focused pane is replaced by a new split.
+function place(paneId, { split = 'auto', size = 0.5, tab = false }) {
+  const node = { t: 'pane', id: paneId };
+  const t = tab ? makeTab() : activeTab();
+  S.zoomed = null;
+  if (!t.root) { t.root = node; return; }
+  const ids = paneIds(t.root);
+  const target = ids.includes(S.focused) ? S.focused : ids[ids.length - 1];
+  const dir = split === 'right' ? 'row' : split === 'down' ? 'column' : autoDir(target);
+  const loc = locate(t.root, target);
+  if (loc.parent && loc.parent.dir === dir) {
+    const share = loc.parent.kids[loc.index].size;
+    loc.parent.kids[loc.index].size = share * (1 - size);
+    loc.parent.kids.splice(loc.index + 1, 0, { node, size: share * size });
+  } else {
+    const sp = { t: 'split', dir, kids: [{ node: loc.node, size: 1 - size }, { node, size }] };
+    if (loc.parent) loc.parent.kids[loc.index].node = sp; else t.root = sp;
+  }
+}
+function autoDir(id) {
+  const el = document.querySelector(`.pane[data-id="${id}"]`);
+  if (!el) return 'row';
+  const r = el.getBoundingClientRect();
+  return r.width >= r.height ? 'row' : 'column';
+}
+
+// ---------------------------------------------------------------------------
+// Panes and lifecycle: starting -> running | failed; running -> exited; * -> closed
+// ---------------------------------------------------------------------------
+function createPane(type, a) {
+  const p = {
+    id: 'p' + (++S.n.pane), name: a.name || null, type, state: 'starting', error: null, gen: 0, waiters: [],
+    cmd: a.cmd || null, cwd: a.cwd || '~', url: a.url ? normUrl(a.url) : null,
+    app: a.app || null, device: a.device || 'iPhone 16', lines: [], draft: '', busy: false, server: null, exitCode: null,
+  };
+  S.panes[p.id] = p;
+  return p;
+}
+function setState(p, state, extra = {}) {
+  Object.assign(p, extra, { state });
+  if (state !== 'starting') { p.waiters.splice(0).forEach(fn => fn()); }
+  render();
+}
+const settled = p => p.state !== 'starting' ? Promise.resolve() : new Promise(r => p.waiters.push(r));
+function later(p, ms, fn) { const g = p.gen; setTimeout(() => { if (p.gen === g && S.panes[p.id] === p) fn(); }, ms); }
+
+function start(p) {
+  p.gen++;
+  stopServer(p);
+  p.error = null; p.exitCode = null;
+  setState(p, 'starting');
+  if (p.type === 'term') {
+    p.lines = [];
+    later(p, 150, () => { setState(p, 'running'); if (p.cmd) runTerm(p, p.cmd); });
+  } else if (p.type === 'web') {
+    later(p, 400, () => setState(p, 'running'));
+  } else if (p.type === 'ios') {
+    if (!DEVICES.includes(p.device)) {
+      later(p, 600, () => setState(p, 'failed', { error: `Unknown device "${p.device}".\nAvailable: ${DEVICES.join(', ')}` }));
+    } else {
+      later(p, 1800, () => setState(p, 'running'));
+    }
+  }
+}
+function kill(p) {
+  p.gen++;
+  stopServer(p);
+  p.waiters.splice(0).forEach(fn => fn());
+}
+
+// --- simulated terminal ----------------------------------------------------
+const prompt = p => `${p.cwd} % `;
+function termPrint(p, text, cls = '') { p.lines.push({ text, cls }); if (p.lines.length > 400) p.lines.shift(); }
+function runTerm(p, line) {
+  termPrint(p, prompt(p) + line, 'cmd');
+  const [c, ...rest] = line.trim().split(/\s+/);
+  const arg = rest.join(' ');
+  if (!c) return render();
+  if (c === 'clear') p.lines = [];
+  else if (c === 'echo') termPrint(p, arg);
+  else if (c === 'pwd') termPrint(p, p.cwd);
+  else if (c === 'cd') p.cwd = arg || '~';
+  else if (c === 'ls') termPrint(p, 'README.md  build  node_modules  package.json  src');
+  else if (c === 'help') termPrint(p, 'simulated shell: echo, ls, pwd, cd, clear, npm run dev (ctrl+c stops), exit [code]');
+  else if (c === 'exit') { setState(p, 'exited', { exitCode: Number(rest[0]) || 0 }); return; }
+  else if (line.trim() === 'npm run dev' || line.trim() === 'npm start') { startServer(p); }
+  else termPrint(p, `zsh: command not found: ${c}`, 'err');
+  render();
+}
+function startServer(p) {
+  p.busy = true;
+  const host = 'localhost:3000';
+  const steps = [[0, '> myapp@1.0.0 dev'], [0, '> vite --port 3000'], [500, ''], [400, '  VITE v6.0.0  ready in 312 ms', 'ok'], [0, ''], [0, '  ➜  Local:   http://localhost:3000/']];
+  let t = 0;
+  steps.forEach(([d, txt, cls], i) => {
+    t += d;
+    later(p, t, () => {
+      if (!p.busy) return;
+      termPrint(p, txt, cls);
+      if (i === steps.length - 1) { S.servers[host] = p.id; p.server = host; }
+      render();
+    });
+  });
+}
+function stopServer(p) {
+  if (p.server) { delete S.servers[p.server]; p.server = null; }
+  p.busy = false;
+}
+function interrupt(p) {
+  if (!p.busy) { termPrint(p, prompt(p) + '^C'); render(); return; }
+  termPrint(p, '^C');
+  stopServer(p);
+  render();
+}
+
+// --- web helpers -----------------------------------------------------------
+function normUrl(u) { return /^[a-z]+:\/\//i.test(u) ? u : 'http://' + u; }
+function hostOf(u) { try { return new URL(u).host; } catch { return u; } }
+const isLocal = u => /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(hostOf(u));
+
+function summary(p) {
+  const s = { id: p.id, name: p.name, type: p.type, state: p.state };
+  if (p.type === 'term') Object.assign(s, { cmd: p.cmd, cwd: p.cwd });
+  if (p.type === 'web') s.url = p.url;
+  if (p.type === 'ios') Object.assign(s, { app: p.app, device: p.device });
+  if (p.exitCode != null) s.exitCode = p.exitCode;
+  if (p.error) s.error = p.error;
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// kmux core: handles control-protocol requests (see docs/kmux-spec.md §8)
+// ---------------------------------------------------------------------------
+async function handle(req) {
+  const { id, cmd, args = {} } = req;
+  const ok = x => ({ id, ok: true, ...x });
+  try {
+    switch (cmd) {
+      case 'capabilities':
+        return ok({ mux: 'kmux', paneTypes: ['term', 'web', 'ios'], features: ['fractionalSizing', 'namedPanes', 'tabs', 'zoom', 'lifecycle'] });
+
+      case 'open': {
+        const { type } = args;
+        if (!['term', 'web', 'ios'].includes(type)) throw kerr('bad_request', `unknown pane type "${type}" (term, web or ios)`);
+        if (args.name && resolvePane(args.name)) throw kerr('name_taken', `a pane named "${args.name}" already exists`);
+        if (args.split && !['right', 'down', 'auto'].includes(args.split)) throw kerr('bad_request', 'split must be right, down or auto');
+        const size = args.size == null ? 0.5 : frac(args.size);
+        if (!(size > 0 && size < 1)) throw kerr('bad_request', 'size must be a fraction between 0 and 1');
+        if (type === 'web' && !args.url) throw kerr('bad_request', 'web panes need a url');
+        if (type === 'ios' && !args.app) throw kerr('bad_request', 'ios panes need an app');
+        const p = createPane(type, args);
+        place(p.id, { split: args.split || 'auto', size, tab: !!args.tab });
+        S.focused = p.id;
+        start(p);
+        if (args.wait === false) return ok({ pane: summary(p) });
+        await settled(p);
+        if (p.state === 'failed') throw kerr('start_failed', p.error);
+        return ok({ pane: summary(p) });
+      }
+
+      case 'arrange': {
+        const used = [];
+        const build = n => {
+          if (n && n.pane != null) {
+            const p = need(n.pane);
+            if (used.includes(p.id)) throw kerr('layout_invalid', `"${n.pane}" appears more than once`);
+            used.push(p.id);
+            return { t: 'pane', id: p.id };
+          }
+          if (!n || !['row', 'column'].includes(n.split) || !Array.isArray(n.children) || !n.children.length)
+            throw kerr('layout_invalid', 'malformed layout tree');
+          const sizes = n.children.map(c => c.size == null ? null : frac(c.size));
+          if (sizes.some(s => s != null && !(s > 0 && s <= 1))) throw kerr('layout_invalid', 'sizes must be fractions between 0 and 1');
+          const given = sizes.reduce((a, s) => a + (s ?? 0), 0);
+          const unsized = sizes.filter(s => s == null).length;
+          if (given > 1 + 1e-9) throw kerr('layout_invalid', `sizes in a ${n.split} add up to ${fmtFrac(given)}, more than 1`);
+          if (unsized && given >= 1 - 1e-9) throw kerr('layout_invalid', `no space left for the unsized panes in a ${n.split}`);
+          const fill = unsized ? (1 - given) / unsized : 0;
+          const scale = unsized ? 1 : 1 / given;
+          return { t: 'split', dir: n.split, kids: n.children.map((c, i) => ({ node: build(c), size: (sizes[i] ?? fill) * scale })) };
+        };
+        const root = normalize(build(args.layout)); // validate everything before changing anything
+        const t = activeTab();
+        used.forEach(detach);
+        const leftovers = paneIds(t.root);
+        t.root = root;
+        if (leftovers.length) {
+          const nt = makeTab(false);
+          nt.title = 'unarranged';
+          nt.root = normalize({ t: 'split', dir: 'row', kids: leftovers.map(id => ({ node: { t: 'pane', id }, size: 1 / leftovers.length })) });
+        }
+        S.zoomed = null;
+        dropEmptyTabs();
+        render();
+        return ok({ layout: toTree(t.root) });
+      }
+
+      case 'resize': {
+        const p = need(args.pane);
+        const s = frac(args.size);
+        if (!(s > 0 && s < 1)) throw kerr('bad_request', 'size must be a fraction between 0 and 1');
+        const f = findPane(p.id);
+        if (!f.parent) throw kerr('bad_request', `${label(p)} fills its tab, so there is nothing to resize against`);
+        const old = f.parent.kids[f.index].size;
+        f.parent.kids.forEach((k, i) => { if (i !== f.index) k.size = k.size * (1 - s) / (1 - old); });
+        f.parent.kids[f.index].size = s;
+        render();
+        return ok({ layout: toTree(f.tab.root) });
+      }
+
+      case 'list':
+        return ok({
+          windows: [{ id: 'w1', tabs: S.tabs.map(t => ({ id: t.id, title: tabTitle(t), active: t.id === S.active, layout: toTree(t.root) })) }],
+          panes: Object.values(S.panes).map(summary),
+        });
+
+      case 'focus': {
+        const p = need(args.pane);
+        S.active = findPane(p.id).tab.id;
+        if (S.zoomed && S.zoomed !== p.id) S.zoomed = null;
+        S.focused = p.id;
+        render();
+        return ok({});
+      }
+
+      case 'zoom': {
+        const p = need(args.pane);
+        S.active = findPane(p.id).tab.id;
+        S.focused = p.id;
+        S.zoomed = S.zoomed === p.id ? null : p.id;
+        render();
+        return ok({ zoomed: !!S.zoomed });
+      }
+
+      case 'close': {
+        const p = need(args.pane);
+        kill(p);
+        detach(p.id);
+        delete S.panes[p.id];
+        p.state = 'closed';
+        dropEmptyTabs();
+        if (S.focused === p.id) S.focused = paneIds(activeTab().root)[0] || null;
+        render();
+        return ok({});
+      }
+
+      case 'restart': {
+        const p = need(args.pane);
+        start(p);
+        await settled(p);
+        if (p.state === 'failed') throw kerr('start_failed', p.error);
+        return ok({ pane: summary(p) });
+      }
+
+      case 'send': {
+        const p = need(args.pane);
+        if (p.type !== 'term') throw kerr('wrong_type', `${label(p)} is a ${p.type} pane; send only works on term panes`);
+        if (p.state !== 'running') throw kerr('bad_request', `${label(p)} is ${p.state}`);
+        if (p.busy) { termPrint(p, args.text ?? ''); render(); } else runTerm(p, args.text ?? '');
+        return ok({});
+      }
+
+      case 'navigate': {
+        const p = need(args.pane);
+        if (p.type !== 'web') throw kerr('wrong_type', `${label(p)} is a ${p.type} pane; navigate only works on web panes`);
+        if (!args.url) throw kerr('bad_request', 'missing url');
+        p.url = normUrl(args.url);
+        p.urlDraft = null;
+        start(p);
+        await settled(p);
+        return ok({ pane: summary(p) });
+      }
+
+      default:
+        throw kerr('bad_request', `unknown command "${cmd}"`);
+    }
+  } catch (e) {
+    if (e instanceof KErr) return { id, ok: false, error: { code: e.code, message: e.message } };
+    throw e;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// kanna side: command line -> protocol request (see docs/kanna-spec.md §5–6)
+// ---------------------------------------------------------------------------
+const usage = msg => Object.assign(new Error(msg), { usage: true });
+
+function tokenize(line) {
+  const out = [], re = /"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g;
+  let m;
+  while ((m = re.exec(line))) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
+}
+
+function parseLayout(src) {
+  const toks = [];
+  for (let i = 0; i < src.length;) {
+    const c = src[i], rest = src.slice(i);
+    let m;
+    if (/\s/.test(c)) { i++; continue; }
+    if ('|/()'.includes(c)) { toks.push({ t: c }); i++; continue; }
+    if (c === ':') {
+      if (!(m = /^:(\d*\.?\d+(?:\/\d*\.?\d+)?%?)/.exec(rest))) throw usage(`expected a size like 1/3 after ":" (position ${i + 1})`);
+      toks.push({ t: 'size', v: m[1] }); i += m[0].length; continue;
+    }
+    if (!(m = /^[A-Za-z0-9_.-]+/.exec(rest))) throw usage(`unexpected "${c}" at position ${i + 1}`);
+    toks.push({ t: 'name', v: m[0] }); i += m[0].length;
+  }
+  let p = 0;
+  const peek = () => toks[p];
+  // "/" binds tighter than "|"
+  const row = () => { const k = [col()]; while (peek()?.t === '|') { p++; k.push(col()); } return k.length === 1 ? k[0] : { split: 'row', children: k }; };
+  const col = () => { const k = [atom()]; while (peek()?.t === '/') { p++; k.push(atom()); } return k.length === 1 ? k[0] : { split: 'column', children: k }; };
+  const atom = () => {
+    const tk = peek();
+    let n;
+    if (!tk) throw usage('layout ended too early');
+    if (tk.t === '(') { p++; n = row(); if (peek()?.t !== ')') throw usage('missing ")"'); p++; }
+    else if (tk.t === 'name') { p++; n = { pane: tk.v }; }
+    else throw usage(`unexpected "${tk.t === 'size' ? ':' + tk.v : tk.t}"`);
+    if (peek()?.t === 'size') n = { ...n, size: toks[p++].v };
+    return n;
+  };
+  const tree = row();
+  if (p < toks.length) throw usage(`unexpected "${toks[p].v ?? toks[p].t}"`);
+  if (tree.pane != null) return { split: 'row', children: [{ pane: tree.pane }] };
+  delete tree.size;
+  return tree;
+}
+
+function toRequest(line) {
+  line = line.trim();
+  if (line.startsWith('{')) { try { return JSON.parse(line); } catch (e) { throw usage('invalid JSON: ' + e.message); } }
+  const tk = tokenize(line);
+  if (tk[0] === 'kanna') tk.shift();
+  const [cmd, ...rest] = tk;
+  const flags = {}, pos = [];
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (!a.startsWith('--')) { pos.push(a); continue; }
+    const k = a.slice(2);
+    if (['tab', 'no-wait', 'json'].includes(k)) flags[k] = true;
+    else if (k === 'split') flags.split = ['right', 'down', 'auto'].includes(rest[i + 1]) ? rest[++i] : 'auto';
+    else if (['name', 'cmd', 'cwd', 'app', 'device', 'size', 'mux'].includes(k)) {
+      if (i + 1 >= rest.length) throw usage(`--${k} needs a value`);
+      flags[k] = rest[++i];
+    } else throw usage(`unknown flag --${k}`);
+  }
+  if (flags.mux && flags.mux !== 'kmux') throw usage(`this mockup only models kmux (got --mux ${flags.mux})`);
+  const needPos = (n, what) => { if (pos.length < n) throw usage(`${cmd} needs ${what}`); };
+  switch (cmd) {
+    case 'open': {
+      needPos(1, 'a pane type: term, web or ios');
+      const args = { type: pos[0] };
+      if (pos[0] === 'web') { needPos(2, 'a URL'); args.url = pos[1]; }
+      for (const k of ['name', 'cmd', 'cwd', 'app', 'device', 'size']) if (flags[k] != null) args[k] = flags[k];
+      args.split = flags.split || 'auto';
+      if (flags.tab) { args.tab = true; delete args.split; }
+      if (flags['no-wait']) args.wait = false;
+      return { cmd: 'open', args };
+    }
+    case 'arrange': needPos(1, 'a layout, e.g. \'a | (b / c)\''); return { cmd, args: { layout: parseLayout(pos.join(' ')) } };
+    case 'resize': needPos(2, 'a pane and a size'); return { cmd, args: { pane: pos[0], size: pos[1] } };
+    case 'list': case 'capabilities': return { cmd, args: {} };
+    case 'mux': return { cmd: 'capabilities', args: {} };
+    case 'focus': case 'close': case 'restart': case 'zoom': needPos(1, 'a pane'); return { cmd, args: { pane: pos[0] } };
+    case 'send': needPos(2, 'a pane and text'); return { cmd, args: { pane: pos[0], text: pos.slice(1).join(' ') } };
+    case 'navigate': needPos(2, 'a pane and a URL'); return { cmd, args: { pane: pos[0], url: pos[1] } };
+    case undefined: throw usage('empty command');
+    default: throw usage(`unknown command "${cmd}" (type help)`);
+  }
+}
+
+const EXIT = { bad_request: 2, layout_invalid: 2, not_found: 4, name_taken: 1, wrong_type: 1, start_failed: 1 };
+const HELP = `commands (the "kanna" prefix is optional; raw JSON requests work too):
+  open term [--cmd CMD] [--cwd DIR]        open web URL        open ios --app APP [--device NAME]
+      shared: --name N  --split [right|down]  --size 1/3  --tab  --no-wait
+  arrange 'a:2/3 | (b / c:1/3)'            "|" side by side, "/" stacked, ( ) group, :size
+  resize PANE 1/3    list    focus PANE    zoom PANE    close PANE    restart PANE
+  send PANE TEXT     navigate PANE URL     mux`;
+
+// ---------------------------------------------------------------------------
+// Console
+// ---------------------------------------------------------------------------
+function log(kind, text) {
+  const el = $('#log');
+  el.append(h('div', { class: 'l-' + kind }, text));
+  el.scrollTop = el.scrollHeight;
+}
+async function send(req, source) {
+  req = { id: String(++S.n.req), ...req };
+  log('req', `${source === 'ui' ? '(ui) ' : ''}→ ${JSON.stringify(req)}`);
+  const res = await handle(req);
+  log(res.ok ? 'res' : 'err', `← ${JSON.stringify(res)}`);
+  if (source !== 'ui') log('exit', `exit ${res.ok ? 0 : EXIT[res.error.code] ?? 1}`);
+  return res;
+}
+const ui = req => send(req, 'ui');
+
+async function runLine(line) {
+  if (!line.trim()) return;
+  log('in', `$ kanna ${line.replace(/^kanna\s+/, '')}`);
+  if (line.trim() === 'help') { log('info', HELP); return; }
+  let req;
+  try { req = toRequest(line); }
+  catch (e) { log('err', `kanna: ${e.message}`); log('exit', 'exit 2'); return; }
+  await send(req, 'kanna');
+}
+
+const history = [];
+let hIdx = 0;
+$('#cmdform').addEventListener('submit', e => {
+  e.preventDefault();
+  const v = $('#cmd').value;
+  $('#cmd').value = '';
+  if (v.trim()) { history.push(v); hIdx = history.length; }
+  runLine(v);
+});
+$('#cmd').addEventListener('keydown', e => {
+  if (e.key === 'ArrowUp' && hIdx > 0) { $('#cmd').value = history[--hIdx]; e.preventDefault(); }
+  if (e.key === 'ArrowDown') { hIdx = Math.min(history.length, hIdx + 1); $('#cmd').value = history[hIdx] ?? ''; e.preventDefault(); }
+});
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function render() { renderTabs(); renderStage(); }
+
+function renderTabs() {
+  const el = $('#tabs');
+  el.innerHTML = '';
+  S.tabs.forEach(t => {
+    el.append(h('button', {
+      class: 'tab' + (t.id === S.active ? ' active' : ''),
+      onclick: () => { S.active = t.id; S.zoomed = null; render(); },
+    }, tabTitle(t), h('span', {
+      class: 'x', title: 'Close tab',
+      onclick: async e => { e.stopPropagation(); for (const id of paneIds(t.root)) await ui({ cmd: 'close', args: { pane: id } }); S.tabs = S.tabs.filter(x => x !== t || S.tabs.length === 1); if (!tabById(S.active)) S.active = S.tabs[0].id; render(); },
+    }, '×')));
+  });
+  el.append(h('button', { class: 'tab-add', title: 'New tab', onclick: () => ui({ cmd: 'open', args: { type: 'term', tab: true } }) }, '+'));
+}
+
+function renderStage() {
+  const stage = $('#stage');
+  const a = document.activeElement;
+  const keep = a && a.dataset && a.dataset.keep;
+  stage.innerHTML = '';
+  const t = activeTab();
+  if (!t.root) {
+    stage.append(h('div', { class: 'empty' }, 'This tab is empty.', h('div', {},
+      ['term', 'web', 'ios'].map(type => h('button', { onclick: () => ui({ cmd: 'open', args: defaultsFor(type) }) }, 'open ' + type)))));
+    return;
+  }
+  const root = S.zoomed && locate(t.root, S.zoomed) ? { t: 'pane', id: S.zoomed } : t.root;
+  stage.append(renderNode(root, 1));
+  stage.querySelectorAll('.term-body').forEach(b => { b.scrollTop = b.scrollHeight; });
+  if (keep) {
+    const el = stage.querySelector(`[data-keep="${keep}"]`);
+    if (el) { el.focus(); const n = el.value.length; el.setSelectionRange(n, n); }
+  }
+}
+
+function renderNode(node, share) {
+  if (node.t === 'pane') return renderPane(S.panes[node.id], share);
+  const el = h('div', { class: `split ${node.dir}` });
+  node.kids.forEach((k, i) => {
+    if (i > 0) el.append(divider(node, i - 1));
+    const c = renderNode(k.node, k.size);
+    c.style.flex = `${k.size} ${k.size} 0px`;
+    el.append(c);
+  });
+  return el;
+}
+
+function divider(split, i) {
+  const d = h('div', { class: 'divider' });
+  d.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    d.setPointerCapture(e.pointerId);
+    d.classList.add('dragging');
+    const a = d.previousElementSibling, b = d.nextElementSibling;
+    const row = split.dir === 'row';
+    const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    const start = row ? ra.left : ra.top, span = (row ? rb.right : rb.bottom) - start;
+    const pair = split.kids[i].size + split.kids[i + 1].size;
+    const min = Math.min(MIN_PX, span / 2);
+    const move = ev => {
+      const pos = Math.max(min, Math.min(span - min, (row ? ev.clientX : ev.clientY) - start));
+      let s = pair * pos / span;
+      const snap = NICE.find(f => Math.abs(s - f) < 0.015 && f < pair);
+      if (snap) s = snap;
+      split.kids[i].size = s;
+      split.kids[i + 1].size = pair - s;
+      [[a, s], [b, pair - s]].forEach(([el, v]) => {
+        el.style.flex = `${v} ${v} 0px`;
+        const lbl = el.querySelector(':scope > .pane-head .share');
+        if (lbl) lbl.textContent = fmtFrac(v);
+      });
+    };
+    const up = () => {
+      d.removeEventListener('pointermove', move);
+      d.removeEventListener('pointerup', up);
+      render();
+    };
+    d.addEventListener('pointermove', move);
+    d.addEventListener('pointerup', up);
+  });
+  return d;
+}
+
+const ICON = { term: '❯_', web: '◎', ios: '▯' };
+function defaultsFor(type) {
+  if (type === 'web') return { type, url: 'http://localhost:3000' };
+  if (type === 'ios') return { type, app: 'MyApp.app', device: 'iPhone 16' };
+  return { type };
+}
+
+function renderPane(p, share) {
+  const el = h('div', {
+    class: `pane${p.id === S.focused ? ' focused' : ''}`, dataset: { id: p.id },
+    onmousedown: () => {
+      if (S.focused === p.id) return;
+      S.focused = p.id;
+      document.querySelectorAll('.pane').forEach(x => x.classList.toggle('focused', x.dataset.id === p.id));
+    },
+  });
+  const btn = (txt, title, fn) => h('button', { title, onclick: e => { e.stopPropagation(); fn(e); } }, txt);
+  const splitMenu = dir => e => {
+    S.focused = p.id;
+    showMenu(e.currentTarget, ['term', 'web', 'ios'].map(type => [`${type} pane`, () => ui({ cmd: 'open', args: { ...defaultsFor(type), split: dir } })]));
+  };
+  el.append(h('div', { class: 'pane-head' },
+    h('span', { class: 'meta' }, ICON[p.type]),
+    h('span', { class: 'name' }, p.name || p.id),
+    p.name ? h('span', { class: 'meta' }, p.id) : null,
+    h('span', { class: `badge ${p.state}` }, p.state),
+    share < 1 - 1e-6 ? h('span', { class: 'share', title: 'Share of its split' }, fmtFrac(share)) : null,
+    h('span', { class: 'spacer' }),
+    btn('⇥', 'Split right', splitMenu('right')),
+    btn('⤓', 'Split down', splitMenu('down')),
+    btn(S.zoomed === p.id ? '⤡' : '⤢', 'Zoom', () => ui({ cmd: 'zoom', args: { pane: p.id } })),
+    btn('↻', 'Restart', () => ui({ cmd: 'restart', args: { pane: p.id } })),
+    btn('✕', 'Close', () => ui({ cmd: 'close', args: { pane: p.id } })),
+  ));
+  const body = h('div', { class: 'pane-body' });
+  if (p.state === 'failed') {
+    body.append(h('div', { class: 'fail' }, h('b', {}, 'Failed to start'), h('pre', {}, p.error),
+      h('button', { onclick: () => ui({ cmd: 'restart', args: { pane: p.id } }) }, 'Restart')));
+  } else body.append({ term: termView, web: webView, ios: iosView }[p.type](p));
+  el.append(body);
+  return el;
+}
+
+function termView(p) {
+  const wrap = h('div', { class: 'term' });
+  const lines = h('div', { class: 'term-body' }, p.lines.map(l => h('div', { class: 'term-line ' + l.cls }, l.text || ' ')));
+  if (p.state === 'starting') lines.append(h('div', { class: 'term-line' }, 'starting shell…'));
+  wrap.append(lines);
+  if (p.state === 'exited') {
+    wrap.append(h('div', { class: 'banner' }, `[process exited with code ${p.exitCode}] — ↻ to restart, ✕ to close`));
+  } else if (p.state === 'running') {
+    const input = h('input', { value: p.draft, dataset: { keep: 'term:' + p.id }, spellcheck: 'false' });
+    input.addEventListener('input', () => { p.draft = input.value; });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const v = input.value;
+        input.value = ''; p.draft = '';
+        if (p.busy) { termPrint(p, v); render(); } else runTerm(p, v);
+      } else if (e.key === 'c' && e.ctrlKey) { e.preventDefault(); interrupt(p); }
+    });
+    wrap.append(h('div', { class: 'term-input' }, h('span', {}, p.busy ? '' : prompt(p)), input));
+    lines.addEventListener('click', () => input.focus());
+  }
+  return wrap;
+}
+
+function webView(p) {
+  const bar = h('input', { value: p.urlDraft ?? p.url, dataset: { keep: 'url:' + p.id }, spellcheck: 'false' });
+  bar.addEventListener('input', () => { p.urlDraft = bar.value; });
+  bar.addEventListener('keydown', e => { if (e.key === 'Enter') ui({ cmd: 'navigate', args: { pane: p.id, url: bar.value } }); });
+  const view = h('div', { class: 'web-view' });
+  const host = hostOf(p.url);
+  if (p.state === 'starting') view.append(h('div', { class: 'web-wait' }, h('div', { class: 'spinner' }), `Loading ${host}…`));
+  else if (isLocal(p.url) && !S.servers[host]) {
+    view.append(h('div', { class: 'web-wait' }, h('div', { class: 'spinner' }), h('b', {}, `Waiting for ${host}`),
+      'kmux keeps retrying until the server responds.', h('small', {}, 'Try: npm run dev in a terminal pane')));
+  } else {
+    const local = isLocal(p.url);
+    view.append(
+      h('div', { class: 'site-nav' }, h('span', {}, local ? 'MyApp' : host), h('span', { style: 'font-weight:400;color:#6b7280' }, 'Docs  Pricing  Sign in')),
+      h('div', { class: 'site-hero' }, h('h1', {}, local ? `Hello from ${host}` : host),
+        h('p', {}, local ? 'This stands in for your local web app.' : `Mock page for ${p.url}. The real kmux embeds a full web view.`)),
+      h('div', { class: 'site-cards' }, h('div'), h('div'), h('div')));
+  }
+  return h('div', { class: 'web' },
+    h('div', { class: 'web-bar' }, h('span', { class: 'meta' }, '‹ ›'),
+      h('button', { title: 'Reload', onclick: () => ui({ cmd: 'restart', args: { pane: p.id } }) }, '↻'), bar),
+    view);
+}
+
+function iosView(p) {
+  const appName = (p.app || '').split('/').pop().replace(/\.app$/, '') || 'App';
+  let screen;
+  if (p.state === 'starting') {
+    screen = h('div', { class: 'screen boot' }, h('div', { class: 'spinner' }), `Booting ${p.device}…`);
+  } else {
+    screen = h('div', { class: 'screen' },
+      h('div', { class: 'status' }, h('span', {}, '9:41'), h('span', {}, '▂▄▆ ▮')),
+      h('div', { class: 'app-title' }, appName),
+      ['Inbox', 'Projects', 'Settings'].map(t => h('div', { class: 'app-row' }, t)),
+      h('div', { class: 'app-btn' }, 'Continue'));
+    screen.addEventListener('click', e => {
+      const r = screen.getBoundingClientRect();
+      const dot = h('span', { class: 'ripple', style: `left:${e.clientX - r.left}px;top:${e.clientY - r.top}px` });
+      screen.append(dot);
+      setTimeout(() => dot.remove(), 500);
+    });
+  }
+  return h('div', { class: 'ios' }, h('div', { class: 'phone' }, h('div', { class: 'notch' }), screen),
+    h('div', { class: 'device-label' }, `${p.device} · ${appName}`));
+}
+
+let menuEl = null;
+function showMenu(anchor, items) {
+  hideMenu();
+  const r = anchor.getBoundingClientRect();
+  menuEl = h('div', { class: 'menu' }, items.map(([txt, fn]) => h('button', { onclick: () => { hideMenu(); fn(); } }, txt)));
+  document.body.append(menuEl);
+  menuEl.style.top = `${r.bottom + 4}px`;
+  menuEl.style.left = `${Math.min(r.left, innerWidth - menuEl.offsetWidth - 8)}px`;
+}
+function hideMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+document.addEventListener('mousedown', e => { if (menuEl && !menuEl.contains(e.target)) hideMenu(); });
+
+// ---------------------------------------------------------------------------
+// Boot, reset, demo
+// ---------------------------------------------------------------------------
+function reset(withShell = true) {
+  S && Object.values(S.panes).forEach(kill);
+  S = freshState();
+  makeTab();
+  $('#log').innerHTML = '';
+  if (withShell) {
+    const p = createPane('term', {});
+    place(p.id, {});
+    S.focused = p.id;
+    start(p);
+  }
+  render();
+  log('info', 'kmux mockup ready. Type help, or press "Run demo".');
+}
+
+const DEMO = [
+  'open term --name server --cmd "npm run dev"',
+  'open web http://localhost:3000 --name site --split right --size 1/3',
+  'open ios --name phone --app ./build/MyApp.app --split down --size 1/3',
+  'list',
+  "arrange 'site:1/4 | server:1/2 | phone'",
+  'resize server 1/3',
+];
+let demoRunning = false;
+$('#demo').addEventListener('click', async () => {
+  if (demoRunning) return;
+  demoRunning = true;
+  reset(false);
+  for (const line of DEMO) {
+    await new Promise(r => setTimeout(r, 900));
+    await runLine(line);
+  }
+  demoRunning = false;
+});
+$('#reset').addEventListener('click', () => { if (!demoRunning) reset(); });
+
+reset();
+</script>
+</body>
+</html>
