@@ -17,6 +17,7 @@ final class GhosttyRuntime {
     private var timer: Timer?
     var onChildExited: ((TerminalSurfaceView, Int) -> Void)?
     var onClose: ((TerminalSurfaceView) -> Void)?
+    var onMuxAction: ((TerminalSurfaceView, ghostty_action_s) -> Bool)?
 
     init() throws {
         guard let cfg = ghostty_config_new() else { throw Self.error("ghostty_config_new failed") }
@@ -28,9 +29,19 @@ final class GhosttyRuntime {
         runtime.supports_selection_clipboard = true
         runtime.wakeup_cb = { _ in DispatchQueue.main.async { MainActor.assumeIsolated { GhosttyRuntime.shared?.tick() } } }
         runtime.action_cb = { _, target, action in
-            guard target.tag == GHOSTTY_TARGET_SURFACE, action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED,
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
                   let userdata = target.target.surface.flatMap({ ghostty_surface_userdata($0) }) else { return false }
-            let address = UInt(bitPattern: userdata), code = Int(action.action.child_exited.exit_code)
+            let address = UInt(bitPattern: userdata)
+            if action.tag != GHOSTTY_ACTION_SHOW_CHILD_EXITED {
+                // Mux actions (splits, tabs, windows) from the user's Ghostty
+                // keybindings, when no menu item took the key first.
+                guard Thread.isMainThread else { return false }
+                return MainActor.assumeIsolated {
+                    guard let runtime = GhosttyRuntime.shared, let view = runtime.live[address] else { return false }
+                    return runtime.onMuxAction?(view, action) ?? false
+                }
+            }
+            let code = Int(action.action.child_exited.exit_code)
             let report: @Sendable () -> Void = { MainActor.assumeIsolated { GhosttyRuntime.shared?.childExited(address, code) } }
             if Thread.isMainThread { report() } else { DispatchQueue.main.async { report() } }
             return true
@@ -93,6 +104,11 @@ final class GhosttyRuntime {
         live[view.address] = view
         view.surface = surface
         return true
+    }
+
+    /// The menu shortcut the user's Ghostty config binds to `action`.
+    func shortcut(for action: String) -> Shortcut? {
+        Shortcut(ghostty_config_trigger(config, action, UInt(action.utf8.count)))
     }
 
     func detach(_ view: TerminalSurfaceView) {

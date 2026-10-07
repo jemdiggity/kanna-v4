@@ -237,7 +237,7 @@ Each request is `{ id, cmd, args }`. Each reply is `{ id, ok: true, … }` or `{
 | `move` | `pane`, plus one of: `to` + `side` (`left` / `right` / `top` / `bottom` / `swap`); `tab` (ID, or `new` with optional `window`); `window` (ID or `new`) | See [section 6](#6-moving-windows-tabs-and-panes). Moving to a window adds the pane to that window's active tab. |
 | `move-tab` | `tab`, `window?`, `index?` | Reorders a tab or moves it to another window, or to a new one. |
 | `resize` | `pane`, `size` | Fails if the pane fills its tab. |
-| `list` | — | Windows (with the key window marked), their tabs and layout trees, and all panes. |
+| `list` | — | Windows (with the key window marked, and each window's focused and zoomed pane), their tabs and layout trees, and all panes. |
 | `focus` | one of `pane`, `tab`, `window` | Brings it to the front and makes its window key. |
 | `zoom` | `pane` | Toggles zoom. |
 | `close` | one of `pane`, `tab`, `window` | Closes it and everything inside it. |

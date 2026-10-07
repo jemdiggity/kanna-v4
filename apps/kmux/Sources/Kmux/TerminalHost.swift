@@ -43,7 +43,7 @@ final class TerminalHost: PaneHost {
         view.removeFromSuperview()
     }
 
-    private func paneID(of terminal: TerminalSurfaceView) -> String? {
+    func paneID(of terminal: TerminalSurfaceView) -> String? {
         views.first { $0.value.content === terminal }?.key
     }
 }

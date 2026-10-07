@@ -77,10 +77,13 @@ public final class Core {
     private func run(_ cmd: String, _ args: JSON) async throws -> [String: JSON] {
         switch cmd {
         case "capabilities":
-            return ["mux": "kmux", "paneTypes": ["term"], "features": ["windows", "tabs", "fractionalSizing", "namedPanes", "lifecycle"]]
+            return ["mux": "kmux", "paneTypes": ["term"], "features": ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle"]]
         case "open": return try await open(args)
         case "list": return list()
         case "close": return try close(args)
+        case "focus": return try focus(args)
+        case "zoom": return try zoom(args)
+        case "restart": return try await restart(args)
         default:
             guard let extra = extraCommands[cmd] else { throw KmuxError("bad_request", "unknown command \"\(cmd)\"") }
             return try await extra(args)
@@ -154,6 +157,8 @@ public final class Core {
             "windows": .array(model.windows.map { window in
                 [
                     "id": .string(window.id), "key": .bool(window.id == model.key),
+                    "focused": window.focused.map { .string(model.panes[$0]?.name ?? $0) } ?? nil,
+                    "zoomed": window.zoomed.map { .string(model.panes[$0]?.name ?? $0) } ?? nil,
                     "tabs": .array(window.tabs.map { tab in
                         ["id": .string(tab.id), "title": .string(model.title(of: tab)), "active": .bool(tab.id == window.active), "layout": model.tree(tab.root)]
                     }),
@@ -180,6 +185,75 @@ public final class Core {
         model.dropEmpty()
         onChange()
         return ["closed": .array(victims.map { .string($0.id) })]
+    }
+
+    private func focus(_ args: JSON) throws -> [String: JSON] {
+        if let ref = args["pane"]?.string {
+            focusPane(try needPane(ref))
+        } else if let ref = args["tab"]?.string {
+            guard let tab = model.tab(ref), let window = model.windows.first(where: { $0.tabs.contains { $0 === tab } }) else {
+                throw KmuxError("not_found", "no tab \"\(ref)\"")
+            }
+            let ids = Model.paneIDs(tab.root)
+            window.active = tab.id
+            window.zoomed = nil
+            window.focused = tab.lastFocus.flatMap { ids.contains($0) ? $0 : nil } ?? ids.first
+            model.key = window.id
+        } else if args["window"] != nil {
+            model.key = try targetWindow(args["window"]).id
+        } else {
+            throw KmuxError("bad_request", "focus needs a pane, tab or window")
+        }
+        onChange()
+        return ["window": model.key.map(JSON.string) ?? nil]
+    }
+
+    func focusPane(_ pane: Pane) {
+        guard let location = model.locate(pane.id) else { return }
+        let window = location.window
+        window.active = location.tab.id
+        if let zoomed = window.zoomed, zoomed != pane.id { window.zoomed = nil }
+        window.focused = pane.id
+        location.tab.lastFocus = pane.id
+        model.key = window.id
+    }
+
+    private func zoom(_ args: JSON) throws -> [String: JSON] {
+        let pane = try needPane(args["pane"]?.string)
+        guard let window = model.locate(pane.id)?.window else { throw KmuxError("not_found", "no pane \"\(pane.id)\"") }
+        let was = window.zoomed == pane.id
+        focusPane(pane)
+        window.zoomed = was ? nil : pane.id
+        onChange()
+        return ["zoomed": .bool(window.zoomed != nil)]
+    }
+
+    private func restart(_ args: JSON) async throws -> [String: JSON] {
+        let pane = try needPane(args["pane"]?.string)
+        host?.stop(pane)
+        pane.state = .starting
+        pane.exitCode = nil
+        pane.error = nil
+        onChange()
+        host?.start(pane)
+        await settled(pane)
+        if pane.state == .failed { throw KmuxError("start_failed", pane.error ?? "\(pane.label) failed to start") }
+        return ["pane": model.summary(pane)]
+    }
+
+    /// The pane `step` places after the focused one in reading order, wrapping.
+    public func cyclePane(in window: Window, by step: Int) -> String? {
+        let ids = Model.paneIDs(window.activeTab?.root)
+        guard !ids.isEmpty else { return nil }
+        let at = window.focused.flatMap { ids.firstIndex(of: $0) } ?? 0
+        return ids[((at + step) % ids.count + ids.count) % ids.count]
+    }
+
+    /// The tab `step` places after the active one, wrapping.
+    public func cycleTab(in window: Window, by step: Int) -> String? {
+        guard !window.tabs.isEmpty else { return nil }
+        let at = window.tabs.firstIndex { $0.id == window.active } ?? 0
+        return window.tabs[((at + step) % window.tabs.count + window.tabs.count) % window.tabs.count].id
     }
 
     /// Removes a pane from the layout and stops it. Callers run `dropEmpty`.

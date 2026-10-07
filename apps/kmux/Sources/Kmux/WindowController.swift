@@ -11,6 +11,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     private let stage = StageView()
     /// Redraws from the model; called when the window resizes.
     var relayout: (() -> Void)? { didSet { stage.onLayout = relayout } }
+    let tabBar = TabBar()
     var onCloseRequest: (() -> Void)?
     var onBecomeKey: (() -> Void)?
 
@@ -25,13 +26,23 @@ final class WindowController: NSObject, NSWindowDelegate {
         window.delegate = self
         stage.wantsLayer = true
         stage.layer?.backgroundColor = NSColor.separatorColor.cgColor
-        window.contentView = stage
+        let size = window.contentLayoutRect.size
+        let content = NSView(frame: NSRect(origin: .zero, size: size))
+        content.wantsLayer = true
+        tabBar.frame = NSRect(x: 0, y: size.height - TabBar.height, width: size.width, height: TabBar.height)
+        tabBar.autoresizingMask = [.width, .minYMargin]
+        stage.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height - TabBar.height)
+        stage.autoresizingMask = [.width, .height]
+        content.addSubview(stage)
+        content.addSubview(tabBar)
+        window.contentView = content
         if let previous { window.setFrameTopLeftPoint(window.cascadeTopLeft(from: previous.frame.origin + NSPoint(x: 0, y: previous.frame.height))) } else { window.center() }
     }
 
     func render(_ model: Model, _ host: TerminalHost) {
         guard let state = model.window(id), let tab = state.activeTab else { return }
-        window.title = model.title(of: tab)
+        window.title = "\(model.title(of: tab)) — \(id)"
+        tabBar.show(model, state)
         let shown = Set(Model.paneIDs(state.zoomed.map { Node.pane($0) } ?? tab.root))
         for case let view as PaneView in stage.subviews where !shown.contains(view.id) { view.removeFromSuperview() }
         place(state.zoomed.map { Node.pane($0) } ?? tab.root, in: stage.bounds, host)

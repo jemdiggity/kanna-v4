@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyKit
 import KmuxCore
 
 /// `debug.snapshot`: captures a window as the window server composited it and
@@ -16,7 +17,7 @@ enum Snapshot {
         return unsafeBitCast(symbol, to: CreateImage.self)
     }()
 
-    static func run(_ controller: WindowController, panes: [PaneView], path: String?) throws -> [String: JSON] {
+    static func run(_ controller: WindowController, panes: [PaneView], path: String?, marker: String?) throws -> [String: JSON] {
         let window = controller.window
         // kCGWindowListOptionIncludingWindow; boundsIgnoreFraming | bestResolution.
         guard let image = createImage?(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0 | 1 << 3)?.takeRetainedValue(),
@@ -41,10 +42,56 @@ enum Snapshot {
                 total += 1
                 if $0.distance(to: background) > 60 { inked += 1 }
             }
-            return ["id": .string(view.id), "background": .string(background.description), "ink": .number(total == 0 ? 0 : (Double(inked) / Double(total) * 10000).rounded() / 10000)]
+            var result: [String: JSON] = ["id": .string(view.id), "background": .string(background.description), "ink": .number(total == 0 ? 0 : (Double(inked) / Double(total) * 10000).rounded() / 10000)]
+            if let marker, let terminal = view.content as? TerminalSurfaceView, let surface = terminal.surface {
+                result["marker"] = markerCheck(marker, terminal, surface, rect: rect, scale: scale, reader: reader, background: background)
+            }
+            return .object(result)
         })
         return out
     }
+}
+
+/// Finds `marker` in the terminal's text and counts the marker's cells that
+/// hold glyph pixels. A cell needs a few pixels clearly unlike the
+/// background, so stale or uninitialised frames fail.
+@MainActor
+private func markerCheck(_ marker: String, _ terminal: TerminalSurfaceView, _ surface: ghostty_surface_t, rect: CGRect, scale: CGFloat,
+                         reader: Pixels, background: RGB) -> JSON {
+    let size = ghostty_surface_size(surface)
+    // "*" checks the first word of the first line on screen, for panes whose
+    // output isn't known in advance (a new shell).
+    let text = terminal.viewportText()
+    let marker = marker != "*" ? marker : text.split(separator: "\n").lazy.compactMap { $0.split(separator: " ").first.map(String.init) }.first ?? ""
+    guard !marker.isEmpty, let (row, column) = locate(marker, in: text, columns: Int(size.columns)) else { return ["found": false] }
+    let backing = terminal.window?.backingScaleFactor ?? 2
+    let cell = CGSize(width: CGFloat(size.cell_width_px) * scale / backing, height: CGFloat(size.cell_height_px) * scale / backing)
+    // Ghostty's default window padding is 2 points.
+    let pad = 2 * scale
+    var glyphs = 0, inked = 0
+    for (offset, character) in marker.enumerated() where !character.isWhitespace {
+        glyphs += 1
+        let cellRect = CGRect(x: rect.minX + pad + CGFloat(column + offset) * cell.width, y: rect.minY + pad + CGFloat(row) * cell.height,
+                              width: cell.width, height: cell.height).insetBy(dx: 1, dy: 1)
+        var count = 0
+        reader.forEach(in: cellRect) { if $0.distance(to: background) > 60 { count += 1 } }
+        if count >= 4 { inked += 1 }
+    }
+    return ["found": true, "text": .string(marker), "row": .number(Double(row)), "column": .number(Double(column)), "glyphs": .number(Double(glyphs)), "inked": .number(Double(inked))]
+}
+
+/// Screen row and column of `marker`; read text joins soft-wrapped rows.
+private func locate(_ marker: String, in text: String, columns: Int) -> (Int, Int)? {
+    let columns = max(1, columns)
+    var row = 0
+    for line in text.components(separatedBy: "\n") {
+        if let range = line.range(of: marker) {
+            let offset = line.distance(from: line.startIndex, to: range.lowerBound)
+            if offset % columns + marker.count <= columns { return (row + offset / columns, offset % columns) }
+        }
+        row += max(1, (line.count + columns - 1) / columns)
+    }
+    return nil
 }
 
 private struct RGB: Hashable, CustomStringConvertible {

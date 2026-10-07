@@ -54,7 +54,7 @@ func makeCore() -> (Core, FakeHost) {
         _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "c", "split": "right"]])
         let list = await core.handle(["cmd": "list"])
         let layout: JSON = ["split": "row", "children": [["pane": "a", "size": "2/3"], ["pane": "b", "size": "1/6"], ["pane": "c", "size": "1/6"]]]
-        #expect(list["windows"] == [["id": "w1", "key": true, "tabs": [["id": "t1", "title": "a · b · c", "active": true, "layout": layout]]]])
+        #expect(list["windows"] == [["id": "w1", "key": true, "focused": "c", "zoomed": nil, "tabs": [["id": "t1", "title": "a · b · c", "active": true, "layout": layout]]]])
     }
 
     @Test func autoSplitFollowsThePaneShape() async {
@@ -125,6 +125,40 @@ func makeCore() -> (Core, FakeHost) {
         #expect(core.model.tree(core.model.windows[0].tabs[0].root) == ["pane": "b"])
         #expect(core.model.windows[0].focused == "p2")
         #expect(host.stopped == ["p3", "p1"])
+    }
+
+    @Test func focusZoomAndCycling() async {
+        let (core, _) = makeCore()
+        for name in ["a", "b", "c"] { _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": .string(name), "split": "right"]]) }
+        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "t2", "tab": true]])
+        let window = core.model.windows[0]
+        #expect(window.tabs.count == 2)
+        #expect(core.cycleTab(in: window, by: 1) == "t1")
+
+        _ = await core.handle(["cmd": "focus", "args": ["tab": "t1"]])
+        #expect(window.active == "t1")
+        #expect(window.focused == "p3")
+        #expect(core.cyclePane(in: window, by: 1) == "p1")
+        #expect(core.cyclePane(in: window, by: -1) == "p2")
+
+        let zoomed = await core.handle(["cmd": "zoom", "args": ["pane": "a"]])
+        #expect(zoomed["zoomed"] == true)
+        #expect(window.zoomed == "p1")
+        _ = await core.handle(["cmd": "focus", "args": ["pane": "b"]])
+        #expect(window.zoomed == nil)
+        #expect(window.focused == "p2")
+
+        let missing = await core.handle(["cmd": "focus"])
+        #expect(missing["error"]?["code"] == "bad_request")
+    }
+
+    @Test func restartStopsAndStartsAgain() async {
+        let (core, host) = makeCore()
+        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "a"]])
+        core.update("p1", state: .exited, exitCode: 0)
+        let reply = await core.handle(["cmd": "restart", "args": ["pane": "a"]])
+        #expect(reply["pane"]?["state"] == "running")
+        #expect(host.stopped == ["p1"])
     }
 
     @Test func fractions() {

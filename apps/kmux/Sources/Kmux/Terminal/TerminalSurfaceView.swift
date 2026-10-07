@@ -9,6 +9,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     var onFocus: (() -> Void)?
     var surface: ghostty_surface_t? { didSet { if surface != nil { syncSurfaceGeometry(); updateVisibility() } } }
     var isHandlingInputEvent = false
+    /// Tests render hidden windows too (KMUX_IGNORE_OCCLUSION=1), so their
+    /// pixel checks don't depend on what else is on screen.
+    static let ignoresOcclusion = ProcessInfo.processInfo.environment["KMUX_IGNORE_OCCLUSION"] == "1"
     var address: UInt { UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()) }
     private var occlusionObserver: NSObjectProtocol?
     private var marked = NSMutableAttributedString()
@@ -53,7 +56,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// renderer from updating at all.
     private func updateVisibility() {
         guard let surface else { return }
-        ghostty_surface_set_occlusion(surface, window?.occlusionState.contains(.visible) ?? false)
+        let visible = window.map { Self.ignoresOcclusion || $0.occlusionState.contains(.visible) } ?? false
+        ghostty_surface_set_occlusion(surface, visible)
     }
 
     /// Content scale and pixel size, also for views created at a zero frame
@@ -156,6 +160,18 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private static func filteredText(_ text: String?) -> String? {
         guard let text, let scalar = text.unicodeScalars.first else { return nil }
         return scalar.value < 0x20 || scalar.value == 0x7F ? nil : text
+    }
+
+    /// The text on screen, one line per row (soft-wrapped rows joined).
+    func viewportText() -> String {
+        guard let surface else { return "" }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0), rectangle: false)
+        var result = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &result) else { return "" }
+        defer { ghostty_surface_free_text(surface, &result) }
+        return result.text.map { String(cString: $0) } ?? ""
     }
 
     /// Types `text` as a paste, for the `send` command.
