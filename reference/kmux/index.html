@@ -129,7 +129,7 @@
       <span class="dots">●●●</span><b>kmux</b>
       <nav class="menubar"><button id="menu-pane">Pane</button><button id="menu-view">View</button></nav>
       <span class="spacer"></span>
-      <span class="note">reference mockup · ⌘ shortcuts are ⌥ here (the browser reserves ⌘)</span>
+      <span class="note">reference mockup · use ⌥ for ⌘W and ⌘T (the browser keeps those)</span>
     </header>
     <nav id="tabs"></nav>
     <main id="stage"></main>
@@ -941,9 +941,12 @@ document.addEventListener('mousedown', e => {
 $('#menu-pane').addEventListener('click', e => showMenu(e.currentTarget, paneMenu(S.panes[S.focused])));
 $('#menu-view').addEventListener('click', e => showMenu(e.currentTarget, viewMenu()));
 
-// kmux binds these to ⌘; the mockup uses ⌥ because the browser reserves ⌘W, ⌘T, ⌘R…
+// kmux binds these to ⌘. The browser lets the mockup take ⌘D, ⇧⌘D, ⌘R, ⌘L and ⇧⌘↩,
+// but never ⌘W or ⌘T, so every shortcut also works with ⌥ instead of ⌘.
+const BROWSER_OWNED = ['KeyW', 'KeyT'];
 document.addEventListener('keydown', e => {
-  if (!e.altKey || e.metaKey || e.ctrlKey) return;
+  if (e.ctrlKey || e.metaKey === e.altKey) return;
+  if (e.metaKey && BROWSER_OWNED.includes(e.code)) return;
   const p = S.panes[S.focused];
   const actions = {
     KeyD: () => splitFrom(p, e.shiftKey ? 'down' : 'right', 'term'),
@@ -979,7 +982,7 @@ function reset(withShell = true) {
   }
   render();
   log('info', 'kmux mockup ready. Type help, or press "Run demo".');
-  log('info', 'In kmux: right-click a pane or use the Pane menu. ⌥D split right · ⌥⇧D split down · ⌥T new tab · ⌥W close · ⌥R restart · ⌥⇧↩ zoom · ⌥L open URL');
+  log('info', 'In kmux: right-click a pane or use the Pane menu. ⌘D split right · ⇧⌘D split down · ⌘T new tab · ⌘W close · ⌘R restart · ⇧⌘↩ zoom · ⌘L open URL (⌥ works in place of ⌘; use it for ⌘T and ⌘W here)');
 }
 
 const DEMO = [
