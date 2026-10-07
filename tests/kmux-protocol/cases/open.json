@@ -1,0 +1,70 @@
+[
+  {
+    "name": "open makes a window and waits until the pane is running",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } },
+        "expect": { "ok": true, "window": "w1", "pane": { "id": "p1", "name": "a", "type": "term", "state": "running" } } },
+      { "send": { "cmd": "list" },
+        "expect": { "windows": [ { "id": "w1", "key": true, "focused": "a", "zoomed": null,
+                                   "tabs": [ { "id": "t1", "title": "Tab 1", "active": true, "layout": { "pane": "a" } } ] } ] } }
+    ]
+  },
+  {
+    "name": "a new pane takes half of the focused pane, or the given size",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "split": "right", "size": "1/3" } } },
+      { "send": { "cmd": "list" },
+        "expect": { "windows": [ { "focused": "c", "tabs": [ { "layout": { "split": "row", "children": [
+          { "pane": "a", "size": "1/2" }, { "pane": "b", "size": "1/3" }, { "pane": "c", "size": "1/6" } ] } } ] } ] } }
+    ]
+  },
+  {
+    "name": "splitting down nests a column inside the row",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right", "size": "25%" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "split": "down" } } },
+      { "send": { "cmd": "list" },
+        "expect": { "windows": [ { "tabs": [ { "layout": { "split": "row", "children": [
+          { "pane": "a", "size": "3/4" },
+          { "split": "column", "size": "1/4", "children": [ { "pane": "b", "size": "1/2" }, { "pane": "c", "size": "1/2" } ] } ] } } ] } ] } }
+    ]
+  },
+  {
+    "name": "auto splits a wide pane side by side",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "tabs": [ { "layout": { "split": "row" } } ] } ] } }
+    ]
+  },
+  {
+    "name": "tab: true opens a new tab named after the window's tab count",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "tab": true } } },
+      { "send": { "cmd": "list" },
+        "expect": { "windows": [ { "focused": "b", "tabs": [
+          { "id": "t1", "title": "Tab 1", "active": false, "layout": { "pane": "a" } },
+          { "id": "t2", "title": "Tab 2", "active": true, "layout": { "pane": "b" } } ] } ] } }
+    ]
+  },
+  {
+    "name": "window: new opens a key window with its own tab numbering",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "window": "new" } }, "expect": { "window": "w2" } },
+      { "send": { "cmd": "list" },
+        "expect": { "windows": [ { "id": "w1", "key": false, "tabs": [ { "title": "Tab 1" } ] },
+                                 { "id": "w2", "key": true, "tabs": [ { "id": "t2", "title": "Tab 1" } ] } ] } }
+    ]
+  },
+  {
+    "name": "wait: false returns while the pane is still starting",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a", "wait": false } }, "expect": { "pane": { "state": "starting" } } }
+    ]
+  }
+]

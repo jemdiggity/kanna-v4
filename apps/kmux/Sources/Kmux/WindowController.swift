@@ -41,7 +41,7 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     func render(_ model: Model, _ host: TerminalHost) {
         guard let state = model.window(id), let tab = state.activeTab else { return }
-        window.title = "\(model.title(of: tab)) — \(id)"
+        window.title = "\(tab.title) — \(id)"
         tabBar.show(model, state)
         let shown = Set(Model.paneIDs(state.zoomed.map { Node.pane($0) } ?? tab.root))
         for case let view as PaneView in stage.subviews where !shown.contains(view.id) { view.removeFromSuperview() }
@@ -51,7 +51,11 @@ final class WindowController: NSObject, NSWindowDelegate {
             view.show(pane)
             view.focused = shown.count > 1 && id == state.focused && window.isKeyWindow
         }
-        if let focused = state.focused, let terminal = host.terminal(focused), window.firstResponder !== terminal {
+        // Keyboard focus follows the model's focused pane, but only takes over
+        // from another terminal or from nothing: a tab being renamed keeps it.
+        let responder = window.firstResponder
+        if let focused = state.focused, let terminal = host.terminal(focused), responder !== terminal,
+           responder == nil || responder === window || responder is TerminalSurfaceView {
             window.makeFirstResponder(terminal)
         }
     }

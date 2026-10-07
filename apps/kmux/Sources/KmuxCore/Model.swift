@@ -45,10 +45,14 @@ public enum Node {
 
 public final class Tab {
     public let id: String
+    public var title: String
     public var root: Node?
     public var lastFocus: String?
 
-    init(id: String) { self.id = id }
+    init(id: String, title: String) {
+        self.id = id
+        self.title = title
+    }
 }
 
 public final class Window {
@@ -57,6 +61,8 @@ public final class Window {
     public var active: String?
     public var focused: String?
     public var zoomed: String?
+    /// Tabs are named "Tab 1", "Tab 2", … in the order the window made them.
+    var tabCount = 0
 
     init(id: String) { self.id = id }
 
@@ -103,7 +109,8 @@ public final class Model {
     @discardableResult
     func makeTab(in window: Window, activate: Bool = true) -> Tab {
         counters.tab += 1
-        let tab = Tab(id: "t\(counters.tab)")
+        window.tabCount += 1
+        let tab = Tab(id: "t\(counters.tab)", title: "Tab \(window.tabCount)")
         window.tabs.append(tab)
         if activate || window.active == nil { window.active = tab.id }
         return tab
@@ -207,11 +214,6 @@ public final class Model {
     }
 
     // MARK: Views for the protocol
-
-    public func title(of tab: Tab) -> String {
-        let ids = Self.paneIDs(tab.root)
-        return ids.isEmpty ? "empty" : ids.map { panes[$0]?.name ?? $0 }.joined(separator: " · ")
-    }
 
     public func tree(_ node: Node?, size: Double? = nil) -> JSON {
         var out: [String: JSON]

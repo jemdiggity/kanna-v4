@@ -28,6 +28,8 @@ func makeCore() -> (Core, FakeHost) {
     return (core, host)
 }
 
+/// Native-only behaviour. Protocol behaviour shared with the reference model
+/// lives in tests/kmux-protocol/cases (see ProtocolCasesTests).
 @MainActor
 @Suite struct CoreTests {
     @Test func capabilities() async {
@@ -36,25 +38,6 @@ func makeCore() -> (Core, FakeHost) {
         #expect(reply["ok"] == true)
         #expect(reply["id"] == 1)
         #expect(reply["mux"] == "kmux")
-    }
-
-    @Test func openWaitsForRunningAndCreatesAWindow() async {
-        let (core, _) = makeCore()
-        let reply = await core.handle(["id": 1, "cmd": "open", "args": ["type": "term", "name": "server", "cmd": "npm run dev"]])
-        #expect(reply["ok"] == true)
-        #expect(reply["window"] == "w1")
-        #expect(reply["pane"]?["state"] == "running")
-        #expect(reply["pane"]?["name"] == "server")
-    }
-
-    @Test func openSplitsTheFocusedPaneByHalf() async {
-        let (core, _) = makeCore()
-        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "a"]])
-        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "b", "split": "right", "size": "1/3"]])
-        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "c", "split": "right"]])
-        let list = await core.handle(["cmd": "list"])
-        let layout: JSON = ["split": "row", "children": [["pane": "a", "size": "2/3"], ["pane": "b", "size": "1/6"], ["pane": "c", "size": "1/6"]]]
-        #expect(list["windows"] == [["id": "w1", "key": true, "focused": "c", "zoomed": nil, "tabs": [["id": "t1", "title": "a · b · c", "active": true, "layout": layout]]]])
     }
 
     @Test func autoSplitFollowsThePaneShape() async {
@@ -89,24 +72,6 @@ func makeCore() -> (Core, FakeHost) {
         try await Task.sleep(for: .milliseconds(100))
         #expect(core.model.pane("ok")?.state == .running)
         _ = host
-    }
-
-    @Test func errors() async {
-        let (core, _) = makeCore()
-        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "a"]])
-        let cases: [(JSON, String)] = [
-            (["cmd": "nope"], "bad_request"),
-            (["cmd": "open", "args": ["type": "nope"]], "bad_request"),
-            (["cmd": "open", "args": ["type": "term", "name": "a"]], "name_taken"),
-            (["cmd": "open", "args": ["type": "term", "size": "3/2"]], "bad_request"),
-            (["cmd": "open", "args": ["type": "term", "window": "w9"]], "not_found"),
-            (["cmd": "close", "args": ["pane": "zzz"]], "not_found"),
-            (["cmd": "close"], "bad_request"),
-        ]
-        for (request, code) in cases {
-            let reply = await core.handle(request)
-            #expect(reply["error"]?["code"] == .string(code), "\(request)")
-        }
     }
 
     @Test func closeRedistributesAndDropsEmptyWindows() async {

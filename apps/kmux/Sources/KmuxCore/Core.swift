@@ -84,11 +84,15 @@ public final class Core {
         case "focus": return try focus(args)
         case "zoom": return try zoom(args)
         case "restart": return try await restart(args)
+        case "rename-tab": return try renameTab(args)
         default:
             guard let extra = extraCommands[cmd] else { throw KmuxError("bad_request", "unknown command \"\(cmd)\"") }
             return try await extra(args)
         }
     }
+
+    /// The commands this core handles, besides `extraCommands`.
+    public static let commands: Set<String> = ["capabilities", "open", "list", "close", "focus", "zoom", "restart", "rename-tab"]
 
     public func needPane(_ ref: String?) throws -> Pane {
         guard let ref else { throw KmuxError("bad_request", "missing pane") }
@@ -160,7 +164,7 @@ public final class Core {
                     "focused": window.focused.map { .string(model.panes[$0]?.name ?? $0) } ?? nil,
                     "zoomed": window.zoomed.map { .string(model.panes[$0]?.name ?? $0) } ?? nil,
                     "tabs": .array(window.tabs.map { tab in
-                        ["id": .string(tab.id), "title": .string(model.title(of: tab)), "active": .bool(tab.id == window.active), "layout": model.tree(tab.root)]
+                        ["id": .string(tab.id), "title": .string(tab.title), "active": .bool(tab.id == window.active), "layout": model.tree(tab.root)]
                     }),
                 ]
             }),
@@ -216,6 +220,16 @@ public final class Core {
         window.focused = pane.id
         location.tab.lastFocus = pane.id
         model.key = window.id
+    }
+
+    private func renameTab(_ args: JSON) throws -> [String: JSON] {
+        let ref = args["tab"]?.string ?? ""
+        guard let tab = model.tab(ref) else { throw KmuxError("not_found", "no tab \"\(ref)\"") }
+        let title = (args["title"]?.string ?? "").trimmingCharacters(in: .whitespaces)
+        guard !title.isEmpty else { throw KmuxError("bad_request", "a tab title cannot be empty") }
+        tab.title = title
+        onChange()
+        return ["tab": .string(tab.id), "title": .string(title)]
     }
 
     private func zoom(_ args: JSON) throws -> [String: JSON] {

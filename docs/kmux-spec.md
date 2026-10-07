@@ -77,7 +77,7 @@ flowchart TD
 
 - **Key window:** one window is the key (front) window. Shortcuts, menus and protocol requests without a `window` act on it. Clicking a window makes it key.
 - **Focus:** each window remembers its focused pane and zoom state, and each tab remembers its last focused pane.
-- **Titles:** a tab's title lists its pane names, e.g. `server · site`. A window's title is its active tab's title.
+- **Titles:** new tabs are named `Tab 1`, `Tab 2`, … in each window. Double-click a tab to rename it: Enter or clicking away saves, Escape cancels. Clients rename tabs with `rename-tab`. A window's title is its active tab's title.
 - **Empty containers close:** closing a tab's last pane closes the tab, and closing a window's last tab closes the window. With no windows left, kmux offers to open a new one.
 - **Closing a tab or window** closes all of its panes.
 - **New windows** cascade down and to the right of the key window.
@@ -114,9 +114,11 @@ Every size is a **fraction of its parent split**. The fractions in a split alway
 ### 4.1 No chrome
 
 - Panes have no header, title or border.
-- A **✕** close button appears in the top-right corner while the pointer is over the pane.
+- While the pointer is over a pane, a **✕** close button appears in its top-right corner and a **⋯** drag handle at the top centre, as in Ghostty.
 - The focused pane has a thin accent outline, shown only in the key window and only when the tab has more than one pane.
 - Errors and exits are shown inside the pane itself (see below).
+
+![On hover: the ⋯ drag handle at the top and ✕ in the corner](img/kmux/pane-hover.png)
 
 ![No chrome: an exited terminal, a web pane waiting for its server and an iOS pane that failed to start](img/kmux/pane-states.png)
 
@@ -193,7 +195,7 @@ The menu bar has **Pane**, **View** and **Window** menus. Right-clicking a pane 
 
 ![Dragging a tab onto the desktop to make a new window](img/kmux/tab-to-new-window.png)
 
-**Panes:** hold ⌘ and drag a pane. This works within a window and between windows. A highlight shows where it will land:
+**Panes:** drag a pane by its **⋯** handle. This works within a window and between windows. A highlight shows where it will land:
 
 | Drop on | Result |
 |---------|--------|
@@ -236,6 +238,7 @@ Each request is `{ id, cmd, args }`. Each reply is `{ id, ok: true, … }` or `{
 | `arrange` | `layout` (tree), `window?` | See [3.3](#33-arrange). |
 | `move` | `pane`, plus one of: `to` + `side` (`left` / `right` / `top` / `bottom` / `swap`); `tab` (ID, or `new` with optional `window`); `window` (ID or `new`) | See [section 6](#6-moving-windows-tabs-and-panes). Moving to a window adds the pane to that window's active tab. |
 | `move-tab` | `tab`, `window?`, `index?` | Reorders a tab or moves it to another window, or to a new one. |
+| `rename-tab` | `tab`, `title` | The title can't be empty. |
 | `resize` | `pane`, `size` | Fails if the pane fills its tab. |
 | `list` | — | Windows (with the key window marked, and each window's focused and zoomed pane), their tabs and layout trees, and all panes. |
 | `focus` | one of `pane`, `tab`, `window` | Brings it to the front and makes its window key. |
@@ -284,6 +287,9 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 | Process model | kmux is a single app that runs its own terminals and listens on the control socket itself. Later, we fork our own mux and move to a kanna-v3-style app-plus-daemon. |
 | Reuse | Copy the kanna-v3 pieces kmux needs and trim them, without depending on v3. |
 | kanna CLI | Rust. |
+| Tab titles | Plain names (`Tab 1`, …) that users rename by double-clicking and clients rename with `rename-tab`. Listing pane names didn't scale. |
+| Pane dragging | From a ⋯ handle shown on hover at the top of the pane, as in Ghostty, instead of ⌘-drag. |
+| Model and app in sync | The protocol cases in `tests/kmux-protocol/` run against both the reference model and the native core. |
 | Multiple windows | Required. Modelled in [3.1](#31-structure), [section 6](#6-moving-windows-tabs-and-panes) and [section 7](#7-control-protocol). |
 
 ### 8.2 Open
@@ -292,11 +298,10 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 |---|----------|-------|
 | 1 | **iOS pane placement (deferred):** mirror the Simulator's screen into the pane, or keep the real Simulator window positioned over it? | A native prototype, once the Simulator is back in scope. |
 | 2 | **Events:** can clients subscribe to changes (pane exited, URL changed)? | Decision, then extend the model. |
-| 3 | **Pane identity:** without chrome, is the tab title enough to tell panes apart, or should the name show on hover? | Your call, then try it in the model. |
-| 4 | **Tab commands:** should the protocol let clients rename tabs? | Decision. |
-| 5 | **Persistence:** should windows and layouts survive an app restart? | Decision. This ties into the later daemon. |
-| 6 | **Web navigation:** back/forward history and keyboard shortcuts? | Your call. |
-| 7 | **Performance:** targets for pane start time, input latency and memory per pane. kanna-v3 aimed for under 50 ms of typing latency. | A benchmark utility (the rdd "performance reference"). |
+| 3 | **Pane identity:** without chrome or pane names in tab titles, should a pane's name show on hover? | Your call, then try it in the model. |
+| 4 | **Persistence:** should windows and layouts survive an app restart? | Decision. This ties into the later daemon. |
+| 5 | **Web navigation:** back/forward history and keyboard shortcuts? | Your call. |
+| 6 | **Performance:** targets for pane start time, input latency and memory per pane. kanna-v3 aimed for under 50 ms of typing latency. | A benchmark utility (the rdd "performance reference"). |
 
 ---
 

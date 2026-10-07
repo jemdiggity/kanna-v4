@@ -91,6 +91,14 @@ drawn three-panes "*" 3
 key "cmd+t"; [[ "$(field windows.0.tabs <<<"$(state)" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 2 ]] || fail "cmd+t should add a tab"
 key "cmd+shift+["; [[ "$(field windows.0.tabs.0.active <<<"$(state)")" == True ]] || fail "cmd+shift+[ should go to the first tab"
 key "cmd+shift+]"; [[ "$(field windows.0.tabs.1.active <<<"$(state)")" == True ]] || fail "cmd+shift+] should go to the second tab"
+# Double-click a tab to rename it: Enter saves, Escape cancels.
+tab2="$(field windows.0.tabs.1.id <<<"$(state)")"
+raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"tab\":\"$tab2\",\"clicks\":2}}" >/dev/null; sleep 0.3
+for k in w e b return; do key "$k"; done
+[[ "$(field windows.0.tabs.1.title <<<"$(state)")" == web ]] || fail "double-click rename should name the tab web, got $(field windows.0.tabs.1.title <<<"$(state)")"
+raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"tab\":\"$tab2\",\"clicks\":2}}" >/dev/null; sleep 0.3
+for k in x escape; do key "$k"; done
+[[ "$(field windows.0.tabs.1.title <<<"$(state)")" == web ]] || fail "escape should keep the name"
 key "cmd+n"; [[ "$(field windows.1.key <<<"$(state)")" == True ]] || fail "cmd+n should open a key window"
 key "cmd+\`"; [[ "$(field windows.0.key <<<"$(state)")" == True ]] || fail "cmd+\` should cycle to the first window"
 key "cmd+w"; [[ "$(field windows.0.tabs <<<"$(state)" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 1 ]] || fail "cmd+w should close the only pane in tab 2"

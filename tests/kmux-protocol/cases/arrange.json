@@ -1,0 +1,23 @@
+[
+  {
+    "name": "arrange applies a layout tree; unsized panes share the rest",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "c" } } },
+      { "send": { "cmd": "arrange", "args": { "layout": { "split": "column", "children": [ { "pane": "c", "size": "1/2" }, { "pane": "a" }, { "pane": "b" } ] } } },
+        "expect": { "layout": { "split": "column", "children": [ { "pane": "c", "size": "1/2" }, { "pane": "a", "size": "1/4" }, { "pane": "b", "size": "1/4" } ] } } },
+      { "send": { "cmd": "arrange", "args": { "layout": { "split": "row", "children": [ { "pane": "a", "size": "2/3" }, { "pane": "b", "size": "2/3" } ] } } },
+        "expect": { "ok": false, "error": { "code": "layout_invalid" } } }
+    ]
+  },
+  {
+    "name": "move swaps two panes",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right", "size": "1/3" } } },
+      { "send": { "cmd": "move", "args": { "pane": "a", "to": "b", "side": "swap" } },
+        "expect": { "layout": { "split": "row", "children": [ { "pane": "b", "size": "2/3" }, { "pane": "a", "size": "1/3" } ] } } }
+    ]
+  }
+]

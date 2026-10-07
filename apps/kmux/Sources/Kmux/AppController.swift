@@ -28,6 +28,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         core.extraCommands["debug.snapshot"] = { [weak self] args in try self?.snapshot(args) ?? [:] }
         core.extraCommands["debug.key"] = { [weak self] args in try self?.pressKey(args) ?? [:] }
+        core.extraCommands["debug.click"] = { [weak self] args in try self?.click(args) ?? [:] }
         core.extraCommands["debug.menu"] = { _ in
             let items = (NSApp.mainMenu?.items ?? []).flatMap { top in
                 (top.submenu?.items ?? []).filter { !$0.isSeparatorItem }.map { item -> JSON in
@@ -94,6 +95,13 @@ final class AppController: NSObject, NSApplicationDelegate {
         controller.tabBar.onSelect = { [weak self] tab in self?.request(["cmd": "focus", "args": ["tab": .string(tab)]]) }
         controller.tabBar.onClose = { [weak self] tab in self?.request(["cmd": "close", "args": ["tab": .string(tab)]]) }
         controller.tabBar.onNew = { [weak self] in self?.newTab(in: id) }
+        controller.tabBar.onEditEnded = { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            controller.render(core.model, host)
+        }
+        controller.tabBar.onRename = { [weak self] tab, title in
+            self?.request(["cmd": "rename-tab", "args": ["tab": .string(tab), "title": .string(title)]])
+        }
         controller.onCloseRequest = { [weak self] in self?.request(["cmd": "close", "args": ["window": .string(id)]]) }
         controller.onBecomeKey = { [weak self, weak controller] in
             guard let self, let controller else { return }
@@ -281,6 +289,23 @@ final class AppController: NSObject, NSApplicationDelegate {
         guard let event = SyntheticKey.event(name, window: window) else { throw KmuxError("bad_request", "unknown key \"\(name)\"") }
         NSApp.sendEvent(event)
         return ["characters": .string(event.characters ?? ""), "charactersIgnoringModifiers": .string(event.charactersIgnoringModifiers ?? "")]
+    }
+
+    /// `debug.click`: clicks a tab (`tab`, `clicks`) with mouse events sent
+    /// through AppKit's normal event path.
+    private func click(_ args: JSON) throws -> [String: JSON] {
+        let id = args["tab"]?.string ?? ""
+        guard let state = core.model.windows.first(where: { $0.tabs.contains { $0.id == id } }), let controller = controllers[state.id],
+              let point = controller.tabBar.center(of: id) else { throw KmuxError("not_found", "no tab \"\(id)\" on screen") }
+        let window = controller.window
+        for count in 1...max(1, Int(args["clicks"]?.number ?? 1)) {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1) else { continue }
+                NSApp.sendEvent(event)
+            }
+        }
+        return [:]
     }
 
     private func fatal(_ message: String) -> Never {

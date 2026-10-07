@@ -1,0 +1,37 @@
+[
+  {
+    "name": "closing a pane gives its space to its siblings in proportion",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "split": "right" } } },
+      { "send": { "cmd": "close", "args": { "pane": "a" } }, "expect": { "closed": [ "p1" ] } },
+      { "send": { "cmd": "list" },
+        "expect": { "windows": [ { "focused": "c", "tabs": [ { "layout": { "split": "row", "children": [
+          { "pane": "b", "size": "1/2" }, { "pane": "c", "size": "1/2" } ] } } ] } ] } }
+    ]
+  },
+  {
+    "name": "closing a split's last sibling collapses the split",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
+      { "send": { "cmd": "close", "args": { "pane": "b" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "tabs": [ { "layout": { "pane": "a" } } ] } ] } }
+    ]
+  },
+  {
+    "name": "empty tabs and windows close, and another window becomes key",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "tab": true } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "window": "new" } } },
+      { "send": { "cmd": "close", "args": { "window": "w2" } }, "expect": { "closed": [ "p3" ] } },
+      { "send": { "cmd": "close", "args": { "tab": "t2" } }, "expect": { "closed": [ "p2" ] } },
+      { "send": { "cmd": "list" },
+        "expect": { "windows": [ { "id": "w1", "key": true, "tabs": [ { "id": "t1", "active": true } ] } ], "panes": [ { "name": "a" } ] } },
+      { "send": { "cmd": "close", "args": { "pane": "a" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [], "panes": [] } }
+    ]
+  }
+]
