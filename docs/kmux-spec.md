@@ -27,6 +27,8 @@ kmux is a desktop **mux**: one window of tabs, each split into **panes** that sh
 
 UI actions and protocol requests go through the same core, so a click and a `kanna` command always behave the same way.
 
+![A kmux tab with a terminal running a dev server, a web pane showing the site and an iOS pane showing the app](img/kmux/layout.png)
+
 ```mermaid
 flowchart LR
     H["Mouse, keyboard, menus"] --> CORE["kmux core<br/>tabs · layout · panes"]
@@ -87,6 +89,8 @@ Every size is a **fraction of its parent split**. The fractions in a split alway
 | Resize | The pane gets the new fraction, and its siblings share the rest in proportion to their sizes. |
 | Divider drag | Snaps to ¼, ⅓, ½, ⅔ or ¾ when within 1.5% of one. A tooltip shows both fractions, e.g. `2/3 \| 1/3`. Panes can't be dragged below 80 px. |
 
+![Dragging a divider: the tooltip shows the two panes' shares](img/kmux/divider-drag.png)
+
 ### 3.3 Arrange
 
 `arrange` replaces the active tab's layout with a given tree (see [7.2](#72-layout-trees)):
@@ -106,13 +110,17 @@ Every size is a **fraction of its parent split**. The fractions in a split alway
 - The focused pane has a thin accent outline, shown only when the tab has more than one pane.
 - Errors and exits are shown inside the pane itself (see below).
 
+![No chrome: an exited terminal, a web pane waiting for its server and an iOS pane that failed to start](img/kmux/pane-states.png)
+
 ### 4.2 Types
 
 | Type | Shows | Behaviour in the model |
 |------|-------|------------------------|
-| `term` | A shell or command | Runs `cmd` if given. Ctrl+C interrupts. `exit [code]` moves the pane to **exited** and shows the code. |
+| `term` | A shell or command, in a Ghostty terminal | Runs `cmd` if given. Ctrl+C interrupts. `exit [code]` moves the pane to **exited** and shows the code. |
 | `web` | A web page | No address bar. **Open URL** (⌘L) shows a floating address field. A `localhost` URL whose server isn't up shows "Waiting for …" and loads once the server responds. |
-| `ios` | An app in the iOS Simulator | Shows "Booting \<device\>…", then the app. Clicks are forwarded to the simulator. An unknown device fails and lists the available devices. |
+| `ios` | An app in the native iOS Simulator | Shows "Booting \<device\>…", then the app. Clicks are forwarded to the simulator. An unknown device fails and lists the available devices. |
+
+![Open URL (⌘L) on a web pane](img/kmux/open-url.png)
 
 ### 4.3 Lifecycle
 
@@ -149,6 +157,8 @@ stateDiagram-v2
 | New tab | ⌘T | View menu, **+** |
 | Next / previous tab | ⇧⌘] / ⇧⌘[ | View menu |
 
+![The pane menu, opened by right-clicking a pane](img/kmux/pane-menu.png)
+
 - Pane order is reading order: left to right, top to bottom. Both pane and tab navigation wrap around.
 - Each tab remembers its last focused pane.
 - Moving to a pane also moves keyboard input to it.
@@ -162,21 +172,26 @@ stateDiagram-v2
 
 **Panes:** hold ⌘ and drag a pane. A highlight shows where it will land:
 
-```text
-            ┌──────────────────────────┐
-            │           top            │
-            │   ┌──────────────────┐   │
-            │ l │                  │ r │      edge zone  → dock on that side,
-            │ e │       swap       │ i │                   taking half the target
-            │ f │                  │ g │      centre     → swap the two panes
-            │ t │                  │ h │
-            │   └──────────────────┘ t │      a tab      → move the pane to that tab
-            │          bottom          │      +          → move it to a new tab
-            └──────────────────────────┘
-               (the centre is the middle 40% of each axis)
-```
+| Drop on | Result |
+|---------|--------|
+| Near an edge of another pane | The pane docks on that side and takes half of the other pane's space. The nearest edge wins. |
+| The centre of another pane (the middle 40% across and down) | The two panes swap places. |
+| A tab | The pane moves to that tab as a new column. All columns then share the width equally. |
+| **+** | The pane moves to a new tab. |
 
-A pane moved to a tab is added as a new column, and all columns share the width equally. If moving a pane leaves its old tab empty, that tab is removed.
+If moving a pane leaves its old tab empty, that tab is removed.
+
+**Docking on an edge:** dragging `phone` near the left edge of `server` highlights the left half.
+
+![Dragging a pane near another pane's left edge](img/kmux/drop-edge.png)
+
+**Swapping:** dragging it to the centre of `server` highlights the whole pane.
+
+![Dragging a pane to another pane's centre](img/kmux/drop-swap.png)
+
+**Moving to a new tab:** dragging it onto **+** highlights the button.
+
+![Dragging a pane onto the + button](img/kmux/drop-new-tab.png)
 
 ---
 
@@ -230,14 +245,14 @@ The model doesn't answer these yet. Each one needs either a decision from you or
 
 | # | Question | Needs |
 |---|----------|-------|
-| 1 | **Tech stack:** Electron, Tauri or native Swift? | Decision, then a prototype that embeds a real terminal, web view and simulator. |
-| 2 | **iOS pane:** stream the simulator screen into the pane, or place the real Simulator window over it? | Prototype. |
+| 1 | ~~Tech stack~~ **Decided: native macOS app, with Ghostty as the terminal.** | A prototype that embeds Ghostty, a web view and the simulator. Reuse earlier kanna-v3 work where possible. |
+| 2 | ~~iOS pane~~ **Decided: the native iOS Simulator.** How it sits in a pane (mirrored into the pane, or the real Simulator window kept over it) is still open. | Prototype. |
 | 3 | **Transport:** Unix socket path, permissions, one request per connection or a persistent connection? | Decision. |
 | 4 | **Events:** can clients subscribe to changes (pane exited, URL changed)? | Decision, then extend the model. |
 | 5 | **Pane identity:** without chrome, is the tab title enough to tell panes apart, or should the name show on hover? | Your call, then try it in the model. |
 | 6 | **Tab commands:** should the protocol let clients rename, reorder and focus tabs? | Decision, then extend the model. |
 | 7 | **Persistence:** should layouts survive an app restart? | Decision. |
-| 8 | **Multiple windows:** how do clients target a window? | Decision, then extend the model. |
+| 8 | **Multiple windows: required.** How windows are created and moved between, and how clients target a window, still need designing. | Extend the model. |
 | 9 | **Web navigation:** back/forward history and keyboard shortcuts? | Your call. |
 | 10 | **Performance:** targets for pane start time, input latency and memory per pane. | A benchmark utility (the rdd "performance reference"). |
 

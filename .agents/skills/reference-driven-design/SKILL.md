@@ -11,7 +11,7 @@ Instead of endless specifications that inevitably drift from the actual codebase
 1. Start as high-level as possible.
 1. Make the model (mockup, prototype, etc)
 1. Iterate with the user until the meaningful characteristcs (design/behaviour/performance) is captured.
-1. Create a brief specification doc that covers behaviour etc captured by the model. Items not covered by the model need to be determined with the user or indicate the model itself is insufficient.
+1. Create a brief specification doc that covers behaviour etc captured by the model. Use screen grabs from the model to illustrate points. Items not covered by the model need to be determined with the user or indicate the model itself is insufficient.
 1. Iterate with the user to flesh out the specification for items that are unclear.
 
 ## How to build

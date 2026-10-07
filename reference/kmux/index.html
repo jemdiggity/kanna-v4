@@ -87,8 +87,8 @@
   .site-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; padding: 0 16px 16px; }
   .site-cards div { height: 64px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
 
-  .ios { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px; min-height: 0; background: #12141a; }
-  .phone { position: relative; height: calc(100% - 24px); max-height: 640px; aspect-ratio: 9 / 19.5; max-width: 100%; border: 6px solid #2b2f38; border-radius: 28px; background: #000; overflow: hidden; }
+  .ios { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px; min-height: 0; background: #12141a; container-type: size; }
+  .phone { position: relative; flex: none; height: min(100cqh - 24px, (100cqw - 4px) * 19.5 / 9, 640px); aspect-ratio: 9 / 19.5; border: 6px solid #2b2f38; border-radius: 28px; background: #000; overflow: hidden; }
   .notch { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: 34%; height: 14px; background: #2b2f38; border-radius: 10px; z-index: 2; }
   .screen { position: absolute; inset: 0; display: flex; flex-direction: column; background: #f2f2f7; color: #111; font-size: 11px; cursor: pointer; overflow: hidden; }
   .screen.boot { background: #000; color: #aaa; align-items: center; justify-content: center; gap: 8px; cursor: default; }
