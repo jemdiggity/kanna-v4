@@ -25,11 +25,15 @@
   button:hover { border-color: var(--accent); }
   input { font: inherit; color: inherit; background: transparent; border: 0; outline: none; }
 
-  #app { display: grid; grid-template-rows: 32px 30px 1fr auto; height: 100%; }
+  #app { display: flex; flex-direction: column; height: 100%; }
+  .window { flex: 1; min-height: 0; display: grid; grid-template-rows: 32px 30px 1fr; }
   .titlebar { display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
   .titlebar .dots { letter-spacing: 3px; color: #555b66; }
   .titlebar b { font-weight: 600; }
+  .titlebar .spacer { flex: 1; }
   .titlebar .note { color: var(--dim); font-size: 12px; }
+  .menubar button { border: 0; background: transparent; padding: 2px 8px; }
+  .menubar button:hover { background: var(--panel-2); }
 
   #tabs { display: flex; align-items: stretch; gap: 2px; padding: 0 6px; background: var(--panel); border-bottom: 1px solid var(--border); overflow-x: auto; }
   .tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 0; background: transparent; color: var(--dim); border-bottom: 2px solid transparent; white-space: nowrap; }
@@ -37,28 +41,24 @@
   .tab .x { opacity: .5; } .tab .x:hover { opacity: 1; color: var(--red); }
   .tab-add { border: 0; background: transparent; color: var(--dim); }
 
-  #stage { display: flex; padding: 6px; min-height: 0; min-width: 0; }
+  #stage { display: flex; min-height: 0; min-width: 0; }
   #stage > * { flex: 1; }
   .split { display: flex; min-width: 0; min-height: 0; }
   .split.row { flex-direction: row; }
   .split.column { flex-direction: column; }
-  .split.row > .divider { width: 6px; cursor: col-resize; }
-  .split.column > .divider { height: 6px; cursor: row-resize; }
-  .divider { flex: 0 0 auto; border-radius: 3px; touch-action: none; }
-  .divider:hover, .divider.dragging { background: var(--accent); opacity: .5; }
+  .split.row > .divider { width: 4px; cursor: col-resize; }
+  .split.column > .divider { height: 4px; cursor: row-resize; }
+  .divider { flex: 0 0 auto; background: var(--border); touch-action: none; }
+  .divider:hover, .divider.dragging { background: var(--accent); }
+  .drag-tip { position: fixed; z-index: 20; padding: 2px 6px; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 4px; font: 11px var(--mono); color: var(--accent); pointer-events: none; }
 
-  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-  .pane.focused { border-color: var(--accent); }
-  .pane-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 8px; background: var(--panel-2); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; font-size: 12px; }
-  .pane-head .name { font-weight: 600; }
-  .pane-head .meta { color: var(--dim); font-family: var(--mono); font-size: 11px; }
-  .pane-head .share { color: var(--accent); font-family: var(--mono); font-size: 11px; }
-  .pane-head .spacer { flex: 1; }
-  .pane-head button { padding: 0 6px; border-color: transparent; background: transparent; color: var(--dim); }
-  .pane-head button:hover { color: var(--text); border-color: var(--border); }
-  .badge { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 0 6px; border-radius: 8px; border: 1px solid currentColor; }
-  .badge.starting { color: var(--yellow); } .badge.running { color: var(--green); }
-  .badge.exited { color: var(--dim); } .badge.failed { color: var(--red); }
+  .pane { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden; }
+  #stage.multi .pane.focused::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--accent); pointer-events: none; z-index: 3; }
+  .pane-close { position: absolute; top: 6px; right: 6px; z-index: 4; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; opacity: 0; transition: opacity .12s; }
+  .pane:hover .pane-close { opacity: .8; }
+  .pane-close:hover { opacity: 1 !important; background: var(--red); }
+  .url-edit { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5; width: min(85%, 420px); display: flex; padding: 4px 10px; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+  .url-edit input { flex: 1; min-width: 0; font-size: 12px; }
   .pane-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 
   .term { flex: 1; display: flex; flex-direction: column; min-height: 0; background: #0b0d10; font-family: var(--mono); font-size: 12px; }
@@ -71,8 +71,6 @@
   .banner { margin: 6px 8px; padding: 4px 8px; border: 1px dashed var(--border); color: var(--dim); font-family: var(--mono); font-size: 11px; }
 
   .web { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  .web-bar { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
-  .web-bar input { flex: 1; min-width: 0; padding: 2px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
   .web-view { flex: 1; overflow: auto; background: #f6f7f9; color: #1d2330; }
   .web-wait { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #6b7280; text-align: center; padding: 12px; }
   .site-nav { display: flex; justify-content: space-between; padding: 10px 16px; background: #fff; border-bottom: 1px solid #e5e7eb; font-weight: 600; }
@@ -104,11 +102,16 @@
   .empty div { display: flex; gap: 6px; }
 
   .menu { position: fixed; z-index: 10; display: flex; flex-direction: column; min-width: 120px; padding: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
-  .menu button { text-align: left; border: 0; background: transparent; }
+  .menu button { display: flex; justify-content: space-between; gap: 24px; text-align: left; border: 0; background: transparent; }
   .menu button:hover { background: var(--panel); }
+  .menu .key { color: var(--dim); font-size: 12px; }
+  .menu hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--border); }
 
-  #console { display: flex; flex-direction: column; height: min(34vh, 280px); border-top: 1px solid var(--border); background: var(--panel); }
+  #console { display: flex; flex-direction: column; height: min(34vh, 280px); border-top: 3px dashed var(--yellow); background: #121419; }
+  #console.collapsed { height: auto; }
+  #console.collapsed #log, #console.collapsed #cmdform { display: none; }
   .console-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 12px; }
+  .mock-tag { padding: 0 6px; border-radius: 3px; background: var(--yellow); color: #111; font-size: 10px; font-weight: 700; letter-spacing: .05em; }
   .console-head .spacer { flex: 1; }
   #log { flex: 1; overflow: auto; padding: 6px 10px; font-family: var(--mono); font-size: 12px; }
   #log div { white-space: pre-wrap; word-break: break-word; }
@@ -121,14 +124,22 @@
 </head>
 <body>
 <div id="app">
-  <header class="titlebar"><span class="dots">●●●</span><b>kmux</b><span class="note">reference mockup — pane contents are simulated</span></header>
-  <nav id="tabs"></nav>
-  <main id="stage"></main>
+  <div class="window">
+    <header class="titlebar">
+      <span class="dots">●●●</span><b>kmux</b>
+      <nav class="menubar"><button id="menu-pane">Pane</button><button id="menu-view">View</button></nav>
+      <span class="spacer"></span>
+      <span class="note">reference mockup · ⌘ shortcuts are ⌥ here (the browser reserves ⌘)</span>
+    </header>
+    <nav id="tabs"></nav>
+    <main id="stage"></main>
+  </div>
   <section id="console">
     <div class="console-head">
-      <span>Control console — kanna commands become kmux protocol requests. UI actions are logged as the same requests.</span>
+      <span class="mock-tag">MOCKUP ONLY</span>
+      <span>Stands in for kanna and other clients — not part of kmux. Commands become control-protocol requests; UI actions are logged as the same requests.</span>
       <span class="spacer"></span>
-      <button id="demo">Run demo</button><button id="reset">Reset</button>
+      <button id="demo">Run demo</button><button id="reset">Reset</button><button id="toggle-console">Hide</button>
     </div>
     <div id="log"></div>
     <form id="cmdform" autocomplete="off"><span>$ kanna</span><input id="cmd" placeholder="open web http://localhost:3000 --split right --size 1/3   (type help)"></form>
@@ -147,7 +158,7 @@ const NICE = [1/4, 1/3, 1/2, 2/3, 3/4];
 let S;
 
 function freshState() {
-  return { panes: {}, tabs: [], active: null, focused: null, zoomed: null, servers: {}, n: { pane: 0, tab: 0, req: 0 } };
+  return { panes: {}, tabs: [], active: null, focused: null, zoomed: null, urlEdit: null, servers: {}, n: { pane: 0, tab: 0, req: 0 } };
 }
 
 const $ = s => document.querySelector(s);
@@ -716,11 +727,13 @@ function renderStage() {
     return;
   }
   const root = S.zoomed && locate(t.root, S.zoomed) ? { t: 'pane', id: S.zoomed } : t.root;
+  stage.classList.toggle('multi', root.t === 'split');
   stage.append(renderNode(root, 1));
   stage.querySelectorAll('.term-body').forEach(b => { b.scrollTop = b.scrollHeight; });
-  if (keep) {
-    const el = stage.querySelector(`[data-keep="${keep}"]`);
-    if (el) { el.focus(); const n = el.value.length; el.setSelectionRange(n, n); }
+  const want = S.urlEdit ? 'url:' + S.urlEdit : keep;
+  if (want) {
+    const el = stage.querySelector(`[data-keep="${want}"]`);
+    if (el) { el.focus(); const n = el.value.length; el.setSelectionRange(want === keep ? n : 0, n); }
   }
 }
 
@@ -748,6 +761,8 @@ function divider(split, i) {
     const start = row ? ra.left : ra.top, span = (row ? rb.right : rb.bottom) - start;
     const pair = split.kids[i].size + split.kids[i + 1].size;
     const min = Math.min(MIN_PX, span / 2);
+    const tip = h('div', { class: 'drag-tip' });
+    document.body.append(tip);
     const move = ev => {
       const pos = Math.max(min, Math.min(span - min, (row ? ev.clientX : ev.clientY) - start));
       let s = pair * pos / span;
@@ -755,13 +770,13 @@ function divider(split, i) {
       if (snap) s = snap;
       split.kids[i].size = s;
       split.kids[i + 1].size = pair - s;
-      [[a, s], [b, pair - s]].forEach(([el, v]) => {
-        el.style.flex = `${v} ${v} 0px`;
-        const lbl = el.querySelector(':scope > .pane-head .share');
-        if (lbl) lbl.textContent = fmtFrac(v);
-      });
+      [[a, s], [b, pair - s]].forEach(([el, v]) => { el.style.flex = `${v} ${v} 0px`; });
+      tip.textContent = `${fmtFrac(s)} ${row ? '|' : '/'} ${fmtFrac(pair - s)}`;
+      tip.style.left = `${ev.clientX + 12}px`;
+      tip.style.top = `${ev.clientY + 12}px`;
     };
     const up = () => {
+      tip.remove();
       d.removeEventListener('pointermove', move);
       d.removeEventListener('pointerup', up);
       render();
@@ -772,14 +787,47 @@ function divider(split, i) {
   return d;
 }
 
-const ICON = { term: '❯_', web: '◎', ios: '▯' };
 function defaultsFor(type) {
   if (type === 'web') return { type, url: 'http://localhost:3000' };
   if (type === 'ios') return { type, app: 'MyApp.app', device: 'iPhone 16' };
   return { type };
 }
 
-function renderPane(p, share) {
+// --- pane actions: shared by the Pane menu, the right-click menu and hotkeys ---
+async function splitFrom(p, dir, type) {
+  if (p) S.focused = p.id;
+  const res = await ui({ cmd: 'open', args: { ...defaultsFor(type), split: dir } });
+  if (type === 'web' && res.ok) { S.urlEdit = res.pane.id; render(); }
+}
+function editUrl(p) { if (p?.type === 'web') { S.urlEdit = p.id; render(); } }
+function paneMenu(p) {
+  if (!p) return [
+    ['New terminal', () => splitFrom(null, 'auto', 'term')],
+    ['New web pane', () => splitFrom(null, 'auto', 'web')],
+    ['New iOS pane', () => splitFrom(null, 'auto', 'ios')],
+  ];
+  return [
+    ['Split right', () => splitFrom(p, 'right', 'term'), '⌘D'],
+    ['Split down', () => splitFrom(p, 'down', 'term'), '⇧⌘D'],
+    '-',
+    ['Web pane right', () => splitFrom(p, 'right', 'web')],
+    ['Web pane below', () => splitFrom(p, 'down', 'web')],
+    ['iOS pane right', () => splitFrom(p, 'right', 'ios')],
+    ['iOS pane below', () => splitFrom(p, 'down', 'ios')],
+    '-',
+    p.type === 'web' ? ['Open URL…', () => editUrl(p), '⌘L'] : null,
+    [S.zoomed === p.id ? 'Unzoom' : 'Zoom', () => ui({ cmd: 'zoom', args: { pane: p.id } }), '⇧⌘↩'],
+    ['Restart', () => ui({ cmd: 'restart', args: { pane: p.id } }), '⌘R'],
+    ['Close', () => ui({ cmd: 'close', args: { pane: p.id } }), '⌘W'],
+  ].filter(Boolean);
+}
+const viewMenu = () => [
+  ['New tab', () => ui({ cmd: 'open', args: { type: 'term', tab: true } }), '⌘T'],
+  '-',
+  [$('#console').classList.contains('collapsed') ? 'Show mockup console' : 'Hide mockup console', toggleConsole],
+];
+
+function renderPane(p) {
   const el = h('div', {
     class: `pane${p.id === S.focused ? ' focused' : ''}`, dataset: { id: p.id },
     onmousedown: () => {
@@ -787,31 +835,17 @@ function renderPane(p, share) {
       S.focused = p.id;
       document.querySelectorAll('.pane').forEach(x => x.classList.toggle('focused', x.dataset.id === p.id));
     },
+    oncontextmenu: e => { e.preventDefault(); S.focused = p.id; render(); showMenuAt(e.clientX, e.clientY, paneMenu(p)); },
   });
-  const btn = (txt, title, fn) => h('button', { title, onclick: e => { e.stopPropagation(); fn(e); } }, txt);
-  const splitMenu = dir => e => {
-    S.focused = p.id;
-    showMenu(e.currentTarget, ['term', 'web', 'ios'].map(type => [`${type} pane`, () => ui({ cmd: 'open', args: { ...defaultsFor(type), split: dir } })]));
-  };
-  el.append(h('div', { class: 'pane-head' },
-    h('span', { class: 'meta' }, ICON[p.type]),
-    h('span', { class: 'name' }, p.name || p.id),
-    p.name ? h('span', { class: 'meta' }, p.id) : null,
-    h('span', { class: `badge ${p.state}` }, p.state),
-    share < 1 - 1e-6 ? h('span', { class: 'share', title: 'Share of its split' }, fmtFrac(share)) : null,
-    h('span', { class: 'spacer' }),
-    btn('⇥', 'Split right', splitMenu('right')),
-    btn('⤓', 'Split down', splitMenu('down')),
-    btn(S.zoomed === p.id ? '⤡' : '⤢', 'Zoom', () => ui({ cmd: 'zoom', args: { pane: p.id } })),
-    btn('↻', 'Restart', () => ui({ cmd: 'restart', args: { pane: p.id } })),
-    btn('✕', 'Close', () => ui({ cmd: 'close', args: { pane: p.id } })),
-  ));
   const body = h('div', { class: 'pane-body' });
   if (p.state === 'failed') {
     body.append(h('div', { class: 'fail' }, h('b', {}, 'Failed to start'), h('pre', {}, p.error),
       h('button', { onclick: () => ui({ cmd: 'restart', args: { pane: p.id } }) }, 'Restart')));
   } else body.append({ term: termView, web: webView, ios: iosView }[p.type](p));
-  el.append(body);
+  el.append(body, h('button', {
+    class: 'pane-close', title: `Close ${p.name || p.id}`,
+    onclick: e => { e.stopPropagation(); ui({ cmd: 'close', args: { pane: p.id } }); },
+  }, '✕'));
   return el;
 }
 
@@ -839,9 +873,6 @@ function termView(p) {
 }
 
 function webView(p) {
-  const bar = h('input', { value: p.urlDraft ?? p.url, dataset: { keep: 'url:' + p.id }, spellcheck: 'false' });
-  bar.addEventListener('input', () => { p.urlDraft = bar.value; });
-  bar.addEventListener('keydown', e => { if (e.key === 'Enter') ui({ cmd: 'navigate', args: { pane: p.id, url: bar.value } }); });
   const view = h('div', { class: 'web-view' });
   const host = hostOf(p.url);
   if (p.state === 'starting') view.append(h('div', { class: 'web-wait' }, h('div', { class: 'spinner' }), `Loading ${host}…`));
@@ -856,10 +887,18 @@ function webView(p) {
         h('p', {}, local ? 'This stands in for your local web app.' : `Mock page for ${p.url}. The real kmux embeds a full web view.`)),
       h('div', { class: 'site-cards' }, h('div'), h('div'), h('div')));
   }
-  return h('div', { class: 'web' },
-    h('div', { class: 'web-bar' }, h('span', { class: 'meta' }, '‹ ›'),
-      h('button', { title: 'Reload', onclick: () => ui({ cmd: 'restart', args: { pane: p.id } }) }, '↻'), bar),
-    view);
+  const wrap = h('div', { class: 'web' }, view);
+  if (S.urlEdit === p.id) {
+    const close = () => { S.urlEdit = null; p.urlDraft = null; render(); };
+    const input = h('input', { value: p.urlDraft ?? p.url, dataset: { keep: 'url:' + p.id }, spellcheck: 'false' });
+    input.addEventListener('input', () => { p.urlDraft = input.value; });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { const url = input.value; close(); ui({ cmd: 'navigate', args: { pane: p.id, url } }); }
+      if (e.key === 'Escape') close();
+    });
+    wrap.append(h('div', { class: 'url-edit' }, input));
+  }
+  return wrap;
 }
 
 function iosView(p) {
@@ -885,16 +924,44 @@ function iosView(p) {
 }
 
 let menuEl = null;
-function showMenu(anchor, items) {
+function showMenuAt(x, y, items) {
   hideMenu();
-  const r = anchor.getBoundingClientRect();
-  menuEl = h('div', { class: 'menu' }, items.map(([txt, fn]) => h('button', { onclick: () => { hideMenu(); fn(); } }, txt)));
+  menuEl = h('div', { class: 'menu' }, items.map(it => it === '-' ? h('hr') :
+    h('button', { onclick: () => { hideMenu(); it[1](); } }, h('span', {}, it[0]), it[2] ? h('span', { class: 'key' }, it[2]) : null)));
   document.body.append(menuEl);
-  menuEl.style.top = `${r.bottom + 4}px`;
-  menuEl.style.left = `${Math.min(r.left, innerWidth - menuEl.offsetWidth - 8)}px`;
+  menuEl.style.left = `${Math.max(8, Math.min(x, innerWidth - menuEl.offsetWidth - 8))}px`;
+  menuEl.style.top = `${Math.max(8, Math.min(y, innerHeight - menuEl.offsetHeight - 8))}px`;
 }
+function showMenu(anchor, items) { const r = anchor.getBoundingClientRect(); showMenuAt(r.left, r.bottom + 4, items); }
 function hideMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
-document.addEventListener('mousedown', e => { if (menuEl && !menuEl.contains(e.target)) hideMenu(); });
+document.addEventListener('mousedown', e => {
+  if (menuEl && !menuEl.contains(e.target)) hideMenu();
+  if (S.urlEdit && !e.target.closest('.url-edit')) { S.urlEdit = null; render(); }
+});
+$('#menu-pane').addEventListener('click', e => showMenu(e.currentTarget, paneMenu(S.panes[S.focused])));
+$('#menu-view').addEventListener('click', e => showMenu(e.currentTarget, viewMenu()));
+
+// kmux binds these to ⌘; the mockup uses ⌥ because the browser reserves ⌘W, ⌘T, ⌘R…
+document.addEventListener('keydown', e => {
+  if (!e.altKey || e.metaKey || e.ctrlKey) return;
+  const p = S.panes[S.focused];
+  const actions = {
+    KeyD: () => splitFrom(p, e.shiftKey ? 'down' : 'right', 'term'),
+    KeyT: () => ui({ cmd: 'open', args: { type: 'term', tab: true } }),
+    KeyW: () => p && ui({ cmd: 'close', args: { pane: p.id } }),
+    KeyR: () => p && ui({ cmd: 'restart', args: { pane: p.id } }),
+    KeyL: () => editUrl(p),
+    Enter: () => e.shiftKey && p && ui({ cmd: 'zoom', args: { pane: p.id } }),
+  };
+  if (actions[e.code]) { e.preventDefault(); hideMenu(); actions[e.code](); }
+});
+
+function toggleConsole() {
+  const c = $('#console');
+  c.classList.toggle('collapsed');
+  $('#toggle-console').textContent = c.classList.contains('collapsed') ? 'Show' : 'Hide';
+}
+$('#toggle-console').addEventListener('click', toggleConsole);
 
 // ---------------------------------------------------------------------------
 // Boot, reset, demo
@@ -912,6 +979,7 @@ function reset(withShell = true) {
   }
   render();
   log('info', 'kmux mockup ready. Type help, or press "Run demo".');
+  log('info', 'In kmux: right-click a pane or use the Pane menu. ⌥D split right · ⌥⇧D split down · ⌥T new tab · ⌥W close · ⌥R restart · ⌥⇧↩ zoom · ⌥L open URL');
 }
 
 const DEMO = [
