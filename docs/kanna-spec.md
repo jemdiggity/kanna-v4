@@ -98,7 +98,7 @@ flowchart TB
 | iOS Simulator panes | ✅ | ❌ | ❌ |
 | Fractional sizing | ✅ | ✅ | ✅ **[Assumption]** |
 | Named panes | ✅ | ✅ (kanna stores the name as a pane option) | **[Assumption]** |
-| Pane states | Full ([kmux lifecycle](kmux-spec.md#6-pane-lifecycle)) | Running / exited only | **[Assumption]** |
+| Pane states | Full ([kmux lifecycle](kmux-spec.md#43-lifecycle)) | Running / exited only | **[Assumption]** |
 
 `kanna mux` prints this table for the backend in use.
 
@@ -135,7 +135,7 @@ Every adapter implements the same operations. Adding a new mux means writing a n
 | `list()`, `focus()`, `close()`, `restart()` | Manage panes. |
 | `send(pane, text)`, `navigate(pane, url)` | Act on a pane's contents. |
 
-The kmux adapter maps these one-to-one onto the [kmux control protocol](kmux-spec.md#8-control-protocol).
+The kmux adapter maps these one-to-one onto the [kmux control protocol](kmux-spec.md#7-control-protocol).
 
 ---
 

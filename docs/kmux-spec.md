@@ -1,323 +1,258 @@
 # kmux — Specification
 
-> **Status:** Draft v0.3 · **Last updated:** 2026-10-08
+> **Status:** v0.4 · **Last updated:** 2026-10-08
 >
-> Items marked **[Assumption]** are guesses made to fill gaps. Confirm or correct them, and see [Open Questions](#10-open-questions).
+> **Reference model:** [`reference/kmux/index.html`](../reference/kmux/index.html). Open it in a browser and try it.
+> The model is the source of truth for kmux's design and behaviour. This document summarises what the model shows and lists what it doesn't answer yet. If the two disagree, the model wins, and this document should be fixed.
 >
-> **Related:** [kanna spec](kanna-spec.md), the CLI that can drive kmux.
+> **Related:** [kanna spec](kanna-spec.md), the CLI that drives kmux.
 
 ## Table of Contents
 
 1. [Summary](#1-summary)
-2. [Goals and Non-Goals](#2-goals-and-non-goals)
-3. [How It Fits Together](#3-how-it-fits-together)
-4. [Windows, Tabs and Panes](#4-windows-tabs-and-panes)
-5. [Pane Types](#5-pane-types)
-6. [Pane Lifecycle](#6-pane-lifecycle)
-7. [Sizing](#7-sizing)
-8. [Control Protocol](#8-control-protocol)
-   - 8.1 [Connection](#81-connection)
-   - 8.2 [Commands](#82-commands)
-   - 8.3 [Layout Trees](#83-layout-trees)
-   - 8.4 [Errors](#84-errors)
-9. [Platform Requirements](#9-platform-requirements)
-10. [Open Questions](#10-open-questions)
-11. [Glossary](#11-glossary)
+2. [What the Model Captures](#2-what-the-model-captures)
+3. [Layout](#3-layout)
+4. [Panes](#4-panes)
+5. [Menus and Shortcuts](#5-menus-and-shortcuts)
+6. [Moving Panes and Tabs](#6-moving-panes-and-tabs)
+7. [Control Protocol](#7-control-protocol)
+8. [Not Yet Decided](#8-not-yet-decided)
+9. [Glossary](#9-glossary)
 
 ---
 
 ## 1. Summary
 
-kmux is a desktop **mux**: one window that shows terminals, web views and iOS simulations side by side, each in its own **pane**.
+kmux is a desktop **mux**: one window of tabs, each split into **panes** that show terminals, web pages or iOS apps. Panes have no chrome. Everything is done through menus, shortcuts and dragging, or by other programs through the **control protocol**.
 
-kmux works on its own. You can open, split and resize panes by hand. Other programs can control it through a local **control protocol**. The [`kanna`](kanna-spec.md) CLI is the main one, but anything that speaks the protocol can drive it.
+UI actions and protocol requests go through the same core, so a click and a `kanna` command always behave the same way.
 
 ```mermaid
 flowchart LR
-    H["You (mouse & keyboard)"] --> KMUX["kmux"]
-    C["kanna / scripts / agents"] -->|"control protocol"| KMUX
-    KMUX --> T["Terminal panes"]
-    KMUX --> W["Web panes"]
-    KMUX --> I["iOS Simulator panes"]
+    H["Mouse, keyboard, menus"] --> CORE["kmux core<br/>tabs · layout · panes"]
+    C["kanna / scripts / agents"] -->|"control protocol"| CORE
+    CORE --> T["term panes"]
+    CORE --> W["web panes"]
+    CORE --> I["ios panes"]
 ```
 
 ---
 
-## 2. Goals and Non-Goals
+## 2. What the Model Captures
 
-### Goals
-
-| # | Goal |
-|---|------|
-| G1 | Show terminals, web views and iOS simulations together in one window. |
-| G2 | Be fully usable by hand, without kanna. |
-| G3 | Let everything you can do by hand also be done through the control protocol. |
-| G4 | Size panes as fractions that stay proportional when the window is resized. |
-
-### Non-Goals (for now)
-
-- Reimplementing a terminal emulator, browser or Xcode. kmux embeds these.
-- Android emulators. **[Assumption]**
-- Remote control from other machines. **[Assumption]**
+| Characteristic | Captured? | Notes |
+|----------------|:---------:|-------|
+| Look: chromeless panes, tabs, menus | ✅ | |
+| Layout behaviour: splits, sizes, dragging, moving | ✅ | |
+| Pane lifecycle and error states | ✅ | |
+| Shortcuts and menus | ✅ | The browser reserves ⌘W and ⌘T, so the model also accepts ⌥ in place of ⌘. |
+| Control-protocol commands and replies | ✅ | The model's console (marked **MOCKUP ONLY**) stands in for kanna. It is not part of kmux. |
+| Real terminals, web views and simulators | ❌ | Simulated. See [section 8](#8-not-yet-decided). |
+| Transport (socket), persistence, performance | ❌ | See [section 8](#8-not-yet-decided). |
 
 ---
 
-## 3. How It Fits Together
+## 3. Layout
 
-```mermaid
-flowchart TB
-    subgraph kmux["kmux app"]
-        UI["Window / UI"] --> CORE["Mux core<br/>(windows, tabs, layout, panes)"]
-        SRV["Control server<br/>(Unix socket)"] --> CORE
-        CORE --> TP["Terminal panes"]
-        CORE --> WP["Web panes"]
-        CORE --> IP["iOS panes"]
-    end
-    CLIENT["kanna / other clients"] -->|"JSON"| SRV
-    TP --> PTY["Shell processes (PTY)"]
-    WP --> WV["Embedded web view"]
-    IP --> SIM["iOS Simulator (simctl)"]
-```
+### 3.1 Structure
 
-- **The mux core is the single source of truth.** Clicks in the UI and protocol commands go through the same core, so they never disagree.
-- **Pane types are plug-ins to the core.** Every type follows the same lifecycle ([section 6](#6-pane-lifecycle)), so the core doesn't need to know what's inside a pane.
-
----
-
-## 4. Windows, Tabs and Panes
-
-A **window** holds **tabs**. Each tab is divided into **panes** by **splits**, and splits can be nested.
+A window holds **tabs**. Each tab holds a tree of **splits** (`row` = side by side, `column` = stacked) with panes at the leaves.
 
 ```mermaid
 flowchart TD
-    W["Window"] --> T1["Tab 1"]
-    W --> T2["Tab 2"]
-    T1 --> S1["Split: side by side"]
-    S1 --> P1["Pane: terminal (1/2)"]
-    S1 --> S2["Split: stacked (1/2)"]
-    S2 --> P2["Pane: web (2/3)"]
-    S2 --> P3["Pane: iOS (1/3)"]
+    W["Window"] --> T1["Tab"]
+    W --> T2["Tab"]
+    T1 --> R["row"]
+    R --> P1["pane · 2/3"]
+    R --> C["column · 1/3"]
+    C --> P2["pane · 2/3"]
+    C --> P3["pane · 1/3"]
 ```
 
-That tab looks like this:
+- A tab's title lists its pane names, e.g. `site · server · phone`.
+- An empty tab offers buttons to open a terminal, web or iOS pane.
+- Closing a tab closes its panes.
 
-```text
-┌──────────────────────┬──────────────────────┐
-│                      │                      │
-│                      │  web: localhost:3000 │
-│  terminal: npm dev   │                      │
-│                      ├──────────────────────┤
-│                      │  iOS: iPhone 16      │
-└──────────────────────┴──────────────────────┘
-```
+### 3.2 Sizes
 
-Each pane has:
+Every size is a **fraction of its parent split**. The fractions in a split always add up to 1, and they stay proportional when the window is resized.
 
-| Field | Meaning |
-|-------|---------|
-| `id` | Assigned by kmux, e.g. `p3`. Never reused while the app is running. |
-| `name` | Optional, set by you or a client, e.g. `server`. Must be unique. |
-| `type` | `term`, `web` or `ios`. |
-| `state` | See [section 6](#6-pane-lifecycle). |
-| `title` | What the pane's header shows. |
+| Action | Rule |
+|--------|------|
+| New split | The new pane gets `size` (default **1/2**) of the focused pane's space. |
+| Split direction | `right` or `down` when given. Otherwise (`auto`), side by side if the focused pane is wider than it is tall, stacked if not. |
+| Same-direction parent | The new pane becomes a sibling in that split, not a nested split, so three "split right"s give three columns. |
+| New pane focus | The new pane takes focus. |
+| Close | The siblings share the freed space in proportion to their sizes. A split left with one child disappears. |
+| Resize | The pane gets the new fraction, and its siblings share the rest in proportion to their sizes. |
+| Divider drag | Snaps to ¼, ⅓, ½, ⅔ or ¾ when within 1.5% of one. A tooltip shows both fractions, e.g. `2/3 \| 1/3`. Panes can't be dragged below 80 px. |
 
-**By hand:** you can split, resize by dragging dividers, move, zoom (temporarily fill the tab) and close panes, much like in iTerm or tmux. **[Assumption]** Exact keyboard shortcuts are still to be decided.
+### 3.3 Arrange
+
+`arrange` replaces the active tab's layout with a given tree (see [7.2](#72-layout-trees)):
+
+- Children without a size share whatever space is left. If every child has a size and they add up to less than 1, they are scaled up to fill the space.
+- If the sizes add up to more than 1, the request is rejected and nothing changes.
+- Panes in the tab that the tree doesn't mention move to a new tab called `unarranged`.
 
 ---
 
-## 5. Pane Types
+## 4. Panes
 
-| Type | Shows | Backed by | Options |
-|------|-------|-----------|---------|
-| `term` | An interactive shell or command | A PTY running a process | `cmd`, `cwd`, `env` |
-| `web` | A web page or local web app | An embedded web view | `url` |
-| `ios` | A running iOS app | The Xcode iOS Simulator, shown inside the pane | `app` (path or bundle ID), `device` |
+### 4.1 No chrome
 
-- **term:** runs your default shell unless `cmd` is given. When the process exits, the pane stays open and shows the exit code.
-- **web:** for `localhost` URLs, keeps retrying until the server is up. **[Assumption]**
-- **ios:** boots the device if needed, installs and launches the app, and forwards mouse and keyboard input to it.
+- Panes have no header, title or border.
+- A **✕** close button appears in the top-right corner while the pointer is over the pane.
+- The focused pane has a thin accent outline, shown only when the tab has more than one pane.
+- Errors and exits are shown inside the pane itself (see below).
 
----
+### 4.2 Types
 
-## 6. Pane Lifecycle
+| Type | Shows | Behaviour in the model |
+|------|-------|------------------------|
+| `term` | A shell or command | Runs `cmd` if given. Ctrl+C interrupts. `exit [code]` moves the pane to **exited** and shows the code. |
+| `web` | A web page | No address bar. **Open URL** (⌘L) shows a floating address field. A `localhost` URL whose server isn't up shows "Waiting for …" and loads once the server responds. |
+| `ios` | An app in the iOS Simulator | Shows "Booting \<device\>…", then the app. Clicks are forwarded to the simulator. An unknown device fails and lists the available devices. |
+
+### 4.3 Lifecycle
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Starting : open
-    Starting --> Running : ready
-    Starting --> Failed : error
-    Running --> Exited : process ended / app quit
-    Exited --> Starting : restart
-    Failed --> Starting : restart
-    Running --> Closed : close
-    Exited --> Closed : close
-    Failed --> Closed : close
-    Closed --> [*]
+    [*] --> starting : open
+    starting --> running
+    starting --> failed
+    running --> exited : process ended
+    exited --> starting : restart
+    failed --> starting : restart
+    running --> closed : close
+    exited --> closed : close
+    failed --> closed : close
+    closed --> [*]
 ```
 
-| State | Meaning |
-|-------|---------|
-| Starting | Shell launching, page loading or simulator booting. |
-| Running | Ready to use. |
-| Exited | The thing inside ended. The pane stays open so you can see why. |
-| Failed | It never started. The error is shown in the pane and returned to the client. |
-| Closed | The pane is gone. |
+`open`, `restart` and `navigate` wait until the pane is **running** or **failed** before replying, unless the request sets `wait: false`.
 
 ---
 
-## 7. Sizing
+## 5. Menus and Shortcuts
 
-kmux stores every size as a **fraction** of its parent split, never as pixels.
+| Action | Shortcut | Where in the UI |
+|--------|----------|-----------------|
+| Split right (new terminal) | ⌘D | Pane menu, right-click |
+| Split down (new terminal) | ⇧⌘D | Pane menu, right-click |
+| New web / iOS pane right or below | — | Pane menu, right-click |
+| Next / previous pane | ⌘] / ⌘[ | Pane menu, right-click |
+| Open URL (web panes) | ⌘L | Pane menu, right-click |
+| Zoom / unzoom | ⇧⌘↩ | Pane menu, right-click |
+| Restart | ⌘R | Pane menu, right-click |
+| Close pane | ⌘W | Pane menu, right-click, hover ✕ |
+| New tab | ⌘T | View menu, **+** |
+| Next / previous tab | ⇧⌘] / ⇧⌘[ | View menu |
 
-- When the window is resized, every pane keeps its proportions.
-- Dragging a divider by hand updates the stored fractions.
-- New splits default to `1/2`.
-- Each pane has a minimum size, so it never shrinks below a usable size. **[Assumption]** The minimum is about 10 columns × 3 rows of text. When a fraction would go below it, kmux uses the minimum instead.
+- Pane order is reading order: left to right, top to bottom. Both pane and tab navigation wrap around.
+- Each tab remembers its last focused pane.
+- Moving to a pane also moves keyboard input to it.
+- Zoom makes one pane fill the tab. Moving focus to another pane cancels it.
+
+---
+
+## 6. Moving Panes and Tabs
+
+**Tabs:** drag one along the tab bar. A marker shows where it will land.
+
+**Panes:** hold ⌘ and drag a pane. A highlight shows where it will land:
 
 ```text
-Window 1200px wide                    Window 600px wide
-┌──────────────────┬────────┐         ┌─────────┬────┐
-│     2/3          │  1/3   │   →     │   2/3   │1/3 │
-└──────────────────┴────────┘         └─────────┴────┘
+            ┌──────────────────────────┐
+            │           top            │
+            │   ┌──────────────────┐   │
+            │ l │                  │ r │      edge zone  → dock on that side,
+            │ e │       swap       │ i │                   taking half the target
+            │ f │                  │ g │      centre     → swap the two panes
+            │ t │                  │ h │
+            │   └──────────────────┘ t │      a tab      → move the pane to that tab
+            │          bottom          │      +          → move it to a new tab
+            └──────────────────────────┘
+               (the centre is the middle 40% of each axis)
 ```
+
+A pane moved to a tab is added as a new column, and all columns share the width equally. If moving a pane leaves its old tab empty, that tab is removed.
 
 ---
 
-## 8. Control Protocol
+## 7. Control Protocol
 
-### 8.1 Connection
+Each request is `{ id, cmd, args }`. Each reply is `{ id, ok: true, … }` or `{ id, ok: false, error: { code, message } }`. A pane can be referred to by its ID (`p2`) or its name (`site`).
 
-| Item | Value |
-|------|-------|
-| Transport | Unix domain socket |
-| Location | `~/Library/Application Support/kmux/kmux.sock`, or the path in `$KMUX_SOCKET` |
-| Access | Current user only (file permissions `0600`) |
-| Format | One JSON request and one JSON reply per connection |
+### 7.1 Commands
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant S as kmux control server
-    participant M as Mux core
-    C->>S: connect
-    C->>S: { "id": "1", "cmd": "open", "args": {...} }
-    S->>M: open pane
-    M-->>S: pane p2 (running)
-    S-->>C: { "id": "1", "ok": true, "pane": {...} }
-    S-->>C: close connection
-```
+| `cmd` | `args` | Notes |
+|-------|--------|-------|
+| `capabilities` | — | Pane types and features. |
+| `open` | `type`, `url` / `cmd` / `cwd` / `app` / `device`, `name?`, `split?` (`right` / `down` / `auto`), `size?`, `tab?`, `wait?` | See [3.2](#32-sizes). |
+| `arrange` | `layout` (tree) | See [3.3](#33-arrange). |
+| `move` | `pane`, then either `to` + `side` (`left` / `right` / `top` / `bottom` / `swap`) or `tab` (ID or `new`) | See [section 6](#6-moving-panes-and-tabs). |
+| `resize` | `pane`, `size` | Fails if the pane fills its tab. |
+| `list` | — | Tabs (with layout trees) and all panes. |
+| `focus` | `pane` | Switches to the pane's tab. |
+| `zoom` | `pane` | Toggles zoom. |
+| `close` / `restart` | `pane` | |
+| `send` | `pane`, `text` | `term` panes only. Runs `text` as a typed line. |
+| `navigate` | `pane`, `url` | `web` panes only. |
 
-### 8.2 Commands
-
-Wherever `pane` appears below, it can be a pane ID (`p2`) or a name (`site`).
-
-| `cmd` | `args` | Returns |
-|-------|--------|---------|
-| `capabilities` | — | Supported pane types and features. |
-| `open` | `type`, type options ([section 5](#5-pane-types)), `name?`, `split?` (`right`/`down`/`auto`), `size?` (fraction), `tab?` (bool), `wait?` (bool, default true) | The new pane. |
-| `arrange` | `layout` (a layout tree, see [8.3](#83-layout-trees)) | The resulting layout. |
-| `resize` | `pane`, `size` (fraction) | The updated layout. |
-| `list` | — | All windows, tabs and panes. |
-| `focus` | `pane` | — |
-| `close` | `pane` | — |
-| `restart` | `pane` | The pane. |
-| `send` | `pane` (`term` only), `text` | — |
-| `navigate` | `pane` (`web` only), `url` | — |
-
-Example:
+### 7.2 Layout trees
 
 ```json
-// request
-{ "id": "1", "cmd": "open", "args": { "type": "web", "url": "http://localhost:3000", "name": "site", "split": "right", "size": "1/3" } }
-
-// reply
-{ "id": "1", "ok": true, "pane": { "id": "p2", "name": "site", "type": "web", "state": "running" } }
-```
-
-### 8.3 Layout Trees
-
-`arrange` takes a tree of splits and panes. `row` means side by side and `column` means stacked. A child without a `size` shares whatever space is left in its group.
-
-This tree:
-
-```json
-{
-  "split": "row",
-  "children": [
+{ "split": "row", "children": [
     { "pane": "server", "size": "2/3" },
-    { "split": "column", "children": [
-        { "pane": "site" },
-        { "pane": "phone", "size": "1/3" }
-    ]}
-  ]
-}
+    { "split": "column", "children": [ { "pane": "site" }, { "pane": "phone", "size": "1/3" } ] }
+] }
 ```
 
-produces:
+A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decimal (`0.25`). `list` and replies always use the simplest fraction, e.g. `"1/3"`.
 
-```text
-┌─────────────────────────────┬──────────────┐
-│                             │     site     │
-│        server (2/3)         │    (2/3)     │
-│                             ├──────────────┤
-│                             │ phone (1/3)  │
-└─────────────────────────────┴──────────────┘
-```
-
-Rules:
-
-- The sizes in a group can't add up to more than 1.
-- Every pane named in the tree must exist.
-- **[Assumption]** Open panes not named in the tree are moved to a new tab, not closed.
-
-### 8.4 Errors
-
-Failed replies look like `{ "id": "1", "ok": false, "error": { "code": "...", "message": "..." } }`.
+### 7.3 Errors
 
 | `code` | When |
 |--------|------|
-| `bad_request` | Unknown command, missing argument or invalid fraction. |
-| `not_found` | The pane doesn't exist. |
-| `name_taken` | Another pane already has that name. |
-| `wrong_type` | E.g. `send` to a web pane. |
-| `layout_invalid` | Sizes add up to more than 1, or the tree is malformed. |
-| `start_failed` | The pane failed to start (e.g. Xcode missing, unknown device). The message explains why. |
+| `bad_request` | Unknown command or argument, invalid fraction, or resizing a pane that fills its tab. |
+| `not_found` | Unknown pane or tab. |
+| `name_taken` | Pane name already in use. |
+| `wrong_type` | `send` to a non-terminal pane, or `navigate` to a non-web pane. |
+| `layout_invalid` | Malformed tree, a pane listed twice, or sizes adding up to more than 1. |
+| `start_failed` | The pane went to **failed**. The message says why. |
 
 ---
 
-## 9. Platform Requirements
+## 8. Not Yet Decided
 
-| Requirement | Why |
-|-------------|-----|
-| macOS | The iOS Simulator only runs on macOS. **[Assumption]** kmux is macOS-only at first. |
-| Xcode | Only needed for `ios` panes. |
+The model doesn't answer these yet. Each one needs either a decision from you or a model that covers it.
 
----
-
-## 10. Open Questions
-
-1. **Tech stack:** Electron, Tauri or native Swift? This decides how web views and the simulator are embedded.
-2. **iOS pane:** show the simulator's screen inside the pane, or position the real Simulator window over it?
-3. **Own CLI:** should kmux ship a small CLI of its own, or rely on kanna?
-4. **Persistence:** should layouts survive an app restart?
-5. **Events:** should clients be able to subscribe to changes (pane exited, URL changed) instead of polling `list`?
-6. **Reading content:** should the protocol expose terminal text or screenshots, for example so AI agents can read panes?
-7. **Multiple windows:** how does a client target a specific window or tab?
+| # | Question | Needs |
+|---|----------|-------|
+| 1 | **Tech stack:** Electron, Tauri or native Swift? | Decision, then a prototype that embeds a real terminal, web view and simulator. |
+| 2 | **iOS pane:** stream the simulator screen into the pane, or place the real Simulator window over it? | Prototype. |
+| 3 | **Transport:** Unix socket path, permissions, one request per connection or a persistent connection? | Decision. |
+| 4 | **Events:** can clients subscribe to changes (pane exited, URL changed)? | Decision, then extend the model. |
+| 5 | **Pane identity:** without chrome, is the tab title enough to tell panes apart, or should the name show on hover? | Your call, then try it in the model. |
+| 6 | **Tab commands:** should the protocol let clients rename, reorder and focus tabs? | Decision, then extend the model. |
+| 7 | **Persistence:** should layouts survive an app restart? | Decision. |
+| 8 | **Multiple windows:** how do clients target a window? | Decision, then extend the model. |
+| 9 | **Web navigation:** back/forward history and keyboard shortcuts? | Your call. |
+| 10 | **Performance:** targets for pane start time, input latency and memory per pane. | A benchmark utility (the rdd "performance reference"). |
 
 ---
 
-## 11. Glossary
+## 9. Glossary
 
 | Term | Meaning |
 |------|---------|
 | **Mux (multiplexer)** | An app that shows several separate sessions in one window. |
-| **Pane** | One rectangular area in the window showing one thing. |
-| **Split** | Dividing a space into panes side by side (`row`) or stacked (`column`). |
-| **Layout tree** | The nested structure of splits and panes in a tab. |
-| **Control protocol** | The JSON messages other programs use to drive kmux. |
-| **PTY (pseudo-terminal)** | The operating-system mechanism that lets an app host a real shell. |
-| **Web view** | A browser engine embedded inside an app. |
+| **Chrome** | The UI around content, such as title bars, headers and borders. kmux panes have none. |
+| **Pane** | One area of a tab that shows one thing. |
+| **Split** | A group of panes side by side (`row`) or stacked (`column`). |
+| **Layout tree** | The nested splits and panes in a tab. |
+| **Zoom** | Temporarily showing one pane over the whole tab. |
+| **Control protocol** | The JSON requests that other programs use to drive kmux. |
+| **Reference model** | The mockup in `reference/kmux/` that defines how kmux should look and behave. |
 | **iOS Simulator** | Apple's tool, part of Xcode, for running iPhone apps on a Mac. |
-| **`simctl`** | Apple's command-line tool for controlling the iOS Simulator. |
-| **Unix domain socket** | A private connection point that lets two programs on the same machine talk. |
-| **Bundle ID** | An iOS app's unique identifier, e.g. `com.example.myapp`. |
