@@ -276,8 +276,9 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 | Topic | Decision |
 |-------|----------|
 | Platform | A native macOS app (AppKit). |
-| Terminal | Ghostty (GhosttyKit), reusing kanna-v3's build pipeline and terminal view. |
-| iOS pane | The native iOS Simulator. |
+| Terminal | Ghostty (GhosttyKit), reusing kanna-v3's build pipeline and terminal view. Start from **upstream Ghostty**: kanna-v3's fork existed to stream terminals from a daemon, and kmux has no persisted terminals for now. |
+| iOS pane | The native iOS Simulator. **Deferred:** not part of the first native builds. |
+| Transport | A **persistent connection** over the Unix socket: a client keeps one connection open and sends many requests over it. |
 | Process model | kmux is a single app that runs its own terminals and listens on the control socket itself. Later, we fork our own mux and move to a kanna-v3-style app-plus-daemon. |
 | Reuse | Copy the kanna-v3 pieces kmux needs and trim them, without depending on v3. |
 | kanna CLI | Rust. |
@@ -287,8 +288,8 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 
 | # | Question | Needs |
 |---|----------|-------|
-| 1 | **iOS pane placement:** mirror the Simulator's screen into the pane, or keep the real Simulator window positioned over it? | A native prototype. |
-| 2 | **Transport:** Unix socket path, permissions, one request per connection or a persistent connection? | Decision. kanna-v3 used a framed persistent connection. |
+| 1 | **iOS pane placement (deferred):** mirror the Simulator's screen into the pane, or keep the real Simulator window positioned over it? | A native prototype, once the Simulator is back in scope. |
+| 2 | **Transport details:** framing (newline-delimited JSON, or length-prefixed frames as in kanna-v3), the socket path (`~/Library/Application Support/kmux/kmux.sock` is assumed) and permissions. | Decision during the native scaffold. |
 | 3 | **Events:** can clients subscribe to changes (pane exited, URL changed)? | Decision, then extend the model. |
 | 4 | **Pane identity:** without chrome, is the tab title enough to tell panes apart, or should the name show on hover? | Your call, then try it in the model. |
 | 5 | **Tab commands:** should the protocol let clients rename tabs? | Decision. |
