@@ -16,3 +16,7 @@ work/
 ```sh
 cargo build --release   # target/release/kanna
 ```
+
+## License
+
+[FSL-1.1-MIT](LICENSE): source-available; each release becomes MIT two years after it is published.
