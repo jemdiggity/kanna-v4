@@ -17,14 +17,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmux-cli"
-version = "0.1.0"
-dependencies = [
- "kmux-client",
- "serde_json",
-]
-
-[[package]]
 name = "kmux-client"
 version = "0.1.0"
 dependencies = [

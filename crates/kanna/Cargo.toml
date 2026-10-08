@@ -4,5 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-kmux-client = { path = "../kmux-client" }
+# From the kmux repo, checked out next to this one.
+kmux-client = { path = "../../../kmux/crates/kmux-client" }
 serde_json = "1"
