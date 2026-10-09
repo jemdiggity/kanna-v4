@@ -25,6 +25,8 @@ use std::sync::Arc;
 /// The first request of an app's connection.
 pub const HELLO: &str = "app.hello";
 
+const RESET: &[u8] = b"\x1bc";
+
 /// The requests any client may make that the daemon passes to the app.
 pub const APP_COMMANDS: [&str; 5] = ["debug.app", "debug.type", "debug.key", "debug.text", "debug.snapshot"];
 
@@ -196,6 +198,7 @@ impl AppLink {
             return self.notify("exited", json!({ "pane": pane, "code": Value::Null }));
         };
         self.attached.borrow_mut().insert(pane.into());
+        self.output(pane, RESET);
         self.notify("grid", json!({ "pane": pane, "cols": cols, "rows": rows }));
         for chunk in replay.chunks(65536) {
             self.output(pane, chunk);
@@ -223,7 +226,7 @@ impl AppLink {
     /// `restart`: the app's view starts over, at the new terminal's size.
     pub fn started(&self, pane: &str) {
         if self.attached.borrow().contains(pane) {
-            self.output(pane, b"\x1bc");
+            self.output(pane, RESET);
             if let Some((cols, rows, _, _)) = self.terminals.attach(pane) {
                 self.notify("grid", json!({ "pane": pane, "cols": cols, "rows": rows }));
             }

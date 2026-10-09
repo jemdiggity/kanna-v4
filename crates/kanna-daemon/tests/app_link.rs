@@ -38,3 +38,18 @@ fn pixel_sizes_reach_the_pty() {
     let screen = instance.screen(&pane);
     assert!(screen.contains("size 30 90 1800 1200"), "{screen}");
 }
+
+#[test]
+fn an_attach_starts_the_view_over() {
+    let instance = Instance::start();
+    let pane = instance.open("hello", Some("printf hello; exec cat"));
+    wait_for("the output", || instance.screen(&pane).contains("hello"));
+    for _ in 0..2 {
+        let mut app = instance.app();
+        app.tell("attach", json!({"pane": pane}));
+        let first = app.until("the replay", |m| is(m, "output", &pane));
+        assert_eq!(data(&first), b"\x1bc", "{first}");
+        let replay = app.until("the replay", |m| is(m, "output", &pane));
+        assert_eq!(data(&replay), b"hello");
+    }
+}
