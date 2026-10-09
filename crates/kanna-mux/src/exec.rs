@@ -222,6 +222,35 @@ impl Signal {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct Turns {
+    busy: Cell<bool>,
+    waiting: RefCell<std::collections::VecDeque<Rc<Signal>>>,
+}
+
+pub(crate) struct Turn(Rc<Turns>);
+
+impl Turns {
+    pub(crate) async fn take(self: &Rc<Self>) -> Turn {
+        if self.busy.replace(true) {
+            let signal = Rc::new(Signal::default());
+            self.waiting.borrow_mut().push_back(signal.clone());
+            signal.wait().await;
+        }
+        Turn(self.clone())
+    }
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        let next = self.0.waiting.borrow_mut().pop_front();
+        match next {
+            Some(next) => next.set(),
+            None => self.0.busy.set(false),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,6 +264,31 @@ mod tests {
             count.fetch_add(1, Ordering::SeqCst);
         })));
         (executor, wakes)
+    }
+
+    #[test]
+    fn turns_are_taken_in_order() {
+        let executor = Rc::new(Executor::default());
+        let turns = Rc::new(Turns::default());
+        let log = Rc::new(RefCell::new(vec![]));
+        let gate = Rc::new(Signal::default());
+        for n in 0..3 {
+            let (turns, log, gate) = (turns.clone(), log.clone(), gate.clone());
+            executor.spawn(Box::pin(async move {
+                let _turn = turns.take().await;
+                log.borrow_mut().push(format!("start {n}"));
+                if n == 0 {
+                    gate.wait().await;
+                }
+                log.borrow_mut().push(format!("end {n}"));
+            }));
+        }
+        executor.run();
+        assert_eq!(*log.borrow(), vec!["start 0"]);
+        gate.set();
+        executor.run();
+        assert_eq!(*log.borrow(), vec!["start 0", "end 0", "start 1", "end 1", "start 2", "end 2"]);
+        assert!(!turns.busy.get());
     }
 
     #[test]

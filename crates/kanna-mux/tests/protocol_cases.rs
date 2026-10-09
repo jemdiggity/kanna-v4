@@ -3,7 +3,7 @@ mod support;
 use kanna_mux::json::{encode, num, Value};
 use kanna_mux::{Core, DEBUG_COMMANDS};
 use std::path::PathBuf;
-use support::make_core;
+use support::{make_core, make_remote_core};
 
 fn cases_directory() -> PathBuf {
     let kmux = std::env::var_os("KMUX_DIR").map(PathBuf::from)
@@ -36,6 +36,15 @@ fn pane_types(core: &Core) -> Vec<String> {
 
 #[test]
 fn shared_protocol_cases() {
+    run_cases("native", &|| make_core().0);
+}
+
+#[test]
+fn shared_protocol_cases_with_the_layout_in_the_app() {
+    run_cases("layout in the app", &|| make_remote_core().0);
+}
+
+fn run_cases(label: &str, make: &dyn Fn() -> Core) {
     let mut files: Vec<PathBuf> = std::fs::read_dir(cases_directory())
         .expect("no cases directory")
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -43,7 +52,7 @@ fn shared_protocol_cases() {
         .collect();
     files.sort();
     assert!(!files.is_empty(), "no cases in {}", cases_directory().display());
-    let (probe, _) = make_core();
+    let probe = make();
     let types = pane_types(&probe);
     let commands = probe.commands();
 
@@ -73,7 +82,7 @@ fn shared_protocol_cases() {
                 skipped.push(format!("{title} (needs {})", missing.join(", ")));
                 continue;
             }
-            let (core, _host) = make_core();
+            let core = make();
             let mut problem = None;
             for (index, step) in steps.iter().enumerate() {
                 let Value::Object(mut request) = step["send"].clone() else { continue };
@@ -91,7 +100,7 @@ fn shared_protocol_cases() {
             }
         }
     }
-    println!("native: {passed} cases passed, {} failed, {} skipped", failed.len(), skipped.len());
+    println!("{label}: {passed} cases passed, {} failed, {} skipped", failed.len(), skipped.len());
     for skip in &skipped {
         println!("  skipped {skip}");
     }

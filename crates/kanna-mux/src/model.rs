@@ -4,7 +4,6 @@ use crate::json::{num, opt, string, trim, Map, Value};
 use crate::layout::{LayoutHost, Placement, SavedLayout, Scope, SplitSide};
 use crate::pane::Panes;
 use crate::state::{bad, number_in, quoted, whole};
-use std::any::Any;
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,7 +106,7 @@ pub struct Model {
     windows: Vec<Window>,
     pub key: Option<String>,
     counters: (usize, usize),
-    pub pane_is_wide: Box<dyn Fn(&str) -> bool>,
+    pub pane_is_wide: Box<dyn Fn(&str) -> bool + Send>,
 }
 
 impl Default for Model {
@@ -733,11 +732,11 @@ struct Restored {
 }
 
 impl LayoutHost for Model {
-    fn commands(&self) -> &[&'static str] {
+    fn commands(&self) -> &'static [&'static str] {
         &["focus", "zoom", "rename-tab", "move", "move-tab", "resize", "arrange"]
     }
 
-    fn features(&self) -> &[&'static str] {
+    fn features(&self) -> &'static [&'static str] {
         &["windows", "tabs", "fractionalSizing", "zoom"]
     }
 
@@ -971,10 +970,6 @@ impl LayoutHost for Model {
         self.key = restored.key;
         self.counters = (self.counters.0.max(restored.counters.0), self.counters.1.max(restored.counters.1));
         self.drop_empty();
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
     }
 }
 

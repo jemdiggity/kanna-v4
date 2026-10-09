@@ -1,8 +1,8 @@
 use crate::error::KmuxError;
-use crate::exec::{sleep, Executor, Signal, Wakeup};
+use crate::exec::{sleep, Executor, Signal, Turns, Wakeup};
 use crate::instance::{Instance, DEFAULT_NAME};
 use crate::json::{is_true, json, num, string, Map, Value};
-use crate::layout::{LayoutHost, Placement, Scope, SplitSide};
+use crate::layout::{place_request, scope_request, LayoutHost, LayoutLink, LocalLayout, Scope, SplitSide};
 use crate::model::{fraction, Model};
 use crate::pane::{Pane, PaneState, PaneType, Panes};
 use crate::state;
@@ -37,7 +37,6 @@ const CORE_FEATURES: [&str; 2] = ["namedPanes", "lifecycle"];
 
 struct State {
     panes: Panes,
-    layout: Box<dyn LayoutHost>,
     instance: Instance,
     pane_types: Vec<PaneType>,
     start_timeout: Duration,
@@ -47,6 +46,8 @@ struct State {
 
 struct Inner {
     state: RefCell<State>,
+    layout: Rc<dyn LayoutLink>,
+    turns: Rc<Turns>,
     exec: Rc<Executor>,
     host: RefCell<Option<Rc<dyn PaneHost>>>,
     on_change: RefCell<Option<Rc<dyn Fn()>>>,
@@ -76,10 +77,15 @@ impl Default for Core {
 
 impl Core {
     pub fn new(layout: Box<dyn LayoutHost>) -> Core {
+        Core::with_link(Rc::new(LocalLayout::new(layout)))
+    }
+
+    pub fn with_link(layout: Rc<dyn LayoutLink>) -> Core {
         Core(CoreHandle(Rc::new(Inner {
+            layout,
+            turns: Rc::default(),
             state: RefCell::new(State {
                 panes: Panes::default(),
-                layout,
                 instance: Instance::new(DEFAULT_NAME),
                 pane_types: PaneType::ALL.to_vec(),
                 start_timeout: Duration::from_secs(10),
@@ -167,7 +173,7 @@ impl CoreHandle {
     }
 
     pub fn commands(&self) -> Vec<String> {
-        let mut commands: Vec<String> = CORE_COMMANDS.iter().chain(self.state().layout.commands()).map(|c| c.to_string()).collect();
+        let mut commands: Vec<String> = CORE_COMMANDS.iter().chain(self.0.layout.commands()).map(|c| c.to_string()).collect();
         commands.sort();
         commands
     }
@@ -188,10 +194,12 @@ impl CoreHandle {
         self.state().panes.get_mut(id).map(f)
     }
 
-    pub fn with_layout<L: 'static, R>(&self, f: impl FnOnce(&mut L, &Panes) -> R) -> Option<R> {
-        let mut state = self.state();
-        let State { layout, panes, .. } = &mut *state;
-        layout.as_any_mut().downcast_mut::<L>().map(|layout| f(layout, panes))
+    async fn layout(&self, request: Value) -> Result<Map, KmuxError> {
+        let call = {
+            let s = self.state();
+            self.0.layout.call(request, &s.panes)
+        };
+        call.await
     }
 
     fn host(&self) -> Option<Rc<dyn PaneHost>> {
@@ -326,35 +334,31 @@ impl CoreHandle {
         match cmd {
             "capabilities" => Ok(self.capabilities()),
             "open" => self.open(&args).await,
-            "list" => Ok(self.list()),
-            "close" => self.close(&args),
+            "list" => self.list().await,
+            "close" => self.close(&args).await,
             "restart" => self.restart(&args).await,
             "send" => self.send(&args),
             "read" => self.read(&args),
             "navigate" => self.navigate(&args).await,
             "debug.saveState" => {
-                let state = self.export_state();
+                let state = self.export_state().await?;
                 self.state().saved_state = Some(state.clone());
                 Ok(reply([("state", state)]))
             }
             "debug.restoreState" => {
                 let saved = self.state().saved_state.clone();
                 let state = args.get("state").cloned().or(saved).ok_or_else(|| bad_request("no saved state to restore"))?;
-                self.restore_state(&state)?;
-                let s = self.state();
-                let windows = match s.layout.windows(&s.panes) {
-                    Value::Array(windows) => windows.iter().filter_map(|w| w.get("id").cloned()).collect(),
+                self.restore_state(&state).await?;
+                let windows = match self.layout(json!({ "op": "windows" })).await?.remove("windows") {
+                    Some(Value::Array(windows)) => windows.iter().filter_map(|w| w.get("id").cloned()).collect(),
                     _ => vec![],
                 };
-                let panes = s.panes.ids().into_iter().map(Value::String).collect();
+                let panes = self.state().panes.ids().into_iter().map(Value::String).collect();
                 Ok(reply([("windows", Value::Array(windows)), ("panes", Value::Array(panes))]))
             }
-            _ if self.state().layout.commands().contains(&cmd) => {
-                let result = {
-                    let mut s = self.state();
-                    let State { layout, panes, .. } = &mut *s;
-                    layout.command(cmd, &args, panes)
-                };
+            _ if self.0.layout.commands().contains(&cmd) => {
+                let _turn = self.0.turns.take().await;
+                let result = self.layout(json!({ "op": "command", "cmd": cmd, "args": args })).await;
                 if result.is_ok() {
                     self.changed();
                 }
@@ -372,8 +376,8 @@ impl CoreHandle {
 
     fn capabilities(&self) -> Map {
         let commands = self.commands();
+        let layout = self.0.layout.features();
         let s = self.state();
-        let layout = s.layout.features();
         let mut features: Vec<&str> = FEATURES.iter().copied().filter(|f| CORE_FEATURES.contains(f) || layout.contains(f)).collect();
         features.extend(layout.iter().filter(|f| !FEATURES.contains(f)));
         reply([
@@ -385,9 +389,10 @@ impl CoreHandle {
         ])
     }
 
-    fn list(&self) -> Map {
+    async fn list(&self) -> Result<Map, KmuxError> {
+        let windows = self.layout(json!({ "op": "windows" })).await?.remove("windows").unwrap_or(Value::Array(vec![]));
         let s = self.state();
-        reply([("windows", s.layout.windows(&s.panes)), ("panes", Value::Array(s.panes.iter().map(Pane::summary).collect()))])
+        Ok(reply([("windows", windows), ("panes", Value::Array(s.panes.iter().map(Pane::summary).collect()))]))
     }
 
     fn start_pane(&self, id: &str) {
@@ -433,32 +438,35 @@ impl CoreHandle {
             return Err(bad_request("path is only for markdown panes"));
         }
         let name = string(args, "name").map(String::from);
-        if let Some(name) = &name {
-            if self.state().panes.pane(name).is_some() {
-                return Err(KmuxError::new("name_taken", format!("a pane named \"{name}\" already exists")));
-            }
-        }
-        let split = match string(args, "split").unwrap_or("auto") {
-            "right" => SplitSide::Right,
-            "down" => SplitSide::Down,
-            "auto" => SplitSide::Auto,
-            _ => return Err(bad_request("split must be right, down or auto")),
+        let taken = |core: &CoreHandle| match &name {
+            Some(name) if core.state().panes.pane(name).is_some() => Err(KmuxError::new("name_taken", format!("a pane named \"{name}\" already exists"))),
+            _ => Ok(()),
+        };
+        taken(self)?;
+        let split = match args.get("split").map(|split| split.as_str().unwrap_or("")) {
+            None => None,
+            Some("right") => Some(SplitSide::Right),
+            Some("down") => Some(SplitSide::Down),
+            Some("auto") => Some(SplitSide::Auto),
+            Some(_) => return Err(bad_request("split must be right, down or auto")),
         };
         let size = match args.get("size") {
-            Some(value) => fraction(value)?,
-            None => 0.5,
+            Some(value) => Some(fraction(value)?),
+            None => None,
         };
-        if !(size > 0.0 && size < 1.0) {
+        if !size.is_none_or(|size| size > 0.0 && size < 1.0) {
             return Err(bad_request("size must be a fraction between 0 and 1"));
         }
-        let at = Placement { window: string(args, "window").map(String::from), split, size, new_tab: args.get("tab").and_then(Value::as_bool).unwrap_or(false) };
+        let new_tab = args.get("tab").and_then(Value::as_bool).unwrap_or(false);
 
-        let (id, window) = {
+        let turn = self.0.turns.take().await;
+        taken(self)?;
+        let id = self.state().panes.next_id();
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab)).await?;
+        let placed = Value::Object(placed);
+        {
             let mut s = self.state();
-            let State { panes, layout, .. } = &mut *s;
-            let id = panes.next_id();
-            let window = layout.place(&id, &at)?;
-            let pane = panes.make(kind, name);
+            let pane = s.panes.make(kind, name);
             let field = |key: &str| string(args, key).map(String::from);
             pane.command = field("cmd");
             pane.cwd = field("cwd");
@@ -469,24 +477,21 @@ impl CoreHandle {
             if (kind == PaneType::Web && is_true(args, "history")) || kind == PaneType::Md {
                 pane.history = Some(Default::default());
             }
-            (id, window)
-        };
+        }
+        drop(turn);
         self.changed();
         self.start_pane(&id);
 
         let snapshot = self.state().panes.get(&id).cloned().unwrap();
-        let answer = |core: &CoreHandle| {
-            let location = core.state().layout.location(&id);
-            let window = location.as_ref().map(|l| l.0.clone()).or(window.clone());
-            let tab = location.map(|l| l.1);
-            reply([("pane", core.summary(&id, &snapshot)), ("window", window.into()), ("tab", tab.into())])
-        };
         if args.get("wait") == Some(&Value::Bool(false)) {
-            return Ok(answer(self));
+            return Ok(reply([("pane", self.summary(&id, &snapshot)), ("window", placed["window"].clone()), ("tab", placed["tab"].clone())]));
         }
         self.settled(&id).await;
         self.check_started(&id, &snapshot)?;
-        Ok(answer(self))
+        let summary = self.summary(&id, &snapshot);
+        let location = Value::Object(self.layout(json!({ "op": "location", "pane": id })).await.unwrap_or_default());
+        let window = if location["window"].is_null() { placed["window"].clone() } else { location["window"].clone() };
+        Ok(reply([("pane", summary), ("window", window), ("tab", location["tab"].clone())]))
     }
 
     fn check_started(&self, id: &str, fallback: &Pane) -> Result<(), KmuxError> {
@@ -498,7 +503,8 @@ impl CoreHandle {
         Ok(())
     }
 
-    fn close(&self, args: &Value) -> Result<Map, KmuxError> {
+    async fn close(&self, args: &Value) -> Result<Map, KmuxError> {
+        let _turn = self.0.turns.take().await;
         let victims: Vec<String> = if let Some(reference) = string(args, "pane") {
             vec![self.need_pane(Some(reference))?.id]
         } else {
@@ -509,32 +515,27 @@ impl CoreHandle {
             } else {
                 return Err(bad_request("close needs a pane, tab or window"));
             };
-            let mut s = self.state();
-            let ids = s.layout.panes_in(&scope)?;
-            ids.into_iter().filter(|id| s.panes.get(id).is_some()).collect()
+            let found = self.layout(scope_request(&scope)).await?;
+            let ids = found.get("panes").and_then(Value::as_array).cloned().unwrap_or_default();
+            let s = self.state();
+            ids.iter().filter_map(Value::as_str).filter(|id| s.panes.get(id).is_some()).map(String::from).collect()
         };
         for id in &victims {
-            self.close_pane(id);
+            self.forget_pane(id);
         }
-        self.tidy();
+        if let Err(error) = self.layout(json!({ "op": "remove", "ids": victims, "tidy": true })).await {
+            eprintln!("kanna-mux: closed {} but the layout kept them: {error}", victims.join(", "));
+        }
         self.changed();
         Ok(reply([("closed", victims.into())]))
     }
 
-    pub fn close_pane(&self, id: &str) {
-        let pane = {
-            let mut s = self.state();
-            s.layout.remove(id);
-            s.panes.forget(id)
-        };
+    fn forget_pane(&self, id: &str) {
+        let pane = self.state().panes.forget(id);
         if let (Some(host), Some(pane)) = (self.host(), &pane) {
             host.stop(pane);
         }
         self.resume(id);
-    }
-
-    pub fn tidy(&self) {
-        self.state().layout.tidy();
     }
 
     async fn reload(&self, id: &str, clear_exit: bool) -> Pane {
@@ -654,9 +655,9 @@ impl CoreHandle {
         Ok(reply([("pane", self.summary(&pane.id, &snapshot))]))
     }
 
-    pub fn export_state(&self) -> Value {
+    async fn export_state(&self) -> Result<Value, KmuxError> {
+        let mut out = self.layout(json!({ "op": "export" })).await?;
         let s = self.state();
-        let mut out = s.layout.export_state();
         let mut counters = match out.remove("counters") {
             Some(Value::Object(counters)) => counters,
             _ => Map::new(),
@@ -666,22 +667,25 @@ impl CoreHandle {
         out.insert("version".into(), num(state::STATE_VERSION as f64));
         out.insert("counters".into(), Value::Object(counters));
         out.insert("panes".into(), state::export_panes(&s.panes));
-        Value::Object(out)
+        Ok(Value::Object(out))
     }
 
-    pub fn restore_state(&self, saved: &Value) -> Result<(), KmuxError> {
+    async fn restore_state(&self, saved: &Value) -> Result<(), KmuxError> {
         let (panes, counter) = state::import_panes(saved)?;
-        let ids: HashSet<String> = panes.iter().map(|p| p.id.clone()).collect();
-        let layout = self.state().layout.read_state(saved, &ids)?;
+        let ids: Vec<String> = panes.iter().map(|p| p.id.clone()).collect();
+        let _turn = self.0.turns.take().await;
+        self.layout(json!({ "op": "check", "state": saved, "ids": ids })).await?;
         let old = self.state().panes.ids();
         for id in &old {
-            self.close_pane(id);
+            self.forget_pane(id);
         }
+        self.layout(json!({ "op": "remove", "ids": old })).await?;
+        let installed = self.layout(json!({ "op": "install", "state": saved, "ids": ids })).await?;
+        let placed: HashSet<&str> = installed.get("placed").and_then(Value::as_array).map(|ids| ids.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
         let restored = {
             let mut s = self.state();
-            let restored: Vec<Pane> = panes.into_iter().filter(|p| layout.placed.contains(&p.id)).collect();
+            let restored: Vec<Pane> = panes.into_iter().filter(|p| placed.contains(p.id.as_str())).collect();
             let ids = restored.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
-            s.layout.install_state(layout);
             s.panes.install(restored, counter);
             ids
         };
@@ -766,7 +770,7 @@ impl Drop for Responder {
     }
 }
 
-fn responder() -> (Responder, impl Future<Output = Result<Map, KmuxError>>) {
+pub fn responder() -> (Responder, impl Future<Output = Result<Map, KmuxError>>) {
     let answer = Arc::new(Mutex::new(Answer::default()));
     let waiting = answer.clone();
     let future = poll_fn(move |cx| {

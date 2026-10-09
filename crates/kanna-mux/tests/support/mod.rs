@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
-use kanna_mux::json::Value;
-use kanna_mux::{Core, Pane, PaneHost, PaneState, WeakCore};
+use kanna_mux::json::{json, Value};
+use kanna_mux::{pane_table, responder, Core, LayoutCall, LayoutLink, LayoutOwner, Model, Pane, PaneHost, PaneState, Panes, WeakCore};
+use kanna_mux::LayoutHost;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -35,6 +36,53 @@ impl PaneHost for FakeHost {
     fn send(&self, pane: &Pane, text: &str) {
         self.sent.borrow_mut().push(format!("{}: {text}", pane.id));
     }
+}
+
+#[derive(Default)]
+pub struct AppSide {
+    pub core: RefCell<Option<WeakCore>>,
+    pub owner: Rc<RefCell<LayoutOwner>>,
+}
+
+impl LayoutLink for AppSide {
+    fn commands(&self) -> &'static [&'static str] {
+        Model::new().commands()
+    }
+
+    fn features(&self) -> &'static [&'static str] {
+        Model::new().features()
+    }
+
+    fn call(&self, mut request: Value, panes: &Panes) -> LayoutCall {
+        request["panes"] = pane_table(panes);
+        let wire = serde_json::to_string(&json!({ "call": "serve", "request": request })).unwrap();
+        let (answer, reply) = responder();
+        let owner = self.owner.clone();
+        let core = self.core.borrow().as_ref().and_then(WeakCore::upgrade).expect("the core is gone");
+        core.later(move || {
+            let mut reply: Value = owner.borrow_mut().handle(&serde_json::from_str(&wire).unwrap());
+            let reply: Value = serde_json::from_str(&serde_json::to_string(&reply.take()).unwrap()).unwrap();
+            let Value::Object(mut fields) = reply else { unreachable!() };
+            if fields.remove("ok") == Some(Value::Bool(true)) {
+                answer.reply(Ok(fields));
+            } else {
+                let error = fields.remove("error").unwrap_or(Value::Null);
+                let text = |key: &str| error[key].as_str().unwrap_or_default().to_string();
+                answer.reply(Err(kanna_mux::KmuxError::new(text("code"), text("message"))));
+            }
+        });
+        Box::pin(reply)
+    }
+}
+
+pub fn make_remote_core() -> (Core, Rc<FakeHost>, Rc<AppSide>) {
+    let app = Rc::new(AppSide::default());
+    let core = Core::with_link(app.clone());
+    *app.core.borrow_mut() = Some(core.weak());
+    let host = Rc::new(FakeHost::default());
+    *host.core.borrow_mut() = Some(core.weak());
+    core.set_host(Some(host.clone()));
+    (core, host, app)
 }
 
 pub fn make_core() -> (Core, Rc<FakeHost>) {
