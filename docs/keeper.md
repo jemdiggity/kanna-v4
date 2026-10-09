@@ -139,7 +139,7 @@ stateDiagram-v2
 | | |
 |---|---|
 | **Command line** | `kanna-keeper [--state-dir DIR] [--detach]`. DIR defaults to `$KANNA_STATE_DIR`, else `~/Library/Application Support/kanna` (macOS) or `$XDG_DATA_HOME/kanna`. |
-| **Starting** | The daemon runs `kanna-keeper --state-dir DIR --detach` (via the client's `connect_or_start`): it double-forks into its own session, stdio on `/dev/null`, stderr appended to `keeper.log`, and returns once the socket listens. Without `--detach` it runs in the foreground. |
+| **Starting** | The daemon runs `kanna-keeper --state-dir DIR --detach` (via the client's `connect_or_start`): it double-forks into its own session, changes to `/`, stdio on `/dev/null`, stderr appended to `keeper.log`, and returns once the socket listens (or it found another keeper listening). If the keeper fails before listening, `--detach` prints its error and exits 1; the keeper reports which over a pipe (`1` listening, `2` another keeper, `E` and the error). Without `--detach` it runs in the foreground. |
 | **One per directory** | `flock` on `keeper.lock`; a second keeper returns at once, successfully. |
 | **Files** | `keeper.sock`, `keeper.lock`, `keeper.pid`, `keeper.log` in DIR. |
 | **Client gone** | Nothing happens: the processes and the keeper's copies stay. |

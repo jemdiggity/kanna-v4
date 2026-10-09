@@ -526,3 +526,15 @@ fn a_detached_keeper_closes_what_it_inherited() {
     out.unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn detach_fails_when_the_keeper_cannot_listen() {
+    let dir = private_dir();
+    let state = dir.join("state");
+    std::fs::create_dir_all(state.join("keeper.sock/in-the-way")).unwrap();
+    let out = clean_command(&state, &dir.join("home")).arg("--detach").output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("keeper.sock"), "{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

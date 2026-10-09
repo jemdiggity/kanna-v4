@@ -155,10 +155,22 @@ struct Keeper {
     stop: bool,
 }
 
+/// What `--detach` hears on its pipe: [`LISTENING`], [`ALREADY_RUNNING`],
+/// or [`FAILED`] followed by the error.
+pub const LISTENING: u8 = b'1';
+pub const ALREADY_RUNNING: u8 = b'2';
+pub const FAILED: u8 = b'E';
+
+fn tell(ready: Option<&OwnedFd>, bytes: &[u8]) {
+    if let Some(fd) = ready {
+        unsafe { libc::write(fd.as_raw_fd(), bytes.as_ptr().cast(), bytes.len()) };
+    }
+}
+
 /// Runs the keeper until it is idle or told to stop (SIGTERM, SIGINT).
-/// Returns at once if another keeper holds the state directory. `ready` is
-/// written to once the socket is listening, and closed either way.
-pub fn run(settings: Settings, ready: Option<OwnedFd>) -> Result<()> {
+/// Returns at once if another keeper holds the state directory. `ready`
+/// gets [`LISTENING`] once the socket listens, or [`ALREADY_RUNNING`].
+pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
     sig::cloexec_inherited();
     let dir = settings.state_dir.clone();
     paths::ensure_dir(&dir).with_context(|| format!("state directory {}", dir.display()))?;
@@ -169,7 +181,7 @@ pub fn run(settings: Settings, ready: Option<OwnedFd>) -> Result<()> {
         .mode(0o600)
         .open(paths::lock(&dir))?;
     if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        // Another keeper owns this directory.
+        tell(ready, &[ALREADY_RUNNING]);
         return Ok(());
     }
     sig::set_cloexec(lock.as_raw_fd());
@@ -194,9 +206,7 @@ pub fn run(settings: Settings, ready: Option<OwnedFd>) -> Result<()> {
     listener.set_nonblocking(true)?;
     let pid_file = paths::pid(&dir);
     std::fs::write(&pid_file, format!("{}\n", std::process::id()))?;
-    if let Some(ready) = ready {
-        unsafe { libc::write(ready.as_raw_fd(), b"1".as_ptr().cast(), 1) };
-    }
+    tell(ready, &[LISTENING]);
     let mut keeper = Keeper {
         listener,
         sigs,
@@ -512,11 +522,13 @@ fn valid_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `--detach`: runs the keeper in the background, in its own session, with
-/// stdio on /dev/null and stderr appended to keeper.log. Returns once it is
-/// listening, or once it has found another keeper already running.
-pub fn detach(settings: Settings) -> Result<()> {
+/// `--detach`: runs the keeper in the background, in its own session, in
+/// `/`, with stdio on /dev/null and stderr appended to keeper.log. Returns
+/// once it is listening or has found another keeper running, and fails
+/// with the keeper's error if it stopped before listening.
+pub fn detach(mut settings: Settings) -> Result<()> {
     paths::ensure_dir(&settings.state_dir).with_context(|| format!("state directory {}", settings.state_dir.display()))?;
+    settings.state_dir = std::path::absolute(&settings.state_dir)?;
     let log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -539,6 +551,7 @@ pub fn detach(settings: Settings) -> Result<()> {
                 0 => {}
                 _ => unsafe { libc::_exit(0) },
             }
+            unsafe { libc::chdir(c"/".as_ptr()) };
             let null = std::fs::OpenOptions::new().read(true).write(true).open("/dev/null");
             unsafe {
                 if let Ok(null) = &null {
@@ -550,10 +563,11 @@ pub fn detach(settings: Settings) -> Result<()> {
             drop(null);
             drop(log);
             sig::close_inherited(&[write.as_raw_fd()]);
-            let code = match run(settings, Some(write)) {
+            let code = match run(settings, Some(&write)) {
                 Ok(()) => 0,
                 Err(e) => {
                     eprintln!("kanna-keeper: {e:#}");
+                    tell(Some(&write), format!("{}{e:#}", FAILED as char).as_bytes());
                     1
                 }
             };
@@ -563,10 +577,20 @@ pub fn detach(settings: Settings) -> Result<()> {
             drop(write);
             let mut status = 0;
             unsafe { libc::waitpid(child, &mut status, 0) };
-            let mut byte = [0u8; 1];
             let mut read = std::fs::File::from(read);
-            let _ = read.read(&mut byte);
-            Ok(())
+            let mut byte = [0u8; 1];
+            match read.read(&mut byte) {
+                Ok(1) if byte[0] == LISTENING || byte[0] == ALREADY_RUNNING => Ok(()),
+                Ok(1) if byte[0] == FAILED => {
+                    let mut error = String::new();
+                    let _ = read.read_to_string(&mut error);
+                    Err(anyhow::anyhow!(error))
+                }
+                _ => Err(anyhow::anyhow!(
+                    "the keeper stopped before it listened; see {}",
+                    paths::log(&settings.state_dir).display()
+                )),
+            }
         }
     }
 }
