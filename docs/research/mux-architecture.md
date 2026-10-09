@@ -44,6 +44,9 @@ Read each stack top to bottom, like the OSI model: each layer uses the ones belo
 
 ```mermaid
 flowchart TB
+    subgraph CLIP["CLI processes"]
+        CLI["kanna CLI, agents"]
+    end
     subgraph APP["Kanna app process"]
         L1["1 · UI<br/>Desk and Shelf<br/>review · editor"]
         L2["2 · Kanna<br/>tasks · agents<br/>worktrees · hooks"]
@@ -61,7 +64,7 @@ flowchart TB
         WK["WebKit"]
         SIM["iOS Simulator"]
     end
-    L4 <-->|"socket"| CLI["kanna CLI, agents"]
+    CLI -->|"socket"| L4
     L3 <-->|"socket"| L4
     L4 <-->|"socket"| L5
     L5 -->|"creates"| PTY
@@ -83,6 +86,9 @@ kmux has the same layers without 2 and 5, in one process:
 
 ```mermaid
 flowchart TB
+    subgraph CLIP["CLI processes"]
+        CLI["kmux CLI, agents"]
+    end
     subgraph APP["kmux app process (the only one)"]
         K1["1 · UI<br/>windows · tabs · splits"]
         K3["3 · Mux UI (kmux)<br/>terminal · web<br/>iOS · markdown views"]
@@ -94,7 +100,7 @@ flowchart TB
         WK["WebKit"]
         SIM["iOS Simulator"]
     end
-    K4 <-->|"socket"| CLI["kmux CLI, agents"]
+    CLI -->|"socket"| K4
     K3 <-->|"reads, writes"| PTY
     K3 --> WK
     K3 <--> SIM
@@ -125,6 +131,7 @@ flowchart TB
 | **Keeper** | 5 | the `feat/keeper` branch and v3's keeper |
 | **`kanna` CLI** | — | KmuxClient (today's `kmux-client`), pointed at Kanna's daemon |
 
+- **The CLI is a client, not a layer:** like the app, it sits on top and calls down into layer 4. Neither serves the other; in Kanna both are clients of the daemon.
 - **Why terminals cross into the daemon and nothing else does:** a terminal is a running program, which must not die with the app. A web page, a markdown file or an iOS pane is just state to reopen: a URL, a path, a device. The page itself has to be in the app anyway (WebKit can't draw from another process), and simulator devices already outlive everything.
 - **The keeper isn't in the path of any byte:** it creates each pty and keeps a copy, so shells outlive a daemon restart; the daemon reads and writes them itself.
 
