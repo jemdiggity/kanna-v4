@@ -1,5 +1,5 @@
 #!/bin/sh
-KANNA_GHOSTTY_FORK="${KANNA_GHOSTTY_FORK:-$HOME/work/ghostty}"
+KANNA_GHOSTTY_FORK="${KANNA_GHOSTTY_FORK:-https://github.com/jemdiggity/ghostty.git}"
 KANNA_GHOSTTY_BRANCH="kanna4"
 KANNA_GHOSTTY_COMMIT="b0126824af3f5be412615f03ed10e65fbf519ba2"
 
@@ -35,9 +35,10 @@ kanna_ghostty_source() {
   dir="$1/target/ghostty-source"
   if [ ! -f "$dir/build.zig" ]; then
     mkdir -p "$1/target"
-    git clone -q --no-checkout --branch "$KANNA_GHOSTTY_BRANCH" "$KANNA_GHOSTTY_FORK" "$dir" >&2 || return 1
+    git clone -q --no-checkout --filter=blob:none --branch "$KANNA_GHOSTTY_BRANCH" "$KANNA_GHOSTTY_FORK" "$dir" >&2 || return 1
   fi
   if [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" != "$KANNA_GHOSTTY_COMMIT" ] || [ ! -f "$dir/build.zig" ]; then
+    git -C "$dir" remote set-url origin "$KANNA_GHOSTTY_FORK" >&2 || return 1
     git -C "$dir" fetch -q origin "$KANNA_GHOSTTY_BRANCH" >&2 || return 1
     git -C "$dir" checkout -q --detach "$KANNA_GHOSTTY_COMMIT" >&2 || return 1
   fi
