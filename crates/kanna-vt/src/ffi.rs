@@ -33,11 +33,21 @@ pub struct GhosttyString {
 pub const GHOSTTY_FORMATTER_FORMAT_PLAIN: i32 = 0;
 pub const GHOSTTY_TERMINAL_OPT_USERDATA: i32 = 0;
 pub const GHOSTTY_TERMINAL_OPT_WRITE_PTY: i32 = 1;
+pub const GHOSTTY_TERMINAL_OPT_TITLE_CHANGED: i32 = 5;
 pub const GHOSTTY_TERMINAL_OPT_SIZE: i32 = 6;
+pub const GHOSTTY_TERMINAL_OPT_COLOR_SCHEME: i32 = 7;
 pub const GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES: i32 = 8;
+pub const GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND: i32 = 11;
+pub const GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND: i32 = 12;
+pub const GHOSTTY_TERMINAL_OPT_COLOR_CURSOR: i32 = 13;
+pub const GHOSTTY_TERMINAL_OPT_COLOR_PALETTE: i32 = 14;
+pub const GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE: i32 = 22;
+pub const GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK: i32 = 23;
+pub const GHOSTTY_TERMINAL_OPT_PWD_CHANGED: i32 = 25;
 pub const GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES: i32 = 27;
 pub const GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES: i32 = 28;
 pub const GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES: i32 = 31;
+pub const GHOSTTY_TERMINAL_OPT_MODE_DEFAULT: i32 = 33;
 pub const GHOSTTY_TERMINAL_DATA_COLS: i32 = 1;
 pub const GHOSTTY_TERMINAL_DATA_ROWS: i32 = 2;
 pub const GHOSTTY_TERMINAL_DATA_CURSOR_X: i32 = 3;
@@ -50,6 +60,17 @@ pub const GHOSTTY_TERMINAL_DATA_TOTAL_ROWS: i32 = 14;
 pub const GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS: i32 = 15;
 pub const GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_BYTES: i32 = 34;
 pub const GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES: i32 = 35;
+pub const GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND: i32 = 18;
+pub const GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND: i32 = 19;
+pub const GHOSTTY_TERMINAL_DATA_COLOR_CURSOR: i32 = 20;
+pub const GHOSTTY_TERMINAL_DATA_COLOR_PALETTE: i32 = 21;
+pub const GHOSTTY_TERMINAL_DATA_MODE: i32 = 37;
+pub const GHOSTTY_COLOR_SCHEME_LIGHT: i32 = 0;
+pub const GHOSTTY_COLOR_SCHEME_DARK: i32 = 1;
+pub const GHOSTTY_TERMINAL_CURSOR_STYLE_BAR: i32 = 0;
+pub const GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK: i32 = 1;
+pub const GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE: i32 = 2;
+pub const GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW: i32 = 3;
 pub const GHOSTTY_TERMINAL_SCREEN_ALTERNATE: i32 = 1;
 pub const GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES: i32 = 0;
 pub const GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION: i32 = 1;
@@ -131,6 +152,22 @@ pub struct GhosttySizeReportSize {
     pub cell_width: u32,
     pub cell_height: u32,
 }
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct GhosttyColorRgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct GhosttyTerminalModeConfig {
+    pub mode: u16,
+    pub value: bool,
+}
+pub type GhosttyTerminalColorSchemeFn =
+    unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, out: *mut i32) -> bool;
+pub type GhosttyTerminalChangedFn = unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void);
 pub type GhosttyTerminalWritePtyFn =
     unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, data: *const u8, len: usize);
 pub type GhosttyTerminalDeviceAttributesFn =

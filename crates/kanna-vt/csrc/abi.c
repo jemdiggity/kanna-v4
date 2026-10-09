@@ -15,6 +15,32 @@ static const long long kanna_vt_abi_values[] = {
     GHOSTTY_TERMINAL_OPT_USERDATA,
     GHOSTTY_TERMINAL_OPT_WRITE_PTY,
     GHOSTTY_TERMINAL_OPT_SIZE,
+    GHOSTTY_TERMINAL_OPT_TITLE_CHANGED,
+    GHOSTTY_TERMINAL_OPT_COLOR_SCHEME,
+    GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND,
+    GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
+    GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
+    GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
+    GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE,
+    GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK,
+    GHOSTTY_TERMINAL_OPT_PWD_CHANGED,
+    GHOSTTY_TERMINAL_OPT_MODE_DEFAULT,
+    GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND,
+    GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND,
+    GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
+    GHOSTTY_TERMINAL_DATA_COLOR_PALETTE,
+    GHOSTTY_TERMINAL_DATA_MODE,
+    GHOSTTY_COLOR_SCHEME_LIGHT,
+    GHOSTTY_COLOR_SCHEME_DARK,
+    sizeof(GhosttyColorScheme),
+    GHOSTTY_TERMINAL_CURSOR_STYLE_BAR,
+    GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK,
+    GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE,
+    GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW,
+    sizeof(GhosttyTerminalCursorStyle),
+    sizeof(GhosttyColorRgb),
+    sizeof(GhosttyTerminalModeConfig),
+    offsetof(GhosttyTerminalModeConfig, value),
     GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES,
     GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
     GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
@@ -91,6 +117,10 @@ static void (*const check_write_pty)(GhosttyTerminal, void *, const uint8_t *, s
     (GhosttyTerminalWritePtyFn)0;
 static bool (*const check_device_attributes)(GhosttyTerminal, void *, GhosttyDeviceAttributes *) __attribute__((used)) =
     (GhosttyTerminalDeviceAttributesFn)0;
+static bool (*const check_color_scheme)(GhosttyTerminal, void *, GhosttyColorScheme *) __attribute__((used)) =
+    (GhosttyTerminalColorSchemeFn)0;
+static void (*const check_title_changed)(GhosttyTerminal, void *) __attribute__((used)) = (GhosttyTerminalTitleChangedFn)0;
+static void (*const check_pwd_changed)(GhosttyTerminal, void *) __attribute__((used)) = (GhosttyTerminalPwdChangedFn)0;
 static bool (*const check_size)(GhosttyTerminal, void *, GhosttySizeReportSize *) __attribute__((used)) =
     (GhosttyTerminalSizeFn)0;
 

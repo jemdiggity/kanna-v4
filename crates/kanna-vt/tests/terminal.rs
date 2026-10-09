@@ -1,4 +1,4 @@
-use kanna_vt::{Lines, Terminal};
+use kanna_vt::{Changed, Colors, CursorStyle, Lines, Mode, Scheme, Terminal};
 
 fn terminal(cols: u16, rows: u16, output: &str) -> Terminal {
     let mut t = Terminal::new(cols, rows, 1000).unwrap();
@@ -112,6 +112,76 @@ fn title_and_pwd() {
     assert_eq!(t.pwd(), "file://host/tmp/x");
 }
 
+fn theme() -> Colors {
+    let mut palette = Box::new([[0u8; 3]; 256]);
+    for (i, c) in palette.iter_mut().enumerate() {
+        *c = [i as u8, 255 - i as u8, 0x40];
+    }
+    Colors { foreground: [0xe5, 0xd4, 0xb0], background: [0x12, 0x34, 0x56], cursor: Some([0x2e, 0xc4, 0xb6]), palette }
+}
+
+#[test]
+fn color_queries_are_answered_from_the_theme() {
+    let mut t = terminal(20, 5, "\x1b]11;?\x07");
+    assert!(t.take_replies().is_empty());
+    t.set_default_colors(&theme()).unwrap();
+    t.write(b"\x1b]11;?\x07\x1b]10;?\x1b\\\x1b]12;?\x07\x1b]4;1;?\x07");
+    assert_eq!(
+        String::from_utf8(t.take_replies()).unwrap(),
+        "\x1b]11;rgb:1212/3434/5656\x07\x1b]10;rgb:e5e5/d4d4/b0b0\x1b\\\x1b]12;rgb:2e2e/c4c4/b6b6\x07\x1b]4;1;rgb:0101/fefe/4040\x07"
+    );
+    t.write(b"\x1b]11;#ffffff\x07\x1b]11;?\x07");
+    assert_eq!(t.take_replies(), b"\x1b]11;rgb:ffff/ffff/ffff\x07");
+    t.set_default_colors(&theme()).unwrap();
+    t.write(b"\x1b]111\x07\x1b]11;?\x07");
+    assert_eq!(t.take_replies(), b"\x1b]11;rgb:1212/3434/5656\x07");
+    let r = Terminal::from_snapshot(&t.snapshot().unwrap()).unwrap();
+    assert_eq!(r.background(), Some([0x12, 0x34, 0x56]));
+}
+
+#[test]
+fn the_color_scheme_is_reported_when_asked_and_when_it_changes() {
+    let mut t = terminal(20, 5, "\x1b[?996n");
+    assert!(t.take_replies().is_empty());
+    t.set_color_scheme(Some(Scheme::Dark));
+    assert!(t.take_replies().is_empty());
+    t.write(b"\x1b[?996n");
+    assert_eq!(t.take_replies(), b"\x1b[?997;1n");
+    t.write(b"\x1b[?2031h");
+    t.set_color_scheme(Some(Scheme::Dark));
+    assert!(t.take_replies().is_empty());
+    t.set_color_scheme(Some(Scheme::Light));
+    assert_eq!(t.take_replies(), b"\x1b[?997;2n");
+}
+
+#[test]
+fn defaults_follow_the_apps_config() {
+    let mut t = terminal(20, 5, "");
+    assert!(!t.mode(Mode::GRAPHEME_CLUSTER));
+    t.set_mode_default(Mode::GRAPHEME_CLUSTER, true).unwrap();
+    assert!(t.mode(Mode::GRAPHEME_CLUSTER));
+    t.write(b"\x1b[?2027l");
+    assert!(!t.mode(Mode::GRAPHEME_CLUSTER));
+    t.write(b"\x1bc");
+    assert!(t.mode(Mode::GRAPHEME_CLUSTER));
+    t.set_default_cursor(CursorStyle::Bar, false).unwrap();
+    t.write(b"\x1b[?12$p");
+    assert_eq!(t.take_replies(), b"\x1b[?12;2$y");
+    t.write(b"\x1b[0 q\x1bP$q q\x1b\\");
+    assert_eq!(t.take_replies(), b"\x1bP1$r6 q\x1b\\");
+}
+
+#[test]
+fn title_and_pwd_changes_are_noticed() {
+    let mut t = terminal(20, 3, "plain");
+    assert_eq!(t.take_changed(), Changed::default());
+    t.write(b"\x1b]2;t\x07");
+    assert_eq!(t.take_changed(), Changed { title: true, pwd: false });
+    t.write(b"\x1b]7;file://h/a\x07");
+    assert_eq!(t.take_changed(), Changed { title: false, pwd: true });
+    assert_eq!(t.take_changed(), Changed::default());
+}
+
 #[test]
 fn queries_get_replies() {
     let mut t = terminal(20, 5, "ab\x1b[6n");
@@ -204,7 +274,6 @@ fn snapshot_waits_for_an_apc_holding_a_c1_byte_to_end() {
 }
 
 #[test]
-#[ignore = "libghostty-vt bug at the pinned commit: after a widening reflow, the snapshot drops the oldest history rows"]
 fn snapshot_after_widening_reflow_keeps_all_history() {
     let mut t = Terminal::from_snapshot(include_bytes!("fixtures/reflow-drops-history.snap")).unwrap();
     assert_eq!(t.size(), (126, 1));
@@ -212,6 +281,21 @@ fn snapshot_after_widening_reflow_keeps_all_history() {
     let r = Terminal::from_snapshot(&t.snapshot().unwrap()).unwrap();
     assert_eq!(r.scrollback_rows(), t.scrollback_rows());
     assert_eq!(r.text(Lines::Last(10_000)), t.text(Lines::Last(10_000)));
+}
+
+#[test]
+fn widening_a_full_scrollback_restores_what_the_screen_keeps() {
+    let mut t = Terminal::new(80, 24, 10_000).unwrap();
+    t.set_scrollback_bytes(Some(10_000_000)).unwrap();
+    for i in 0..30_000 {
+        t.write(format!("line {i} {}\r\n", "x".repeat(i % 70)).as_bytes());
+    }
+    for (cols, rows) in [(200, 50), (60, 20), (240, 60)] {
+        t.resize(cols, rows).unwrap();
+        let r = Terminal::from_snapshot(&t.snapshot().unwrap()).unwrap();
+        assert_eq!(r.scrollback_rows(), t.scrollback_rows(), "at {cols}×{rows}");
+        assert_eq!(r.text(Lines::Last(100_000)), t.text(Lines::Last(100_000)), "at {cols}×{rows}");
+    }
 }
 
 struct Rng(u64);

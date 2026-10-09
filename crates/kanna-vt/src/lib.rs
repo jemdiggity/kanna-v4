@@ -49,6 +49,46 @@ pub enum Lines {
     Last(usize),
 }
 
+pub type Rgb = [u8; 3];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Colors {
+    pub foreground: Rgb,
+    pub background: Rgb,
+    pub cursor: Option<Rgb>,
+    pub palette: Box<[Rgb; 256]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scheme {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorStyle {
+    Bar,
+    Block,
+    Underline,
+    BlockHollow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mode(pub u16);
+
+impl Mode {
+    pub const CURSOR_BLINKING: Mode = Mode(12);
+    pub const BRACKETED_PASTE: Mode = Mode(2004);
+    pub const GRAPHEME_CLUSTER: Mode = Mode(2027);
+    pub const COLOR_SCHEME_REPORT: Mode = Mode(2031);
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Changed {
+    pub title: bool,
+    pub pwd: bool,
+}
+
 pub struct Terminal {
     raw: NonNull<ffi::GhosttyTerminalImpl>,
     hooks: NonNull<Hooks>,
@@ -58,6 +98,8 @@ pub struct Terminal {
 struct Hooks {
     replies: Vec<u8>,
     size: ffi::GhosttySizeReportSize,
+    scheme: Option<Scheme>,
+    changed: Changed,
 }
 
 unsafe impl Send for Terminal {}
@@ -120,6 +162,9 @@ impl Terminal {
         let write: ffi::GhosttyTerminalWritePtyFn = write_pty;
         let attributes: ffi::GhosttyTerminalDeviceAttributesFn = device_attributes;
         let size: ffi::GhosttyTerminalSizeFn = size_report;
+        let scheme: ffi::GhosttyTerminalColorSchemeFn = color_scheme;
+        let title: ffi::GhosttyTerminalChangedFn = title_changed;
+        let pwd: ffi::GhosttyTerminalChangedFn = pwd_changed;
         unsafe {
             check(
                 "terminal userdata",
@@ -134,6 +179,18 @@ impl Terminal {
                 ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES, attributes as *const c_void),
             )?;
             check("terminal size", ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_SIZE, size as *const c_void))?;
+            check(
+                "terminal color_scheme",
+                ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_COLOR_SCHEME, scheme as *const c_void),
+            )?;
+            check(
+                "terminal title_changed",
+                ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_TITLE_CHANGED, title as *const c_void),
+            )?;
+            check(
+                "terminal pwd_changed",
+                ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_PWD_CHANGED, pwd as *const c_void),
+            )?;
         }
         Ok(terminal)
     }
@@ -187,6 +244,74 @@ impl Terminal {
 
     pub fn set_scrollback_lines(&mut self, lines: usize) -> Result<(), Error> {
         self.set("scrollback limit", ffi::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES, &lines)
+    }
+
+    pub fn set_scrollback_line_limit(&mut self, lines: Option<usize>) -> Result<(), Error> {
+        let value = lines.as_ref().map_or(ptr::null(), |l| l as *const usize as *const c_void);
+        check("scrollback limit", unsafe {
+            ffi::ghostty_terminal_set(self.raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES, value)
+        })
+    }
+
+    pub fn set_default_colors(&mut self, colors: &Colors) -> Result<(), Error> {
+        let rgb = |c: Rgb| ffi::GhosttyColorRgb { r: c[0], g: c[1], b: c[2] };
+        self.set("foreground", ffi::GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, &rgb(colors.foreground))?;
+        self.set("background", ffi::GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &rgb(colors.background))?;
+        let cursor = colors.cursor.map(rgb);
+        let value = cursor.as_ref().map_or(ptr::null(), |c| c as *const ffi::GhosttyColorRgb as *const c_void);
+        check("cursor color", unsafe { ffi::ghostty_terminal_set(self.raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, value) })?;
+        let palette: Vec<ffi::GhosttyColorRgb> = colors.palette.iter().copied().map(rgb).collect();
+        check("palette", unsafe {
+            ffi::ghostty_terminal_set(self.raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_COLOR_PALETTE, palette.as_ptr() as *const c_void)
+        })
+    }
+
+    pub fn foreground(&self) -> Option<Rgb> {
+        self.get::<ffi::GhosttyColorRgb>(ffi::GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND).map(|c| [c.r, c.g, c.b])
+    }
+
+    pub fn background(&self) -> Option<Rgb> {
+        self.get::<ffi::GhosttyColorRgb>(ffi::GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND).map(|c| [c.r, c.g, c.b])
+    }
+
+    pub fn set_color_scheme(&mut self, scheme: Option<Scheme>) {
+        let old = std::mem::replace(&mut self.hooks().scheme, scheme);
+        if let (Some(scheme), true) = (scheme, old != scheme) {
+            if self.mode(Mode::COLOR_SCHEME_REPORT) {
+                let report: &[u8] = match scheme {
+                    Scheme::Dark => b"\x1b[?997;1n",
+                    Scheme::Light => b"\x1b[?997;2n",
+                };
+                self.hooks().replies.extend_from_slice(report);
+            }
+        }
+    }
+
+    pub fn set_default_cursor(&mut self, style: CursorStyle, blink: bool) -> Result<(), Error> {
+        let style = match style {
+            CursorStyle::Bar => ffi::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR,
+            CursorStyle::Block => ffi::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK,
+            CursorStyle::Underline => ffi::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE,
+            CursorStyle::BlockHollow => ffi::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW,
+        };
+        self.set("cursor style", ffi::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE, &style)?;
+        self.set("cursor blink", ffi::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK, &blink)
+    }
+
+    pub fn set_mode_default(&mut self, mode: Mode, value: bool) -> Result<(), Error> {
+        self.set("mode default", ffi::GHOSTTY_TERMINAL_OPT_MODE_DEFAULT, &ffi::GhosttyTerminalModeConfig { mode: mode.0, value })
+    }
+
+    pub fn mode(&self, mode: Mode) -> bool {
+        let mut config = ffi::GhosttyTerminalModeConfig { mode: mode.0, value: false };
+        let code = unsafe {
+            ffi::ghostty_terminal_get(self.raw.as_ptr(), ffi::GHOSTTY_TERMINAL_DATA_MODE, &mut config as *mut _ as *mut c_void)
+        };
+        code == ffi::GHOSTTY_SUCCESS && config.value
+    }
+
+    pub fn take_changed(&mut self) -> Changed {
+        std::mem::take(&mut self.hooks().changed)
     }
 
     pub fn set_scrollback_bytes(&mut self, bytes: Option<usize>) -> Result<(), Error> {
@@ -330,6 +455,30 @@ unsafe extern "C" fn write_pty(_terminal: ffi::GhosttyTerminal, userdata: *mut c
     }
 }
 
+unsafe extern "C" fn color_scheme(_terminal: ffi::GhosttyTerminal, userdata: *mut c_void, out: *mut i32) -> bool {
+    if userdata.is_null() || out.is_null() {
+        return false;
+    }
+    match (*(userdata as *mut Hooks)).scheme {
+        Some(Scheme::Light) => *out = ffi::GHOSTTY_COLOR_SCHEME_LIGHT,
+        Some(Scheme::Dark) => *out = ffi::GHOSTTY_COLOR_SCHEME_DARK,
+        None => return false,
+    }
+    true
+}
+
+unsafe extern "C" fn title_changed(_terminal: ffi::GhosttyTerminal, userdata: *mut c_void) {
+    if !userdata.is_null() {
+        (*(userdata as *mut Hooks)).changed.title = true;
+    }
+}
+
+unsafe extern "C" fn pwd_changed(_terminal: ffi::GhosttyTerminal, userdata: *mut c_void) {
+    if !userdata.is_null() {
+        (*(userdata as *mut Hooks)).changed.pwd = true;
+    }
+}
+
 unsafe extern "C" fn device_attributes(
     _terminal: ffi::GhosttyTerminal,
     _userdata: *mut c_void,
@@ -384,6 +533,32 @@ mod abi {
             ("GHOSTTY_TERMINAL_OPT_USERDATA", GHOSTTY_TERMINAL_OPT_USERDATA as i64),
             ("GHOSTTY_TERMINAL_OPT_WRITE_PTY", GHOSTTY_TERMINAL_OPT_WRITE_PTY as i64),
             ("GHOSTTY_TERMINAL_OPT_SIZE", GHOSTTY_TERMINAL_OPT_SIZE as i64),
+            ("GHOSTTY_TERMINAL_OPT_TITLE_CHANGED", GHOSTTY_TERMINAL_OPT_TITLE_CHANGED as i64),
+            ("GHOSTTY_TERMINAL_OPT_COLOR_SCHEME", GHOSTTY_TERMINAL_OPT_COLOR_SCHEME as i64),
+            ("GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND", GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND as i64),
+            ("GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND", GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND as i64),
+            ("GHOSTTY_TERMINAL_OPT_COLOR_CURSOR", GHOSTTY_TERMINAL_OPT_COLOR_CURSOR as i64),
+            ("GHOSTTY_TERMINAL_OPT_COLOR_PALETTE", GHOSTTY_TERMINAL_OPT_COLOR_PALETTE as i64),
+            ("GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE", GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE as i64),
+            ("GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK", GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK as i64),
+            ("GHOSTTY_TERMINAL_OPT_PWD_CHANGED", GHOSTTY_TERMINAL_OPT_PWD_CHANGED as i64),
+            ("GHOSTTY_TERMINAL_OPT_MODE_DEFAULT", GHOSTTY_TERMINAL_OPT_MODE_DEFAULT as i64),
+            ("GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND", GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND as i64),
+            ("GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND", GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND as i64),
+            ("GHOSTTY_TERMINAL_DATA_COLOR_CURSOR", GHOSTTY_TERMINAL_DATA_COLOR_CURSOR as i64),
+            ("GHOSTTY_TERMINAL_DATA_COLOR_PALETTE", GHOSTTY_TERMINAL_DATA_COLOR_PALETTE as i64),
+            ("GHOSTTY_TERMINAL_DATA_MODE", GHOSTTY_TERMINAL_DATA_MODE as i64),
+            ("GHOSTTY_COLOR_SCHEME_LIGHT", GHOSTTY_COLOR_SCHEME_LIGHT as i64),
+            ("GHOSTTY_COLOR_SCHEME_DARK", GHOSTTY_COLOR_SCHEME_DARK as i64),
+            ("sizeof GhosttyColorScheme", size_of::<i32>() as i64),
+            ("GHOSTTY_TERMINAL_CURSOR_STYLE_BAR", GHOSTTY_TERMINAL_CURSOR_STYLE_BAR as i64),
+            ("GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK", GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK as i64),
+            ("GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE", GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE as i64),
+            ("GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW", GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW as i64),
+            ("sizeof GhosttyTerminalCursorStyle", size_of::<i32>() as i64),
+            ("sizeof GhosttyColorRgb", size_of::<GhosttyColorRgb>() as i64),
+            ("sizeof GhosttyTerminalModeConfig", size_of::<GhosttyTerminalModeConfig>() as i64),
+            ("GhosttyTerminalModeConfig.value", offset_of!(GhosttyTerminalModeConfig, value) as i64),
             ("GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES", GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES as i64),
             ("GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES", GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES as i64),
             ("GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES", GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES as i64),
