@@ -101,6 +101,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func perform(_ action: String) {
         guard let surface else { return }
+        let handling = isHandlingInputEvent
+        isHandlingInputEvent = true
+        defer { isHandlingInputEvent = handling }
         _ = ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
     }
 
