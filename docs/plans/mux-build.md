@@ -51,6 +51,9 @@ The reference has two parts:
 | S8 | web, markdown and iOS panes open, are restored after a relaunch, and answer `navigate` and kmux's `debug.web`, `debug.md`, `debug.ios` (kmux has no `web.*`) | M3 |
 | S9 | with the app closed, `kanna open --split right` starts the app and the split lands; with `KANNA_SOCKET` set it exits 6 and starts nothing | M1 |
 | S10 | with no daemon running, launching the app starts one from its bundle and opens a terminal; killing that daemon gets a new one, and quitting the app leaves it running | M3 |
+| S11 | windows, tabs and panes through the UI: menus and shortcuts (`debug.menu`, `debug.key`) split, tab, zoom and cycle; clicks select and rename tabs and focus panes; every window is drawn with its tab bar and dividers (`debug.snapshot`) | M4 |
+| S12 | resizing and arranging: a divider dragged snaps; `auto` follows the pane's shape; Ghostty's font size; window frames come back after a relaunch; closing the last pane closes its window, and the app stays | M4 |
+| S13 | moving: a pane dragged to an edge, the middle of another pane, a tab, + and outside every window; a tab dragged within and out of its bar | M4 |
 | S20 | every `kanna` command against the real app prints and exits as kmux's CLI: open (term, web, md), list, focus, zoom, resize, move, arrange, tabs, windows, send (with `--`), read, restart, navigate with history, capabilities, raw, errors | M4 |
 | S21 | with the app closed, terminals work through the CLI and every command that needs the app exits 6 (with `KANNA_SOCKET`); the app places the terminals when it opens | M4 |
 | S22 | `kanna --instance NAME` with nothing running starts its own Kanna.app and daemon in `kanna-dev-NAME`; `instances` lists it; its terminals know their instance | M4 |
@@ -166,8 +169,30 @@ kmux is the reference: anything you can do in kmux you can do in Kanna.app, the 
 
 ### Track A · Windows, tabs and splits (the app's UI)
 
+The inventory is kmux's app (`apps/kmux/Sources/Kmux`: `AppController`, `WindowController`, `TabBar`, `PaneView`, `Dragging`, `Shortcuts`, `Snapshot`) and its spec (§3 windows, tabs and layout; §4.1 no chrome; §5 menus and shortcuts; §6 moving windows, tabs and panes). Each row is one behaviour kmux has; the design is [spec §4.10](../kanna-spec.md#410-windows-tabs-and-splits).
+
 | Step | What | Checked by |
 |---|---|---|
+| **A.1** | The layout model answers the app's own calls: a `view` of every window (frame, tabs, active tab, focus, zoom, tree), `focused` (a click: focus without making the window key), `divider` (a dragged divider's two shares), `frame` (a window moved), `shapes` (which panes are wider than tall, for `auto` splits) | `kanna-mux` owner tests |
+| **A.2** | Every window is drawn, one `WindowController` each: title `Tab 1 — w1`, the active tab's splits, 1 pt dividers; windows that leave the layout close, new ones open cascading from the front window | S11 |
+| **A.3** | The key window follows the user (a window made key becomes the layout's key) and the layout's key window is brought forward (behind the user's app with `--bg`) | S11 |
+| **A.4** | Window frames are saved in `layout.json` and restored when still on a screen | S12 |
+| **A.5** | The tab bar: titles, the active one underlined, × to close, + for a new tab; click selects (a 5 pt move starts a drag instead) | S11 |
+| **A.6** | Double-click a tab to rename it: Enter or clicking away saves, Escape cancels | S11 |
+| **A.7** | Drag a tab to a place in any window's tab bar, or out of every window into a new one where it was dropped; right-click a tab: Move Tab to New Window, Close Tab | S13 |
+| **A.8** | Panes: no chrome; a focus outline only in the key window and with more than one pane; the exit code or failure shown inside the pane | S11 |
+| **A.9** | Focus follows a click (terminal, web, markdown, iOS); keyboard input follows the focused pane, except while a tab is being renamed | S11 |
+| **A.10** | Drag a divider: snaps to ¼ ⅓ ½ ⅔ ¾ within 1.5 %, never below 80 px, a tip shows both shares, resize cursor | S12 |
+| **A.11** | `auto` splits go sideways in a wide pane and down in a tall one | owner tests, S12 |
+| **A.12** | The ⋯ grip at the top of a pane (seen only under the mouse) drags it: to another pane's edge (dock), its middle (swap), a tab, +, or outside every window (a new window there), with kmux's hints | S13 |
+| **A.13** | kmux's menu bar: Kanna (Quit), Edit (Undo, Redo, Cut, Copy, Paste, Select All), Pane (Split Right ⌘D, Split Down ⇧⌘D, new web/markdown/iOS panes right and below, Open URL ⌘L, Back, Forward, Home ⇧⌘H, Next Pane ⌘], Previous Pane ⌘[, Zoom ⇧⌘↩, Move Pane to New Window, Restart ⌘R, Close Pane ⌘W), View (New Tab ⌘T, Next Tab ⇧⌘], Previous Tab ⇧⌘[, Zoom In ⌘=, Zoom Out ⌘−, Actual Size ⌘0), Window (New Window ⌘N, Close Window ⇧⌘W, Move Tab to New Window, Next Window ⌘\`, Previous Window ⇧⌘\`, the window list); shortcuts from the user's Ghostty config where it binds the action | S11 (`debug.menu`) |
+| **A.14** | The menu actions act on the key window: splits, new tab, next/previous pane, tab and window (wrapping, reading order), zoom (moving focus cancels it), move pane or tab to a new window, restart, close pane, tab or window | S11, S12 |
+| **A.15** | Zoom In / Out / Actual Size: a markdown pane's zoom, or a terminal's font size | S12 |
+| **A.16** | Ghostty keybinding actions reach the app: `new_split`, `goto_split`, `toggle_split_zoom`, `new_tab`, `goto_tab`, `new_window`, `close_window`, `goto_window`, `close_surface` | S12 |
+| **A.17** | Right-click a pane for the Pane menu (a terminal unless its program takes the mouse; a web pane below the browser's items; markdown and iOS panes) | S13 |
+| **A.18** | The last pane, tab or window closing closes its tab and window; the app stays open with no windows, and the Dock icon opens a new terminal window; the red button closes the window (and its panes) | S12 |
+| **A.19** | Quitting saves the layout and leaves the terminals running (Kanna's difference from kmux, [4.5](../kanna-spec.md#45-the-app-link)) | S4, S5 |
+| **A.20** | kmux's UI debug commands, with `KANNA_DEBUG=1`: `debug.key` (through the app, so menus take it), `debug.click` (tabs, panes, mouse buttons), `debug.drag` (pane, tab, divider), `debug.menu`, `debug.pinch`, `debug.stats`, `debug.snapshot` of any window | S11–S13 |
 
 ### Track B · The CLI
 

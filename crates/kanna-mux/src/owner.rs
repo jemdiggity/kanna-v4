@@ -1,14 +1,16 @@
 use crate::error::KmuxError;
 use crate::json::{encode, json, num, string, Map, Value};
 use crate::layout::{read_pane_table, serve, LayoutHost, Placement, SplitSide};
-use crate::model::{Model, Node};
+use crate::model::{Frame, Model, Node};
 use crate::pane::{Pane, PaneType, Panes};
 use crate::state::{self, number_in, STATE_VERSION};
 use crate::state_file::{Contents, StateFile};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 pub struct LayoutOwner {
     model: Model,
+    wide: Arc<Mutex<HashMap<String, bool>>>,
     panes: Panes,
     saved: Option<Value>,
     file: Option<StateFile>,
@@ -17,7 +19,11 @@ pub struct LayoutOwner {
 
 impl Default for LayoutOwner {
     fn default() -> LayoutOwner {
-        LayoutOwner { model: Model::new(), panes: Panes::default(), saved: None, file: None, last_saved: None }
+        let wide: Arc<Mutex<HashMap<String, bool>>> = Arc::default();
+        let mut model = Model::new();
+        let shapes = wide.clone();
+        model.pane_is_wide = Box::new(move |pane| shapes.lock().map_or(true, |w| w.get(pane).copied().unwrap_or(true)));
+        LayoutOwner { model, wide, panes: Panes::default(), saved: None, file: None, last_saved: None }
     }
 }
 
@@ -55,6 +61,10 @@ impl LayoutOwner {
                 Value::Object(state) => state,
                 _ => Map::new(),
             }),
+            "focused" => Ok(changed(self.model.set_focused(string(request, "pane").unwrap_or("")))),
+            "divider" => self.divider(request),
+            "frame" => self.frame(request),
+            "shapes" => self.shapes(request),
             "save" => self.save().map(|saved| [("saved".to_string(), Value::Bool(saved))].into_iter().collect()),
             other => Err(KmuxError::new("bad_request", format!("unknown call \"{other}\""))),
         };
@@ -89,6 +99,33 @@ impl LayoutOwner {
             }
         };
         Value::Array(panes.iter().filter(|p| p.kind != PaneType::Term).map(|p| Value::Object(state::pane_record(p))).collect())
+    }
+
+    fn divider(&mut self, request: &Value) -> Result<Map, KmuxError> {
+        let tab = string(request, "tab").ok_or_else(|| KmuxError::new("bad_request", "divider needs a tab"))?;
+        let path: Vec<usize> = request.get("path").and_then(Value::as_array).map_or(vec![], |p| p.iter().filter_map(Value::as_u64).map(|i| i as usize).collect());
+        let index = request.get("index").and_then(Value::as_u64).ok_or_else(|| KmuxError::new("bad_request", "divider needs an index"))? as usize;
+        let share = request.get("share").and_then(Value::as_f64).ok_or_else(|| KmuxError::new("bad_request", "divider needs a share"))?;
+        self.model.set_divider(tab, &path, index, share)?;
+        Ok(Map::new())
+    }
+
+    fn frame(&mut self, request: &Value) -> Result<Map, KmuxError> {
+        let window = string(request, "window").unwrap_or("");
+        let frame = request.get("frame").unwrap_or(&Value::Null);
+        let field = |name: &str| frame.get(name).and_then(Value::as_f64).ok_or_else(|| KmuxError::new("bad_request", "a frame has x, y, w and h"));
+        let frame = Frame { x: field("x")?, y: field("y")?, w: field("w")?, h: field("h")? };
+        Ok(changed(self.model.set_frame(window, frame)))
+    }
+
+    fn shapes(&mut self, request: &Value) -> Result<Map, KmuxError> {
+        let shapes: HashMap<String, bool> = request.get("panes").and_then(Value::as_object).map_or_else(HashMap::new, |panes| {
+            panes.iter().filter_map(|(id, wide)| wide.as_bool().map(|wide| (id.clone(), wide))).collect()
+        });
+        if let Ok(mut wide) = self.wide.lock() {
+            *wide = shapes;
+        }
+        Ok(Map::new())
     }
 
     fn record(&mut self, record: &Value) -> Result<Map, KmuxError> {
@@ -146,19 +183,35 @@ impl LayoutOwner {
     }
 
     pub fn view(&self) -> Map {
+        let windows: Vec<Value> = self
+            .model
+            .windows()
+            .iter()
+            .map(|window| {
+                let tab = window.active_tab();
+                let zoomed = window.zoomed.clone().filter(|z| tab.is_some_and(|t| crate::model::pane_ids(t.root.as_ref()).contains(z)));
+                let root = match (&zoomed, tab) {
+                    (Some(pane), _) => self.node(&Node::Pane(pane.clone())),
+                    (None, Some(tab)) => tab.root.as_ref().map_or(Value::Null, |root| self.node(root)),
+                    (None, None) => Value::Null,
+                };
+                let frame = window.frame.map_or(Value::Null, |f| json!({ "x": f.x, "y": f.y, "w": f.w, "h": f.h }));
+                let tabs: Vec<Value> = window.tabs.iter().map(|t| json!({ "id": t.id, "title": t.title })).collect();
+                json!({
+                    "id": window.id,
+                    "frame": frame,
+                    "tabs": tabs,
+                    "tab": tab.map_or(Value::Null, |t| t.id.clone().into()),
+                    "title": tab.map_or(Value::Null, |t| t.title.clone().into()),
+                    "focused": window.focused.clone().map_or(Value::Null, Value::String),
+                    "zoomed": zoomed.map_or(Value::Null, Value::String),
+                    "root": root,
+                })
+            })
+            .collect();
         let mut view = Map::new();
-        let window = self.model.key_window().or_else(|| self.model.windows().first());
-        let tab = window.and_then(|w| w.active_tab());
-        view.insert("window".into(), window.map_or(Value::Null, |w| w.id.clone().into()));
-        view.insert("tab".into(), tab.map_or(Value::Null, |t| t.id.clone().into()));
-        view.insert("focused".into(), window.and_then(|w| w.focused.clone()).map_or(Value::Null, Value::String));
-        let zoomed = window.and_then(|w| w.zoomed.clone()).filter(|z| tab.is_some_and(|t| crate::model::pane_ids(t.root.as_ref()).contains(z)));
-        let root = match (&zoomed, tab) {
-            (Some(pane), _) => self.node(&Node::Pane(pane.clone())),
-            (None, Some(tab)) => tab.root.as_ref().map_or(Value::Null, |root| self.node(root)),
-            (None, None) => Value::Null,
-        };
-        view.insert("root".into(), root);
+        view.insert("key".into(), self.model.key_window().map_or(Value::Null, |w| w.id.clone().into()));
+        view.insert("windows".into(), Value::Array(windows));
         view
     }
 
@@ -212,6 +265,10 @@ impl LayoutOwner {
         self.last_saved = Some(encoded);
         Ok(true)
     }
+}
+
+fn changed(changed: bool) -> Map {
+    [("changed".to_string(), Value::Bool(changed))].into_iter().collect()
 }
 
 pub fn prune_state(state: &Value, live: &HashSet<String>) -> Value {
@@ -291,11 +348,12 @@ mod tests {
         let view = again.view();
         assert_eq!(
             Value::Object(view),
-            json!({ "window": "w1", "tab": "t1", "focused": "p4", "root": { "split": "row", "children": [
+            json!({ "key": "w1", "windows": [{ "id": "w1", "frame": null, "tabs": [{ "id": "t1", "title": "Tab 1" }], "tab": "t1", "title": "Tab 1",
+                "focused": "p4", "zoomed": null, "root": { "split": "row", "children": [
                 { "pane": "p1", "type": "term", "size": 0.75 },
                 { "pane": "p3", "type": "term", "size": 0.125 },
                 { "pane": "p4", "type": "term", "size": 0.125 }
-            ] } })
+            ] } }] })
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -317,6 +375,32 @@ mod tests {
         let (again, _) = LayoutOwner::open(Some(file), false);
         assert_eq!(again.hello(), json!([{ "id": "p1", "name": "site", "type": "web", "url": "http://b.test/", "history": true }]));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_app_moves_dividers_records_focus_and_frames_and_chooses_auto_splits_by_shape() {
+        let mut owner = LayoutOwner::new();
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({}));
+        owner.handle(&json!({ "call": "shapes", "panes": { "p1": false } }));
+        place(&mut owner, "p2", json!({}));
+        owner.handle(&json!({ "call": "shapes", "panes": { "p1": true, "p2": true } }));
+        place(&mut owner, "p3", json!({}));
+        let root = |owner: &LayoutOwner| owner.view()["windows"][0]["root"].clone();
+        assert_eq!(root(&owner)["split"], "column");
+        assert_eq!(root(&owner)["children"][1]["split"], "row");
+        let reply = owner.handle(&json!({ "call": "divider", "tab": "t1", "path": [], "index": 0, "share": 0.25 }));
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(root(&owner)["children"][0]["size"], 0.25);
+        assert_eq!(root(&owner)["children"][1]["size"], 0.75);
+        assert_eq!(owner.handle(&json!({ "call": "divider", "tab": "t1", "path": [1], "index": 0, "share": 2.0 }))["ok"], false);
+        assert_eq!(owner.handle(&json!({ "call": "divider", "tab": "t1", "path": [0], "index": 0, "share": 0.5 }))["ok"], false);
+        assert_eq!(owner.handle(&json!({ "call": "focused", "pane": "p1" }))["changed"], true);
+        assert_eq!(owner.handle(&json!({ "call": "focused", "pane": "p1" }))["changed"], false);
+        assert_eq!(owner.view()["windows"][0]["focused"], "p1");
+        assert_eq!(owner.handle(&json!({ "call": "frame", "window": "w1", "frame": { "x": 10, "y": 20, "w": 800, "h": 600 } }))["changed"], true);
+        assert_eq!(owner.view()["windows"][0]["frame"], json!({ "x": 10.0, "y": 20.0, "w": 800.0, "h": 600.0 }));
+        assert_eq!(owner.export()["windows"][0]["frame"], json!({ "x": 10, "y": 20, "w": 800, "h": 600 }));
     }
 
     #[test]

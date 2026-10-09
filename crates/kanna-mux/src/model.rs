@@ -261,6 +261,48 @@ impl Model {
         self.windows.iter().find(|w| Some(&w.id) == self.key.as_ref())
     }
 
+    pub fn set_focused(&mut self, pane: &str) -> bool {
+        let shows = |w: &Window| pane_ids(w.active_tab().and_then(|t| t.root.as_ref())).iter().any(|p| p == pane);
+        let Some(window) = self.windows.iter_mut().find(|w| shows(w)) else { return false };
+        if window.focused.as_deref() == Some(pane) {
+            return false;
+        }
+        window.focused = Some(pane.into());
+        if let Some(t) = window.active_index() {
+            window.tabs[t].last_focus = Some(pane.into());
+        }
+        true
+    }
+
+    pub fn set_divider(&mut self, tab: &str, path: &[usize], index: usize, share: f64) -> Result<(), KmuxError> {
+        let (w, t) = self.tab_index(tab).ok_or_else(|| not_found(format!("no tab \"{tab}\"")))?;
+        let mut node = self.windows[w].tabs[t].root.as_mut().ok_or_else(|| not_found(format!("tab \"{tab}\" is empty")))?;
+        for &i in path {
+            node = match node {
+                Node::Split(split) if i < split.kids.len() => &mut split.kids[i].node,
+                _ => return Err(bad_request("no split at that path")),
+            };
+        }
+        let Node::Split(split) = node else { return Err(bad_request("no split at that path")) };
+        if index + 1 >= split.kids.len() {
+            return Err(bad_request("no divider at that index"));
+        }
+        let pair = split.kids[index].size + split.kids[index + 1].size;
+        if !(share > 0.0 && share < pair) {
+            return Err(bad_request("the share must leave both panes some space"));
+        }
+        split.kids[index].size = share;
+        split.kids[index + 1].size = pair - share;
+        Ok(())
+    }
+
+    pub fn set_frame(&mut self, window: &str, frame: Frame) -> bool {
+        let Some(window) = self.window_mut(window) else { return false };
+        let changed = window.frame != Some(frame);
+        window.frame = Some(frame);
+        changed
+    }
+
     fn window_index(&self, id: &str) -> Option<usize> {
         self.windows.iter().position(|w| w.id == id)
     }
