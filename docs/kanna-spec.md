@@ -131,9 +131,9 @@ flowchart TB
     end
     CLI -->|"socket"| L4
     L3 <-->|"socket"| L4
-    L4 <-->|"socket"| L5
-    L5 -->|"creates"| PTY
-    L4 <-->|"reads, writes"| PTY
+    L4 <-->|"socket, SCM_RIGHTS"| L5
+    L5 -->|"creates, reaps"| PTY
+    L4 <-->|"reads, writes, resizes"| PTY
     L3 --> WK
     L3 <--> SIM
     classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
@@ -158,6 +158,7 @@ flowchart TB
 
 - **The CLI is a client, not a layer:** like the app, it calls down into the daemon. Neither serves the other.
 - **The keeper isn't in the path of any byte:** it hands each pty to the daemon, which reads and writes it.
+- **How a terminal starts:** the daemon asks the keeper of its state folder (`keeper.sock`, started as `$KANNA_KEEPER` or the `kanna-keeper` beside the daemon if none runs) to spawn the program; the keeper answers with the pid and the pty's master (`SCM_RIGHTS`), and later with the exit code, which the daemon records and acknowledges. `close` and `restart` end the program through the keeper; the daemon sets the size itself (`TIOCSWINSZ`). If the keeper goes away the daemon logs it and stops ([keeper spec](keeper.md)).
 - **The app draws terminals from the daemon** through a forked Ghostty whose surfaces take their output from outside instead of a pty ("external I/O").
 
 ### 4.2 What the Daemon Keeps, What the App Keeps
@@ -512,6 +513,7 @@ sequenceDiagram
 | `arrange` names a pane that doesn't exist | Exits 4. Nothing is changed. |
 | Pane too small after rounding (tmux) | The size is raised to the backend's minimum and a warning is printed. |
 | Two panes given the same name | The second `open` exits 1. |
+| `KANNA_SOCKET` is set and nothing answers there | Exits 3. kanna never starts an app for a socket it was pointed at. |
 
 ---
 
