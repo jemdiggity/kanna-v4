@@ -1,0 +1,10 @@
+flowchart LR
+  subgraph phone["Phone app"]
+    digest["Digest: small requests"]
+    line["Line: where tasks are"]
+    intake["Intake: triage new tasks"]
+  end
+  digest -->|approve, pick, answer| build["Build / Release"]
+  line -->|Recall, park| desk["Desk"]
+  intake -->|to Shelf, discard, merge| shelf["Shelf"]
+  share["Share sheet, voice memo"] --> intake

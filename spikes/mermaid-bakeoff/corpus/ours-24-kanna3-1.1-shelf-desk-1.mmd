@@ -1,0 +1,12 @@
+  stateDiagram-v2
+    direction LR
+    [*] --> intake
+    intake --> desk: pull
+    desk --> shelf: park
+    shelf --> desk: pull
+    desk --> build: Send
+    build --> desk: Recall
+    build --> release
+    build --> done: Spike (finding) or Abandon
+    release --> done: promote
+  

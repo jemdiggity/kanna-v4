@@ -1,0 +1,15 @@
+classDiagram
+    class Pane {
+        +String id
+        +PaneType type
+        +start()
+        +stop()
+    }
+    class Window {
+        +String id
+        +List~Tab~ tabs
+    }
+    Window "1" *-- "many" Tab
+    Tab "1" *-- "many" Pane
+    Pane <|-- TermPane
+    Pane <|-- WebPane

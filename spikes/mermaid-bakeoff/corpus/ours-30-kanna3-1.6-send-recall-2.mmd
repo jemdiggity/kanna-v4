@@ -1,0 +1,9 @@
+  stateDiagram-v2
+    direction LR
+    draft: draft vN
+    frozen: frozen vN (versions/vN.md)
+    [*] --> draft
+    draft --> draft: any edit (N+1)
+    draft --> frozen: Send
+    frozen --> draft: Recall (N+1)
+  

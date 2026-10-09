@@ -1,0 +1,13 @@
+sequenceDiagram
+    actor Dev
+    participant K as kanna
+    participant A as kmux adapter
+    participant M as kmux
+
+    Dev->>K: kanna open ios --app MyApp.app --split down --size 1/3
+    K->>K: pick backend → kmux
+    K->>A: open(type=ios, split=down, size=1/3)
+    A->>M: control protocol request
+    M-->>A: { pane: "p3", state: "running" }
+    A-->>K: result
+    K-->>Dev: phone (p3)

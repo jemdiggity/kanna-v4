@@ -1,0 +1,12 @@
+erDiagram
+    WINDOW ||--o{ TAB : contains
+    TAB ||--|{ PANE : contains
+    PANE {
+        string id PK
+        string type
+        string state
+    }
+    TAB {
+        string id PK
+        string title
+    }

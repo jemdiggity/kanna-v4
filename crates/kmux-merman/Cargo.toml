@@ -1,0 +1,25 @@
+# merman (Mermaid parsing and layout, github.com/Latias94/merman) for kmux's
+# native diagram view, behind one small C call. Built with scripts/build-merman.sh.
+# Not in the main workspace: built on its own as a static library.
+[package]
+name = "kmux-merman"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+# Pinned exactly; Cargo.lock records the checksums.
+merman = { version = "=0.8.0", default-features = false, features = ["svg", "layout-elk", "diagram-flowchart", "diagram-sequence", "diagram-state"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = "debuginfo"
+
+[workspace]

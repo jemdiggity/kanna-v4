@@ -1,0 +1,5 @@
+flowchart LR
+    CLI["kmux / kanna CLI"] -->|"--instance work"| S2["kmux-work.sock"]
+    CLI -->|"(default)"| S1["kmux.sock"]
+    S1 --> I1["instance: default<br/>its windows, tabs, panes"]
+    S2 --> I2["instance: work<br/>its windows, tabs, panes"]

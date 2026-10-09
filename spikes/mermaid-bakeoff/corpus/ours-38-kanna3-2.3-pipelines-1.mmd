@@ -1,0 +1,8 @@
+flowchart LR
+  plan --> build --> tests
+  tests -- pass --> conformance
+  tests -. "fail, max 3" .-> fix
+  fix -.-> tests
+  conformance -. "fail, max 2" .-> fix
+  conformance -- pass --> pr --> release
+  linkStyle 0,1,2,6,7 stroke-width:4px

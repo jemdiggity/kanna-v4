@@ -1,0 +1,13 @@
+flowchart LR
+    recording[script PTY recording] --> bytes[Raw terminal bytes]
+    remote[Slice 5c: snapshot + kanna3d frames] -. future .-> bytes
+    bytes --> vt[libghostty-vt state]
+    vt --> state[RenderState viewport]
+    state --> cells[Swift cell buffer + cursor]
+    cells --> core[Core Text / Core Graphics bitmap]
+    cells --> metal[Metal glyph atlas + cell quads]
+    core --> display[UIKit display]
+    metal --> display
+    touch[Pan / long press] --> viewport[Viewport scroll / selection range]
+    viewport --> vt
+    viewport --> cells

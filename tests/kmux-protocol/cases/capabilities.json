@@ -1,0 +1,8 @@
+[
+  {
+    "name": "capabilities names the mux and lists its commands",
+    "steps": [
+      { "send": { "cmd": "capabilities" }, "expect": { "ok": true, "mux": "kmux" } }
+    ]
+  }
+]

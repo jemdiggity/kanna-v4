@@ -1,0 +1,10 @@
+flowchart TD
+    APP["kmux"] --> W1["Window"]
+    APP --> W2["Window"]
+    W1 --> T1["Tab"]
+    W1 --> T2["Tab"]
+    T1 --> R["row"]
+    R --> P1["pane · 2/3"]
+    R --> C["column · 1/3"]
+    C --> P2["pane · 2/3"]
+    C --> P3["pane · 1/3"]

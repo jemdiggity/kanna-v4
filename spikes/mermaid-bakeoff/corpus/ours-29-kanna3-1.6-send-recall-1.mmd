@@ -1,0 +1,20 @@
+sequenceDiagram
+  actor Person
+  participant Host as macOS host
+  participant Work as kanna3-workd
+  participant Mux as kanna3d
+  participant Agent as The agent
+  Person->>Host: Send to Build
+  Host->>Work: work.task.send
+  Work->>Work: check readiness on N
+  alt ready
+    Work->>Work: append open assumptions, freeze resulting version
+    Work->>Work: enter build, record mutation
+    Work->>Mux: layout.move window null
+    Note over Mux,Agent: Tabs kept, agent keeps running
+    Work-->>Host: work.changed + empty Desk / Line update
+    Work->>Work: walk simulated pipeline
+    Work->>Mux: end agent when release or done
+  else held
+    Work-->>Host: not_ready with reason
+  end

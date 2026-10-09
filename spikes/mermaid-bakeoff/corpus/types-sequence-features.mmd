@@ -1,0 +1,17 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant C as kmux CLI
+    participant K as kmux
+    U->>C: kmux open md spec.md
+    C->>+K: {"cmd":"open"}
+    alt file exists
+        K-->>C: running
+    else missing
+        K-->>C: No such file
+    end
+    loop every 0.5 s
+        K->>K: check file
+    end
+    Note over C,K: one socket, NDJSON
+    K-->>-C: done

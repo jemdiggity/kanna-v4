@@ -1,0 +1,9 @@
+flowchart LR
+  mac[Native Desk] --> socket[Shared work.sock]
+  agent[Agent PTY and spec file] --> socket
+  socket --> workd[kanna3-workd]
+  workd --> model[Pure work and pipeline model]
+  workd --> review[Spec Review runner: fake in acceptance]
+  workd --> sim[Build simulator child]
+  sim --> digest[Real human Digest answer]
+  digest --> socket

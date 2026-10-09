@@ -1,0 +1,11 @@
+flowchart LR
+  waiting["Intake / Shelf"] -->|pull| desk["Desk: you + agent + spec"]
+  desk --> review["Spec Review: guesses and plan"]
+  review -->|answer or delegate guesses| desk
+  review -->|ready: Send| build["Build · simulated"]
+  build -->|human checkpoint| digest[Digest]
+  digest -->|answer| build
+  build --> release["Release · simulated"]
+  release -->|promote via Digest| done[Done]
+  build -->|Recall| desk
+  desk -->|park| waiting

@@ -1,0 +1,17 @@
+sequenceDiagram
+  actor Person
+  participant Host as macOS host
+  participant Work as kanna3-workd
+  participant Mux as kanna3d
+  participant Agent as The agent
+  Person->>Host: ask agent on a line, optional note
+  Host->>Work: work.agent.ask
+  Work->>Work: anchored thread + task event + queue
+  Work->>Mux: deliver to doc target
+  loop until idle and no draft
+    Mux-->>Work: held: draft / busy / waiting / unknown
+    Work-->>Host: Comments delivery chip
+  end
+  Mux->>Agent: bracketed paste, then Enter
+  Agent->>Work: edit spec.md, kanna doc reply and resolve
+  Work-->>Host: changed spec and agent replied

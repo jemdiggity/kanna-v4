@@ -1,0 +1,9 @@
+flowchart TD
+  PTY --> reader["kanna3d reader"] --> fanout["fan-out"]
+  fanout --> windows["windows (first, never wait)"]
+  fanout --> parser["Ghostty parser<br/>own thread, same bytes, may lag"]
+  parser --> check["check only if: screen changed<br/>AND no redraw in progress (sync output)<br/>AND ≥ 100 ms since last check"]
+  check --> rules["rules for this agent and CLI version"]
+  rules --> verdict["verdict: busy | waiting | idle | unknown"]
+  verdict --> timing["timing: 2 s grace after spawn;<br/>busy → idle needs 2 idle verdicts ≥ 300 ms apart;<br/>every other change is immediate"]
+  timing --> status["terminal.status model event"] --> ui["windows, sidebar, Desk"]

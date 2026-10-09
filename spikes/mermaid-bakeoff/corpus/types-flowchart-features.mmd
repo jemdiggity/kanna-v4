@@ -1,0 +1,12 @@
+flowchart TB
+    subgraph app [kmux.app]
+        direction LR
+        core[(Core)] --> host{{ContentHost}}
+        host -.-> term([Terminal])
+        host ==> web>Web]
+    end
+    cli[/kmux CLI/] -->|NDJSON| core
+    kanna[\kanna\] -- socket --> core
+    classDef hot fill:#f96,stroke:#333
+    class core hot
+    click cli "https://example.com" "CLI docs"

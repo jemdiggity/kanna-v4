@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> starting : open
+    starting --> running
+    starting --> failed
+    running --> exited : process ended
+    exited --> starting : restart
+    failed --> starting : restart
+    running --> closed : close
+    exited --> closed : close
+    failed --> closed : close
+    closed --> [*]

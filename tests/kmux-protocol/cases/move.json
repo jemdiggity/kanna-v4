@@ -1,0 +1,72 @@
+[
+  {
+    "name": "move docks a pane on a side of another, taking half its space",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
+      { "send": { "cmd": "move", "args": { "pane": "a", "to": "b", "side": "bottom" } },
+        "expect": { "window": "w1", "tab": "t1", "layout": { "split": "column", "children": [ { "pane": "b", "size": "1/2" }, { "pane": "a", "size": "1/2" } ] } } },
+      { "send": { "cmd": "move", "args": { "pane": "a", "to": "b", "side": "left" } },
+        "expect": { "layout": { "split": "row", "children": [ { "pane": "a", "size": "1/2" }, { "pane": "b", "size": "1/2" } ] } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a" } ] } }
+    ]
+  },
+  {
+    "name": "move swaps two panes by default",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right", "size": "1/3" } } },
+      { "send": { "cmd": "move", "args": { "pane": "a", "to": "b" } },
+        "expect": { "layout": { "split": "row", "children": [ { "pane": "b", "size": "2/3" }, { "pane": "a", "size": "1/3" } ] } } }
+    ]
+  },
+  {
+    "name": "move to a new tab, an existing tab, or a new window; empty tabs close",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
+      { "send": { "cmd": "move", "args": { "pane": "b", "tab": "new" } }, "expect": { "window": "w1", "tab": "t2", "layout": { "pane": "b" } } },
+      { "send": { "cmd": "move", "args": { "pane": "a", "tab": "t2" } },
+        "expect": { "tab": "t2", "layout": { "split": "row", "children": [ { "pane": "b", "size": "1/2" }, { "pane": "a", "size": "1/2" } ] } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "tabs": [ { "id": "t2", "title": "Tab 2", "active": true } ] } ] } },
+      { "send": { "cmd": "move", "args": { "pane": "b", "window": "new" } }, "expect": { "window": "w2", "layout": { "pane": "b" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": false }, { "id": "w2", "key": true, "focused": "b" } ] } }
+    ]
+  },
+  {
+    "name": "move errors",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "move", "args": { "pane": "a" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "move", "args": { "pane": "a", "to": "zzz" } }, "expect": { "ok": false, "error": { "code": "not_found" } } },
+      { "send": { "cmd": "move", "args": { "pane": "a", "tab": "t9" } }, "expect": { "ok": false, "error": { "code": "not_found" } } }
+    ]
+  },
+  {
+    "name": "move-tab reorders tabs and moves them between windows",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "tab": true } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "tab": true } } },
+      { "send": { "cmd": "move-tab", "args": { "tab": "t3", "index": 0 } }, "expect": { "window": "w1", "tabs": [ "t3", "t1", "t2" ] } },
+      { "send": { "cmd": "move-tab", "args": { "tab": "t3", "index": 2 } }, "expect": { "tabs": [ "t1", "t3", "t2" ] } },
+      { "send": { "cmd": "move-tab", "args": { "tab": "t1", "window": "new" } }, "expect": { "window": "w2", "tabs": [ "t1" ] } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "tabs": [ { "id": "t3" }, { "id": "t2" } ] }, { "id": "w2", "key": true, "focused": "a" } ] } },
+      { "send": { "cmd": "move-tab", "args": { "tab": "t1", "window": "w1", "index": 0 } }, "expect": { "window": "w1", "tabs": [ "t1", "t3", "t2" ] } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": true } ] } },
+      { "send": { "cmd": "move-tab", "args": { "tab": "t1", "index": -1 } }, "expect": { "ok": false, "error": { "code": "bad_request" } } }
+    ]
+  },
+  {
+    "name": "resize sets a pane's share; its siblings keep their proportions",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "resize", "args": { "pane": "a", "size": "1/3" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "split": "right" } } },
+      { "send": { "cmd": "resize", "args": { "pane": "a", "size": "3/4" } },
+        "expect": { "layout": { "split": "row", "children": [ { "pane": "a", "size": "3/4" }, { "pane": "b", "size": "1/8" }, { "pane": "c", "size": "1/8" } ] } } },
+      { "send": { "cmd": "resize", "args": { "pane": "a", "size": "1" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } }
+    ]
+  }
+]

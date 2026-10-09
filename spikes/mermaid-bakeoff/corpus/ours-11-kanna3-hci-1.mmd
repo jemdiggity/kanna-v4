@@ -1,0 +1,8 @@
+flowchart LR
+  ink["Pencil strokes, with time"] --> ground["Grounding: what each stroke touched (page element, spec sentence, code node, terminal line)"]
+  voice["Speech, with word times"] --> align["Align by time: 'this' -> the stroke drawn at that moment"]
+  keys["Typed words, with time"] --> align
+  ground --> align
+  align --> msg["One message to the agent: words, referents, image"]
+  msg --> agent["The agent acts and replies in an anchored thread"]
+  agent --> readback["Read-back of any ambiguous binding, as a guess to confirm"]

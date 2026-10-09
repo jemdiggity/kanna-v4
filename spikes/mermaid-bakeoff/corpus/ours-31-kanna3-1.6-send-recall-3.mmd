@@ -1,0 +1,14 @@
+sequenceDiagram
+  actor Person
+  participant Host as macOS host
+  participant Work as kanna3-workd
+  participant Mux as kanna3d
+  participant Agent as The agent
+  Person->>Host: Recall on Build card
+  Host->>Work: work.task.recall
+  Work->>Work: cancel simulation, draft N+1, What Build tried, recall guess
+  Work->>Mux: attach and activate task layout
+  Work->>Work: create Recall message thread
+  Work->>Mux: gated delivery
+  Mux->>Agent: Recall notice when idle and no draft
+  Work-->>Host: Desk + guesses + Comments

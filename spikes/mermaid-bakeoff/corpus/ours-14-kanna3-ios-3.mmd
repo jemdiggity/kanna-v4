@@ -1,0 +1,6 @@
+flowchart TB
+  client["Kanna3Client (Swift)"] --> mac["macOS host"]
+  client --> ios["iPhone / iPad apps"]
+  store["WorkStore: the work model on the host"] --> mac
+  store --> ios
+  ios -->|remote path, slice 5| server["kanna-server on the Mac"]

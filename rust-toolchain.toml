@@ -1,0 +1,5 @@
+[toolchain]
+# One Rust for everything in this repo (rustup picks this up).
+channel = "1.99.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

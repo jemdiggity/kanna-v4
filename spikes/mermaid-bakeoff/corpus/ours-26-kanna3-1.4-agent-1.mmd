@@ -1,0 +1,11 @@
+stateDiagram-v2
+  [*] --> setup: pull
+  setup --> visible: landing review ends or is skipped
+  visible --> parked: Park or Send detaches layout
+  parked --> visible: pull or Recall
+  visible --> lost: exit, last tab closed, keeper crash or reboot
+  parked --> lost: process lost
+  lost --> visible: next Desk pull or reconcile starts fresh
+  visible --> ended: release or done
+  parked --> ended: release or done
+  ended --> [*]
