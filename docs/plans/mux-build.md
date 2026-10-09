@@ -121,8 +121,8 @@ flowchart TB
 
 | Step | Repo | What | Done when |
 |---|---|---|---|
-| **1.1** | kanna-v4 | The daemon keeps a libghostty-vt screen per terminal (its C API, from Rust), fed from the pty. `kanna read` answers from it. | S3 passes |
-| **1.2** | kanna-v4 | On attach the daemon sends the screen as a snapshot; the app loads it (`load_snapshot` in the Ghostty fork), then live output. | S4 passes |
+| **1.1** ✓ | kanna-v4 | The daemon keeps a libghostty-vt screen per terminal (its C API, from Rust), fed from the pty. `kanna read` answers from it. Built: `kanna-vt` screens in the daemon (10,000 lines, 10 MB), replacing the vte one; the daemon answers queries (now including DA and size reports) and the app's surfaces drop theirs. | S3 passes |
+| **1.2** ✓ | kanna-v4 | On attach the daemon sends the screen as a snapshot; the app loads it (`load_snapshot` in the Ghostty fork), then live output. Built: `snapshot` then `grid` on the app link ([spec §4.5](../kanna-spec.md#45-the-app-link)), taken in step with the outbox; a snapshot that fails mid-sequence is retried after more output; the replay buffer is gone. | S4 passes |
 | **1.3** | kanna-v4 | The app saves its layout (`kanna-mux`'s state file format, in Kanna's folder), panes pointing at terminals by ID; reopens it on launch. | S5 passes |
 | **1.4** | kanna-v4 | The CLI starts the app when a layout command needs it, or fails clearly. | `kanna open --split` with the app closed works |
 

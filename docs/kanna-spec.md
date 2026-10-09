@@ -249,7 +249,8 @@ sequenceDiagram
     D->>A: ok
     D->>A: layout (what to show)
     A->>D: attach p1
-    D->>A: grid p1 80×24, output p1 (recent output, replayed)
+    D->>A: snapshot p1 (the screen, GHOSTSNP)
+    D->>A: grid p1 80×24
     A->>D: resize p1 to fit the view
     D->>A: grid p1 (the size it now has)
     Note over A,D: from now on, both ways
@@ -266,8 +267,9 @@ sequenceDiagram
 | `app.hello {pid}` | app | I'm the app; the reply accepts or refuses it |
 | `layout {window, tab, focused, root}` | daemon | what to show: the tree of panes, sent again whenever it changes |
 | `attach {pane}` / `detach {pane}` | app | I show (or no longer show) this terminal |
-| `grid {pane, cols, rows}` | daemon | the terminal's size, after an attach or a resize |
-| `output {pane, data}` | daemon | bytes the program wrote; on attach, its recent output first |
+| `snapshot {pane, data}` | daemon | the terminal's whole screen (grid, scrollback, modes, colors, an unfinished sequence) as a GHOSTSNP snapshot; sent on attach, before anything else for that pane |
+| `grid {pane, cols, rows}` | daemon | the terminal's size, after a snapshot or a resize |
+| `output {pane, data}` | daemon | bytes the program wrote since the snapshot |
 | `exited {pane, code}` | daemon | the program ended |
 | `input {pane, data}` | app | bytes the view wrote: keys, paste, mouse and focus reports |
 | `resize {pane, cols, rows, width, height}` | app | the view now fits this many cells (and pixels) |
@@ -276,9 +278,12 @@ sequenceDiagram
 - **The daemon decides a terminal's size.** The view asks with `resize`; the daemon sets the pty's size, and the view takes the size `grid` gives it, in order with the output.
 - **Requests for the app** (`debug.app`, `debug.type`, `debug.key`, `debug.text`, `debug.snapshot`) can come from any client. The daemon turns a pane name into its ID, passes the request on and returns the app's reply. With no app attached they fail with `no_app`; if the app goes away first, with `app_gone`. If the app doesn't answer within 10 s they fail with `timeout`.
 - **Debug commands are off by default.** The app answers `debug.*` only when started with `KANNA_DEBUG=1` (the test scripts set it). `debug.snapshot` takes a plain file name and writes a new file in `$KANNA_STATE_DIR` (or `$TMPDIR`); it never overwrites one.
-- **Limits:** a resize beyond 1000 cells a side is refused; a line over 16 MiB drops the app; an app that falls 16 MiB behind on output stops getting it and starts its terminals over (reset, grid, replay) once it has caught up, and one 64 MiB behind is dropped.
+- **Limits:** a resize beyond 1000 cells a side is refused; a line over 16 MiB drops the app; an app that falls 16 MiB behind on output stops getting it and starts its terminals over (snapshot, grid) once it has caught up, and one 64 MiB behind is dropped.
 - **Layout, for M0:** the daemon keeps kanna-mux's own layout model and sends the first window's active tab: `{"pane": ID, "type": …}` for a pane, `{"split": "row" | "column", "children": […]}` for a split (a row side by side, a column stacked), each child with its `size` as a fraction. The app mirrors it, keeping each pane's view as the tree changes; panes it can't show yet are placeholders. From M1 the app owns the layout ([plan](plans/mux-build.md) step 1.3) and this message goes.
-- **Replay, for M0:** a terminal's last megabyte of output, replayed into a fresh view. From M1 the daemon sends a snapshot of the screen instead (step 1.2).
+- **Screens:** the daemon keeps each terminal's screen with libghostty-vt (`crates/kanna-vt`), fed from the pty: up to 10,000 lines of scrollback, and no more than 10 MB. `read` answers from it, so it works with the app closed.
+- **Queries are answered once, by the daemon.** The program's queries (cursor position, device status and attributes, modes, size reports, XTVERSION) are answered by the daemon's screen, written back to the pty as they're parsed, whether or not the app is attached. The app's surfaces parse the same output but drop their replies (the Ghostty fork's external backend), so the program never gets two. The daemon's screen has no theme colors, so OSC 10/11 color queries get no answer yet.
+- **Attaching:** the daemon takes the snapshot on its main loop under the same lock the pty reader feeds the screen and the outbox with, and empties the outbox as it does: what the snapshot has isn't sent again, and every later byte follows as `output`. The app loads the snapshot (`ghostty_surface_load_snapshot`), then applies the `grid` that follows, since a snapshot carries its own grid; both go through the same queue as output, in order. A restarted terminal is attached the same way.
+- **When a snapshot fails:** inside some unfinished sequences (an APC holding a C1 byte) libghostty-vt can't encode one. The daemon then sends nothing for that pane and tries again after the terminal's next output (which is all that can change it), or when it exits. If the app's surface refuses a snapshot (a full mailbox), it retries every 2 ms; after 250 refusals it gives up on it and goes on with the live output.
 
 ### 4.6 The App's Terminal Views
 

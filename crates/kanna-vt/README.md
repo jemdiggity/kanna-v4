@@ -74,11 +74,6 @@ cargo test -p kanna-vt
 
 ## Snapshot compatibility with the app
 
-Both libraries come from one commit and share one codec (`src/terminal/snapshot`). The app's `ghostty_surface_load_snapshot` (`src/apprt/embedded.zig`) decodes with `snapshot.decodeExact` and a 1 MiB continuation limit, the same limit this crate uses. Loading a snapshot needs a live external-I/O surface, so step 1.2 tests it end to end:
-
-1. Attach the app to a terminal that has scrollback and colors.
-2. Send `snapshot()` instead of replayed output.
-3. Compare the app's `debug.text` with `kanna read`, and the app's grid with `size()`.
-4. Check that a truncated snapshot is refused (`false`).
+Both libraries come from one commit and share one codec (`src/terminal/snapshot`). The app's `ghostty_surface_load_snapshot` (`src/apprt/embedded.zig`) decodes with `snapshot.decodeExact` and a 1 MiB continuation limit, the same limit this crate uses. Since step 1.2 the daemon attaches the app with `snapshot()`. Scenario S4 compares the app's `debug.text` after a relaunch with `kanna read`, and the daemon's `app_link` tests load its snapshots into a replica `Terminal` and check that output after the snapshot neither misses nor repeats anything. Not yet checked end to end: the app's grid against `size()`, scrollback and colors in the app, and a truncated snapshot refused by the app.
 
 kmux's `spikes/ghostty-external-io/prove.sh` has done the same with snapshots from upstream libghostty-vt.
