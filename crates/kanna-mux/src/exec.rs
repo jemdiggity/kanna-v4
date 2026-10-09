@@ -35,10 +35,14 @@ impl Ready {
         self.signal.notify_all();
         // One wakeup per batch: the poll it causes drains the queue.
         if first {
-            let wakeup = self.wakeup.lock().unwrap().clone();
-            if let Some(wakeup) = wakeup {
-                wakeup();
-            }
+            self.wake_embedder();
+        }
+    }
+
+    fn wake_embedder(&self) {
+        let wakeup = self.wakeup.lock().unwrap().clone();
+        if let Some(wakeup) = wakeup {
+            wakeup();
         }
     }
 }
@@ -82,7 +86,7 @@ impl Executor {
                 tasks.len() - 1
             }
         };
-        self.ready.queue.lock().unwrap().push(id);
+        self.ready.push(id);
     }
 
     /// Runs ready tasks and due timers until nothing is ready. A call from
@@ -192,8 +196,12 @@ impl Future for Sleep {
         let id = self.executor.next_timer.get() + 1;
         self.executor.next_timer.set(id);
         let deadline = self.deadline;
+        let earliest = self.executor.next_deadline().map_or(true, |next| deadline < next);
         self.executor.timers.borrow_mut().push((id, deadline, cx.waker().clone()));
         self.timer = Some(id);
+        if earliest {
+            self.executor.ready.wake_embedder();
+        }
         Poll::Pending
     }
 }
@@ -228,5 +236,69 @@ impl Signal {
                 Poll::Pending
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn counted() -> (Rc<Executor>, Arc<AtomicUsize>) {
+        let executor = Rc::new(Executor::default());
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let count = wakes.clone();
+        executor.set_wakeup(Some(Arc::new(move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        })));
+        (executor, wakes)
+    }
+
+    #[test]
+    fn spawning_wakes_the_embedder() {
+        let (executor, wakes) = counted();
+        let ran = Rc::new(Cell::new(false));
+        let flag = ran.clone();
+        executor.spawn(Box::pin(async move { flag.set(true) }));
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
+        executor.run();
+        assert!(ran.get());
+    }
+
+    #[test]
+    fn a_wake_behind_a_spawned_task_still_wakes_the_embedder() {
+        let (executor, wakes) = counted();
+        let parked = Rc::new(RefCell::new(None::<Waker>));
+        let slot = parked.clone();
+        executor.spawn(Box::pin(std::future::poll_fn(move |cx| {
+            *slot.borrow_mut() = Some(cx.waker().clone());
+            Poll::<()>::Pending
+        })));
+        executor.run();
+        let before = wakes.load(Ordering::SeqCst);
+        executor.spawn(Box::pin(async {}));
+        let waker = parked.borrow_mut().take().unwrap();
+        std::thread::spawn(move || waker.wake()).join().unwrap();
+        assert!(wakes.load(Ordering::SeqCst) > before);
+    }
+
+    #[test]
+    fn a_new_earliest_timer_wakes_the_embedder() {
+        let (executor, wakes) = counted();
+        let timer = executor.clone();
+        executor.spawn(Box::pin(async move { sleep(timer, Duration::from_secs(60)).await }));
+        executor.run();
+        let after_first = wakes.load(Ordering::SeqCst);
+        let timer = executor.clone();
+        executor.spawn(Box::pin(async move { sleep(timer, Duration::from_secs(120)).await }));
+        executor.run();
+        let after_later = wakes.load(Ordering::SeqCst);
+        let timer = executor.clone();
+        executor.spawn(Box::pin(async move { sleep(timer, Duration::from_secs(1)).await }));
+        executor.run();
+        let after_earlier = wakes.load(Ordering::SeqCst);
+        assert_eq!(after_first, 2);
+        assert_eq!(after_later, 3);
+        assert_eq!(after_earlier, 5);
     }
 }
