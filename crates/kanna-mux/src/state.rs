@@ -34,7 +34,7 @@ pub(crate) fn quoted(value: Option<&Value>) -> String {
 /// `n` from an ID such as `p3`, if it is exactly that.
 pub(crate) fn number_in(id: &str, prefix: &str) -> Option<usize> {
     let n: usize = id.strip_prefix(prefix)?.parse().ok()?;
-    (n > 0 && format!("{prefix}{n}") == id).then_some(n)
+    (n > 0 && n < 1_000_000_000 && format!("{prefix}{n}") == id).then_some(n)
 }
 
 /// A whole number from 0 up to a billion.
