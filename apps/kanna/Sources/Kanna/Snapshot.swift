@@ -21,7 +21,7 @@ enum Snapshot {
     static func run(_ window: NSWindow, id: String, panes: [(id: String, view: NSView)], path: String?, marker: String?) throws -> [String: JSON] {
         // kCGWindowListOptionIncludingWindow; boundsIgnoreFraming | bestResolution.
         guard let image = createImage?(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0 | 1 << 3)?.takeRetainedValue(),
-              let data = image.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else {
+              let data = image.dataProvider?.data else {
             throw KannaError("bad_request", "window capture unavailable")
         }
         var out: [String: JSON] = ["window": .string(id), "width": .number(Double(image.width)), "height": .number(Double(image.height))]
@@ -32,7 +32,7 @@ enum Snapshot {
             out["path"] = .string(url.path)
         }
         let scale = CGFloat(image.width) / window.frame.width
-        let reader = Pixels(bytes: bytes, image: image)
+        let reader = Pixels(bytes: [UInt8](data as Data), image: image)
         out["panes"] = .array(panes.map { id, view in
             let inWindow = view.convert(view.bounds, to: nil)
             let rect = CGRect(x: inWindow.minX * scale, y: (window.frame.height - inWindow.maxY) * scale, width: inWindow.width * scale, height: inWindow.height * scale)
@@ -101,19 +101,20 @@ private struct RGB: Hashable, CustomStringConvertible {
 }
 
 private struct Pixels {
-    let bytes: UnsafePointer<UInt8>
+    let bytes: [UInt8]
     let image: CGImage
     let bgra: Bool
 
-    init(bytes: UnsafePointer<UInt8>, image: CGImage) {
+    init(bytes: [UInt8], image: CGImage) {
         self.bytes = bytes
         self.image = image
         bgra = image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder32Little
     }
 
     func pixel(_ x: Int, _ y: Int) -> RGB {
-        let p = bytes + y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
-        return bgra ? RGB(r: Int(p[2]), g: Int(p[1]), b: Int(p[0])) : RGB(r: Int(p[0]), g: Int(p[1]), b: Int(p[2]))
+        let p = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
+        guard p >= 0, p + 2 < bytes.count else { return RGB(r: 0, g: 0, b: 0) }
+        return bgra ? RGB(r: Int(bytes[p + 2]), g: Int(bytes[p + 1]), b: Int(bytes[p])) : RGB(r: Int(bytes[p]), g: Int(bytes[p + 1]), b: Int(bytes[p + 2]))
     }
 
     func forEach(in rect: CGRect, _ body: (RGB) -> Void) {
