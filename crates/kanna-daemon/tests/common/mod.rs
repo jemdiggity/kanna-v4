@@ -143,11 +143,17 @@ pub struct App {
 
 impl App {
     pub fn connect(socket: &Path) -> App {
-        let mut app = App::raw(socket);
-        app.send(json!({"id": 0, "cmd": "app.hello", "args": {"pid": std::process::id()}}));
-        let hello = app.next().expect("no answer to app.hello");
-        assert_eq!(hello["ok"], true, "{hello}");
-        app
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut app = App::raw(socket);
+            app.send(json!({"id": 0, "cmd": "app.hello", "args": {"pid": std::process::id()}}));
+            let hello = app.next().expect("no answer to app.hello");
+            if hello["ok"] == true {
+                return app;
+            }
+            assert!(hello["error"]["code"] == "app_attached" && Instant::now() < deadline, "{hello}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     pub fn raw(socket: &Path) -> App {

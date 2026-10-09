@@ -5,20 +5,17 @@
 //! output there as events.
 
 use crate::pty::{self, Spawned, Spawner, Spec};
-use crate::screen::{Screen, TextScreen};
+use crate::reader::{Feed, Reader, Taken};
 use crate::Event;
 use kanna_mux::{KmuxError, Pane, PaneHost, PaneState, WeakCore};
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::fd::OwnedFd;
-use std::panic::AssertUnwindSafe;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Sender};
-
-/// How much recent output each terminal keeps for the app.
-const REPLAY: usize = 1 << 20;
+use std::sync::{Arc, Mutex};
 
 /// A terminal's size before anything has asked for one.
 /// Told which pane started.
@@ -36,12 +33,12 @@ struct Terminal {
     pid: i32,
     master: OwnedFd,
     input: Sender<Vec<u8>>,
-    screen: Box<dyn Screen>,
-    replay: VecDeque<u8>,
-    cols: u16,
-    rows: u16,
+    feed: Arc<Mutex<Feed>>,
+    reader: Reader,
     pixels: (u16, u16),
     exit_code: Option<i32>,
+    exit_reported: bool,
+    drained: bool,
 }
 
 pub struct Terminals {
@@ -89,30 +86,46 @@ impl Terminals {
 
     // MARK: Events from the reader and wait threads
 
-    /// Output from a pty. Returns whether it's from the pane's current terminal.
-    pub fn output(&self, id: &str, serial: u64, bytes: &[u8]) -> bool {
-        let mut live = self.live.borrow_mut();
-        let Some(terminal) = live.get_mut(id).filter(|t| t.serial == serial) else { return false };
-        guarded(id, terminal, |screen| screen.feed(bytes));
-        terminal.replay.extend(bytes);
-        let over = terminal.replay.len().saturating_sub(REPLAY);
-        terminal.replay.drain(..over);
-        true
+    pub fn output(&self, id: &str, serial: u64) -> Option<Taken> {
+        let live = self.live.borrow();
+        let terminal = live.get(id).filter(|t| t.serial == serial)?;
+        let taken = Feed::lock(&terminal.feed).take();
+        taken
     }
 
-    pub fn exited(&self, id: &str, pid: i32, code: i32) -> bool {
-        let current = match self.live.borrow_mut().get_mut(id).filter(|t| t.pid == pid && t.exit_code.is_none()) {
+    pub fn exited(&self, id: &str, pid: i32, code: i32) -> Option<i32> {
+        let drained = match self.live.borrow_mut().get_mut(id).filter(|t| t.pid == pid && t.exit_code.is_none()) {
             Some(terminal) => {
                 terminal.exit_code = Some(code);
-                true
+                if !terminal.drained {
+                    terminal.reader.drain();
+                }
+                Some(terminal.drained)
             }
-            None => false,
+            None => None,
         };
-        if current {
-            self.report(id, PaneState::Exited, Some(code as i64), None);
-        }
         self.spawner.acknowledge_exit(id);
-        current
+        match drained {
+            Some(true) => self.report_exit(id),
+            _ => None,
+        }
+    }
+
+    pub fn drained(&self, id: &str, serial: u64) -> Option<i32> {
+        self.live.borrow_mut().get_mut(id).filter(|t| t.serial == serial)?.drained = true;
+        self.report_exit(id)
+    }
+
+    fn report_exit(&self, id: &str) -> Option<i32> {
+        let code = {
+            let mut live = self.live.borrow_mut();
+            let terminal = live.get_mut(id).filter(|t| t.drained && !t.exit_reported)?;
+            let code = terminal.exit_code?;
+            terminal.exit_reported = true;
+            code
+        };
+        self.report(id, PaneState::Exited, Some(code as i64), None);
+        Some(code)
     }
 
     // MARK: For the app
@@ -128,18 +141,18 @@ impl Terminals {
     pub fn resize(&self, id: &str, cols: u16, rows: u16, width: u16, height: u16) -> Option<(u16, u16)> {
         let mut live = self.live.borrow_mut();
         let terminal = live.get_mut(id)?;
+        let mut feed = Feed::lock(&terminal.feed);
         if cols > MAX_SIDE || rows > MAX_SIDE {
             eprintln!("kanna-daemon: refused to make {id} {cols}×{rows}: at most {MAX_SIDE} cells a side");
-            return Some((terminal.cols, terminal.rows));
+            return Some((feed.cols, feed.rows));
         }
         let (cols, rows) = (cols.max(1), rows.max(1));
-        if (cols, rows, (width, height)) != (terminal.cols, terminal.rows, terminal.pixels) {
+        if (cols, rows, (width, height)) != (feed.cols, feed.rows, terminal.pixels) {
             pty::set_size(&terminal.master, cols, rows, width, height);
             terminal.pixels = (width, height);
         }
-        if (cols, rows) != (terminal.cols, terminal.rows) {
-            (terminal.cols, terminal.rows) = (cols, rows);
-            guarded(id, terminal, |screen| screen.resize(cols, rows));
+        if (cols, rows) != (feed.cols, feed.rows) {
+            feed.resize(id, cols, rows);
             self.sizes.borrow_mut().insert(id.into(), (cols, rows));
         }
         Some((cols, rows))
@@ -150,27 +163,21 @@ impl Terminals {
     pub fn attach(&self, id: &str) -> Option<(u16, u16, Vec<u8>, Option<i32>)> {
         let live = self.live.borrow();
         let t = live.get(id)?;
-        Some((t.cols, t.rows, t.replay.iter().copied().collect(), t.exit_code))
+        let mut feed = Feed::lock(&t.feed);
+        let replay = feed.snapshot();
+        Some((feed.cols, feed.rows, replay, t.exit_code.filter(|_| t.exit_reported)))
+    }
+
+    pub fn size(&self, id: &str) -> Option<(u16, u16)> {
+        let live = self.live.borrow();
+        let feed = Feed::lock(&live.get(id)?.feed);
+        Some((feed.cols, feed.rows))
     }
 
     pub fn close_all(&self) {
         let ids: Vec<String> = self.live.borrow_mut().drain().filter(|(_, t)| t.exit_code.is_none()).map(|(id, _)| id).collect();
         for id in ids {
             self.spawner.close(&id);
-        }
-    }
-}
-
-/// Runs `f` on a terminal's screen. The screen reads untrusted output: if
-/// it panics anyway, only that screen is lost (it starts over, empty), not
-/// the daemon and its other terminals.
-fn guarded<R>(id: &str, terminal: &mut Terminal, f: impl FnOnce(&mut dyn Screen) -> R) -> Option<R> {
-    match std::panic::catch_unwind(AssertUnwindSafe(|| f(terminal.screen.as_mut()))) {
-        Ok(result) => Some(result),
-        Err(_) => {
-            eprintln!("kanna-daemon: {id}'s screen failed; it starts over");
-            terminal.screen = Box::new(TextScreen::new(terminal.cols, terminal.rows));
-            None
         }
     }
 }
@@ -215,9 +222,10 @@ impl PaneHost for Terminals {
     }
 
     fn read(&self, pane: &Pane, lines: Option<usize>) -> Result<String, KmuxError> {
-        let mut live = self.live.borrow_mut();
-        let terminal = live.get_mut(&pane.id).ok_or_else(|| KmuxError::new("bad_request", format!("{} has no terminal", pane.label())))?;
-        guarded(&pane.id, terminal, |screen| screen.text(lines)).ok_or_else(|| KmuxError::new("bad_request", format!("{}'s screen failed and was reset", pane.label())))
+        let live = self.live.borrow();
+        let terminal = live.get(&pane.id).ok_or_else(|| KmuxError::new("bad_request", format!("{} has no terminal", pane.label())))?;
+        let text = Feed::lock(&terminal.feed).guarded(&pane.id, |screen| screen.text(lines));
+        text.ok_or_else(|| KmuxError::new("bad_request", format!("{}'s screen failed and was reset", pane.label())))
     }
 }
 
@@ -225,19 +233,9 @@ impl Terminals {
     /// Starts the threads that read and write a new terminal's pty.
     fn run(&self, id: &str, serial: u64, spawned: Spawned, spec: &Spec) -> std::io::Result<Terminal> {
         let Spawned { pid, master } = spawned;
-        let mut reader = File::from(master.try_clone()?);
+        let feed = Feed::new(spec.cols, spec.rows);
+        let reader = Reader::start(id, serial, master.try_clone()?, feed.clone(), self.events.clone())?;
         let mut writer = File::from(master.try_clone()?);
-        let (pane, events) = (id.to_string(), self.events.clone());
-        std::thread::Builder::new().name(format!("kanna.read.{id}")).spawn(move || {
-            let mut buffer = vec![0u8; 65536];
-            // Ends when the program and everything else holding the pty's
-            // other side have gone (EIO), or the pane closed.
-            while let Ok(n @ 1..) = reader.read(&mut buffer) {
-                if events.send(Event::Output { pane: pane.clone(), serial, bytes: buffer[..n].to_vec() }).is_err() {
-                    return;
-                }
-            }
-        })?;
         let (input, inputs) = mpsc::channel::<Vec<u8>>();
         std::thread::Builder::new().name(format!("kanna.write.{id}")).spawn(move || {
             for bytes in inputs {
@@ -251,12 +249,12 @@ impl Terminals {
             pid,
             master,
             input,
-            screen: Box::new(TextScreen::new(spec.cols, spec.rows)),
-            replay: VecDeque::new(),
-            cols: spec.cols,
-            rows: spec.rows,
+            feed,
+            reader,
             pixels: (0, 0),
             exit_code: None,
+            exit_reported: false,
+            drained: false,
         })
     }
 }

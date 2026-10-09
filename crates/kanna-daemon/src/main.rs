@@ -6,18 +6,21 @@
 mod app_link;
 mod keeper;
 mod pty;
+mod reader;
 mod screen;
 mod terminals;
 
-use app_link::{AppLink, APP_COMMANDS, HELLO};
+use app_link::{AppLink, Outbox, APP_COMMANDS, HELLO};
 use kanna_mux::json::Value;
 use kanna_mux::{Brand, Core, Instance, PaneType, SocketServer, DEFAULT_NAME};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use reader::Taken;
 use terminals::Terminals;
 
 const USAGE: &str = "usage: kanna-daemon [--uses-keeper]
@@ -39,11 +42,13 @@ pub enum Event {
     Request(Value, Box<dyn FnOnce(Value) + Send>),
     /// The core has work to do.
     Wake,
-    Output { pane: String, serial: u64, bytes: Vec<u8> },
+    Output { pane: String, serial: u64 },
+    Drained { pane: String, serial: u64 },
     KeeperReadable,
     KeeperExits,
     KeeperLost(String),
-    AppHello { conn: u64, hello: Value, out: Sender<Vec<u8>>, stream: UnixStream },
+    AppHello { conn: u64, hello: Value, out: Outbox, stream: UnixStream },
+    AppCaughtUp { conn: u64 },
     AppMessage { conn: u64, message: Value },
     AppGone { conn: u64 },
     Quit(i32),
@@ -180,12 +185,15 @@ fn run() -> Result<(), String> {
     eprintln!("kanna-daemon: listening on {socket_path} (pid {})", std::process::id());
 
     let quit = events.clone();
+    let stopping = Arc::new(AtomicI32::new(0));
+    let stop = stopping.clone();
     std::thread::Builder::new()
         .name("kanna.signals".into())
         .spawn(move || loop {
             let mut signal = 0;
             // SAFETY: a valid signal set and out-pointer.
             if unsafe { libc::sigwait(&stop_signals, &mut signal) } == 0 {
+                stop.store(signal, Ordering::SeqCst);
                 let _ = quit.send(Event::Quit(signal));
                 return;
             }
@@ -195,6 +203,11 @@ fn run() -> Result<(), String> {
 
     let mut failure = None;
     loop {
+        let signal = stopping.load(Ordering::SeqCst);
+        if signal != 0 {
+            eprintln!("kanna-daemon: stopping (signal {signal})");
+            break;
+        }
         app.expire(Instant::now());
         let deadline = [core.poll(), app.next_deadline()].into_iter().flatten().min();
         let event = match deadline {
@@ -209,9 +222,14 @@ fn run() -> Result<(), String> {
         match event {
             Event::Request(request, reply) => core.handle(request, reply),
             Event::Wake => {}
-            Event::Output { pane, serial, bytes } => {
-                if terminals.output(&pane, serial, &bytes) {
-                    app.output(&pane, &bytes);
+            Event::Output { pane, serial } => match terminals.output(&pane, serial) {
+                Some(Taken::Bytes(bytes)) => app.output(&pane, &bytes),
+                Some(Taken::Overflowed) => app.resync(&pane),
+                None => {}
+            },
+            Event::Drained { pane, serial } => {
+                if let Some(code) = terminals.drained(&pane, serial) {
+                    app.exited(&pane, code);
                 }
             }
             Event::KeeperReadable | Event::KeeperExits => {
@@ -223,7 +241,7 @@ fn run() -> Result<(), String> {
                     Ok(exits) => {
                         for exit in exits {
                             let code = exit.status.shell_status();
-                            if terminals.exited(&exit.id, exit.pid, code) {
+                            if let Some(code) = terminals.exited(&exit.id, exit.pid, code) {
                                 app.exited(&exit.id, code);
                             }
                         }
@@ -241,10 +259,8 @@ fn run() -> Result<(), String> {
             Event::AppHello { conn, hello, out, stream } => app.hello(conn, hello, out, stream),
             Event::AppMessage { conn, message } => app.message(conn, message),
             Event::AppGone { conn } => app.gone(conn),
-            Event::Quit(signal) => {
-                eprintln!("kanna-daemon: stopping (signal {signal})");
-                break;
-            }
+            Event::AppCaughtUp { conn } => app.caught_up(conn),
+            Event::Quit(_) => continue,
         }
     }
 
