@@ -206,7 +206,6 @@ pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
         tell(ready, &[ALREADY_RUNNING]);
         return Ok(());
     }
-    sig::set_cloexec(lock.as_raw_fd());
     unsafe {
         libc::signal(libc::SIGHUP, libc::SIG_IGN);
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);

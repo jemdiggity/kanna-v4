@@ -87,6 +87,7 @@ impl SpawnRequest {
 pub struct Client {
     stream: UnixStream,
     inbuf: Vec<u8>,
+    readbuf: Box<[u8]>,
     /// Descriptors received and not yet claimed by a line.
     fds: VecDeque<OwnedFd>,
     events: VecDeque<Exited>,
@@ -109,7 +110,7 @@ impl Client {
         if fdpass::peer_uid(&stream)? != unsafe { libc::getuid() } {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "the keeper runs as another user"));
         }
-        Ok(Client { stream, inbuf: Vec::new(), fds: VecDeque::new(), events: VecDeque::new(), next_req: 1 })
+        Ok(Client { stream, inbuf: Vec::new(), readbuf: vec![0u8; 65536].into_boxed_slice(), fds: VecDeque::new(), events: VecDeque::new(), next_req: 1 })
     }
 
     /// Connects to the keeper of `state_dir`, first starting `keeper_bin`
@@ -257,11 +258,10 @@ impl Client {
     /// Reads once. False when not blocking and nothing is there;
     /// `UnexpectedEof` when the keeper has closed the connection.
     fn fill(&mut self, block: bool) -> io::Result<bool> {
-        let mut buf = vec![0u8; 65536];
-        match fdpass::recv(self.stream.as_raw_fd(), &mut buf, !block) {
+        match fdpass::recv(self.stream.as_raw_fd(), &mut self.readbuf, !block) {
             Ok((0, _)) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the keeper closed the connection")),
             Ok((n, fds)) => {
-                self.inbuf.extend_from_slice(&buf[..n]);
+                self.inbuf.extend_from_slice(&self.readbuf[..n]);
                 self.fds.extend(fds);
                 Ok(true)
             }
