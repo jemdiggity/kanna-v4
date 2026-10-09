@@ -15,7 +15,7 @@
 #   KANNA_SOCKET     the daemon's socket (the CLI and the app connect to it)
 #   KANNA_STATE_DIR  where the daemon, keeper and app keep their files
 #                    (the keeper writes keeper.pid there)
-#   KANNA_KEEPER     the keeper binary the daemon starts
+#   KANNA_KEEPER     the keeper binary the daemon starts (once it uses one)
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -52,8 +52,15 @@ wait_for() { # wait_for SECONDS COMMAND…: until COMMAND succeeds
   return 1
 }
 start_daemon() {
-  need "$bin/kanna-daemon" && need "$bin/kanna-keeper" || return 1
-  KANNA_KEEPER="$bin/kanna-keeper" "$bin/kanna-daemon" >>"$out/daemon.log" 2>&1 &
+  need "$bin/kanna-daemon" || return 1
+  # Until the keeper exists (plan step 0.5) the daemon spawns its ptys itself;
+  # once it uses one (`--uses-keeper`), the keeper is required.
+  if "$bin/kanna-daemon" --uses-keeper; then
+    need "$bin/kanna-keeper" || return 1
+    KANNA_KEEPER="$bin/kanna-keeper" "$bin/kanna-daemon" >>"$out/daemon.log" 2>&1 &
+  else
+    "$bin/kanna-daemon" >>"$out/daemon.log" 2>&1 &
+  fi
   daemon_pid=$!
   wait_for 5 test -S "$KANNA_SOCKET" || { echo "the daemon did not open its socket"; return 1; }
 }
