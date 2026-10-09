@@ -627,3 +627,39 @@ fn out_of_descriptors_the_keeper_waits_instead_of_spinning() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(used < 0.3, "the keeper used {used} s of CPU in 1 s");
 }
+
+#[test]
+fn adopt_hands_back_every_pty_even_near_the_descriptor_limit() {
+    use std::os::unix::process::CommandExt;
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    unsafe {
+        cmd.pre_exec(|| {
+            let mut limit: libc::rlimit = std::mem::zeroed();
+            libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit);
+            limit.rlim_cur = 34;
+            libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+            Ok(())
+        });
+    }
+    let _keeper = KilledOnDrop(cmd.spawn().unwrap());
+    let socket = state.join("keeper.sock");
+    wait_for("the keeper's socket", || Client::connect(&socket).is_ok());
+    let mut c = Client::connect(&socket).unwrap();
+    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+    let ids: Vec<String> = (0..40).map(|i| format!("p{i:02}")).collect();
+    for id in &ids {
+        drop(c.spawn(&SpawnRequest::command(id, "sleep 60")).unwrap());
+    }
+    let probe = c.spawn(&SpawnRequest::command("limit", "echo \"limit:$(ulimit -n)\"; sleep 60")).unwrap();
+    read_until(&probe.master, "limit:34");
+    c.close("limit").unwrap();
+    let adopted = c.adopt();
+    for id in &ids {
+        let _ = c.close(id);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let adopted: Vec<String> = adopted.unwrap().into_iter().map(|p| p.id).collect();
+    assert_eq!(adopted, ids);
+}

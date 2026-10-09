@@ -106,7 +106,7 @@ sequenceDiagram
 ```
 
 - The spawn reply comes only once the child has exec'd, so a `close` straight after always reaches it.
-- `adopt` sends a fresh copy of each master each time; the keeper keeps its own.
+- `adopt` sends a fresh copy of each master each time; the keeper keeps its own. It sends its own descriptor (`SCM_RIGHTS` makes the copy in the receiver), so adopting or spawning never needs a spare descriptor in the keeper and can't come back short. The client fails `adopt` if a pty arrives without its master or the count differs.
 
 ## 5. What Runs, and Its Environment
 
@@ -144,6 +144,7 @@ stateDiagram-v2
 | **Files** | `keeper.sock`, `keeper.lock`, `keeper.pid`, `keeper.log` in DIR. |
 | **Client gone** | Nothing happens: the processes and the keeper's copies stay. |
 | **Idle exit** | After 60 s with no live process, no client and nothing being closed. Unacknowledged exits don't keep it. It first unlinks the socket, so no one else can connect, then accepts whoever connected meanwhile; if anyone did, it listens again and carries on. |
+| **Descriptors** | At start it raises its soft `RLIMIT_NOFILE` to the hard limit (10240 if the hard limit is unlimited), since a Finder-launched app gets 256; spawned processes get the original limit back. |
 | **Signals** | It unblocks SIGCHLD, SIGTERM and SIGINT at start: the daemon that starts it blocks the signals it waits for, and children inherit that. |
 | **SIGTERM / SIGINT** | It exits without signalling anyone. Its copies close; a pty with no other copy hangs up, and its processes get SIGHUP from the kernel. |
 

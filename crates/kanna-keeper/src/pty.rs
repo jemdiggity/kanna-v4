@@ -25,6 +25,22 @@ pub enum What<'a> {
     Command(&'a str),
 }
 
+static ORIGINAL_NOFILE: std::sync::OnceLock<libc::rlimit> = std::sync::OnceLock::new();
+
+pub fn raise_nofile() {
+    let mut limit: libc::rlimit = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return;
+    }
+    let _ = ORIGINAL_NOFILE.set(limit);
+    for cap in [limit.rlim_max, 10_240] {
+        let raised = libc::rlimit { rlim_cur: limit.rlim_max.min(cap).max(limit.rlim_cur), rlim_max: limit.rlim_max };
+        if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raised) } == 0 {
+            return;
+        }
+    }
+}
+
 fn cstring(bytes: &[u8]) -> Result<CString> {
     CString::new(bytes).context("argument or environment entry contains NUL")
 }
@@ -214,6 +230,9 @@ pub fn spawn(
                 libc::SIGWINCH,
             ] {
                 libc::signal(signo, libc::SIG_DFL);
+            }
+            if let Some(limit) = ORIGINAL_NOFILE.get() {
+                libc::setrlimit(libc::RLIMIT_NOFILE, limit);
             }
             let mut empty: libc::sigset_t = std::mem::zeroed();
             libc::sigemptyset(&mut empty);

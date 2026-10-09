@@ -11,6 +11,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::rc::Rc;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -66,7 +67,7 @@ struct Pty {
     cwd: String,
     /// The keeper's copy, kept until the exit is acknowledged, so a daemon
     /// that connects later can still read the last output.
-    master: OwnedFd,
+    master: Rc<OwnedFd>,
     exit: Option<ExitStatus>,
 }
 
@@ -95,7 +96,7 @@ impl Pty {
 struct Out {
     bytes: Vec<u8>,
     sent: usize,
-    fds: Vec<OwnedFd>,
+    fds: Vec<Rc<OwnedFd>>,
 }
 
 struct Conn {
@@ -107,7 +108,7 @@ struct Conn {
 }
 
 impl Conn {
-    fn send(&mut self, value: Value, fds: Vec<OwnedFd>) {
+    fn send(&mut self, value: Value, fds: Vec<Rc<OwnedFd>>) {
         let mut bytes = serde_json::to_vec(&value).unwrap_or_default();
         bytes.push(b'\n');
         self.out_bytes += bytes.len();
@@ -171,6 +172,7 @@ fn tell(ready: Option<&OwnedFd>, bytes: &[u8]) {
 /// Returns at once if another keeper holds the state directory.
 pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
     sig::cloexec_inherited();
+    pty::raise_nofile();
     let dir = settings.state_dir.clone();
     paths::ensure_dir(&dir).with_context(|| format!("state directory {}", dir.display()))?;
     let lock = std::fs::OpenOptions::new()
@@ -416,17 +418,14 @@ impl Keeper {
     fn request(&mut self, i: usize, req: &Value) {
         let tag = req.get("req").cloned().unwrap_or(Value::Null);
         let id = req["id"].as_str().unwrap_or("");
-        let result: Result<(Value, Vec<OwnedFd>), String> = match req["op"].as_str().unwrap_or("") {
+        let result: Result<(Value, Vec<Rc<OwnedFd>>), String> = match req["op"].as_str().unwrap_or("") {
             "hello" => Ok((json!({"version": PROTOCOL_VERSION, "pid": std::process::id()}), vec![])),
             "spawn" => self.spawn(id, req),
             "adopt" => {
                 let lines: Vec<_> = self
                     .ptys
                     .iter()
-                    .filter_map(|(id, p)| {
-                        let fd = p.master.try_clone().ok()?;
-                        Some((json!({"req": tag, "pty": p.describe(id), "fds": 1}), fd))
-                    })
+                    .map(|(id, p)| (json!({"req": tag, "pty": p.describe(id), "fds": 1}), p.master.clone()))
                     .collect();
                 let count = lines.len();
                 for (line, fd) in lines {
@@ -457,7 +456,7 @@ impl Keeper {
         self.conns[i].send(reply, fds);
     }
 
-    fn spawn(&mut self, id: &str, req: &Value) -> Result<(Value, Vec<OwnedFd>), String> {
+    fn spawn(&mut self, id: &str, req: &Value) -> Result<(Value, Vec<Rc<OwnedFd>>), String> {
         valid_id(id)?;
         if self.ptys.contains_key(id) {
             return Err(format!("pty {id:?} exists"));
@@ -474,18 +473,18 @@ impl Keeper {
         let env: Option<&Map<String, Value>> = req["env"].as_object();
         let (spawned, argv) =
             pty::spawn(&what, req["cwd"].as_str(), env, size("rows", 24), size("cols", 80)).map_err(|e| format!("{e:#}"))?;
-        let fd = spawned.master.try_clone().map_err(|e| e.to_string())?;
+        let master = Rc::new(spawned.master);
         let pid = spawned.pid;
         let cwd = req["cwd"].as_str().unwrap_or("").to_string();
         let cmd: Vec<String> = argv.iter().map(|a| a.to_string_lossy().into_owned()).collect();
         let reply = json!({"id": id, "pid": pid, "cmd": cmd});
-        self.ptys.insert(id.to_string(), Pty { pid, cmd, cwd, master: spawned.master, exit: None });
-        Ok((reply, vec![fd]))
+        self.ptys.insert(id.to_string(), Pty { pid, cmd, cwd, master: master.clone(), exit: None });
+        Ok((reply, vec![master]))
     }
 
     /// SIGHUP to the process group and the pty's foreground group, SIGKILL
     /// to both after the grace period. The id is free at once.
-    fn close(&mut self, id: &str) -> Result<(Value, Vec<OwnedFd>), String> {
+    fn close(&mut self, id: &str) -> Result<(Value, Vec<Rc<OwnedFd>>), String> {
         let Some(p) = self.ptys.remove(id) else {
             return Err(format!("no pty {id:?}"));
         };
@@ -501,7 +500,7 @@ impl Keeper {
     }
 
     /// Forgets an exited pty. Acknowledging one that's gone is fine.
-    fn ack(&mut self, id: &str) -> Result<(Value, Vec<OwnedFd>), String> {
+    fn ack(&mut self, id: &str) -> Result<(Value, Vec<Rc<OwnedFd>>), String> {
         match self.ptys.get(id) {
             Some(p) if p.exit.is_none() => Err(format!("pty {id:?} is still running")),
             Some(_) => {

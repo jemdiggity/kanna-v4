@@ -183,19 +183,28 @@ impl Client {
     /// a restarted daemon gets its terminals back.
     pub fn adopt(&mut self) -> io::Result<Vec<Pty>> {
         let mut ptys = Vec::new();
-        self.request(json!({"op": "adopt"}), |line, fds| {
+        let mut missing = Vec::new();
+        let (reply, _) = self.request(json!({"op": "adopt"}), |line, fds| {
             let p = &line["pty"];
-            if let Some(master) = fds.pop() {
-                ptys.push(Pty {
-                    id: p["id"].as_str().unwrap_or("").into(),
+            let id: String = p["id"].as_str().unwrap_or("").into();
+            match fds.pop() {
+                Some(master) => ptys.push(Pty {
+                    id,
                     pid: p["pid"].as_i64().unwrap_or(0) as i32,
                     cmd: strings(&p["cmd"]),
                     cwd: p["cwd"].as_str().unwrap_or("").into(),
                     master,
                     exit: p.get("exit").and_then(ExitStatus::from_json),
-                });
+                }),
+                None => missing.push(id),
             }
         })?;
+        if !missing.is_empty() {
+            return Err(keeper_error(format!("adopt: no pty came with {}", missing.join(", "))));
+        }
+        if reply["ptys"].as_u64() != Some(ptys.len() as u64) {
+            return Err(keeper_error(format!("adopt: the keeper holds {} ptys, {} came", reply["ptys"], ptys.len())));
+        }
         Ok(ptys)
     }
 
