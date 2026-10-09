@@ -24,7 +24,6 @@
    - 4.10 [Windows, Tabs and Splits](#410-windows-tabs-and-splits)
    - 4.11 [The kanna CLI](#411-the-kanna-cli)
    - 4.12 [Terminal Behaviour](#412-terminal-behaviour)
-   - 4.13 [Tab Containers](#413-tab-containers)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -806,11 +805,6 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 **Checked by** `crates/kanna-vt/tests/terminal.rs` (colour answers, scheme reports, cursor defaults, title and cwd changes, snapshots after widening), `crates/kanna-daemon/tests/terminal_behaviour.rs` (colour queries from the app's theme, also after a restart; scheme reports; the shell's folder in `list`), `apps/kanna/Tests/KannaLinksTests` (every link rule), and S30–S35 of `scripts/e2e-kanna.sh`: theme and light/dark with screenshots (S30), cwd and title (S31), paste, OSC 52 and selection (S32), kitty keys, mouse and focus reports after a relaunch (S33), font size and the pty, scrollback (S34), links, bell, notifications and progress (S35).
 
-
-### 4.13 Tab Containers
-
-**[Proposed]** A slot in a split that holds several panes as tabs. Its own spec: [specs/tab-container.md](specs/tab-container.md), with a mockup in [mockups/tab-container.html](mockups/tab-container.html).
-
 ---
 
 ## 5. Mux Backends
@@ -1102,8 +1096,6 @@ sequenceDiagram
 | **Backend** | The mux that kanna is currently controlling. |
 | **Adapter** | The part of kanna that translates its commands for one specific backend. |
 | **Pane** | One rectangular area in a mux showing one thing. |
-| **Tab container** | A slot in a split that holds several panes as tabs and shows one at a time ([4.13](#413-tab-containers)). Its ID starts with `c`. |
-| **Tab strip** | The row of tabs along the top of a tab container. |
 | **Split** | Dividing a space into panes side by side or stacked. |
 | **Layout expression** | kanna's short notation for arranging panes, e.g. `a:2/3 \| (b / c)`. |
 | **Layout tree** | The parsed form of a layout expression that kanna passes to adapters. |
