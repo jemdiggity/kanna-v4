@@ -14,16 +14,48 @@ use kanna_mux::model::{Model, Node};
 use kanna_mux::{write_all, CoreHandle, KmuxError, Panes, Responder, Takeover, WeakCore};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// The first request of an app's connection.
 pub const HELLO: &str = "app.hello";
+
+const MAX_LINE: u64 = 16 << 20;
+
+const RESET: &[u8] = b"\x1bc";
+
+const QUEUE_BEHIND: usize = 16 << 20;
+
+const QUEUE_CAUGHT_UP: usize = 1 << 20;
+
+const QUEUE_LIMIT: usize = 64 << 20;
+
+pub struct Outbox {
+    lines: Sender<Vec<u8>>,
+    queue: Arc<Queue>,
+}
+
+#[derive(Default)]
+struct Queue {
+    bytes: AtomicUsize,
+    behind: AtomicBool,
+}
+
+impl Outbox {
+    fn push(&self, message: &Value) -> usize {
+        let mut line = encode(message).into_bytes();
+        line.push(b'\n');
+        let queued = self.queue.bytes.fetch_add(line.len(), Ordering::SeqCst) + line.len();
+        let _ = self.lines.send(line);
+        queued
+    }
+}
 
 /// The requests any client may make that the daemon passes to the app.
 pub const APP_COMMANDS: [&str; 5] = ["debug.app", "debug.type", "debug.key", "debug.text", "debug.snapshot"];
@@ -34,12 +66,18 @@ pub fn takeover(events: Sender<Event>) -> Takeover {
     let counter = Arc::new(AtomicU64::new(0));
     Arc::new(move |hello: Value, mut reader: BufReader<UnixStream>, stream: UnixStream| {
         let conn = counter.fetch_add(1, Ordering::SeqCst) + 1;
-        let (out, lines) = mpsc::channel::<Vec<u8>>();
+        let (sender, lines) = mpsc::channel::<Vec<u8>>();
+        let out = Outbox { lines: sender, queue: Arc::default() };
+        let (queue, caught_up) = (out.queue.clone(), events.clone());
         let (Ok(writer), Ok(closer)) = (stream.try_clone(), stream.try_clone()) else { return };
         let spawned = std::thread::Builder::new().name("kanna.app.write".into()).spawn(move || {
             for line in lines {
                 if !write_all(&writer, &line) {
                     break;
+                }
+                let left = queue.bytes.fetch_sub(line.len(), Ordering::SeqCst) - line.len();
+                if left <= QUEUE_CAUGHT_UP && queue.behind.swap(false, Ordering::SeqCst) {
+                    let _ = caught_up.send(Event::AppCaughtUp { conn });
                 }
             }
             let _ = writer.shutdown(Shutdown::Both);
@@ -50,9 +88,13 @@ pub fn takeover(events: Sender<Event>) -> Takeover {
         let mut line = Vec::new();
         loop {
             line.clear();
-            match reader.read_until(b'\n', &mut line) {
+            match reader.by_ref().take(MAX_LINE + 1).read_until(b'\n', &mut line) {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
+            }
+            if line.len() as u64 > MAX_LINE {
+                eprintln!("kanna-daemon: the app sent a line over {} MiB; dropping it", MAX_LINE >> 20);
+                break;
             }
             match serde_json::from_slice::<Value>(&line) {
                 Ok(message) => {
@@ -69,8 +111,10 @@ pub fn takeover(events: Sender<Event>) -> Takeover {
 
 struct Connection {
     id: u64,
-    out: Sender<Vec<u8>>,
+    out: Outbox,
     stream: UnixStream,
+    behind: Cell<bool>,
+    cut: Cell<bool>,
 }
 
 /// The app's side of the daemon, on the main thread.
@@ -79,7 +123,8 @@ pub struct AppLink {
     terminals: Rc<Terminals>,
     app: RefCell<Option<Connection>>,
     /// Requests passed to the app, by the ID the daemon gave them.
-    pending: RefCell<HashMap<u64, Responder>>,
+    pending: RefCell<HashMap<u64, (Instant, Responder)>>,
+    timeout: Duration,
     next_id: Cell<u64>,
     /// The terminals the app shows: it gets their output.
     attached: RefCell<HashSet<String>>,
@@ -88,12 +133,13 @@ pub struct AppLink {
 }
 
 impl AppLink {
-    pub fn new(core: WeakCore, terminals: Rc<Terminals>) -> AppLink {
+    pub fn new(core: WeakCore, terminals: Rc<Terminals>, timeout: Duration) -> AppLink {
         AppLink {
             core,
             terminals,
             app: RefCell::new(None),
             pending: RefCell::default(),
+            timeout,
             next_id: Cell::new(0),
             attached: RefCell::default(),
             shown: RefCell::new(None),
@@ -101,10 +147,42 @@ impl AppLink {
     }
 
     fn send(&self, message: Value) {
-        if let Some(app) = self.app.borrow().as_ref() {
-            let mut line = encode(&message).into_bytes();
-            line.push(b'\n');
-            let _ = app.out.send(line);
+        let app = self.app.borrow();
+        let Some(app) = app.as_ref().filter(|app| !app.cut.get()) else { return };
+        let queued = app.out.push(&message);
+        if queued > QUEUE_LIMIT {
+            eprintln!("kanna-daemon: the app is {} MiB behind; dropping it", queued >> 20);
+            app.cut.set(true);
+            let _ = app.stream.shutdown(Shutdown::Both);
+        } else if queued > QUEUE_BEHIND && !app.behind.replace(true) {
+            eprintln!("kanna-daemon: the app is {} MiB behind; its terminals start over when it catches up", queued >> 20);
+            app.out.queue.behind.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn behind(&self) -> bool {
+        self.app.borrow().as_ref().is_some_and(|app| app.behind.get())
+    }
+
+    fn shows(&self, pane: &str) -> bool {
+        !self.behind() && self.attached.borrow().contains(pane)
+    }
+
+    pub fn caught_up(&self, conn: u64) {
+        match self.app.borrow().as_ref() {
+            Some(app) if app.id == conn => app.behind.set(false),
+            _ => return,
+        }
+        let mut panes: Vec<String> = self.attached.borrow().iter().cloned().collect();
+        panes.sort();
+        for pane in panes {
+            self.attach(&pane);
+        }
+    }
+
+    pub fn resync(&self, pane: &str) {
+        if self.shows(pane) {
+            self.attach(pane);
         }
     }
 
@@ -114,12 +192,10 @@ impl AppLink {
 
     // MARK: The connection
 
-    pub fn hello(&self, conn: u64, hello: Value, out: Sender<Vec<u8>>, stream: UnixStream) {
+    pub fn hello(&self, conn: u64, hello: Value, out: Outbox, stream: UnixStream) {
         let id = hello.get("id").cloned().unwrap_or(Value::Null);
         let answer = |reply: Value| {
-            let mut line = encode(&reply).into_bytes();
-            line.push(b'\n');
-            let _ = out.send(line);
+            out.push(&reply);
         };
         if self.app.borrow().is_some() {
             answer(json!({ "id": id, "ok": false, "error": { "code": "app_attached", "message": "another Kanna.app is attached to this daemon" } }));
@@ -129,7 +205,7 @@ impl AppLink {
         let pid = hello.get("args").and_then(|a| a.get("pid")).cloned().unwrap_or(Value::Null);
         eprintln!("kanna-daemon: the app attached (pid {pid})");
         answer(json!({ "id": id, "ok": true, "daemon": { "pid": std::process::id() } }));
-        *self.app.borrow_mut() = Some(Connection { id: conn, out, stream });
+        *self.app.borrow_mut() = Some(Connection { id: conn, out, stream, behind: Cell::new(false), cut: Cell::new(false) });
         self.shown.borrow_mut().take();
         self.layout_changed();
     }
@@ -142,7 +218,7 @@ impl AppLink {
         self.app.borrow_mut().take();
         self.attached.borrow_mut().clear();
         self.shown.borrow_mut().take();
-        let pending: Vec<Responder> = self.pending.borrow_mut().drain().map(|(_, r)| r).collect();
+        let pending: Vec<Responder> = self.pending.borrow_mut().drain().map(|(_, (_, r))| r).collect();
         for responder in pending {
             responder.reply(Err(KmuxError::new("app_gone", "Kanna.app went away before answering")));
         }
@@ -162,7 +238,7 @@ impl AppLink {
         // An answer to a request the daemon passed on.
         if message.get("ok").is_some() {
             let responder = message.get("id").and_then(Value::as_u64).and_then(|id| self.pending.borrow_mut().remove(&id));
-            if let Some(responder) = responder {
+            if let Some((_, responder)) = responder {
                 responder.reply(answer(message));
             }
             return;
@@ -196,6 +272,7 @@ impl AppLink {
             return self.notify("exited", json!({ "pane": pane, "code": Value::Null }));
         };
         self.attached.borrow_mut().insert(pane.into());
+        self.output(pane, RESET);
         self.notify("grid", json!({ "pane": pane, "cols": cols, "rows": rows }));
         for chunk in replay.chunks(65536) {
             self.output(pane, chunk);
@@ -208,13 +285,13 @@ impl AppLink {
     // MARK: From the terminals
 
     pub fn output(&self, pane: &str, bytes: &[u8]) {
-        if self.attached.borrow().contains(pane) {
+        if self.shows(pane) {
             self.notify("output", json!({ "pane": pane, "data": BASE64.encode(bytes) }));
         }
     }
 
     pub fn exited(&self, pane: &str, code: i32) {
-        if self.attached.borrow().contains(pane) {
+        if self.shows(pane) {
             self.notify("exited", json!({ "pane": pane, "code": code }));
         }
     }
@@ -222,9 +299,9 @@ impl AppLink {
     /// A terminal started. If the app already shows the pane, it's a
     /// `restart`: the app's view starts over, at the new terminal's size.
     pub fn started(&self, pane: &str) {
-        if self.attached.borrow().contains(pane) {
-            self.output(pane, b"\x1bc");
-            if let Some((cols, rows, _, _)) = self.terminals.attach(pane) {
+        if self.shows(pane) {
+            self.output(pane, RESET);
+            if let Some((cols, rows)) = self.terminals.size(pane) {
                 self.notify("grid", json!({ "pane": pane, "cols": cols, "rows": rows }));
             }
         }
@@ -262,8 +339,21 @@ impl AppLink {
         }
         let id = self.next_id.get() + 1;
         self.next_id.set(id);
-        self.pending.borrow_mut().insert(id, responder);
+        self.pending.borrow_mut().insert(id, (Instant::now() + self.timeout, responder));
         self.send(json!({ "id": id, "cmd": cmd, "args": args }));
+    }
+
+    pub fn next_deadline(&self) -> Option<Instant> {
+        self.pending.borrow().values().map(|(deadline, _)| *deadline).min()
+    }
+
+    pub fn expire(&self, now: Instant) {
+        let late: Vec<u64> = self.pending.borrow().iter().filter(|(_, (deadline, _))| *deadline <= now).map(|(id, _)| *id).collect();
+        for id in late {
+            let Some((_, responder)) = self.pending.borrow_mut().remove(&id) else { continue };
+            let seconds = self.timeout.as_secs_f64();
+            responder.reply(Err(KmuxError::new("timeout", format!("Kanna.app didn't answer within {seconds}s"))));
+        }
     }
 }
 

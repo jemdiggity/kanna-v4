@@ -6,19 +6,35 @@ import Foundation
 /// there and again whenever it comes back; what it reads is handed to the
 /// main actor in order.
 final class DaemonConnection: @unchecked Sendable {
+    struct Delivery: Sendable {
+        let generation: Int
+        let size: Int
+    }
+
     let path: String
+    private let hello: Data
     /// Called on the main actor: connected, each message, disconnected.
     private let connected: @MainActor @Sendable () -> Void
-    private let received: @MainActor @Sendable (JSON) -> Void
+    private let received: @MainActor @Sendable (JSON, Delivery) -> Void
     private let disconnected: @MainActor @Sendable () -> Void
     private let writes = DispatchQueue(label: "kanna.daemon.write")
-    private let lock = NSLock()
+    private let lock = NSCondition()
     private var fd: Int32 = -1
     private var stopped = false
+    private var generation = 0
+    private var inFlight = 0
+    private var retryDelay = DaemonConnection.reconnectDelay
 
-    init(path: String, connected: @escaping @MainActor @Sendable () -> Void, received: @escaping @MainActor @Sendable (JSON) -> Void,
-         disconnected: @escaping @MainActor @Sendable () -> Void) {
+    private static let inFlightLimit = 8 << 20
+    private static let reconnectDelay: TimeInterval = 0.5
+    private static let refusedDelayLimit: TimeInterval = 30
+
+    init(path: String, hello: JSON, connected: @escaping @MainActor @Sendable () -> Void,
+         received: @escaping @MainActor @Sendable (JSON, Delivery) -> Void, disconnected: @escaping @MainActor @Sendable () -> Void) {
         self.path = path
+        var line = hello.encoded()
+        line.append(UInt8(ascii: "\n"))
+        self.hello = line
         self.connected = connected
         self.received = received
         self.disconnected = disconnected
@@ -34,18 +50,37 @@ final class DaemonConnection: @unchecked Sendable {
         lock.withLock {
             stopped = true
             if fd >= 0 { shutdown(fd, SHUT_RDWR) }
+            lock.broadcast()
         }
     }
 
     /// Sends one message; dropped if the daemon isn't there.
-    func send(_ message: JSON) {
+    func send(_ message: JSON) { send(message, generation: nil) }
+
+    func send(_ message: JSON, generation: Int?) {
         var encoded = message.encoded()
         encoded.append(UInt8(ascii: "\n"))
         let line = encoded
         writes.async { [self] in
-            let fd = lock.withLock { self.fd }
+            let fd = lock.withLock { generation == nil || generation == self.generation ? self.fd : -1 }
             if fd >= 0 { _ = Self.writeAll(fd, line) }
         }
+    }
+
+    func consumed(_ delivery: Delivery) {
+        lock.withLock {
+            guard delivery.generation == generation else { return }
+            inFlight -= delivery.size
+            lock.broadcast()
+        }
+    }
+
+    func accepted() {
+        lock.withLock { retryDelay = Self.reconnectDelay }
+    }
+
+    func refused() {
+        lock.withLock { retryDelay = min(max(retryDelay * 2, 1), Self.refusedDelayLimit) }
     }
 
     private func run() {
@@ -54,20 +89,36 @@ final class DaemonConnection: @unchecked Sendable {
                 Thread.sleep(forTimeInterval: 0.2)
                 continue
             }
-            lock.withLock { fd = socket }
+            guard Self.writeAll(socket, hello) else {
+                close(socket)
+                Thread.sleep(forTimeInterval: 0.2)
+                continue
+            }
+            let current = lock.withLock {
+                fd = socket
+                generation += 1
+                inFlight = 0
+                return generation
+            }
             let connected = connected
             DispatchQueue.main.async { MainActor.assumeIsolated { connected() } }
-            readLines(socket)
-            // Writes in flight finish (or fail) before the descriptor goes.
+            readLines(socket, generation: current)
             writes.sync { lock.withLock { fd = -1 } }
             close(socket)
             let disconnected = disconnected
             DispatchQueue.main.async { MainActor.assumeIsolated { disconnected() } }
-            Thread.sleep(forTimeInterval: 0.5)
+            sleepUntilRetry()
         }
     }
 
-    private func readLines(_ socket: Int32) {
+    private func sleepUntilRetry() {
+        lock.withLock {
+            let until = Date(timeIntervalSinceNow: retryDelay)
+            while !stopped && lock.wait(until: until) {}
+        }
+    }
+
+    private func readLines(_ socket: Int32, generation: Int) {
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 65536)
         while true {
@@ -82,9 +133,19 @@ final class DaemonConnection: @unchecked Sendable {
                     FileHandle.standardError.write(Data("kanna: the daemon sent a line that isn't JSON\n".utf8))
                     continue
                 }
+                let delivery = Delivery(generation: generation, size: line.count)
+                guard waitForRoom(delivery) else { return }
                 let received = received
-                DispatchQueue.main.async { MainActor.assumeIsolated { received(message) } }
+                DispatchQueue.main.async { MainActor.assumeIsolated { received(message, delivery) } }
             }
+        }
+    }
+
+    private func waitForRoom(_ delivery: Delivery) -> Bool {
+        lock.withLock {
+            while !stopped && inFlight > 0 && inFlight + delivery.size > Self.inFlightLimit { lock.wait() }
+            inFlight += delivery.size
+            return !stopped
         }
     }
 
