@@ -53,3 +53,25 @@ fn an_attach_starts_the_view_over() {
         assert_eq!(data(&replay), b"hello");
     }
 }
+
+#[test]
+fn an_endless_line_drops_the_app() {
+    let instance = Instance::start();
+    let mut app = instance.app();
+    let mut writer = app.stream.try_clone().unwrap();
+    std::thread::spawn(move || {
+        let chunk = vec![b'x'; 1 << 20];
+        for _ in 0..64 {
+            if writer.write_all(&chunk).is_err() {
+                return;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while app.next().is_some() {
+        assert!(Instant::now() < deadline, "the daemon kept reading the line");
+    }
+    assert!(instance.rss_mb() < 100, "the daemon grew to {} MB", instance.rss_mb());
+    wait_for("the daemon to let the app go", || instance.log().contains("the app went away"));
+    instance.app();
+}

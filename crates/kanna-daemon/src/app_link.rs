@@ -14,7 +14,7 @@ use kanna_mux::model::{Model, Node};
 use kanna_mux::{write_all, CoreHandle, KmuxError, Panes, Responder, Takeover, WeakCore};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
@@ -24,6 +24,8 @@ use std::sync::Arc;
 
 /// The first request of an app's connection.
 pub const HELLO: &str = "app.hello";
+
+const MAX_LINE: u64 = 16 << 20;
 
 const RESET: &[u8] = b"\x1bc";
 
@@ -52,9 +54,13 @@ pub fn takeover(events: Sender<Event>) -> Takeover {
         let mut line = Vec::new();
         loop {
             line.clear();
-            match reader.read_until(b'\n', &mut line) {
+            match reader.by_ref().take(MAX_LINE + 1).read_until(b'\n', &mut line) {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
+            }
+            if line.len() as u64 > MAX_LINE {
+                eprintln!("kanna-daemon: the app sent a line over {} MiB; dropping it", MAX_LINE >> 20);
+                break;
             }
             match serde_json::from_slice::<Value>(&line) {
                 Ok(message) => {
