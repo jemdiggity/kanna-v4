@@ -326,6 +326,7 @@ fn errors_are_replies() {
 }
 
 #[test]
+#[cfg_attr(not(debug_assertions), ignore = "needs the keeper's debug-build test hooks")]
 fn private_files_and_the_peer_check() {
     use std::os::unix::fs::PermissionsExt;
     let f = Fixture::new();
@@ -784,6 +785,7 @@ fn a_slow_spawn_doesnt_hold_up_other_clients() {
 }
 
 #[test]
+#[cfg_attr(not(debug_assertions), ignore = "needs the keeper's debug-build test hooks")]
 fn a_spawn_that_doesnt_exec_in_time_fails_and_is_killed() {
     let f = Fixture::with(&[("KANNA_KEEPER_TEST_SPAWN_DELAY_MS", "3000"), ("KANNA_KEEPER_SPAWN_TIMEOUT_MS", "300")]);
     let mut c = f.client();
