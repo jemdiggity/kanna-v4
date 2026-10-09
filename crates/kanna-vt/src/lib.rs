@@ -61,6 +61,7 @@ impl Terminal {
             ffi::ghostty_terminal_new(ptr::null(), &mut raw, cols.max(1), rows.max(1))
         })?;
         let mut terminal = Terminal::adopt(raw)?;
+        terminal.set_scrollback_bytes(None)?;
         terminal.set_scrollback_lines(scrollback_lines)?;
         let limit = MAX_UNFINISHED_SEQUENCE_BYTES;
         terminal.set("continuation limit", ffi::GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES, &limit)?;
@@ -157,6 +158,17 @@ impl Terminal {
 
     pub fn set_scrollback_lines(&mut self, lines: usize) -> Result<(), Error> {
         self.set("scrollback limit", ffi::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES, &lines)
+    }
+
+    pub fn set_scrollback_bytes(&mut self, bytes: Option<usize>) -> Result<(), Error> {
+        let value = bytes.as_ref().map_or(ptr::null(), |b| b as *const usize as *const c_void);
+        check("scrollback byte limit", unsafe {
+            ffi::ghostty_terminal_set(self.raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, value)
+        })
+    }
+
+    pub fn scrollback_bytes(&self) -> Option<usize> {
+        self.get(ffi::GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_BYTES)
     }
 
     pub fn scrollback_lines(&self) -> Option<usize> {
@@ -312,6 +324,7 @@ mod abi {
             ("GHOSTTY_FORMATTER_FORMAT_PLAIN", GHOSTTY_FORMATTER_FORMAT_PLAIN as i64),
             ("GHOSTTY_TERMINAL_OPT_USERDATA", GHOSTTY_TERMINAL_OPT_USERDATA as i64),
             ("GHOSTTY_TERMINAL_OPT_WRITE_PTY", GHOSTTY_TERMINAL_OPT_WRITE_PTY as i64),
+            ("GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES", GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES as i64),
             ("GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES", GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES as i64),
             ("GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES", GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES as i64),
             ("GHOSTTY_TERMINAL_DATA_COLS", GHOSTTY_TERMINAL_DATA_COLS as i64),
@@ -324,6 +337,7 @@ mod abi {
             ("GHOSTTY_TERMINAL_DATA_PWD", GHOSTTY_TERMINAL_DATA_PWD as i64),
             ("GHOSTTY_TERMINAL_DATA_TOTAL_ROWS", GHOSTTY_TERMINAL_DATA_TOTAL_ROWS as i64),
             ("GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS", GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS as i64),
+            ("GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_BYTES", GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_BYTES as i64),
             ("GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES", GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES as i64),
             ("sizeof GhosttyTerminalScreen", size_of::<i32>() as i64),
             ("GHOSTTY_TERMINAL_SCREEN_ALTERNATE", GHOSTTY_TERMINAL_SCREEN_ALTERNATE as i64),

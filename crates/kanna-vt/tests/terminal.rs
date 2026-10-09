@@ -90,6 +90,22 @@ fn scrollback_is_limited_in_whole_pages() {
 }
 
 #[test]
+fn the_line_limit_governs_scrollback_unless_bytes_are_limited_too() {
+    let mut t = Terminal::new(80, 24, 10_000).unwrap();
+    assert_eq!(t.scrollback_bytes(), None);
+    for i in 0..30_000 {
+        t.write(format!("line {i}\r\n").as_bytes());
+    }
+    assert!((9_500..15_000).contains(&t.scrollback_rows()), "{} rows kept", t.scrollback_rows());
+    t.set_scrollback_bytes(Some(1)).unwrap();
+    assert_eq!(t.scrollback_bytes(), Some(1));
+    t.write(b"more\r\n");
+    assert!(t.scrollback_rows() < 5_000, "{} rows kept", t.scrollback_rows());
+    t.set_scrollback_bytes(None).unwrap();
+    assert_eq!(t.scrollback_bytes(), None);
+}
+
+#[test]
 fn title_and_pwd() {
     let t = terminal(20, 3, "\x1b]0;my title\x07\x1b]7;file://host/tmp/x\x1b\\");
     assert_eq!(t.title(), "my title");

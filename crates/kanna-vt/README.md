@@ -22,13 +22,14 @@ let back = Terminal::from_snapshot(&snap)?;   // same grid, size, scrollback, mo
 
 | Item | What it does |
 |---|---|
-| `Terminal::new(cols, rows, scrollback_lines)` | A blank terminal. Sizes below 1 become 1. Unfinished-sequence tracking is on from the first byte, so a snapshot can be taken at any point. |
+| `Terminal::new(cols, rows, scrollback_lines)` | A blank terminal, its scrollback limited in lines only. Sizes below 1 become 1. Unfinished-sequence tracking is on from the first byte, so a snapshot can be taken at any point. |
 | `write(&[u8])` | Feeds the program's output. Any bytes are safe: libghostty-vt treats output as untrusted. |
 | `take_replies()` | The bytes the terminal wrote back for the program (cursor position, device status, mode and color reports). Device attributes, size reports and XTVERSION need callbacks that aren't set yet, so they get no reply. Capped at 1 MiB between drains. |
 | `resize(cols, rows)` | The primary screen reflows; the alternate screen doesn't. |
 | `text(Lines::Screen)` / `text(Lines::Last(n))` | Plain text, one line per row, trailing blanks and blank bottom rows trimmed, as the daemon's M0 `read` returns it. Wrapped lines are the rows they fill. In the alternate screen, `Last(n)` sees only that screen, which has no scrollback. |
 | `snapshot()` / `from_snapshot(&[u8])` | Encodes or decodes GHOSTSNP. A snapshot carries its grid: whoever loads it gets that size. Malformed, truncated or corrupt snapshots are refused, never a crash (each record is CRC32C-checked). |
-| `set_scrollback_lines(n)` / `scrollback_lines()` | The scrollback limit. libghostty-vt prunes whole pages, so it keeps somewhat more than `n` lines. |
+| `set_scrollback_lines(n)` / `scrollback_lines()` | The scrollback limit in lines. libghostty-vt prunes whole pages, so it keeps about `n` lines, give or take a page. |
+| `set_scrollback_bytes(Some(n))` / `scrollback_bytes()` | A limit in bytes as well; whichever is reached first applies. `Terminal::new` sets none (libghostty-vt's own default, 10 kB, would keep only about 800 lines). |
 | `GHOSTTY_COMMIT` | The Ghostty commit the library was built from. |
 | `MAX_UNFINISHED_SEQUENCE_BYTES` | 1 MiB, the same as the app's `ghostty_surface_load_snapshot` accepts. |
 
