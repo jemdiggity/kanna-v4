@@ -5,7 +5,7 @@
 use crate::error::KmuxError;
 use crate::fraction;
 use crate::json::{num, opt, string, trim, Map, Value};
-use crate::layout::{LayoutHost, Placement, Scope, SplitSide};
+use crate::layout::{LayoutHost, Placement, SavedLayout, Scope, SplitSide};
 use crate::pane::Panes;
 use crate::state::{bad, number_in, quoted, whole};
 use std::any::Any;
@@ -743,6 +743,12 @@ fn reply<const N: usize>(fields: [(&str, Value); N]) -> Map {
     fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
 }
 
+struct Restored {
+    windows: Vec<Window>,
+    key: Option<String>,
+    counters: (usize, usize),
+}
+
 impl LayoutHost for Model {
     fn commands(&self) -> &[&'static str] {
         &["focus", "zoom", "rename-tab", "move", "move-tab", "resize", "arrange"]
@@ -888,7 +894,7 @@ impl LayoutHost for Model {
 
     /// Lenient where it can repair (dangling focus, empty tabs, sizes),
     /// strict about anything that would make the layout ambiguous.
-    fn restore_state(&mut self, state: &Value, panes: &HashSet<String>) -> Result<HashSet<String>, KmuxError> {
+    fn read_state(&self, state: &Value, panes: &HashSet<String>) -> Result<SavedLayout, KmuxError> {
         let saved = state.get("counters").cloned().unwrap_or(Value::Object(Map::new()));
         let mut counters = (whole(saved.get("tab")).unwrap_or(0), whole(saved.get("window")).unwrap_or(0));
         let saved_windows = state.get("windows").and_then(Value::as_array).ok_or_else(|| bad("needs panes and windows"))?;
@@ -975,11 +981,15 @@ impl LayoutHost for Model {
         windows.retain(|w: &Window| !w.tabs.is_empty());
         let key = string(state, "key").filter(|k| windows.iter().any(|w| w.id == *k)).map(String::from).or_else(|| windows.last().map(|w| w.id.clone()));
 
-        self.windows = windows;
-        self.key = key;
-        self.counters = (self.counters.0.max(counters.0), self.counters.1.max(counters.1));
+        Ok(SavedLayout { placed, layout: Box::new(Restored { windows, key, counters }) })
+    }
+
+    fn install_state(&mut self, saved: SavedLayout) {
+        let Ok(restored) = saved.layout.downcast::<Restored>() else { return };
+        self.windows = restored.windows;
+        self.key = restored.key;
+        self.counters = (self.counters.0.max(restored.counters.0), self.counters.1.max(restored.counters.1));
         self.drop_empty();
-        Ok(placed)
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

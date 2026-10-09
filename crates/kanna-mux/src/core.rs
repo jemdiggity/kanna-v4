@@ -740,22 +740,19 @@ impl CoreHandle {
     pub fn restore_state(&self, saved: &Value) -> Result<(), KmuxError> {
         let (panes, counter) = state::import_panes(saved)?;
         let ids: HashSet<String> = panes.iter().map(|p| p.id.clone()).collect();
-        let (old, restored) = {
-            let mut s = self.state();
-            let placed = s.layout.restore_state(saved, &ids)?;
-            let old: Vec<Pane> = s.panes.iter().cloned().collect();
-            // Panes no tab shows are not restored.
-            let restored: Vec<String> = panes.iter().filter(|p| placed.contains(&p.id)).map(|p| p.id.clone()).collect();
-            s.panes.install(panes.into_iter().filter(|p| placed.contains(&p.id)).collect(), counter);
-            (old, restored)
-        };
-        let host = self.host();
-        for pane in &old {
-            if let Some(host) = &host {
-                host.stop(pane);
-            }
-            self.resume(&pane.id);
+        let layout = self.state().layout.read_state(saved, &ids)?;
+        let old = self.state().panes.ids();
+        for id in &old {
+            self.close_pane(id);
         }
+        let restored = {
+            let mut s = self.state();
+            let restored: Vec<Pane> = panes.into_iter().filter(|p| layout.placed.contains(&p.id)).collect();
+            let ids = restored.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
+            s.layout.install_state(layout);
+            s.panes.install(restored, counter);
+            ids
+        };
         self.changed();
         for id in &restored {
             self.start_pane(id);

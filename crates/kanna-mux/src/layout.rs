@@ -42,6 +42,11 @@ pub enum Scope {
     Window(Option<String>),
 }
 
+pub struct SavedLayout {
+    pub placed: HashSet<String>,
+    pub layout: Box<dyn Any>,
+}
+
 pub trait LayoutHost {
     /// The layout commands it answers (`focus`, `move`, …).
     fn commands(&self) -> &[&'static str];
@@ -76,10 +81,9 @@ pub trait LayoutHost {
     /// `tab` and `window` (docs/kmux-spec.md §3.6).
     fn export_state(&self) -> Map;
 
-    /// Replaces the layout with the one in a saved state, whose panes are
-    /// `panes`. Fails, changing nothing, if it can't be read. Returns the
-    /// panes it placed; the others aren't restored.
-    fn restore_state(&mut self, state: &Value, panes: &HashSet<String>) -> Result<HashSet<String>, KmuxError>;
+    fn read_state(&self, state: &Value, panes: &HashSet<String>) -> Result<SavedLayout, KmuxError>;
+
+    fn install_state(&mut self, saved: SavedLayout);
 
     /// For `Core::with_layout`, to reach the concrete type.
     fn as_any_mut(&mut self) -> &mut dyn Any;

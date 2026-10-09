@@ -23,7 +23,7 @@ pub use brand::Brand;
 pub use error::KmuxError;
 pub use exec::Wakeup;
 pub use instance::{Instance, DEFAULT_NAME};
-pub use layout::{LayoutHost, Placement, Scope, SplitSide};
+pub use layout::{LayoutHost, Placement, SavedLayout, Scope, SplitSide};
 pub use model::Model;
 pub use pane::{History, Pane, PaneState, PaneType, Panes};
 pub use socket_server::{write_all, Handler, SocketServer, Takeover};
