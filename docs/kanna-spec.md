@@ -25,6 +25,7 @@
    - 4.11 [The kanna CLI](#411-the-kanna-cli)
    - 4.12 [Terminal Behaviour](#412-terminal-behaviour)
    - 4.13 [Doc Markup](#413-doc-markup)
+   - 4.14 [Markdown Pane Keys](#414-markdown-pane-keys)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -809,6 +810,10 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 ### 4.13 Doc Markup
 
 **[Proposed]** Comment on a markdown file in its pane and have the agent beside it answer and resolve the comments, as in kanna v3. Its own spec: [specs/doc-markup.md](specs/doc-markup.md), with a mockup in [mockups/doc-markup.html](mockups/doc-markup.html).
+
+### 4.14 Markdown Pane Keys
+
+**[Proposed]** Vim's scrolling and search keys in a focused markdown pane. Its own spec: [specs/markdown-keys.md](specs/markdown-keys.md).
 
 ---
 

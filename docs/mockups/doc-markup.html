@@ -19,7 +19,6 @@ body.picture main { padding: 0; max-width: none; }
 body.picture .intro { display: none; }
 h1 { font-size: 15px; margin: 0 0 4px; }
 .intro p { color: var(--dim); margin: 0 0 14px; max-width: 900px; }
-.intro kbd { font: 11.5px var(--mono); border: 1px solid #3a3d44; border-radius: 4px; padding: 0 4px; color: var(--soft); }
 .controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 button { font: 12px var(--sans); color: var(--text); background: #2a2c31; border: 1px solid #3a3d44; border-radius: 5px; padding: 4px 9px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -59,7 +58,6 @@ body.picture .body { height: calc(100vh - 67px); }
 .editor p { margin: 0 0 10px; }
 .editor ul { padding-left: 20px; margin: 0 0 10px; }
 .editor code { font: 12px var(--mono); background: #23252b; padding: 1px 5px; border-radius: 4px; }
-.modeline { position: fixed; font: 11px var(--mono); color: var(--accent); }
 mark { background: var(--tint); color: inherit; border-bottom: 1.5px solid var(--accent); cursor: pointer; }
 mark.on { background: var(--tint-on); }
 mark.flash { animation: flash .9s; }
@@ -95,11 +93,11 @@ mark.flash { animation: flash .9s; }
 <main>
   <div class="intro">
     <h1>Doc markup: comment on a markdown file, and the agent beside it answers</h1>
-    <p>The markdown pane is a preview. Select text and press ⌘↵, or ⌘-click a word, to comment. The agent watches the doc (<code style="font-family:var(--mono)">kanna doc watch</code>), so each comment reaches it as an event: nothing is typed into its terminal. Click the doc, then move with <kbd>j</kbd> <kbd>k</kbd> <kbd>⌃e</kbd> <kbd>⌃y</kbd> <kbd>⌃d</kbd> <kbd>⌃u</kbd> <kbd>⌃f</kbd> <kbd>⌃b</kbd> <kbd>gg</kbd> <kbd>G</kbd> <kbd>{</kbd> <kbd>}</kbd>.</p>
+    <p>The markdown pane is a preview. Select text and press ⌘↵, or ⌘-click a word, to comment. Each comment reaches the agent as an event (Claude watches with <code style="font-family:var(--mono)">kanna doc watch</code>; Codex gets a turn through its app-server): nothing is typed into its terminal.</p>
     <div class="controls">
       <button id="pickup">Agent picks up c2</button>
       <button id="agentReply">Agent replies and resolves c2</button>
-      <button id="stopWatch">Agent stops / starts watching</button>
+      <button id="stopWatch">Agent disconnects / reconnects</button>
       <button id="toggle">Hide / show threads</button>
       <button id="reset">Reset</button>
     </div>
@@ -303,34 +301,8 @@ document.getElementById("measure").addEventListener("click", e => {
   openComposer(t.slice(a, b), block && block.textContent);
 });
 
-let pendingG = false;
-const modeline = document.createElement("div");
-modeline.className = "modeline";
-document.body.appendChild(modeline);
-function flashMode(text) {
-  const r = document.getElementById("editor").getBoundingClientRect();
-  modeline.style.left = (r.left + 12) + "px"; modeline.style.top = (r.bottom - 22) + "px";
-  modeline.textContent = text; clearTimeout(flashMode.t); flashMode.t = setTimeout(() => modeline.textContent = "", 900);
-}
 document.getElementById("doc").addEventListener("keydown", e => {
-  if (s.composer) return;
-  const ed = document.getElementById("editor");
-  const line = 22, half = ed.clientHeight / 2, page = ed.clientHeight - 40;
-  const by = dy => ed.scrollBy({ top: dy, behavior: "smooth" });
-  const blocks = () => [...document.querySelectorAll("#measure p, #measure ul, #measure h2, #measure h3")];
-  if (e.metaKey && e.key === "Enter") { e.preventDefault(); selectionComment(); return; }
-  if (e.metaKey || e.altKey) return;
-  const k = (e.ctrlKey ? "C-" : "") + e.key;
-  const moves = {
-    "j": () => by(line), "k": () => by(-line), "C-e": () => by(line), "C-y": () => by(-line),
-    "C-d": () => by(half), "C-u": () => by(-half), "C-f": () => by(page), "C-b": () => by(-page),
-    "G": () => ed.scrollTo({ top: ed.scrollHeight, behavior: "smooth" }),
-    "}": () => { const n = blocks().find(b => b.offsetTop > ed.scrollTop + 30); if (n) ed.scrollTo({ top: n.offsetTop - 20, behavior: "smooth" }); },
-    "{": () => { const p = blocks().filter(b => b.offsetTop < ed.scrollTop - 10).pop(); ed.scrollTo({ top: p ? p.offsetTop - 20 : 0, behavior: "smooth" }); },
-  };
-  if (k === "g") { e.preventDefault(); if (pendingG) { ed.scrollTo({ top: 0, behavior: "smooth" }); pendingG = false; flashMode("gg"); } else { pendingG = true; flashMode("g"); } return; }
-  pendingG = false;
-  if (moves[k]) { e.preventDefault(); moves[k](); flashMode(k.replace("C-", "⌃")); }
+  if (!s.composer && e.metaKey && e.key === "Enter") { e.preventDefault(); selectionComment(); }
 });
 document.getElementById("doc").addEventListener("mousedown", e => { if (!e.target.closest("textarea, input")) document.getElementById("doc").focus({ preventScroll: true }); });
 document.getElementById("commentBtn").onclick = selectionComment;

@@ -11,11 +11,10 @@
 1. [The loop](#1-the-loop)
 2. [Rules](#2-rules)
 3. [Reaching the agent](#3-reaching-the-agent)
-4. [Moving around](#4-moving-around)
-5. [CLI](#5-cli)
-6. [How it's built](#6-how-its-built)
-7. [Open questions](#7-open-questions)
-8. [Glossary](#8-glossary)
+4. [CLI](#4-cli)
+5. [How it's built](#5-how-its-built)
+6. [Open questions](#6-open-questions)
+7. [Glossary](#7-glossary)
 
 ## 1. The loop
 
@@ -25,11 +24,11 @@ sequenceDiagram
     participant Doc as markdown pane
     participant D as daemon
     participant A as agent
-    A->>D: kanna doc watch FILE (stays running)
+    A->>D: connects (Claude: kanna doc watch, Codex: app-server)
     You->>Doc: select text and ⌘↵, or ⌘-click a word
     You->>Doc: write, post
     Doc->>D: new thread c2
-    D->>A: one line on the watch: c2, line, quote, comment
+    D->>A: c2 with its line, quote and comment, between turns
     A->>A: edits the file
     A->>D: kanna doc reply c2 "…"
     A->>D: kanna doc resolve c2
@@ -49,12 +48,31 @@ General remarks that aren't about a passage go straight to the agent's chat, as 
 
 ## 3. Reaching the agent
 
-**The agent asks for comments; Kanna never types into its terminal.** `kanna doc watch FILE` is a command that stays running and prints one line per new comment or reply from you. An agent that can watch a command's output gets each line as an event, at a moment of its own choosing, so it never lands on your half-typed prompt or interrupts a turn.
+**Kanna never types comments into the agent's terminal.** That would need Kanna to know when the agent is idle and whether you've typed a draft into its prompt; Kanna v3 did this, and draft detection was never reliable. Instead each agent gets comments through its own way of taking input from outside, which queues them between turns and leaves your prompt alone.
+
+```mermaid
+flowchart LR
+    S["daemon<br/>doc store"]
+    subgraph claude["Claude Code pane"]
+        M["Monitor:<br/>kanna doc watch"]
+    end
+    subgraph codex["Codex pane"]
+        TUI["codex --remote"]
+    end
+    AS["codex app-server<br/>(started by Kanna)"]
+    S -->|"a line per comment"| M
+    S -->|"turn/start"| AS
+    AS <--> TUI
+```
+
+- **Claude Code pulls.** `kanna doc watch FILE` stays running and prints one line per new comment or reply from you. Claude runs it with its Monitor tool and gets each line as an event, at a moment of its own choosing. A `kanna-doc` skill (in kanna-skills) tells it to start watching when you review a doc together, and `kanna open md` run from Claude's pane prints the same hint.
+- **Codex is pushed to, through its app-server.** Kanna starts `codex app-server --listen ws://127.0.0.1:PORT` and runs Codex in the pane as `codex --remote` against it, so the pane is the usual Codex TUI. The daemon is a second client of the same app-server: it subscribes to the pane's thread, knows from `thread/status/changed` and `turn/completed` whether a turn is running, and sends comments as a new turn (`turn/start`) once the current one ends. The TUI shows that turn like any other; text you're typing in its prompt is untouched.
+- **Anything else, or no agent connected.** The pane shows that no agent is listening and how many comments are waiting, with **Send to PANE**: one click types a short request ("answer comments c2, c3 on FILE") into that terminal. You press it, so you know the prompt is clear.
 
 ```mermaid
 stateDiagram-v2
     [*] --> new: you post
-    new --> seen: a watcher printed it
+    new --> seen: printed to a watcher, or sent as a Codex turn
     seen --> replied: kanna doc reply
     replied --> new: you reply again
     new --> resolved: resolved
@@ -63,30 +81,13 @@ stateDiagram-v2
     resolved --> new: reopen
 ```
 
-- **Claude Code** runs `kanna doc watch` with its Monitor tool. A `kanna-doc` skill (in kanna-skills) tells it to do so when you open a doc for review together, and `kanna open md` run from an agent's pane prints the same hint.
-- **No watcher.** The pane shows that no agent is watching and how many comments are waiting, with **Send to PANE**: one click types a short request ("answer comments c2, c3 on FILE") into that terminal. You press it, so you know the prompt is clear.
-- **Why not type comments into the terminal?** That needs Kanna to know when the agent is idle and whether you've typed a draft into its prompt. Kanna v3 did this, and draft detection was never reliable.
+| Agent | How it gets comments | Kanna knows it's connected by |
+|---|---|---|
+| Claude Code | pulls: `kanna doc watch` under Monitor | a `watch` running from its pane |
+| Codex | pushed: `turn/start` on its app-server | the pane's Codex runs against Kanna's app-server |
+| anything else | Send to PANE | (never) |
 
-| Agent | How it gets comments |
-|---|---|
-| Claude Code | `kanna doc watch` under Monitor |
-| Codex | Send to PANE for now; its app-server would need Kanna to host the conversation ([7](#7-open-questions)) |
-| anything else | Send to PANE, or `kanna doc comments` when asked |
-
-## 4. Moving around
-
-With the markdown pane focused, Vim's scrolling keys work:
-
-| Keys | Move |
-|---|---|
-| `j` `k`, `⌃e` `⌃y` | a line down, up |
-| `⌃d` `⌃u` | half a screen down, up |
-| `⌃f` `⌃b` | a screen down, up |
-| `gg` `G` | top, bottom |
-| `}` `{` | next, previous paragraph |
-| `/` `?`, `n` `N` | find forward, back; next, previous match |
-
-## 5. CLI
+## 4. CLI
 
 Inside a pane, the doc is found from the thread ID; elsewhere pass `--doc FILE`.
 
@@ -99,7 +100,7 @@ Inside a pane, the doc is found from the thread ID; elsewhere pass `--doc FILE`.
 | `kanna doc resolve cN` / `reopen cN` | Close or reopen a thread |
 | `kanna doc comment FILE --quote TEXT TEXT` | Start a thread from the command line |
 
-## 6. How it's built
+## 5. How it's built
 
 ```mermaid
 flowchart LR
@@ -108,26 +109,30 @@ flowchart LR
     end
     subgraph daemon["daemon"]
         S["doc store<br/>threads, anchors"]
+        C["Codex link"]
     end
-    W["kanna doc watch<br/>(in the agent)"]
+    W["kanna doc watch<br/>(Claude)"]
+    AS["codex app-server"]
     CLI["kanna doc reply / resolve"]
     V <-->|app link| S
     S -->|events| W
+    S --> C -->|turn/start| AS
     CLI --> S
     S --- F[("&lt;repo&gt;/.kanna/docs/")]
 ```
 
-- **Threads live in the daemon**, so the agent's `watch`, `reply` and `resolve` work the same with the app closed, and the daemon knows which pane is watching (for "p1 claude is watching" and Send to PANE). The anchoring and thread logic come from v3's `kanna3-doc` crate, ported as `crates/kanna-doc`; v3's delivery gate and draft tracking are not ported.
-- **The app** adds the thread panel, highlighting, the comment box and the Vim keys to the existing markdown pane, and gets thread changes over the app link like any other pane update.
+- **Threads live in the daemon**, so `watch`, `reply`, `resolve` and the Codex link work the same with the app closed, and the daemon knows which pane is listening (for "p1 claude is watching" and Send to PANE). The anchoring and thread logic come from v3's `kanna3-doc` crate, ported as `crates/kanna-doc`; v3's delivery gate and draft tracking are not ported.
+- **The Codex link** is a JSON-RPC client in the daemon. One app-server per Codex pane, started by the daemon beside the pane's program, so it outlives the app like the terminal does.
+- **The app** adds the thread panel, highlighting and the comment box to the existing markdown pane, and gets thread changes over the app link like any other pane update.
 - **Stored** in `<repo>/.kanna/docs/`, one file per doc, so threads survive restarts.
 
-## 7. Open questions
+## 6. Open questions
 
-1. Codex: is there a way for Codex running in a terminal to take events, or is Send to PANE enough until Kanna hosts agent chats itself?
-2. Several agents watching one doc: should all of them get every comment, or should you pick one?
-3. Keyboard-only commenting: a visual mode (`v` and motions, then ⌘↵) to select without the mouse?
+1. Starting Codex: how does `codex` typed in a pane end up as `codex --remote` against Kanna's app-server? A `kanna` shim on the pane's `PATH`, or only when you start it with `kanna open --agent codex`?
+2. A comment that arrives mid-turn: wait for the turn to end (as above), or add it to the running turn with `turn/steer`?
+3. Several agents listening to one doc: should all of them get every comment, or should you pick one?
 
-## 8. Glossary
+## 7. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -135,4 +140,5 @@ flowchart LR
 | **Anchor** | What ties a comment to its passage: the quote and the text around it |
 | **Detached** | A thread whose quote is no longer in the file |
 | **Watcher** | An agent running `kanna doc watch` on the doc |
+| **App-server** | Codex's JSON-RPC server; the TUI and other clients share its conversations |
 | **Monitor** | Claude Code's tool for running a command and getting each line it prints as an event |
