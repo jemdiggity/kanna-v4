@@ -46,8 +46,7 @@ body.picture .body { height: calc(100vh - 67px); }
 .toolbar .spacer { flex: 1; }
 .toolbar .chip { border: 1px solid #3a3d44; border-radius: 5px; padding: 2px 8px; color: var(--soft); white-space: nowrap; }
 .toolbar .chip.on { border-color: var(--accent); color: var(--text); }
-.toolbar .watch { color: var(--ok); }
-.toolbar .watch.off { color: var(--warn); }
+.toolbar .watch { border: 1px solid #3a3d44; border-radius: 5px; padding: 2px 8px; color: var(--soft); white-space: nowrap; }
 .split { flex: 1; display: flex; min-height: 0; }
 
 .editor { flex: 1; min-width: 0; overflow: auto; padding: 26px 34px 200px; position: relative; }
@@ -79,25 +78,20 @@ mark.flash { animation: flash .9s; }
 .card .msg b { color: var(--text); font-weight: 600; }
 .card .msg b.agent { color: #d18ae6; }
 .state { display: inline-block; font-size: 11px; border-radius: 10px; padding: 0 7px; border: 1px solid; margin: 2px 0 6px; }
-.state.new { color: var(--dim); }
-.state.seen { color: var(--ok); }
+.state.sent { color: var(--ok); }
 .state.replied { color: #d18ae6; }
 .card .reply { display: flex; gap: 6px; margin-top: 6px; }
 .card .reply input { flex: 1; min-width: 0; background: #1b1c21; border: 1px solid var(--line); border-radius: 5px; color: var(--text); padding: 3px 6px; font: 12px var(--sans); }
 .card .reply button { padding: 2px 7px; }
-.nowatch { border: 1px dashed var(--warn); border-radius: 8px; padding: 8px 10px; color: var(--soft); font-size: 12px; }
-.nowatch button { margin-top: 6px; }
 </style>
 </head>
 <body>
 <main>
   <div class="intro">
     <h1>Doc markup: comment on a markdown file, and the agent beside it answers</h1>
-    <p>The markdown pane is a preview. Select text and press ⌘↵, or ⌘-click a word, to comment. Each comment reaches the agent as an event (Claude watches with <code style="font-family:var(--mono)">kanna doc watch</code>; Codex gets a turn through its app-server): nothing is typed into its terminal.</p>
+    <p>The markdown pane is a preview. Select text and press ⌘↵, or ⌘-click a word, to comment. Posting types the comment into the agent's pane, then Enter, the same for every agent.</p>
     <div class="controls">
-      <button id="pickup">Agent picks up c2</button>
-      <button id="agentReply">Agent replies and resolves c2</button>
-      <button id="stopWatch">Agent disconnects / reconnects</button>
+            <button id="agentReply">Agent replies and resolves c2</button>
       <button id="toggle">Hide / show threads</button>
       <button id="reset">Reset</button>
     </div>
@@ -126,16 +120,14 @@ mark.flash { animation: flash .9s; }
 </main>
 <script>
 const initial = () => ({
-  watching: true,
   showThreads: true,
   active: "c2",
   composer: null,
-  pending: "",
   threads: [
     { id: "c1", line: 12, quote: "Panes only", state: "open", status: "replied", messages: [
       { who: "you", text: "Should splits be allowed later?" },
       { who: "agent", text: "Added it to the open questions." }] },
-    { id: "c2", line: 18, quote: "the strip scrolls, keeping the active tab in view", state: "open", status: "new", messages: [
+    { id: "c2", line: 18, quote: "the strip scrolls, keeping the active tab in view", state: "open", status: "sent", messages: [
       { who: "you", text: "Also say what ⌃Tab does when the strip has scrolled." }] },
   ],
 });
@@ -193,15 +185,14 @@ function render() {
   renderThreads();
   renderTerm();
   const w = document.getElementById("watch");
-  w.textContent = s.watching ? "● p1 claude is watching" : "○ no agent watching";
-  w.classList.toggle("off", !s.watching);
+  w.textContent = "Agent: p1 claude ▾";
   document.getElementById("threads").classList.toggle("hidden", !s.showThreads);
   document.getElementById("threadsBtn").classList.toggle("on", s.showThreads);
   document.getElementById("threadsBtn").textContent = `Threads ${s.threads.filter(t => t.state === "open").length}`;
 }
 
 function chip(t) {
-  const label = { new: "new", seen: "seen by p1", replied: "agent replied" }[t.status];
+  const label = { sent: "sent to p1", replied: "agent replied" }[t.status];
   return `<span class="state ${t.status}">${label}</span>`;
 }
 
@@ -209,11 +200,6 @@ function renderThreads() {
   const panel = document.getElementById("threads");
   const resolved = s.threads.filter(t => t.state === "resolved").length;
   panel.innerHTML = `<div class="top"><span>Threads</span><span>${resolved ? `Show resolved (${resolved})` : ""}</span></div>`;
-  if (!s.watching) {
-    const n = s.threads.filter(t => t.state === "open" && t.status === "new").length;
-    panel.insertAdjacentHTML("beforeend", `<div class="nowatch">No agent is watching this doc.${n ? ` ${n} new comment${n > 1 ? "s" : ""} waiting.` : ""}<br><button id="sendTo">Send to p1</button></div>`);
-    panel.querySelector("#sendTo").onclick = sendTo;
-  }
   s.threads.filter(t => t.state === "open").forEach(t => {
     const card = document.createElement("div");
     card.className = "card" + (t.id === s.active ? " on" : "");
@@ -233,44 +219,31 @@ function renderThreads() {
 }
 
 function renderTerm() {
-  const lines = [
-    `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> claude`,
-    ``,
-    `<span class="a">●</span> Monitor(kanna doc watch docs/specs/tab-container.md)`,
-    `  <span class="g">⎿  watching for comments</span>`,
-    ``,
-    `<span class="a">●</span> <span class="ok">c1</span> docs/specs/tab-container.md:12`,
-    `  <span class="g">"Panes only": Should splits be allowed later?</span>`,
-    `<span class="a">●</span> Updated docs/specs/tab-container.md`,
-    `  kanna doc reply c1 "Added it to the open questions."`,
+  const pasted = t => [
+    `<span class="p">&gt;</span> [kanna comment ${t.id} · docs/specs/tab-container.md:${t.line}]`,
+    `  &gt; ${t.quote}`,
+    `  ${t.messages[0].text}`,
+    `  Reply: kanna doc reply ${t.id} "…"   Resolve: kanna doc resolve ${t.id}`,
   ];
-  s.threads.filter(t => t.id !== "c1" && t.status !== "new").forEach(t => {
-    lines.push(``, `<span class="a">●</span> <span class="ok">${t.id}</span> docs/specs/tab-container.md:${t.line}`, `  <span class="g">"${t.quote}": ${t.messages[0].text}</span>`);
-    if (t.status === "replied") lines.push(`<span class="a">●</span> Updated docs/specs/tab-container.md`, `  kanna doc reply ${t.id} "${t.messages[t.messages.length - 1].text}"`, `  kanna doc resolve ${t.id}`);
+  const lines = [`<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> claude`, ``];
+  s.threads.forEach(t => {
+    lines.push(...pasted(t), ``);
+    if (t.status === "replied") lines.push(`<span class="a">●</span> Updated docs/specs/tab-container.md`, `  kanna doc reply ${t.id} "${t.messages[t.messages.length - 1].text}"`, ...(t.state === "resolved" ? [`  kanna doc resolve ${t.id}`] : []), ``);
   });
-  if (!s.watching) lines.push(``, `<span class="g">  ⎿  Monitor stopped</span>`);
-  lines.push(`<div class="box"><span class="p">&gt;</span> ${s.pending || "<span class=\"g\">Try \"fix the open questions\"</span>"}</div>`);
-  lines.push(`<span class="g">? for shortcuts</span>`);
+  const working = s.threads.some(t => t.status === "sent");
+  lines.push(`<div class="box"><span class="p">&gt;</span> <span class="g">Try "fix the open questions"</span></div>`);
+  lines.push(`<span class="g">${working ? "✻ Working…" : "? for shortcuts"}</span>`);
   document.getElementById("term").innerHTML = lines.join("\n");
 }
 
 function post(text) {
   if (!text.trim()) return;
   const id = "c" + (s.threads.length + 1);
-  s.threads.push({ id, line: s.composer.line, quote: s.composer.quote, state: "open", status: "new", messages: [{ who: "you", text }] });
+  s.threads.push({ id, line: s.composer.line, quote: s.composer.quote, state: "open", status: "sent", messages: [{ who: "you", text }] });
   s.active = id;
   s.composer = null;
   render();
   document.getElementById("doc").focus();
-  if (s.watching) setTimeout(() => { const t = s.threads.find(t => t.id === id); if (t && t.status === "new") { t.status = "seen"; render(); } }, 900);
-}
-
-function sendTo() {
-  const fresh = s.threads.filter(t => t.state === "open" && t.status === "new");
-  if (!fresh.length) return;
-  s.pending = `Answer comments ${fresh.map(t => t.id).join(", ")} on docs/specs/tab-container.md (kanna doc show)`;
-  fresh.forEach(t => t.status = "seen");
-  render();
 }
 
 function openComposer(text, block) {
@@ -306,7 +279,6 @@ document.getElementById("doc").addEventListener("keydown", e => {
 });
 document.getElementById("doc").addEventListener("mousedown", e => { if (!e.target.closest("textarea, input")) document.getElementById("doc").focus({ preventScroll: true }); });
 document.getElementById("commentBtn").onclick = selectionComment;
-document.getElementById("pickup").onclick = () => { const t = s.threads.find(t => t.id === "c2"); if (t && t.status === "new") { t.status = "seen"; render(); } };
 document.getElementById("agentReply").onclick = () => {
   const t = s.threads.find(t => t.id === "c2");
   if (!t || t.state !== "open") return;
@@ -315,7 +287,6 @@ document.getElementById("agentReply").onclick = () => {
   render();
   setTimeout(() => { t.state = "resolved"; render(); }, 1400);
 };
-document.getElementById("stopWatch").onclick = () => { s.watching = !s.watching; render(); };
 document.getElementById("toggle").onclick = () => { s.showThreads = !s.showThreads; render(); };
 document.getElementById("reset").onclick = () => { s = initial(); render(); };
 if (location.hash === "#picture") document.body.classList.add("picture");
