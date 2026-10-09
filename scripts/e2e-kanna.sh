@@ -183,7 +183,7 @@ S7() {
   start_daemon || return 1
   kanna open --name s7 --cmd 'exit 3' >/dev/null || return 1
   check wait_for 5 is s7 state exited || return 1
-  check is s7 exit_code 3
+  check is s7 exitCode 3
 }
 
 # S8 · Web, markdown and iOS panes: opened, restored after a relaunch, and answering.
