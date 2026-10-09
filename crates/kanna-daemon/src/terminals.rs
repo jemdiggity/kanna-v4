@@ -27,6 +27,8 @@ pub type OnStart = Box<dyn Fn(&str)>;
 const COLS: u16 = 80;
 const ROWS: u16 = 24;
 
+const MAX_SIDE: u16 = 1000;
+
 struct Terminal {
     /// Which start of the pane this is: a restart is a new one, and events
     /// from an older one are ignored.
@@ -125,6 +127,10 @@ impl Terminals {
     pub fn resize(&self, id: &str, cols: u16, rows: u16, width: u16, height: u16) -> Option<(u16, u16)> {
         let mut live = self.live.borrow_mut();
         let terminal = live.get_mut(id)?;
+        if cols > MAX_SIDE || rows > MAX_SIDE {
+            eprintln!("kanna-daemon: refused to make {id} {cols}×{rows}: at most {MAX_SIDE} cells a side");
+            return Some((terminal.cols, terminal.rows));
+        }
         let (cols, rows) = (cols.max(1), rows.max(1));
         if (cols, rows) != (terminal.cols, terminal.rows) {
             pty::set_size(&terminal.master, cols, rows, width, height);
