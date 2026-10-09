@@ -1,7 +1,7 @@
 use crate::pty::{self, Adopted, Spawned, Spawner, Spec};
 use crate::reader::{Feed, Reader, Taken};
 use crate::settings::Settings;
-use crate::store::{pane_number, Record, Saved, Store};
+use crate::store::{pane_number, Record, Saved, Screen, Store};
 use crate::Event;
 use kanna_mux::{KmuxError, Pane, PaneHost, PaneState, PaneType, WeakCore};
 use std::cell::{Cell, RefCell};
@@ -388,9 +388,9 @@ impl Terminals {
         restored
     }
 
-    fn adopt(&self, id: &str, keeper: &str, pty: Adopted, snapshot: Option<Vec<u8>>) -> std::io::Result<Terminal> {
+    fn adopt(&self, id: &str, keeper: &str, pty: Adopted, snapshot: Option<Screen>) -> std::io::Result<Terminal> {
         let settings = self.settings();
-        let restored = snapshot.and_then(|snapshot| match Feed::restore(&snapshot, &settings) {
+        let restored = snapshot.and_then(|screen| match Feed::restore(&screen.snapshot, &screen.journal, &settings) {
             Ok(feed) => Some(feed),
             Err(error) => {
                 eprintln!("kanna-daemon: {id}'s saved screen can't be read ({error}); starting it blank");
@@ -422,9 +422,9 @@ impl Terminals {
         Ok(terminal)
     }
 
-    fn ended(&self, record: &Record, snapshot: Option<Vec<u8>>) -> std::io::Result<Terminal> {
+    fn ended(&self, record: &Record, snapshot: Option<Screen>) -> std::io::Result<Terminal> {
         let settings = self.settings();
-        let feed = match snapshot.map(|snapshot| Feed::restore(&snapshot, &settings)) {
+        let feed = match snapshot.map(|screen| Feed::restore(&screen.snapshot, &screen.journal, &settings)) {
             Some(Ok(feed)) => feed,
             _ => Feed::new(COLS, ROWS, &settings)?,
         };
