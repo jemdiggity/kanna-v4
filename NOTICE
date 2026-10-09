@@ -23,9 +23,10 @@ Derived from kmux:
 
   apps/kanna/Sources/Kanna/AppController.swift
       Parts follow apps/kmux/Sources/Kmux/AppController.swift: --bg and
-      `present`, the socket and signal handling, the Edit menu, the
-      debug commands' shapes, and saving the layout half a second after a
-      change and on quit (scheduleSave), with --fresh.
+      `present`, the socket and signal handling, one WindowController per
+      window kept in step with the layout (sync, makeController), and
+      saving the layout half a second after a change and on quit
+      (scheduleSave), with --fresh.
   apps/kanna/Sources/Kanna/Control/Commands.swift
       The request envelope and error follow Core.handle and KmuxError in
       apps/kmux/Sources/KmuxCore/Core.swift.
@@ -57,16 +58,34 @@ Derived from kmux:
   apps/kanna/Sources/SimBridge
       From apps/kmux/Sources/SimBridge.
   apps/kanna/Sources/Kanna/Panes/WebPaneView.swift
-      From apps/kmux/Sources/Kmux/WebPaneView.swift, without kmux's pane
-      menu.
+      From apps/kmux/Sources/Kmux/WebPaneView.swift.
   apps/kanna/Sources/Kanna/Panes/IosPaneView.swift
-      From apps/kmux/Sources/Kmux/IosPaneView.swift, without kmux's pane
-      menu; Simulator.reattach is Kanna's.
+      From apps/kmux/Sources/Kmux/IosPaneView.swift; Simulator.reattach is
+      Kanna's.
   apps/kanna/Sources/Kanna/Panes/Contents.swift
       Starting, stopping and reporting web, markdown and iOS panes
       follow ContentHost in apps/kmux/Sources/Kmux/ContentHost.swift; the
-      debug.web, debug.md and debug.ios commands in AppController.swift
-      and its View menu follow apps/kmux/Sources/Kmux/AppController.swift.
+      debug.web, debug.md and debug.ios commands in Debug.swift follow
+      apps/kmux/Sources/Kmux/AppController.swift.
+  apps/kanna/Sources/Kanna/Windows/WindowController.swift
+  apps/kanna/Sources/Kanna/Windows/TabBar.swift
+  apps/kanna/Sources/Kanna/Windows/PaneView.swift
+  apps/kanna/Sources/Kanna/Windows/Dragging.swift
+      From the same files in apps/kmux/Sources/Kmux, drawing the layout
+      model's view (JSON) instead of KmuxCore's Model.
+  apps/kanna/Sources/Kanna/Windows/Shortcuts.swift
+      Shortcut from apps/kmux/Sources/Kmux/Shortcuts.swift.
+  apps/kanna/Sources/Kanna/Windows/Menus.swift
+  apps/kanna/Sources/Kanna/Windows/Moving.swift
+  apps/kanna/Sources/Kanna/Windows/PaneViews.swift
+  apps/kanna/Sources/Kanna/Debug.swift
+      The menus, actions, Ghostty actions, dragging (pane and tab drops,
+      debug.drag), the pane views' registry and the debug commands
+      (debug.key, debug.click, debug.menu, debug.pinch, debug.stats)
+      follow apps/kmux/Sources/Kmux/AppController.swift and ContentHost.swift.
+  crates/kanna-mux/src/owner.rs, src/model.rs
+      The focused call follows AppController.focused, and divider follows
+      DividerView in apps/kmux/Sources/Kmux/Dragging.swift.
   crates/kanna/src/commands.rs, crates/kanna/src/output.rs and
   crates/kanna/src/lib.rs
       A port of kmux's CLI, crates/kmux/src/commands.rs, output.rs and

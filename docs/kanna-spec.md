@@ -21,6 +21,7 @@
    - 4.7 [The Layout](#47-the-layout)
    - 4.8 [Restarting the Daemon](#48-restarting-the-daemon)
    - 4.9 [Web, Markdown and iOS Panes](#49-web-markdown-and-ios-panes)
+   - 4.10 [Windows, Tabs and Splits](#410-windows-tabs-and-splits)
    - 4.11 [The kanna CLI](#411-the-kanna-cli)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
@@ -296,7 +297,7 @@ sequenceDiagram
 - **Requests from the daemon are answered in order.** The app answers `layout` on its main thread as the message arrives, before anything after it; `debug.*` may answer later.
 
 - **The daemon decides a terminal's size.** The view asks with `resize`; the daemon sets the pty's size, and the view takes the size `grid` gives it, in order with the output.
-- **Requests for the app** (`debug.app`, `debug.type`, `debug.key`, `debug.text`, `debug.snapshot`, `debug.web`, `debug.md`, `debug.ios`) can come from any client. The daemon turns a pane name into its ID, passes the request on and returns the app's reply. With no app attached they fail with `no_app`; if the app goes away first, with `app_gone`. If the app doesn't answer within 10 s they fail with `timeout`.
+- **Requests for the app** (`debug.app`, `debug.type`, `debug.key`, `debug.text`, `debug.snapshot`, `debug.web`, `debug.md`, `debug.ios`, and kmux's UI commands `debug.click`, `debug.drag`, `debug.menu`, `debug.pinch`, `debug.stats`, [4.10](#410-windows-tabs-and-splits)) can come from any client. The daemon turns a pane name into its ID, passes the request on and returns the app's reply. With no app attached they fail with `no_app`; if the app goes away first, with `app_gone`. If the app doesn't answer within 10 s they fail with `timeout`.
 - **Debug commands are off by default.** The app answers `debug.*` only when started with `KANNA_DEBUG=1` (the test scripts set it). `debug.snapshot` takes a plain file name and writes a new file in `$KANNA_STATE_DIR` (or `$TMPDIR`); it never overwrites one.
 - **Limits:** a resize beyond 1000 cells a side is refused; a line over 16 MiB drops the app; an app that falls 16 MiB behind on output stops getting it and starts its terminals over (snapshot, grid) once it has caught up, and one 64 MiB behind is dropped.
 - **The layout is the app's** ([4.7](#47-the-layout)): the daemon keeps none and asks the app for every layout step. M0's `layout` notice, which mirrored a layout the daemon kept, is gone.
@@ -360,9 +361,9 @@ flowchart LR
 - **If the app goes away mid-step**, the step gets the no-app answer: an unplaced `open` still opens its terminal, a placed one fails.
 - **`list`** answers `panes` from the daemon and `windows` from the app; with no app, `windows` is `[]` (no last-known layout: the app's file is the only copy, and it may be stale) and each pane's window shows as `-`.
 
-**Saving.** The app saves its layout in kmux's state file format (`kmux: "state"`, `version: 1`, windows, tabs, splits, focus, zoom, the panes it places by ID, name and type) to `layout.json` in its state folder: `$KANNA_STATE_DIR`, or the daemon socket's folder. As kmux: half a second after a change and on quit, only when something changed, written atomically (a new file, then renamed) with mode 0600; `--fresh` (or `KANNA_FRESH=1`) starts without it, `KANNA_NO_STATE=1` neither reads nor writes one.
+**Saving.** The app saves its layout in kmux's state file format (`kmux: "state"`, `version: 1`, windows with their frames, tabs, splits, focus, zoom, the panes it places by ID, name and type) to `layout.json` in its state folder: `$KANNA_STATE_DIR`, or the daemon socket's folder. As kmux: half a second after a change and on quit, only when something changed, written atomically (a new file, then renamed) with mode 0600; `--fresh` (or `KANNA_FRESH=1`) starts without it, `KANNA_NO_STATE=1` neither reads nor writes one.
 
-**Restoring.** On launch the app reads the file (one it can't trust, or of another version, is moved aside as `layout.json.bad`). When the daemon accepts it, the hello reply lists the daemon's terminals; the app drops from the layout every pane the daemon no longer has (closing emptied splits, tabs and windows), places every terminal it doesn't know as `open` would (beside the focused pane), draws the key window's active tab, and attaches each terminal it shows. A reconnect to a restarted daemon does the same with the layout in memory. Nothing is saved until the saved layout has been installed, so an app that never reached its daemon doesn't overwrite it.
+**Restoring.** On launch the app reads the file (one it can't trust, or of another version, is moved aside as `layout.json.bad`). When the daemon accepts it, the hello reply lists the daemon's terminals; the app drops from the layout every pane the daemon no longer has (closing emptied splits, tabs and windows), places every terminal it doesn't know as `open` would (beside the focused pane), opens every window where it was ([4.10](#410-windows-tabs-and-splits)), and attaches each terminal it shows. A reconnect to a restarted daemon does the same with the layout in memory. Nothing is saved until the saved layout has been installed, so an app that never reached its daemon doesn't overwrite it.
 
 ```mermaid
 sequenceDiagram
@@ -475,6 +476,109 @@ A web, markdown or iOS pane is a view in the app and a record in its layout: a w
 - **The iOS screen** comes straight from the simulator (Xcode's private CoreSimulator and SimulatorKit frameworks, as kmux); `simctl` boots, installs and launches. A simulator is never shut down by Kanna.
 
 **Conformance.** With this, all 31 of kmux's protocol cases also pass through the daemon and the app link (the test app reports every pane running at once). `crates/kanna-daemon/tests/panes.rs` checks lending, clashes, updates, the app's requests, an app that goes away and the answers with no app; S8 of `scripts/e2e-kanna.sh` checks the real views: a page and a markdown file open, `navigate` with history, `list` and `no_app` (exit 6) with the app closed, both back after a relaunch and untouched by a daemon restart, and, when an iPhone simulator is already booted, an iOS pane (Settings) running and reattached after a relaunch.
+
+### 4.10 Windows, Tabs and Splits
+
+Kanna.app's windows behave as kmux's: any number of windows, each with a tab bar and the active tab's splits; menus, shortcuts, clicks and drags as in [kmux's spec](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md) §3–§6 ([plan](plans/mux-build.md) M4, track A). The views are ported from kmux's app (`WindowController`, `TabBar`, `PaneView`, `Dragging`, `Shortcuts`); what changes is where they get the layout from and where their actions go.
+
+**Design: the views draw the layout model's view; actions go where their state lives.** The layout is `kanna-mux`'s model in the app ([4.7](#47-the-layout)), and the views never keep a copy of it. After every change the app asks the model for a `view` of every window and draws it; a user action is one of three kinds:
+
+| Kind | Examples | Goes to |
+|---|---|---|
+| **Layout only** | select, rename, reorder or tear off a tab; focus, zoom, next or previous pane, tab or window; move a pane (Move Pane to New Window, a drag) | the app's own layout model, as the same `command` step the daemon would send (`focus`, `zoom`, `rename-tab`, `move`, `move-tab`) |
+| **A pane starts or ends** | Split Right / Down, New Tab, New Window, new web, markdown and iOS panes, Restart, Close Pane, × on a tab, Close Window, the red button | the daemon, as a client's request (`open`, `restart`, `close`), which then sends its layout steps back |
+| **What only the app knows** | a click focusing a pane, a divider dragged, a window moved, which panes are wide | the model's app-only calls (below) |
+
+Why layout-only actions don't go through the daemon: the app owns the layout and is its only writer; a round trip would make every tab click wait on the daemon (and fail while it restarts) and give the same answer. Why opening and closing do: panes are the daemon's ([4.2](#42-what-the-daemon-keeps-what-the-app-keeps)); its core gives the IDs, starts and stops terminals, and places the pane through the same steps as a CLI `open`.
+
+```mermaid
+flowchart LR
+    subgraph A["Kanna app"]
+        UI["windows, tab bars, panes<br/>(Swift, from kmux)"]
+        OWNER["LayoutOwner<br/>(kanna-layout)"]
+        UI -->|"focus, zoom, rename-tab,<br/>move, move-tab"| OWNER
+        UI -->|"focused, divider,<br/>frame, shapes"| OWNER
+        OWNER -->|"view: every window"| UI
+    end
+    subgraph D["daemon"]
+        CORE["kanna-mux core"]
+    end
+    UI -->|"open, close, restart"| CORE
+    CORE -->|"layout steps"| OWNER
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    class UI kanna
+    class OWNER,CORE kmux
+```
+
+**The model's app-only calls** (through `kanna_layout_call`, besides `serve`, `attach`, `save` and the rest of [4.7](#47-the-layout)):
+
+| Call | Does | Why it isn't a protocol command |
+|---|---|---|
+| `view` | `{key, windows: [{id, frame, title, tab, tabs: [{id, title, panes}], focused, zoomed, root}]}`: every window, its tabs with the panes in each, and the tree on screen (the zoomed pane alone when zoomed), with exact sizes and pane types | it's what to draw, not what a client sees (`list` shows names and fractions) |
+| `focused {pane}` | a click: the pane's window remembers it as focused (and its tab as last focused), without making the window key or unzooming; answers whether it changed | kmux's app does the same outside its core (`AppController.focused`); `focus` would also make the window key |
+| `divider {tab, path, index, share}` | a dragged divider: the two panes on either side of it share what they had, the first getting `share` | `resize` gives one pane a fraction and rescales all its siblings; a divider moves only its two neighbours |
+| `frame {window, frame}` | a window moved or was resized; saved with the window | frames are the app's |
+| `shapes {panes: {id: wide}}` | which panes on screen are at least as wide as tall; sent before every `place` and `attach` | `auto` splits a wide pane sideways and a tall one down, and only the app knows sizes |
+| `resolve {pane}` | a pane name to its ID, for the debug commands | — |
+
+**Windows.** Each window of the model is an `NSWindow` with a `WindowController`; windows that leave the model close, new ones open cascading from the frontmost one, and a saved window goes back to its frame if that is still on a screen (AppKit may move it to keep its title bar visible). The window title is the active tab's: `Tab 1 — w1`. When a window becomes key, it becomes the model's key window (`focus {window}`); when the model's key window changes (a new pane, ⌘\`, `kanna focus`), it's brought forward, or with `--bg` just behind the front app's window. The red button closes the window and its panes. The app stays open with no windows (kmux's `applicationShouldTerminateAfterLastWindowClosed` is false), and the Dock icon then opens a terminal in a new window. Quitting leaves every terminal running ([4.5](#45-the-app-link)).
+
+**Tabs.** The tab bar shows each tab's title, the active one underlined, × and +. A click selects (a move of 5 pt first starts a drag), a double-click renames (Enter or clicking away saves, Escape cancels; keyboard focus stays in the field while it's open), a drag drops the tab at a gap in any window's tab bar or, outside every window, into a new window where it was dropped. Right-click: Move Tab to New Window, Close Tab.
+
+**Panes and splits.** A pane has no chrome: a 2 pt accent outline when focused (only in the key window, and only with more than one pane in the tab), the exit code (`exited (3)`) or failure (`failed: …`) at its bottom, and the ⋯ grip at its top, drawn only under the mouse. Splits are separated by 1 pt dividers; dragging one snaps to ¼ ⅓ ½ ⅔ ¾ within 1.5 %, keeps both panes at least 80 px, and shows both shares (`1/4 | 3/4`). Dragging the grip docks the pane on the nearest edge of another pane, swaps it with one (the middle 40 %), moves it into a tab or onto + (a new tab), or, outside every window, into a new window there, with kmux's hints. A click focuses the pane under it; keyboard input follows the model's focused pane.
+
+```mermaid
+sequenceDiagram
+    participant U as user
+    participant W as window
+    participant O as LayoutOwner
+    participant D as daemon
+    U->>W: ⌘D
+    W->>D: open {type: term, split: right, window: w1}
+    D->>O: layout {op: place, pane p4, at: right}
+    Note over O: shapes first (auto only)
+    O->>D: ok {window w1, tab t1}
+    Note over W: view → draw w1; p4 attached
+    U->>W: ⌘] (next pane)
+    W->>O: command focus {pane p1}
+    Note over W: view → draw, p1 first responder
+    U->>W: drag the divider
+    W->>O: divider {tab t1, path [], index 0, share 1/3}
+    Note over W: view → draw, saved ½ s later
+```
+
+**Terminal views.** A terminal's surface is made the first time its pane is on screen, and stays (attached to the daemon, drawing its output) until the pane leaves the layout, so switching tabs shows a live screen at once; a terminal in a tab never shown since launch keeps the size its pty has. Web, markdown and iOS views start when the daemon says `start` ([4.9](#49-web-markdown-and-ios-panes)) and are placed when shown.
+
+**Menus and shortcuts** are kmux's (its spec §5), with the shortcut the user's Ghostty config binds to the same action where there is one (`new_split:right`, `goto_split:next`, `toggle_split_zoom`, `new_tab`, `next_tab`, `increase_font_size:1`, `copy_to_clipboard`, …):
+
+| Menu | Items |
+|---|---|
+| Kanna | Quit Kanna ⌘Q |
+| Edit | Undo ⌘Z, Redo ⇧⌘Z, Cut ⌘X, Copy ⌘C, Paste ⌘V, Select All ⌘A (sent to whatever has focus) |
+| Pane | Split Right ⌘D, Split Down ⇧⌘D, New Web / iOS Pane Right and Below, New Markdown Pane Right… and Below…, Open URL… ⌘L, Back, Forward, Home ⇧⌘H, Next Pane ⌘], Previous Pane ⌘[, Zoom ⇧⌘↩, Move Pane to New Window, Restart ⌘R, Close Pane ⌘W |
+| View | New Tab ⌘T, Next Tab ⇧⌘], Previous Tab ⇧⌘[, Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 (a markdown pane's zoom, or a terminal's font size) |
+| Window | New Window ⌘N, Close Window ⇧⌘W, Move Tab to New Window, Next Window ⌘\`, Previous Window ⇧⌘\`, and the list of windows |
+
+- Every item acts on the key window and its focused pane. Pane, tab and window cycling go in reading order and wrap; moving focus cancels a zoom. A new web pane starts with its URL selected for editing; a new markdown pane asks for a file; a new iOS pane opens Settings.
+- **Ghostty keybindings** that no menu item takes reach the app as actions: `new_split`, `goto_split` (previous, left and up go back; the rest forward), `toggle_split_zoom`, `new_tab`, `goto_tab` (next, previous), `new_window`, `close_window`, `goto_window`, and `close_surface` (closes the pane). The pane the key was typed in is focused first. `GhosttyRuntime` passes them on (`onAction`, `onClose`); the app decides.
+- **Right-clicking a pane** opens the Pane menu for it (it takes focus first): in a terminal unless its program uses the mouse, below WebKit's own items in a web pane, below the text items in a markdown pane, alone in an iOS pane.
+- **kmux's New Instance is left out:** Kanna.app is one app per daemon and state folder; see the plan's open items.
+
+**Debug commands** (with `KANNA_DEBUG=1`; the daemon passes them to the app, turning a top-level `pane` name into its ID; nested ones are resolved by the app):
+
+| Command | Does |
+|---|---|
+| `debug.key {key, pane?}` | a key press (`cmd+shift+d`, `cmd+]`, `return`, `left`, a letter) in the key window, or in `pane`'s terminal: with ⌘, ⌃ or ⌥ the window and then the main menu get it as a key equivalent first, as AppKit does; otherwise (or if nothing takes it) the window's first responder |
+| `debug.click {tab, clicks?}`, `{pane, at?: [x, y]}`, `{…, button}` | clicks a tab (2 clicks: rename) or a point in a pane (from its top left). The window isn't key in a `--bg` app, where AppKit would only activate it, so the click goes to the view under the point as it would in the key window. `button` 3 or 4 is the mouse's back or forward button; `button: 1` doesn't open the right-click menu (it would block) but answers its items: `{menu: [titles]}` |
+| `debug.drag {pane, to}`, `{tab, to}`, `{divider: pane, at}` | kmux's: a drag replayed along scripted points, with no hint shown; `to` is `{pane, x, y}` (fractions from the top left), `{tab}`, `{plus: window}` or `{outside: true}`; `divider` is the divider after that pane, moved to `at` of the pair |
+| `debug.menu` | every menu item: `{menu, item, shortcut}` |
+| `debug.pinch {pane, steps?}` | a trackpad pinch over a markdown pane; the zoom after each step |
+| `debug.stats` | the app's pid and memory footprint |
+| `debug.snapshot {window?, path?, marker?}` | any window (default: the key one), with each pane's `notice` and the window's tab titles |
+| `debug.text {pane?}` | also the surface's `columns` and `rows` |
+
+**Checked by** `crates/kanna-mux` owner tests (`view`, `focused`, `divider`, `frame`, `shapes`) and S11–S13 of `scripts/e2e-kanna.sh`: menus and shortcuts split, tab, zoom, cycle and close; clicks select, rename and focus; dividers snap; `auto` follows the pane's shape; Ghostty's split navigation and font size; frames come back; the app outlives its last window; panes and tabs dragged everywhere; the tab and pane menus; every window drawn with its tab bar and dividers (`debug.snapshot`).
 
 ### 4.11 The kanna CLI
 
@@ -879,3 +983,9 @@ sequenceDiagram
 | **Split** | Dividing a space into panes side by side or stacked. |
 | **Layout expression** | kanna's short notation for arranging panes, e.g. `a:2/3 \| (b / c)`. |
 | **Layout tree** | The parsed form of a layout expression that kanna passes to adapters. |
+| **Key window** | The window shortcuts, menus and requests without a `window` act on; in Kanna.app the layout model's and AppKit's follow each other ([4.10](#410-windows-tabs-and-splits)). |
+| **Tab bar** | The row of tabs under the title bar of each Kanna.app window: titles, the active one underlined, × and +. |
+| **Divider** | The 1 pt line between two panes of a split; dragging it moves the split between them. |
+| **Grip** | The ⋯ handle at the top of a pane, seen only under the mouse; dragging it moves the pane. |
+| **Drop hint** | The highlight showing where a dragged pane or tab will land. |
+| **View (of the layout)** | What the app draws: every window with its tabs and the tree on screen, from the layout model ([4.10](#410-windows-tabs-and-splits)). |
