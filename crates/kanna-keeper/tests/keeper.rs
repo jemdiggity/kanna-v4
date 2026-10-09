@@ -793,3 +793,36 @@ fn a_shell_not_on_path_is_an_error_not_a_file_in_cwd() {
     let error = result.unwrap_err().to_string();
     assert!(error.contains("kk-no-such-shell"), "{error}");
 }
+
+#[test]
+fn a_slow_spawn_doesnt_hold_up_other_clients() {
+    let f = Fixture::with(&[("KANNA_KEEPER_TEST_SPAWN_DELAY_MS", "1500")]);
+    let socket = f.socket();
+    let slow = std::thread::spawn(move || {
+        let mut c = Client::connect(&socket).unwrap();
+        c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+        let pty = c.spawn(&SpawnRequest::command("slow", "echo slow-ok; sleep 30")).map_err(|e| e.to_string())?;
+        read_until(&pty.master, "slow-ok");
+        c.close("slow").map_err(|e| e.to_string())
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    let mut c = f.client();
+    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+    let started = Instant::now();
+    c.hello().unwrap();
+    let took = started.elapsed();
+    slow.join().unwrap().unwrap();
+    assert!(took < Duration::from_millis(500), "hello took {took:?}");
+}
+
+#[test]
+fn a_spawn_that_doesnt_exec_in_time_fails_and_is_killed() {
+    let f = Fixture::with(&[("KANNA_KEEPER_TEST_SPAWN_DELAY_MS", "3000"), ("KANNA_KEEPER_SPAWN_TIMEOUT_MS", "300")]);
+    let mut c = f.client();
+    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+    let error = c.spawn(&SpawnRequest::command("late", "echo too-late")).unwrap_err();
+    assert!(error.to_string().contains("timed out"), "{error}");
+    assert!(c.adopt().unwrap().is_empty());
+    let again = c.spawn(&SpawnRequest::command("late", "true")).unwrap_err();
+    assert!(again.to_string().contains("timed out"), "{again}");
+}

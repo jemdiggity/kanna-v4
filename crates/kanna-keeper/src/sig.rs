@@ -6,11 +6,11 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 static mut WRITE_FD: libc::c_int = -1;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-unsafe fn errno() -> *mut libc::c_int {
+pub unsafe fn errno() -> *mut libc::c_int {
     libc::__errno_location()
 }
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
-unsafe fn errno() -> *mut libc::c_int {
+pub unsafe fn errno() -> *mut libc::c_int {
     libc::__error()
 }
 
