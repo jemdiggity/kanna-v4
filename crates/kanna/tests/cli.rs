@@ -109,7 +109,7 @@ fn errors_exit_as_kmux_says() {
     daemon.kanna(&["read", "nope"]).fails(4, "not_found");
     daemon.kanna(&["lsit"]).fails(2, "unknown command \"lsit\". Did you mean: list? Run `kanna --help` for all commands.");
     daemon.kanna(&["zoom", "a", "b"]).fails(2, "zoom: unexpected argument \"b\"");
-    daemon.kanna(&["--bogus"]).fails(2, "unknown option \"--bogus\"\n\nkanna — control Kanna");
+    daemon.kanna(&["--bogus"]).fails(2, "unknown option \"--bogus\"\n\nkanna — control the Kanna");
     daemon.kanna(&["--instance", "a/b", "list"]).fails(2, "bad instance name \"a/b\"");
     daemon.kanna(&["--mux", "tmux", "list"]).fails(5, "the tmux backend isn't supported yet");
 }
@@ -162,7 +162,7 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     let dir = scratch("help");
     let nowhere = dir.join("nothing.sock");
     let overview = kanna_at(&dir, Some(&nowhere), &[]).ok();
-    assert!(overview.starts_with("kanna — control Kanna, the terminal multiplexer (windows → tabs → split panes).\n\nusage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n\nPanes:\n  open "), "{overview}");
+    assert!(overview.starts_with("kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\nusage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n\nPanes:\n  open "), "{overview}");
     assert!(overview.contains("Kanna isn't running, so help can't check which commands it supports."), "{overview}");
     assert!(overview.contains(&format!("Instance: default at {}", nowhere.display())), "{overview}");
     assert!(overview.contains("6 needs Kanna.app, which isn't attached and wasn't started."), "{overview}");
@@ -258,4 +258,25 @@ fn the_daemon_names_its_instance_and_tells_its_terminals() {
     std::thread::sleep(std::time::Duration::from_secs(2));
     let screen = daemon.kanna(&["read", "env"]).ok();
     assert!(screen.contains(expected), "{screen}");
+}
+
+#[test]
+fn the_kmux_backend_is_kmux_through_kannas_cli() {
+    let dir = scratch("kmux");
+    let socket = dir.join("kmux.sock");
+    let requests = serve(&socket, |request| match request["cmd"].as_str() {
+        Some("capabilities") => json!({ "ok": true, "mux": "kmux", "paneTypes": ["term"], "commands": ["capabilities", "list"] }),
+        Some("list") => json!({ "ok": true, "windows": [], "panes": [] }),
+        _ => json!({ "ok": false, "error": { "code": "bad_request", "message": "unknown command" } }),
+    });
+    let run = |args: &[&str]| Run::from(args, cli(&dir).env("KMUX_SOCKET", &socket).args(args).output().unwrap());
+    assert_eq!(run(&["--mux", "kmux", "list"]).ok(), "no windows (open one with `kanna open`)");
+    let overview = run(&["--mux", "kmux"]).ok();
+    assert!(overview.contains("Backend: kmux (--mux kmux), not Kanna."), "{overview}");
+    assert!(overview.contains("[not in the running kmux]"), "{overview}");
+    assert!(requests.try_iter().any(|r| r["cmd"] == "list"));
+    let mut command = cli(&dir);
+    command.env("KANNA_MUX", "kmux").env("KMUX_SOCKET", &socket);
+    assert_eq!(Run::from(&["list"], command.arg("list").output().unwrap()).ok(), "no windows (open one with `kanna open`)");
+    let _ = std::fs::remove_dir_all(&dir);
 }

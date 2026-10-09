@@ -212,7 +212,7 @@ fn instances(target: &Target, json_output: bool, env: Env) -> Result<(), Failure
 fn overview(target: &Target) -> String {
     let supported = supported(target);
     let mut out = String::from(
-        "kanna — control Kanna, the terminal multiplexer (windows → tabs → split panes).\n\
+        "kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\
          \n\
          usage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n",
     );
