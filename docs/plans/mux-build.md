@@ -79,8 +79,8 @@ flowchart TB
         L3["3 · KmuxUI<br/>terminal view<br/>external I/O"]
         L1 --> L3
     end
-    subgraph DAEMON["kanna-daemon process (new)"]
-        L4["4 · KmuxCore<br/>commands · terminals"]
+    subgraph DAEMON["kanna-daemon process (new, Rust)"]
+        L4["4 · kmux-core (Rust)<br/>commands · terminals"]
     end
     subgraph KEEPER["keeper process"]
         L5["5 · keeper<br/>spawns, holds ptys"]
@@ -106,11 +106,11 @@ flowchart TB
 | Step | Repo | What | Done when |
 |---|---|---|---|
 | **0.1** | kanna-v4 | `scripts/e2e-kanna.sh` with scenarios S1–S8, all failing (skipped by milestone) | it runs and reports |
-| **0.2** | kmux | **Library products.** Move the pane views (terminal, web, markdown, iOS), `GhosttyRuntime` and the split and tab views out of the `Kmux` app target into a `KmuxUI` library; export `KmuxCore` and `KmuxUI` as products. No behaviour change. | kmux builds, its e2e passes |
-| **0.3** | kmux | **The seams.** `TerminalBackend` (from the spike) in KmuxUI, public; `PtyTerminalBackend` stays kmux's. A `KMUX_GHOSTTYKIT` build setting that points the GhosttyKit binary target at another build. | kmux unchanged; a test build uses another GhosttyKit |
-| **0.4** | kmux | **Commands split from layout.** In KmuxCore, the commands that touch terminals vs those that touch the layout, behind a `LayoutHost` the app implements. kmux's app answers both, as today. | kmux unchanged; KmuxCore tests cover both kinds |
+| **0.2** | kmux | **`kmux-core` in Rust.** Port KmuxCore (protocol, commands, panes, kmux's layout model, state file, socket server) to a Rust crate. It passes the shared protocol cases (`tests/kmux-protocol/cases`, the same ones the Swift core and the reference model run) and builds on Linux. | cases pass on macOS and Linux |
+| **0.3** | kmux | **The kmux app on `kmux-core`.** A C interface, built as an xcframework the way merman is; the app answers through `PaneHost` and `LayoutHost` callbacks; the Swift KmuxCore is removed. | kmux's e2e passes, unchanged |
+| **0.4** | kmux | **`KmuxUI` and the seams.** Move the pane views (terminal, web, markdown, iOS), `GhosttyRuntime` and the split and tab views into a `KmuxUI` Swift library product. Make `TerminalBackend` (from the spike) public; `PtyTerminalBackend` stays kmux's. Add `KMUX_GHOSTTYKIT`, which points the GhosttyKit binary target at another build. | kmux unchanged; a test build uses another GhosttyKit |
 | **0.5** | kanna-v4 | **Kanna.app as its own app.** `apps/kanna`: a SwiftPM app depending on `../kmux`'s KmuxUI, built against the Ghostty fork. One window, one terminal pane, a stub backend that echoes. `build-kanna.sh` builds it instead of branded kmux. | Kanna.app opens and echoes typing |
-| **0.6** | kanna-v4 | **kanna-daemon.** A Swift executable on KmuxCore, on Kanna's socket. Stub: it spawns the pty itself. The app's external-I/O backend attaches to it. The `kanna` CLI already speaks the protocol. | S1, S2 pass |
+| **0.6** | kanna-v4 | **kanna-daemon** (Rust) on `kmux-core`, on Kanna's socket. Stub: it spawns the pty itself. The app's external-I/O backend attaches to it; the `kanna` CLI already speaks the protocol. | S1, S2 pass |
 | **0.7** | kanna-v4 | **The keeper.** Trim `feat/keeper` to what the architecture needs: spawn a shell on a pty, keep a copy, hand the pty over (`SCM_RIGHTS`), report exits. The daemon asks it for ptys. | S1, S2 pass through the keeper |
 
 ---
@@ -119,7 +119,7 @@ flowchart TB
 
 | Step | Repo | What | Done when |
 |---|---|---|---|
-| **1.1** | kanna-v4 | The daemon keeps a libghostty-vt screen per terminal, fed from the pty. `kanna read` answers from it. | S3 passes |
+| **1.1** | kanna-v4 | The daemon keeps a libghostty-vt screen per terminal (its C API, from Rust), fed from the pty. `kanna read` answers from it. | S3 passes |
 | **1.2** | kanna-v4 | On attach the daemon sends the screen as a snapshot; the app loads it (`load_snapshot` in the Ghostty fork), then live output. | S4 passes |
 | **1.3** | kanna-v4 + kmux | The app saves its layout (kmux's state file, in Kanna's folder), panes pointing at terminals by ID; reopens it on launch. | S5 passes |
 | **1.4** | kanna-v4 | The CLI starts the app when a layout command needs it, or fails clearly. | `kanna open --split` with the app closed works |
@@ -160,10 +160,19 @@ flowchart TB
 
 ## 9. Decisions
 
-Recommendations, to confirm before the step that needs them:
+| Decision | Chosen | Why |
+|---|---|---|
+| Daemon's language | **Rust** | the daemon must also run on Linux |
+| kmux's core (the CLI shape) | **Rust: `kmux-core`** | the daemon is built on it, so it must run on Linux too; the kmux app uses it through a C interface, as it already uses merman |
+| Keeper's language | **Rust**, from `feat/keeper` | already written and tested (spawn, environment, limits) |
+| Where Kanna.app's code lives | **kanna-v4/apps/kanna**, depending on `../kmux` by path | Kanna's layers 1 and 2 are Kanna's; kmux stays a clean library |
+| How Kanna gets the forked Ghostty | **`KMUX_GHOSTTYKIT`** pointing at the fork's build | kmux stays on upstream; no kmux fork |
 
-| Decision | Recommendation | Why | Needed by |
-|---|---|---|---|
+The mux UI (`KmuxUI`) stays Swift: it's the macOS app's views. A Linux UI would be its own, on the same `kmux-core`.
+
+**Risk:** the Swift core's commands wait on the app (a pane settling, a view's answer). Across the C interface those become callbacks onto the main thread and replies back; 0.3 settles the shape before anything depends on it.
+
+---|---|---|---|
 | Daemon's language | **Swift** | it's built on KmuxCore, which is Swift; libghostty-vt has a C API Swift calls directly | 0.6 |
 | Keeper's language | **Rust**, from `feat/keeper` | already written and tested (spawn, environment, limits); it's a separate process, so the language doesn't leak | 0.7 |
 | Where Kanna.app's code lives | **kanna-v4/apps/kanna**, depending on `../kmux` by path | Kanna's layers 1 and 2 are Kanna's; kmux stays a clean library | 0.5 |
@@ -177,7 +186,8 @@ Recommendations, to confirm before the step that needs them:
 - **One commit per step**, tests included; kmux's e2e and Kanna's scenarios stay green.
 - **Never touch your running Kanna or kmux.** Tests run private instances in the background, on their own sockets, stopped by PID.
 - **Worktrees** in `<repo>/.worktrees/<name>`.
-- **kmux stays vanilla:** nothing Kanna-specific goes into kmux; only general seams (library products, `TerminalBackend`, `LayoutHost`, `KMUX_GHOSTTYKIT`).
+- **kmux stays vanilla:** nothing Kanna-specific goes into kmux; only general seams (`kmux-core`, `KmuxUI`, `TerminalBackend`, `LayoutHost`, `KMUX_GHOSTTYKIT`).
+- **Linux:** `kmux-core`, the daemon and the keeper build and test on Linux from the start.
 
 ---
 
@@ -188,8 +198,9 @@ Recommendations, to confirm before the step that needs them:
 | **Scenario** | One behaviour of the finished system, as a script step that passes or fails. Together they're the reference. |
 | **Walking skeleton** | The whole system connected end to end with the thinnest possible pieces, built before any piece is finished. |
 | **Stub** | A stand-in that behaves just enough to connect (an echoing backend, a daemon that spawns its own pty). |
-| **KmuxCore / KmuxUI** | kmux's libraries: the CLI shape (layer 4) and the mux UI (layer 3). |
-| **LayoutHost** | The seam in KmuxCore through which layout commands reach whatever owns the layout: kmux's app, or Kanna's. |
+| **kmux-core** | kmux's core as a Rust crate: the CLI shape (layer 4). Used directly by Kanna's daemon, and through a C interface by the kmux app. |
+| **KmuxUI** | kmux's mux UI (layer 3) as a Swift library: the pane views. |
+| **LayoutHost** | The seam in kmux-core through which layout commands reach whatever owns the layout: kmux's app, or Kanna's. |
 | **TerminalBackend** | The seam in KmuxUI between a terminal view and where its bytes come from: its own pty (kmux) or Kanna's daemon. |
 | **`KMUX_GHOSTTYKIT`** | A build setting that points kmux's libraries at another GhosttyKit build (Kanna: the external-I/O fork). |
 | **External I/O** | The Ghostty fork's mode where a surface has no pty: output is pushed in, keystrokes come out through a callback. |
