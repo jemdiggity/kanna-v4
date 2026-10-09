@@ -194,21 +194,44 @@ S7() {
 
 S8() {
   start_daemon && start_app || return 1
-  printf '# S8 DOC\n' >"$KANNA_STATE_DIR/s8.md"
-  printf '<title>S8 PAGE</title><p id="x">S8 WEB</p>\n' >"$KANNA_STATE_DIR/s8.html"
-  kanna open web --name web "file://$KANNA_STATE_DIR/s8.html" >/dev/null || return 1
-  kanna open md --name doc "$KANNA_STATE_DIR/s8.md" >/dev/null || return 1
-  stop_app; start_app || return 1
-  check is web url "file://$KANNA_STATE_DIR/s8.html" || return 1
-  check is doc file "$KANNA_STATE_DIR/s8.md" || return 1
-  page_text() { [[ "$(raw '{"id":1,"cmd":"web.eval","args":{"pane":"web","js":"document.getElementById(\"x\").textContent"}}' | field result)" == "S8 WEB" ]]; }
-  check wait_for 5 page_text || return 1
-  if xcrun simctl list devices booted 2>/dev/null | grep -q Booted; then
-    kanna open ios --name sim >/dev/null || return 1
-    check is sim state running
-  else
-    echo "(iOS part skipped: no booted simulator)"
+  local dir="$KANNA_STATE_DIR" before
+  printf '# S8 DOC\n\nS8 TEXT\n' >"$dir/s8.md"
+  printf '<title>S8 PAGE</title><p id="x">S8 WEB</p>\n' >"$dir/s8.html"
+  printf '<title>S8 NEXT</title><p>S8 NEXT</p>\n' >"$dir/s8b.html"
+  page_shows() { raw "{\"id\":1,\"cmd\":\"debug.web\",\"args\":{\"pane\":\"$1\"}}" | field text | grep -q "$2"; }
+  doc_shows() { raw "{\"id\":1,\"cmd\":\"debug.md\",\"args\":{\"pane\":\"$1\"}}" | field text | grep -q "$2"; }
+  kanna open web --name web --history "file://$dir/s8.html" >/dev/null || return 1
+  kanna open md --name doc --split right "$dir/s8.md" >/dev/null || return 1
+  check wait_for 5 page_shows web "S8 WEB" || return 1
+  check wait_for 5 doc_shows doc "S8 TEXT" || return 1
+  kanna navigate web "file://$dir/s8b.html" >/dev/null || return 1
+  check wait_for 5 page_shows web "S8 NEXT" || return 1
+  kanna navigate web --back >/dev/null || return 1
+  check is web url "file://$dir/s8.html" || return 1
+  check wait_for 5 page_shows web "S8 WEB" || return 1
+  before="$(layout)"
+  stop_app
+  check test "$(kanna list --json | field panes)" == "[]" || return 1
+  kanna navigate web "file://$dir/s8b.html" 2>/dev/null
+  check test $? -eq 6 || return 1
+  start_app || return 1
+  check test "$(layout)" == "$before" || return 1
+  check is web url "file://$dir/s8.html" || return 1
+  check is doc path "$dir/s8.md" || return 1
+  check wait_for 5 page_shows web "S8 WEB" || return 1
+  check wait_for 5 doc_shows doc "S8 TEXT" || return 1
+  local udid
+  udid="$(xcrun simctl list devices booted 2>/dev/null | sed -n 's/^ *iPhone.*(\([0-9A-F-]\{36\}\)) (Booted).*/\1/p' | head -1)"
+  if [[ -z "$udid" ]]; then
+    echo "(iOS part skipped: no booted iPhone simulator)"
+    return 0
   fi
+  kanna open ios --name sim --app com.apple.Preferences --device "$udid" --tab >/dev/null || return 1
+  check is sim state running || return 1
+  check test "$(raw '{"id":1,"cmd":"debug.ios","args":{"pane":"sim"}}' | field ok)" == True || return 1
+  stop_app; start_app || return 1
+  check wait_for 60 is sim state running || return 1
+  check test "$(raw '{"id":1,"cmd":"debug.ios","args":{"pane":"sim"}}' | field ok)" == True
 }
 
 S9() {

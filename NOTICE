@@ -49,6 +49,29 @@ Derived from kmux:
       From apps/kmux/Sources/Kmux/Terminal/ExternalIO.swift and
       TerminalBackend.swift on kmux's spike/ghostty-external-io branch.
 
+  From kmux 1f05ccb (after kmux.rev), with comments removed:
+  apps/kanna/Sources/KannaDiagram
+      From apps/kmux/Sources/KmuxDiagram; merman's module is KannaMerman.
+  apps/kanna/Sources/KannaMarkdown
+      From apps/kmux/Sources/KmuxMarkdown; its attributes are kanna.*.
+  apps/kanna/Sources/SimBridge
+      From apps/kmux/Sources/SimBridge.
+  apps/kanna/Sources/Kanna/Panes/WebPaneView.swift
+      From apps/kmux/Sources/Kmux/WebPaneView.swift, without kmux's pane
+      menu.
+  apps/kanna/Sources/Kanna/Panes/IosPaneView.swift
+      From apps/kmux/Sources/Kmux/IosPaneView.swift, without kmux's pane
+      menu; Simulator.reattach is Kanna's.
+  apps/kanna/Sources/Kanna/Panes/Contents.swift
+      Starting, stopping and reporting web, markdown and iOS panes
+      follow ContentHost in apps/kmux/Sources/Kmux/ContentHost.swift; the
+      debug.web, debug.md and debug.ios commands in AppController.swift
+      and its View menu follow apps/kmux/Sources/Kmux/AppController.swift.
+  scripts/build-merman.sh
+      Follows kmux's scripts/build-merman.sh and builds kmux's
+      crates/kmux-merman (kmux's C bridge to merman) from the kmux
+      checkout.
+
   scripts/env.sh                 follows kmux's scripts/env.sh
   scripts/build-ghosttykit.sh    follows kmux's scripts/build-ghosttykit.sh
   scripts/build-kanna-app.sh     follows kmux's scripts/build-kmux.sh
@@ -74,6 +97,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+Linked libraries
+================================================================================
+
+Kanna.app links, unmodified:
+
+  merman 0.8.0 (https://github.com/Latias94/merman), MIT OR Apache-2.0,
+      through kmux's crates/kmux-merman.
+  swift-markdown 0.7.3 (https://github.com/swiftlang/swift-markdown),
+      Apache-2.0, and swift-cmark (cmark-gfm), BSD-2-Clause and MIT, as
+      published by the Swift project.
 
 ================================================================================
 Ghostty

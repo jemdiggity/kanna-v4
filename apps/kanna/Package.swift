@@ -7,14 +7,20 @@ let package = Package(
     name: "kanna",
     platforms: [.macOS(.v15)],
     products: [.executable(name: "Kanna", targets: ["Kanna"])],
+    dependencies: [.package(url: "https://github.com/swiftlang/swift-markdown.git", exact: "0.7.3")],
     targets: [
         .binaryTarget(name: "GhosttyKit", path: "../../target/ghosttykit/GhosttyKit.xcframework"),
+        .binaryTarget(name: "KannaMerman", path: "../../target/merman/KannaMerman.xcframework"),
         .systemLibrary(name: "KannaLayoutC", path: "Sources/KannaLayoutC"),
+        .target(name: "KannaDiagram", dependencies: ["KannaMerman"], linkerSettings: ["AppKit", "CoreText"].map { .linkedFramework($0) }),
+        .target(name: "KannaMarkdown", dependencies: ["KannaDiagram", .product(name: "Markdown", package: "swift-markdown")],
+                linkerSettings: ["AppKit"].map { .linkedFramework($0) }),
+        .target(name: "SimBridge", linkerSettings: ["AppKit", "IOSurface", "QuartzCore"].map { .linkedFramework($0) }),
         .executableTarget(
             name: "Kanna",
-            dependencies: ["GhosttyKit", "KannaLayoutC"],
+            dependencies: ["GhosttyKit", "KannaLayoutC", "KannaDiagram", "KannaMarkdown", "SimBridge"],
             linkerSettings: [.linkedLibrary("c++"), .unsafeFlags(["-L", rustLibraries])]
-                + ["AppKit", "Carbon", "CoreText", "IOSurface", "Metal", "QuartzCore", "UniformTypeIdentifiers"].map { .linkedFramework($0) }
+                + ["AppKit", "Carbon", "CoreText", "IOSurface", "Metal", "QuartzCore", "UniformTypeIdentifiers", "WebKit"].map { .linkedFramework($0) }
         ),
     ]
 )

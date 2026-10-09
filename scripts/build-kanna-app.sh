@@ -18,6 +18,7 @@ if [[ "$built" != "$KANNA_GHOSTTY_COMMIT" ]]; then
 fi
 
 (cd "$repo_root" && cargo build --release -p kanna-layout)
+"$repo_root/scripts/build-merman.sh"
 
 configuration="${KANNA_CONFIGURATION:-release}"
 bundle_id="${KANNA_BUNDLE_ID:-dev.kanna.app.dev}"

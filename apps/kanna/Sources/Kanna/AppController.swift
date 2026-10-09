@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import KannaMarkdown
 
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate {
@@ -17,6 +18,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var focused: String?
     private var appLayout: AppLayout?
     private var saveTimer: Timer?
+    private let contents = Contents()
 
     static var daemonSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_SOCKET"], !path.isEmpty { return path }
@@ -74,6 +76,13 @@ final class AppController: NSObject, NSApplicationDelegate {
             appLayout = AppLayout(statePath: Self.statePath, fresh: Self.fresh)
             daemon.onAttach = { [weak self] in self?.attached($0) }
             daemon.onLayout = { [weak self] in self?.layoutRequest($0) ?? ["ok": false, "error": ["code": "app_gone", "message": "Kanna.app is closing"]] }
+            daemon.helloPanes = { [weak self] in self?.helloPanes() ?? [] }
+            daemon.onStart = { [weak self] pane in self?.startContent(pane) }
+            daemon.onStop = { [weak self] pane in self?.contents.stop(pane) }
+            daemon.onPane = { [weak self] pane in self?.learn(pane) }
+            contents.onUpdate = { [weak daemon] pane, fields in daemon?.update(pane, fields) }
+            contents.onRequest = { [weak daemon] cmd, args in daemon?.request(cmd, args) }
+            contents.onFocus = { [weak self] pane in self?.userFocused(pane) }
             terminals = ExternalIOBackend(runtime: runtime, link: daemon)
             self.daemon = daemon
         }
@@ -110,7 +119,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         layout = LayoutView(frame: NSRect(origin: .zero, size: window.contentLayoutRect.size))
         layout.autoresizingMask = [.width, .height]
         layout.make = { [weak self] id, type in
-            guard type == "term" else { return PlaceholderView(pane: id, type: type) }
+            guard type == "term" else { return self?.contents.slot(id) ?? PlaceholderView(pane: id, type: type) }
             let view = TerminalSurfaceView(frame: .zero)
             view.focused = { self?.userFocused(id) }
             return view
@@ -136,7 +145,39 @@ final class AppController: NSObject, NSApplicationDelegate {
         if reply["ok"]?.bool != true {
             FileHandle.standardError.write(Data("kanna: the daemon's panes could not be placed: \(reply["error"]?["message"]?.string ?? "")\n".utf8))
         }
+        if case .array(let list) = panes {
+            for pane in list where pane["type"]?.string != "term" {
+                guard let id = pane["id"]?.string else { continue }
+                if !contents.shows(id) { contents.start(pane, restoring: true) }
+            }
+        }
         layoutChanged()
+    }
+
+    private func helloPanes() -> JSON {
+        guard let appLayout, case .array(let panes)? = appLayout.call(["call": "hello"])["panes"] else { return [] }
+        return .array(panes.map { pane in
+            guard case .object(var fields) = pane, let id = pane["id"]?.string else { return pane }
+            fields["state"] = .string(contents.shows(id) ? contents.states[id] ?? "starting" : "starting")
+            return .object(fields)
+        })
+    }
+
+    private func startContent(_ pane: JSON) {
+        learn(pane)
+        contents.start(pane)
+        layoutChanged()
+    }
+
+    private func learn(_ pane: JSON) {
+        _ = appLayout?.call(["call": "pane", "pane": pane])
+        scheduleSave()
+    }
+
+    private func pruneContents() {
+        guard let appLayout, case .array(let panes)? = appLayout.call(["call": "export"])["panes"] else { return }
+        let known = Set(panes.compactMap { $0["id"]?.string })
+        for id in contents.ids where !known.contains(id) { contents.forget(id) }
     }
 
     private func layoutRequest(_ request: JSON) -> JSON {
@@ -156,6 +197,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private func layoutChanged() {
         guard let appLayout else { return }
         mirror(appLayout.view)
+        pruneContents()
         scheduleSave()
     }
 
@@ -169,7 +211,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private func mirror(_ args: JSON) {
         layout.show(args["root"] ?? .null)
         let focus = args["focused"]?.string
-        if focus != focused, let focus, let view = layout.panes[focus] as? TerminalSurfaceView {
+        if focus != focused, let focus, let view = (layout.panes[focus] as? TerminalSurfaceView).map({ $0 as NSView }) ?? contents.keyView(focus) {
             window.makeFirstResponder(view)
         }
         focused = focus
@@ -233,6 +275,57 @@ final class AppController: NSObject, NSApplicationDelegate {
             let panes = layout.order.compactMap { id in layout.panes[id].map { (id: id, view: $0) } }
             return try Snapshot.run(window, id: "w1", panes: panes, path: args["path"]?.string, marker: args["marker"]?.string)
         }
+        commands["debug.web"] = { [weak self] args in
+            guard let self, let id = args["pane"]?.string, let web = self.contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
+            let text = try? await web.webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
+            return ["url": web.webView.url.map { .string($0.absoluteString) } ?? .null, "text": .string(text ?? "")]
+        }
+        commands["debug.md"] = { [weak self] args in
+            guard let self, let id = args["pane"]?.string, let markdown = self.contents.markdown(id) else { throw KannaError("wrong_type", "not a running md pane") }
+            if let y = args["scroll"]?.number { markdown.scroll(toY: CGFloat(y)) }
+            let diagrams: [JSON] = markdown.drawnDiagrams.map { ["type": .string($0.type), "labels": .array($0.labels.map { .string($0) })] }
+            return ["text": .string(markdown.text), "zoom": .number(Double(markdown.zoom)), "diagrams": .array(diagrams),
+                    "render_ms": .number(markdown.renderMs), "parse_ms": .number(markdown.parseMs), "scroll": .number(Double(markdown.scrollTop)),
+                    "layout_width": .number(Double(markdown.layoutWidth))]
+        }
+        commands["debug.ios"] = { [weak self] args in
+            guard let self, let id = args["pane"]?.string, let screen = self.contents.ios(id)?.screen else { throw KannaError("wrong_type", "not a running ios pane") }
+            if let x = args["x"]?.number, let y = args["y"]?.number {
+                screen.touch(.leftMouseDown, at: CGPoint(x: x, y: y))
+                try await Task.sleep(for: .milliseconds(80))
+                screen.touch(.leftMouseUp, at: CGPoint(x: x, y: y))
+            }
+            if args["home"]?.bool == true { screen.pressHome() }
+            return ["width": .number(screen.pixelSize.width), "height": .number(screen.pixelSize.height)]
+        }
+    }
+
+    @objc func openURL() {
+        guard let focused else { return }
+        contents.web(focused)?.editURL()
+    }
+
+    @objc func goBack() { history(back: true) }
+    @objc func goForward() { history(back: false) }
+    private func history(back: Bool) {
+        guard let focused, contents.web(focused) != nil || contents.markdown(focused) != nil else { return }
+        daemon?.request("navigate", ["pane": .string(focused), back ? "back" : "forward": true])
+    }
+
+    @objc func zoomIn() { contents.markdown(focused ?? "")?.zoom(by: 1) }
+    @objc func zoomOut() { contents.markdown(focused ?? "")?.zoom(by: -1) }
+    @objc func actualSize() { contents.markdown(focused ?? "")?.zoom(by: 0) }
+    @objc func pressHome() { contents.ios(focused ?? "")?.screen?.pressHome() }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        let pane = focused ?? ""
+        switch item.action {
+        case #selector(openURL): return contents.web(pane) != nil
+        case #selector(goBack), #selector(goForward): return contents.web(pane) != nil || contents.markdown(pane) != nil
+        case #selector(zoomIn), #selector(zoomOut), #selector(actualSize): return contents.markdown(pane) != nil
+        case #selector(pressHome): return contents.ios(pane)?.screen != nil
+        default: return true
+        }
     }
 
     private func terminal(_ id: String?) throws -> TerminalSurfaceView {
@@ -257,6 +350,20 @@ final class AppController: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "Select All", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         main.addItem(editItem)
+        let viewItem = NSMenuItem()
+        let view = NSMenu(title: "View")
+        for (title, action, key, modifiers) in [
+            ("Open URL…", #selector(openURL), "l", NSEvent.ModifierFlags.command), ("Back", #selector(goBack), "[", .command),
+            ("Forward", #selector(goForward), "]", .command), ("Zoom In", #selector(zoomIn), "+", .command),
+            ("Zoom Out", #selector(zoomOut), "-", .command), ("Actual Size", #selector(actualSize), "0", .command),
+            ("Home", #selector(pressHome), "h", [.command, .shift]),
+        ] {
+            let item = view.addItem(withTitle: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.target = self
+        }
+        viewItem.submenu = view
+        main.addItem(viewItem)
         NSApp.mainMenu = main
     }
 

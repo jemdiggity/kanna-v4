@@ -8,7 +8,7 @@ final class DaemonConnection: @unchecked Sendable {
     }
 
     let path: String
-    private let hello: Data
+    private let hello: @MainActor @Sendable () -> JSON
     private let connected: @MainActor @Sendable () -> Void
     private let received: @MainActor @Sendable (JSON, Delivery) -> Void
     private let disconnected: @MainActor @Sendable () -> Void
@@ -24,12 +24,10 @@ final class DaemonConnection: @unchecked Sendable {
     private static let reconnectDelay: TimeInterval = 0.5
     private static let refusedDelayLimit: TimeInterval = 30
 
-    init(path: String, hello: JSON, connected: @escaping @MainActor @Sendable () -> Void,
+    init(path: String, hello: @escaping @MainActor @Sendable () -> JSON, connected: @escaping @MainActor @Sendable () -> Void,
          received: @escaping @MainActor @Sendable (JSON, Delivery) -> Void, disconnected: @escaping @MainActor @Sendable () -> Void) {
         self.path = path
-        var line = hello.encoded()
-        line.append(UInt8(ascii: "\n"))
-        self.hello = line
+        self.hello = hello
         self.connected = connected
         self.received = received
         self.disconnected = disconnected
@@ -83,7 +81,10 @@ final class DaemonConnection: @unchecked Sendable {
                 Thread.sleep(forTimeInterval: 0.2)
                 continue
             }
-            guard Self.writeAll(socket, hello) else {
+            let hello = hello
+            var line = DispatchQueue.main.sync { MainActor.assumeIsolated { hello() } }.encoded()
+            line.append(UInt8(ascii: "\n"))
+            guard Self.writeAll(socket, line) else {
                 close(socket)
                 Thread.sleep(forTimeInterval: 0.2)
                 continue
