@@ -768,3 +768,28 @@ fn the_keepers_own_settings_stay_out_of_spawned_environments() {
     read_until(&pty.master, "[unset][unset][unset][unset][yes]");
     c.close("env").unwrap();
 }
+
+#[test]
+fn a_shell_not_on_path_is_an_error_not_a_file_in_cwd() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let repo = f.dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let planted = repo.join("kk-no-such-shell");
+    std::fs::write(&planted, "#!/bin/sh\necho planted-ran\nsleep 30\n").unwrap();
+    std::fs::set_permissions(&planted, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut c = f.client();
+    let mut req = SpawnRequest::shell("s");
+    req.shell = Some("kk-no-such-shell".into());
+    req.cwd = Some(repo);
+    let result = c.spawn(&req);
+    if let Ok(pty) = &result {
+        let mut buf = [0u8; 256];
+        std::thread::sleep(Duration::from_millis(300));
+        let n = unsafe { libc::read(pty.master.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
+        let _ = c.close("s");
+        panic!("spawned: {:?}", String::from_utf8_lossy(&buf[..n.max(0) as usize]));
+    }
+    let error = result.unwrap_err().to_string();
+    assert!(error.contains("kk-no-such-shell"), "{error}");
+}

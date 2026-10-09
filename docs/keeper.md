@@ -113,7 +113,7 @@ sequenceDiagram
 | Request | Runs | argv[0] |
 |---|---|---|
 | `command: CMD` | `/bin/sh -c CMD` | `/bin/sh` |
-| `shell: PATH` | `PATH`, interactive | `-name` (login-shell convention) |
+| `shell: PATH` | `PATH`, interactive; a bare name is looked up in the absolute directories on `PATH` only, and not finding it is an error (never a file of that name in the cwd) | `-name` (login-shell convention) |
 | neither | the user's login shell (passwd, else `$SHELL`, else `/bin/sh`) | `-name` |
 
 - **Directly, never through `login(1)`**, which always exits 0 (`login -flp $USER /bin/sh -c 'exit 5'` exits 0). So `exit 3` is reported as 3.

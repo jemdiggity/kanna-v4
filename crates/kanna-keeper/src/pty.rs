@@ -84,22 +84,22 @@ pub fn login_shell(env: &Env) -> OsString {
 }
 
 /// The file execvp would run for `arg0` under the session's PATH.
-fn resolve(arg0: &OsStr, env: &Env) -> PathBuf {
+fn resolve(arg0: &OsStr, env: &Env) -> Option<PathBuf> {
     if arg0.as_bytes().contains(&b'/') {
-        return PathBuf::from(arg0);
+        return Some(PathBuf::from(arg0));
     }
     let path = env
         .get(OsStr::new("PATH"))
         .cloned()
         .unwrap_or_else(|| "/usr/bin:/bin:/usr/sbin:/sbin".into());
     std::env::split_paths(&path)
+        .filter(|dir| dir.is_absolute())
         .map(|dir| dir.join(arg0))
         .find(|c| {
             std::fs::metadata(c)
                 .map(|m| m.is_file() && std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o111 != 0)
                 .unwrap_or(false)
         })
-        .unwrap_or_else(|| PathBuf::from(arg0))
 }
 
 /// The argv a request runs, before Ghostty's planning: what `adopt` reports
@@ -154,7 +154,9 @@ pub fn spawn(
     let argv_str: Vec<String> = argv.iter().map(|a| a.to_string_lossy().into_owned()).collect();
     let plan = ghostty_env::plan(&argv_str, cwd.to_str(), request_env, inherited, &ctx);
 
-    let program = cstring(resolve(&plan.argv[0], &plan.env).as_os_str().as_bytes())?;
+    let program = resolve(&plan.argv[0], &plan.env)
+        .with_context(|| format!("{} is not on PATH", plan.argv[0].to_string_lossy()))?;
+    let program = cstring(program.as_os_str().as_bytes())?;
     let mut args = plan.argv.iter().map(|a| cstring(a.as_bytes())).collect::<Result<Vec<_>>>()?;
     if matches!(what, What::Shell(_)) {
         // The login-shell convention, as login(1) and Ghostty's `exec -l`.
