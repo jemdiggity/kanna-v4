@@ -38,8 +38,12 @@ done
 # A private instance. This may run inside a Kanna pane, whose variables point
 # at your Kanna: replace them all.
 unset KANNA_PANE KANNA_INSTANCE
-export KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)"
-export KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
+new_state_dir() {
+  KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)" || exit 1
+  [[ -n "$KANNA_STATE_DIR" && -d "$KANNA_STATE_DIR" ]] || { echo "e2e-kanna: mktemp gave no folder" >&2; exit 1; }
+  export KANNA_STATE_DIR KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
+}
+new_state_dir
 export KANNA_IGNORE_OCCLUSION=1 # draw even if the window is covered
 export KANNA_DEBUG=1
 daemon_pid="" app_pid=""
@@ -220,8 +224,7 @@ for s in "${scenarios[@]}"; do
   if [[ "$m" > "$through" ]]; then printf '%-3s --   not due (%s)\n' "$s" "$m"; continue; fi
   # Each scenario on a fresh instance, in this shell (so we keep its PIDs).
   cleanup
-  export KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)"
-  export KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
+  new_state_dir
   if "$s" >"$out/$s.log" 2>&1; then
     printf '%-3s PASS (%s)\n' "$s" "$m"; passed=$((passed + 1))
   else

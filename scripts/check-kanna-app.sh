@@ -12,6 +12,7 @@ app="$repo_root/target/Kanna.app/Contents/MacOS/Kanna"
 out="$repo_root/target/check-kanna-app"
 mkdir -p "$out"
 dir="$(mktemp -d "${TMPDIR:-/tmp}/kanna-check.XXXXXX")"
+[[ -n "$dir" && -d "$dir" ]] || { echo "FAIL: mktemp gave no folder" >&2; exit 1; }
 # Echo mode: no daemon; the app's one terminal echoes, on its own debug socket.
 export KANNA_ECHO=1
 export KANNA_DEBUG=1
