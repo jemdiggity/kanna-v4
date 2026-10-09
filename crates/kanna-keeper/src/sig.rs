@@ -5,13 +5,24 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 static mut WRITE_FD: libc::c_int = -1;
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub unsafe fn errno() -> *mut libc::c_int {
+    libc::__errno_location()
+}
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub unsafe fn errno() -> *mut libc::c_int {
+    libc::__error()
+}
+
 extern "C" fn handler(signo: libc::c_int) {
     unsafe {
+        let saved = *errno();
         let fd = WRITE_FD;
         if fd >= 0 {
             let byte = [signo as u8];
             libc::write(fd, byte.as_ptr().cast(), 1);
         }
+        *errno() = saved;
     }
 }
 
@@ -26,6 +37,23 @@ pub fn set_cloexec(fd: libc::c_int) {
     unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFD);
         libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+    }
+}
+
+pub fn open_fds() -> Vec<libc::c_int> {
+    let Ok(dir) = std::fs::read_dir("/dev/fd") else { return Vec::new() };
+    dir.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok()).collect()
+}
+
+pub fn cloexec_inherited() {
+    for fd in open_fds().into_iter().filter(|&fd| fd > 2) {
+        set_cloexec(fd);
+    }
+}
+
+pub fn close_inherited(keep: &[libc::c_int]) {
+    for fd in open_fds().into_iter().filter(|fd| *fd > 2 && !keep.contains(fd)) {
+        unsafe { libc::close(fd) };
     }
 }
 

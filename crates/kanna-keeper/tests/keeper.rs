@@ -316,10 +316,15 @@ fn close_ends_the_process_group() {
         wait_for(&format!("{pid} to end"), || !alive(pid));
     }
     // Closing right after spawning works too (the reply waits for exec).
-    for i in 0..20 {
-        let id = format!("quick{i}");
-        let pid = c.spawn(&SpawnRequest::command(&id, "sleep 60")).unwrap().pid;
-        c.close(&id).unwrap();
+    let quick: Vec<i32> = (0..20)
+        .map(|i| {
+            let id = format!("quick{i}");
+            let pid = c.spawn(&SpawnRequest::command(&id, "sleep 60")).unwrap().pid;
+            c.close(&id).unwrap();
+            pid
+        })
+        .collect();
+    for pid in quick {
         wait_for(&format!("{pid} to end"), || !alive(pid));
     }
     // Closed processes aren't reported as exits, and the ids are free.
@@ -458,4 +463,366 @@ fn a_request_to_a_keeper_that_doesnt_answer_times_out() {
     c.set_timeout(Some(Duration::from_millis(200))).unwrap();
     assert_eq!(c.hello().unwrap_err().kind(), std::io::ErrorKind::TimedOut);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn clean_command(state: &Path, home: &Path) -> Command {
+    let mut cmd = Command::new(BIN);
+    cmd.arg("--state-dir").arg(state).env_clear().stdin(Stdio::null());
+    for key in ["PATH", "USER", "LOGNAME", "TMPDIR"] {
+        if let Some(v) = std::env::var_os(key) {
+            cmd.env(key, v);
+        }
+    }
+    cmd.env("HOME", home).env("SHELL", "/bin/sh");
+    cmd
+}
+
+fn with_inherited_fd(cmd: &mut Command, target: i32) -> OwnedFd {
+    use std::os::fd::FromRawFd;
+    use std::os::unix::process::CommandExt;
+    let mut fds = [-1; 2];
+    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+    for fd in fds {
+        unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+    }
+    let read = fds[0];
+    unsafe {
+        cmd.pre_exec(move || {
+            libc::dup2(read, target);
+            Ok(())
+        });
+        libc::close(fds[1]);
+        OwnedFd::from_raw_fd(read)
+    }
+}
+
+const FD_PROBE: &str = "if [ -e /dev/fd/57 ]; then echo fd57-leaked; else echo fd57-clean; fi; sleep 30";
+
+#[test]
+fn spawned_processes_inherit_no_descriptor_the_keeper_was_started_with() {
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    let _pipe = with_inherited_fd(&mut cmd, 57);
+    let _keeper = KilledOnDrop(cmd.spawn().unwrap());
+    wait_for("the keeper's socket", || Client::connect(&state.join("keeper.sock")).is_ok());
+    let mut c = Client::connect(&state.join("keeper.sock")).unwrap();
+    let pty = c.spawn(&SpawnRequest::command("t1", FD_PROBE)).unwrap();
+    read_until(&pty.master, "fd57-clean");
+    c.close("t1").unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_detached_keeper_closes_what_it_inherited() {
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    cmd.arg("--detach");
+    let _pipe = with_inherited_fd(&mut cmd, 57);
+    assert!(cmd.status().unwrap().success());
+    let mut c = Client::connect(&state.join("keeper.sock")).unwrap();
+    let pid = c.hello().unwrap().1;
+    let pty = c.spawn(&SpawnRequest::command("t1", FD_PROBE)).unwrap();
+    let out = std::panic::catch_unwind(|| read_until(&pty.master, "fd57-clean"));
+    c.close("t1").unwrap();
+    unsafe { libc::kill(pid, libc::SIGTERM) };
+    wait_for("the detached keeper to stop", || !alive(pid));
+    out.unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn detach_fails_when_the_keeper_cannot_listen() {
+    let dir = private_dir();
+    let state = dir.join("state");
+    std::fs::create_dir_all(state.join("keeper.sock/in-the-way")).unwrap();
+    let out = clean_command(&state, &dir.join("home")).arg("--detach").output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("keeper.sock"), "{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn concurrent_connect_or_start_all_reach_one_keeper() {
+    for _ in 0..5 {
+        let dir = private_dir();
+        let state = dir.join("state");
+        let threads: Vec<_> = (0..12)
+            .map(|_| {
+                let state = state.clone();
+                std::thread::spawn(move || {
+                    let mut c = Client::connect_or_start(&state, Path::new(BIN)).map_err(|e| e.to_string())?;
+                    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+                    c.hello().map(|h| h.1).map_err(|e| e.to_string())
+                })
+            })
+            .collect();
+        let pids: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+        let keeper: Option<i32> =
+            std::fs::read_to_string(state.join("keeper.pid")).ok().and_then(|p| p.trim().parse().ok());
+        if let Some(pid) = keeper {
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            wait_for("the detached keeper to stop", || !alive(pid));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        for pid in &pids {
+            assert_eq!(pid.as_ref().ok(), keeper.as_ref(), "{pids:?}");
+        }
+    }
+}
+
+#[test]
+fn a_connection_made_while_the_keeper_goes_idle_is_served() {
+    let dir = private_dir();
+    let state = dir.join("state");
+    let socket = state.join("keeper.sock");
+    let mut keeper =
+        KilledOnDrop(clean_command(&state, &dir.join("home")).env("KANNA_KEEPER_IDLE_MS", "3").spawn().unwrap());
+    let mut served = 0;
+    let mut i = 0u64;
+    while keeper.0.try_wait().unwrap().is_none() {
+        i += 1;
+        let Ok(mut c) = Client::connect(&socket) else { continue };
+        c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+        if let Err(e) = c.hello() {
+            panic!("connected after {served} served, then: {e}");
+        }
+        served += 1;
+        drop(c);
+        std::thread::sleep(Duration::from_micros((i % 9) * 700));
+        assert!(served < 20_000);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn cpu_seconds(pid: i32) -> f64 {
+    let out = Command::new("ps").args(["-o", "time=", "-p", &pid.to_string()]).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.trim().split(':').rev().zip([1.0, 60.0, 3600.0]).map(|(f, scale)| f.parse::<f64>().unwrap() * scale).sum()
+}
+
+#[test]
+fn out_of_descriptors_the_keeper_waits_instead_of_spinning() {
+    use std::os::unix::process::CommandExt;
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    unsafe {
+        cmd.pre_exec(|| {
+            let limit = libc::rlimit { rlim_cur: 16, rlim_max: 16 };
+            libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+            Ok(())
+        });
+    }
+    let keeper = KilledOnDrop(cmd.spawn().unwrap());
+    let socket = state.join("keeper.sock");
+    wait_for("the keeper's socket", || Client::connect(&socket).is_ok());
+    let clients: Vec<_> = (0..14).map(|_| Client::connect(&socket).unwrap()).collect();
+    std::thread::sleep(Duration::from_millis(300));
+    let pid = keeper.0.id() as i32;
+    let before = cpu_seconds(pid);
+    std::thread::sleep(Duration::from_secs(1));
+    let used = cpu_seconds(pid) - before;
+    drop(clients);
+    let mut c = Client::connect(&socket).unwrap();
+    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+    assert!(c.hello().is_ok());
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(used < 0.3, "the keeper used {used} s of CPU in 1 s");
+}
+
+#[test]
+fn adopt_hands_back_every_pty_even_near_the_descriptor_limit() {
+    use std::os::unix::process::CommandExt;
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    unsafe {
+        cmd.pre_exec(|| {
+            let mut limit: libc::rlimit = std::mem::zeroed();
+            libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit);
+            limit.rlim_cur = 34;
+            libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+            Ok(())
+        });
+    }
+    let _keeper = KilledOnDrop(cmd.spawn().unwrap());
+    let socket = state.join("keeper.sock");
+    wait_for("the keeper's socket", || Client::connect(&socket).is_ok());
+    let mut c = Client::connect(&socket).unwrap();
+    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+    let ids: Vec<String> = (0..40).map(|i| format!("p{i:02}")).collect();
+    for id in &ids {
+        drop(c.spawn(&SpawnRequest::command(id, "sleep 60")).unwrap());
+    }
+    let probe = c.spawn(&SpawnRequest::command("limit", "echo \"limit:$(ulimit -n)\"; sleep 60")).unwrap();
+    read_until(&probe.master, "limit:34");
+    c.close("limit").unwrap();
+    let adopted = c.adopt();
+    for id in &ids {
+        let _ = c.close(id);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let adopted: Vec<String> = adopted.unwrap().into_iter().map(|p| p.id).collect();
+    assert_eq!(adopted, ids);
+}
+
+#[test]
+fn closed_processes_still_alive_count_against_the_pty_limit() {
+    let f = Fixture::with(&[("KANNA_KEEPER_MAX_PTYS", "2"), ("KANNA_KEEPER_CLOSE_GRACE_MS", "3000")]);
+    let mut c = f.client();
+    let (sh, _) = group(&mut c, "stubborn", "trap '' HUP; sleep 60 & echo \"kid:$!\"; wait");
+    c.close("stubborn").unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(alive(sh));
+    c.spawn(&SpawnRequest::command("a", "sleep 60")).unwrap();
+    let refused = c.spawn(&SpawnRequest::command("b", "sleep 60")).unwrap_err();
+    assert!(refused.to_string().contains("too many"), "{refused}");
+    c.close("a").unwrap();
+}
+
+#[test]
+fn a_client_that_queues_too_many_descriptors_is_dropped() {
+    use std::io::{Read, Write};
+    let f = Fixture::with(&[("KANNA_KEEPER_MAX_PTYS", "4")]);
+    let mut c = f.client();
+    for i in 0..4 {
+        c.spawn(&SpawnRequest::command(&format!("s{i}"), "sleep 60")).unwrap();
+    }
+    let mut raw = std::os::unix::net::UnixStream::connect(f.socket()).unwrap();
+    for _ in 0..400 {
+        if raw.write_all(b"{\"op\":\"adopt\"}\n").is_err() {
+            break;
+        }
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let _ = raw.set_read_timeout(Some(Duration::from_secs(3)));
+    let mut buf = [0u8; 65536];
+    loop {
+        match raw.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => break,
+            Err(e) => panic!("still connected: {e}"),
+        }
+    }
+    assert_eq!(c.hello().unwrap().0, kanna_keeper::PROTOCOL_VERSION);
+    for i in 0..4 {
+        c.close(&format!("s{i}")).unwrap();
+    }
+}
+
+fn process_state(pid: i32) -> String {
+    let out = Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]).output().unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[test]
+fn a_closed_process_keeps_its_pid_until_the_kill_is_done() {
+    let f = Fixture::with(&[("KANNA_KEEPER_CLOSE_GRACE_MS", "1500")]);
+    let mut c = f.client();
+    let pid = c.spawn(&SpawnRequest::command("t1", "sleep 60")).unwrap().pid;
+    c.close("t1").unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(process_state(pid).starts_with('Z'), "{pid} is {:?}", process_state(pid));
+    wait_for(&format!("{pid} to be reaped"), || !alive(pid));
+}
+
+#[test]
+fn spawned_processes_start_with_default_signal_dispositions() {
+    use std::os::unix::process::CommandExt;
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::signal(libc::SIGUSR1, libc::SIG_IGN);
+            libc::signal(libc::SIGALRM, libc::SIG_IGN);
+            Ok(())
+        });
+    }
+    let _keeper = KilledOnDrop(cmd.spawn().unwrap());
+    let socket = state.join("keeper.sock");
+    wait_for("the keeper's socket", || Client::connect(&socket).is_ok());
+    let mut c = Client::connect(&socket).unwrap();
+    for (id, signo, name) in [("usr1", libc::SIGUSR1, "USR1"), ("alrm", libc::SIGALRM, "ALRM")] {
+        let pty = c.spawn(&SpawnRequest::command(id, &format!("kill -{name} $$; echo survived"))).unwrap();
+        assert_eq!(exit_reading(&mut c, &pty.master).0.status, ExitStatus::Signal(signo), "{name}");
+        c.ack(id).unwrap();
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_keepers_own_settings_stay_out_of_spawned_environments() {
+    let f = Fixture::with(&[("KANNA_KEEPER_MAX_PTYS", "9"), ("KANNA_STATE_DIR", "/elsewhere"), ("KANNA_KEEPER", "/k")]);
+    let mut c = f.client();
+    let mut req = SpawnRequest::command(
+        "env",
+        "echo \"[${KANNA_KEEPER_CLOSE_GRACE_MS-unset}][${KANNA_KEEPER_MAX_PTYS-unset}][${KANNA_STATE_DIR-unset}][${KANNA_KEEPER-unset}][${KANNA_KEEPER_ASKED-unset}]\"; sleep 30",
+    );
+    req.env.insert("KANNA_KEEPER_ASKED".into(), Some("yes".into()));
+    let pty = c.spawn(&req).unwrap();
+    read_until(&pty.master, "[unset][unset][unset][unset][yes]");
+    c.close("env").unwrap();
+}
+
+#[test]
+fn a_shell_not_on_path_is_an_error_not_a_file_in_cwd() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let repo = f.dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let planted = repo.join("kk-no-such-shell");
+    std::fs::write(&planted, "#!/bin/sh\necho planted-ran\nsleep 30\n").unwrap();
+    std::fs::set_permissions(&planted, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut c = f.client();
+    let mut req = SpawnRequest::shell("s");
+    req.shell = Some("kk-no-such-shell".into());
+    req.cwd = Some(repo);
+    let result = c.spawn(&req);
+    if let Ok(pty) = &result {
+        let mut buf = [0u8; 256];
+        std::thread::sleep(Duration::from_millis(300));
+        let n = unsafe { libc::read(pty.master.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
+        let _ = c.close("s");
+        panic!("spawned: {:?}", String::from_utf8_lossy(&buf[..n.max(0) as usize]));
+    }
+    let error = result.unwrap_err().to_string();
+    assert!(error.contains("kk-no-such-shell"), "{error}");
+}
+
+#[test]
+fn a_slow_spawn_doesnt_hold_up_other_clients() {
+    let f = Fixture::with(&[("KANNA_KEEPER_TEST_SPAWN_DELAY_MS", "1500")]);
+    let socket = f.socket();
+    let slow = std::thread::spawn(move || {
+        let mut c = Client::connect(&socket).unwrap();
+        c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+        let pty = c.spawn(&SpawnRequest::command("slow", "echo slow-ok; sleep 30")).map_err(|e| e.to_string())?;
+        read_until(&pty.master, "slow-ok");
+        c.close("slow").map_err(|e| e.to_string())
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    let mut c = f.client();
+    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+    let started = Instant::now();
+    c.hello().unwrap();
+    let took = started.elapsed();
+    slow.join().unwrap().unwrap();
+    assert!(took < Duration::from_millis(500), "hello took {took:?}");
+}
+
+#[test]
+fn a_spawn_that_doesnt_exec_in_time_fails_and_is_killed() {
+    let f = Fixture::with(&[("KANNA_KEEPER_TEST_SPAWN_DELAY_MS", "3000"), ("KANNA_KEEPER_SPAWN_TIMEOUT_MS", "300")]);
+    let mut c = f.client();
+    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+    let error = c.spawn(&SpawnRequest::command("late", "echo too-late")).unwrap_err();
+    assert!(error.to_string().contains("timed out"), "{error}");
+    assert!(c.adopt().unwrap().is_empty());
+    let again = c.spawn(&SpawnRequest::command("late", "true")).unwrap_err();
+    assert!(again.to_string().contains("timed out"), "{again}");
 }

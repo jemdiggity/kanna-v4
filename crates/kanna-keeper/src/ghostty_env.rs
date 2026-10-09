@@ -32,16 +32,32 @@ const SHELL_FEATURES: &str = "cursor:blink,path,title";
 #[derive(Clone, Debug)]
 pub struct Resources {
     pub share: PathBuf,
+    version: Option<String>,
+    integration: bool,
+    zsh: bool,
+    bash: bool,
 }
 
 impl Resources {
+    pub fn at(share: PathBuf) -> Self {
+        let integ = share.join("ghostty/shell-integration");
+        let version = std::fs::read_to_string(share.join("ghostty-version"))
+            .ok()
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty());
+        Resources {
+            version,
+            integration: integ.is_dir(),
+            zsh: integ.join("zsh").is_dir(),
+            bash: integ.join("bash/ghostty.bash").is_file(),
+            share,
+        }
+    }
     fn ghostty(&self) -> PathBuf {
         self.share.join("ghostty")
     }
     fn version(&self) -> Option<String> {
-        let text = std::fs::read_to_string(self.share.join("ghostty-version")).ok()?;
-        let text = text.trim();
-        (!text.is_empty()).then(|| text.to_string())
+        self.version.clone()
     }
 }
 
@@ -61,11 +77,11 @@ pub fn find_resources(env: &Env) -> Option<Resources> {
         .and_then(|dir| Path::new(dir).parent())
         .filter(|share| has_terminfo(share))
     {
-        return Some(Resources { share: share.to_path_buf() });
+        return Some(Resources::at(share.to_path_buf()));
     }
     if let Some(dir) = std::env::var_os("KANNA_KEEPER_RESOURCES_DIR").filter(|d| !d.is_empty()) {
         let share = PathBuf::from(dir);
-        return has_terminfo(&share).then_some(Resources { share });
+        return has_terminfo(&share).then(|| Resources::at(share));
     }
     let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
     for dir in exe.ancestors().skip(1) {
@@ -74,7 +90,7 @@ pub fn find_resources(env: &Env) -> Option<Resources> {
             candidates.insert(0, dir.join("Contents/Resources"));
         }
         if let Some(share) = candidates.into_iter().find(|c| has_terminfo(c)) {
-            return Some(Resources { share });
+            return Some(Resources::at(share));
         }
     }
     None
@@ -83,7 +99,9 @@ pub fn find_resources(env: &Env) -> Option<Resources> {
 /// The passwd entry of the keeper's user.
 #[derive(Clone, Debug)]
 pub struct User {
+    pub name: OsString,
     pub home: Option<PathBuf>,
+    pub shell: OsString,
 }
 
 pub fn current_user() -> Option<User> {
@@ -102,11 +120,15 @@ pub fn current_user() -> Option<User> {
     if rc != 0 || result.is_null() {
         return None;
     }
-    let cstr = |p: *const libc::c_char| unsafe { std::ffi::CStr::from_ptr(p) };
-    let home = (!pw.pw_dir.is_null())
-        .then(|| PathBuf::from(OsStr::from_bytes(cstr(pw.pw_dir).to_bytes())))
-        .filter(|h| !h.as_os_str().is_empty());
-    Some(User { home })
+    let field = |p: *const libc::c_char| {
+        if p.is_null() {
+            OsString::new()
+        } else {
+            OsStr::from_bytes(unsafe { std::ffi::CStr::from_ptr(p) }.to_bytes()).to_os_string()
+        }
+    };
+    let home = Some(PathBuf::from(field(pw.pw_dir))).filter(|h| !h.as_os_str().is_empty());
+    Some(User { name: field(pw.pw_name), home, shell: field(pw.pw_shell) })
 }
 
 pub struct Context {
@@ -121,14 +143,14 @@ pub struct Context {
 
 impl Context {
     /// The context for a session whose environment is `env`.
-    pub fn for_env(env: &Env) -> Self {
+    pub fn for_env(env: &Env, user: Option<User>) -> Self {
         Self {
             resources: find_resources(env),
             exe_dir: std::env::current_exe()
                 .ok()
                 .and_then(|e| e.parent().map(Path::to_path_buf)),
             macos: cfg!(target_os = "macos"),
-            user: current_user(),
+            user,
         }
     }
 }
@@ -177,7 +199,7 @@ fn prepend_env(current: &OsStr, value: &OsStr) -> OsString {
 /// environment, then Ghostty's additions, then the request's env.
 pub fn plan(
     argv: &[String],
-    cwd: Option<&str>,
+    runs_bin_bash: bool,
     request_env: Option<&Map<String, Value>>,
     inherited: Env,
     ctx: &Context,
@@ -282,18 +304,13 @@ pub fn plan(
     }
 
     let mut argv = argv.iter().map(OsString::from).collect::<Vec<_>>();
-    let shell = detect_shell(&argv, ctx.macos, get(&env, "PATH"));
+    let shell = detect_shell(&argv, ctx.macos && runs_bin_bash);
     if let (Some(res), Some(shell)) = (&ctx.resources, shell) {
-        if let Some(new_argv) = integrate(shell, &argv, &res.ghostty(), &mut env, ctx) {
+        if let Some(new_argv) = integrate(shell, &argv, res, &mut env, ctx) {
             argv = new_argv;
         }
     }
 
-    // Exec.zig propagates the working directory as PWD, and ignores a
-    // working directory it cannot access.
-    if let Some(cwd) = cwd.filter(|c| Path::new(c).is_dir()) {
-        set(&mut env, "PWD", cwd);
-    }
     Plan { argv, env }
 }
 
@@ -312,26 +329,21 @@ fn basename(arg: &OsStr) -> &[u8] {
     base.strip_prefix(b"-").unwrap_or(base)
 }
 
-/// The file execvp would run for `arg0` under `path`.
-fn resolve(arg0: &OsStr, path: Option<&OsStr>) -> Option<PathBuf> {
+pub fn candidates(arg0: &OsStr, path: &OsStr) -> Vec<PathBuf> {
     if arg0.as_bytes().contains(&b'/') {
-        return Some(PathBuf::from(arg0));
+        return vec![PathBuf::from(arg0)];
     }
-    std::env::split_paths(path?)
-        .map(|dir| dir.join(arg0))
-        .find(|candidate| candidate.is_file())
+    std::env::split_paths(path).filter(|dir| dir.is_absolute()).map(|dir| dir.join(arg0)).collect()
 }
 
 /// shell_integration.zig detectShell.
-fn detect_shell(argv: &[OsString], macos: bool, path: Option<&OsStr>) -> Option<Shell> {
+fn detect_shell(argv: &[OsString], apple_bash: bool) -> Option<Shell> {
     let arg0 = argv.first()?;
     Some(match basename(arg0) {
         // Apple's /bin/bash (3.2) ignores ENV, so Ghostty cannot inject into
         // it. Ghostty compares the literal argument; a bare `bash` that PATH
         // resolves to /bin/bash is skipped too, or bash would lose its flags.
-        b"bash" if macos && resolve(arg0, path).is_some_and(|p| p == Path::new("/bin/bash")) => {
-            return None
-        }
+        b"bash" if apple_bash => return None,
         b"bash" => Shell::Bash,
         b"elvish" => Shell::Elvish,
         b"fish" => Shell::Fish,
@@ -344,16 +356,16 @@ fn detect_shell(argv: &[OsString], macos: bool, path: Option<&OsStr>) -> Option<
 fn integrate(
     shell: Shell,
     argv: &[OsString],
-    ghostty: &Path,
+    res: &Resources,
     env: &mut Env,
     ctx: &Context,
 ) -> Option<Vec<OsString>> {
-    let integ = ghostty.join("shell-integration");
+    let integ = res.ghostty().join("shell-integration");
     match shell {
         Shell::Zsh => {
             // setupZsh: zsh reads our .zshenv, which restores ZDOTDIR.
             let dir = integ.join("zsh");
-            if !dir.is_dir() {
+            if !res.zsh {
                 return None;
             }
             if let Some(old) = get(env, "ZDOTDIR").map(OsStr::to_os_string) {
@@ -363,11 +375,11 @@ fn integrate(
             None
         }
         Shell::Elvish | Shell::Fish => {
-            setup_xdg_data_dirs(&integ, env);
+            setup_xdg_data_dirs(&integ, res.integration, env);
             None
         }
         Shell::Nushell => {
-            if !setup_xdg_data_dirs(&integ, env) {
+            if !setup_xdg_data_dirs(&integ, res.integration, env) {
                 return None;
             }
             let mut out = vec![argv[0].clone(), "--execute".into(), "use ghostty *".into()];
@@ -386,13 +398,13 @@ fn integrate(
             }
             Some(out)
         }
-        Shell::Bash => setup_bash(argv, &integ, env, ctx),
+        Shell::Bash => setup_bash(argv, &integ, res.bash, env, ctx),
     }
 }
 
 /// setupXdgDataDirs, for shells that load modules from XDG_DATA_DIRS.
-fn setup_xdg_data_dirs(integ: &Path, env: &mut Env) -> bool {
-    if !integ.is_dir() {
+fn setup_xdg_data_dirs(integ: &Path, present: bool, env: &mut Env) -> bool {
+    if !present {
         return false;
     }
     set(env, "GHOSTTY_SHELL_INTEGRATION_XDG_DIR", integ);
@@ -409,6 +421,7 @@ fn setup_xdg_data_dirs(integ: &Path, env: &mut Env) -> bool {
 fn setup_bash(
     argv: &[OsString],
     integ: &Path,
+    present: bool,
     env: &mut Env,
     ctx: &Context,
 ) -> Option<Vec<OsString>> {
@@ -440,7 +453,7 @@ fn setup_bash(
         }
     }
     let script = integ.join("bash/ghostty.bash");
-    if !script.is_file() {
+    if !present {
         return None;
     }
     if let Some(old) = get(env, "ENV").map(OsStr::to_os_string) {
@@ -489,7 +502,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(share.join("ghostty-version"), "1.3.2-dev+4ec3122\n").unwrap();
-        (root, Resources { share })
+        (root, Resources::at(share))
     }
 
     fn ctx(res: Option<Resources>, macos: bool) -> Context {
@@ -498,7 +511,9 @@ mod tests {
             exe_dir: Some("/opt/kanna/bin".into()),
             macos,
             user: Some(User {
+                name: "u".into(),
                 home: Some("/nonexistent-home".into()),
+                shell: "/bin/zsh".into(),
             }),
         }
     }
@@ -525,7 +540,7 @@ mod tests {
         let share = res.share.clone();
         let p = plan(
             &["zsh".into(), "-l".into()],
-            None,
+            false,
             None,
             base(),
             &ctx(Some(res), false),
@@ -557,7 +572,7 @@ mod tests {
 
     #[test]
     fn fallback_without_resources() {
-        let p = plan(&["zsh".into()], None, None, base(), &ctx(None, false));
+        let p = plan(&["zsh".into()], false, None, base(), &ctx(None, false));
         assert_eq!(val(&p, "TERM"), Some("xterm-256color"));
         assert_eq!(val(&p, "COLORTERM"), Some("truecolor"));
         assert_eq!(val(&p, "TERMINFO"), None);
@@ -573,7 +588,7 @@ mod tests {
         req.insert("ZDOTDIR".into(), "/my/zdot".into());
         let p = plan(
             &["/bin/zsh".into()],
-            None,
+            false,
             Some(&req),
             base(),
             &ctx(Some(res), false),
@@ -590,9 +605,8 @@ mod tests {
         let (_root, res) = resources("login");
         let share = res.share.clone();
         let c = ctx(Some(res), true);
-        let p = plan(&["/bin/zsh".into(), "-l".into()], Some("/"), None, base(), &c);
+        let p = plan(&["/bin/zsh".into(), "-l".into()], false, None, base(), &c);
         assert_eq!(args(&p), ["/bin/zsh", "-l"]);
-        assert_eq!(val(&p, "PWD"), Some("/"));
         assert_eq!(
             val(&p, "XDG_DATA_DIRS").map(String::from),
             Some(format!("/usr/local/share:/usr/share:{}", share.display()))
@@ -601,7 +615,7 @@ mod tests {
             val(&p, "MANPATH").map(String::from),
             Some(format!(":{}", share.join("man").display()))
         );
-        let p = plan(&["sh".into(), "-c".into(), "exit 3".into()], None, None, base(), &c);
+        let p = plan(&["sh".into(), "-c".into(), "exit 3".into()], false, None, base(), &c);
         assert_eq!(args(&p), ["sh", "-c", "exit 3"]);
     }
 
@@ -610,7 +624,7 @@ mod tests {
         let mut req = Map::new();
         req.insert("VTE_VERSION".into(), Value::Null);
         req.insert("PATH".into(), Value::Null);
-        let p = plan(&["sh".into()], None, Some(&req), base(), &ctx(None, false));
+        let p = plan(&["sh".into()], false, Some(&req), base(), &ctx(None, false));
         assert_eq!(val(&p, "PATH"), None);
     }
 
@@ -622,7 +636,7 @@ mod tests {
         set(&mut env, "ENV", "/old/env.sh");
         set(&mut env, "HOME", "/h");
         let argv = ["bash", "--norc", "--rcfile", "rc.sh", "-i"].map(String::from);
-        let p = plan(&argv, None, None, env, &ctx(Some(res.clone()), false));
+        let p = plan(&argv, false, None, env, &ctx(Some(res.clone()), false));
         assert_eq!(args(&p), ["bash", "--posix", "-i"]);
         assert_eq!(val(&p, "GHOSTTY_BASH_INJECT"), Some("1 --norc"));
         assert_eq!(val(&p, "GHOSTTY_BASH_RCFILE"), Some("rc.sh"));
@@ -637,7 +651,7 @@ mod tests {
         // Apple's bash and bash -c are left alone.
         let p = plan(
             &["/bin/bash".into()],
-            None,
+            true,
             None,
             base(),
             &ctx(Some(res.clone()), true),
@@ -648,15 +662,17 @@ mod tests {
         let argv = ["bash".into(), "--norc".into()];
         let p = plan(
             &argv,
-            None,
+            true,
             Some(&path),
             base(),
             &ctx(Some(res.clone()), true),
         );
         assert_eq!(val(&p, "ENV"), None, "bash resolving to /bin/bash");
+        let p = plan(&argv, true, None, base(), &ctx(Some(res.clone()), false));
+        assert_eq!(args(&p), ["bash", "--posix"]);
         let p = plan(
             &["bash".into(), "-c".into(), "x".into()],
-            None,
+            false,
             None,
             base(),
             &ctx(Some(res), false),
@@ -669,11 +685,19 @@ mod tests {
     fn fish_uses_xdg_data_dirs() {
         let (_root, res) = resources("fish");
         let integ = res.ghostty().join("shell-integration");
-        let p = plan(&["fish".into()], None, None, base(), &ctx(Some(res), false));
+        let p = plan(&["fish".into()], false, None, base(), &ctx(Some(res), false));
         assert_eq!(val(&p, "GHOSTTY_SHELL_INTEGRATION_XDG_DIR"), integ.to_str());
         assert_eq!(
             val(&p, "XDG_DATA_DIRS").map(String::from),
             Some(format!("{}:/usr/local/share:/usr/share", integ.display()))
         );
+    }
+
+    #[test]
+    fn candidates_are_absolute_path_entries_or_the_path_given() {
+        let path = OsStr::new("relative:/usr/bin::/bin:.");
+        assert_eq!(candidates(OsStr::new("zsh"), path), [Path::new("/usr/bin/zsh"), Path::new("/bin/zsh")]);
+        assert_eq!(candidates(OsStr::new("./zsh"), path), [Path::new("./zsh")]);
+        assert!(candidates(OsStr::new("zsh"), OsStr::new("a:b")).is_empty());
     }
 }

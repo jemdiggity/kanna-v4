@@ -86,6 +86,7 @@ pub fn recv(sock: RawFd, buf: &mut [u8], nonblocking: bool) -> io::Result<(usize
                 let len = (*cmsg).cmsg_len as usize - (data as usize - cmsg as usize);
                 for i in 0..len / std::mem::size_of::<RawFd>() {
                     let fd = std::ptr::read_unaligned(data.add(i));
+                    #[cfg(not(any(target_os = "linux", target_os = "android")))]
                     crate::sig::set_cloexec(fd);
                     fds.push(OwnedFd::from_raw_fd(fd));
                 }

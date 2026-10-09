@@ -106,20 +106,21 @@ sequenceDiagram
 ```
 
 - The spawn reply comes only once the child has exec'd, so a `close` straight after always reaches it.
-- `adopt` sends a fresh copy of each master each time; the keeper keeps its own.
+- **A slow spawn holds up nobody else.** The keeper never touches the file system for a spawn: the child changes directory and searches `PATH` itself (everything it needs is built before `fork`, so it allocates nothing), and the read end of its exec pipe joins the keeper's poll set. End of file there means the exec happened and the reply goes out; four bytes are the `errno` of a failed exec, and the reply is an error (`cannot run zsh: No such file or directory`). A child that hasn't exec'd within 5 s (`KANNA_KEEPER_SPAWN_TIMEOUT_MS`) is killed and the spawn fails, well inside the daemon's 10 s reply timeout. A process that exits before its spawn is answered is reported right after the reply.
+- `adopt` sends a fresh copy of each master each time; the keeper keeps its own. It sends its own descriptor (`SCM_RIGHTS` makes the copy in the receiver), so adopting or spawning never needs a spare descriptor in the keeper and can't come back short. The client fails `adopt` if a pty arrives without its master or the count differs.
 
 ## 5. What Runs, and Its Environment
 
 | Request | Runs | argv[0] |
 |---|---|---|
 | `command: CMD` | `/bin/sh -c CMD` | `/bin/sh` |
-| `shell: PATH` | `PATH`, interactive | `-name` (login-shell convention) |
+| `shell: PATH` | `PATH`, interactive; a bare name is looked up in the absolute directories on `PATH` only, and not finding it is an error (never a file of that name in the cwd) | `-name` (login-shell convention) |
 | neither | the user's login shell (passwd, else `$SHELL`, else `/bin/sh`) | `-name` |
 
 - **Directly, never through `login(1)`**, which always exits 0 (`login -flp $USER /bin/sh -c 'exit 5'` exits 0). So `exit 3` is reported as 3.
-- **Environment:** the keeper's own (inherited from the daemon that started it), with HOME, USER, LOGNAME and SHELL filled from passwd if missing; then Ghostty's additions (`TERM=xterm-ghostty` and `TERMINFO` when Ghostty's resources are found, else `xterm-256color`; `COLORTERM`, `TERM_PROGRAM=ghostty`, `GHOSTTY_SHELL_FEATURES`, the keeper's folder on `PATH`); then the request's `env`, where `null` removes a variable; then Ghostty's shell integration (zsh `ZDOTDIR`, bash `ENV --posix`, fish/elvish/nushell `XDG_DATA_DIRS`). Ported from kanna-v3 via `feat/keeper` (`ghostty_env.rs`).
-- **Ghostty's resources** come from `GHOSTTY_RESOURCES_DIR`, else `KANNA_KEEPER_RESOURCES_DIR`, else the first `share/` or `Contents/Resources/` with Ghostty's terminfo above the keeper's binary.
-- **cwd** is the request's if it's a directory, else HOME. The child starts a new session with the pty as its controlling terminal, and its signal dispositions and mask reset.
+- **Environment:** the keeper's own (inherited from the daemon that started it) minus what configures the daemon and keeper (`KANNA_STATE_DIR`, `KANNA_KEEPER`, `KANNA_KEEPER_*`), so a daemon run in a pane doesn't find this keeper; with HOME, USER, LOGNAME and SHELL filled from passwd if missing; then Ghostty's additions (`TERM=xterm-ghostty` and `TERMINFO` when Ghostty's resources are found, else `xterm-256color`; `COLORTERM`, `TERM_PROGRAM=ghostty`, `GHOSTTY_SHELL_FEATURES`, the keeper's folder on `PATH`); then the request's `env`, where `null` removes a variable; then Ghostty's shell integration (zsh `ZDOTDIR`, bash `ENV --posix`, fish/elvish/nushell `XDG_DATA_DIRS`). Ported from kanna-v3 via `feat/keeper` (`ghostty_env.rs`).
+- **Ghostty's resources** come from `GHOSTTY_RESOURCES_DIR`, else `KANNA_KEEPER_RESOURCES_DIR`, else the first `share/` or `Contents/Resources/` with Ghostty's terminfo above the keeper's binary. They are looked up once, at start, with the passwd entry and the base environment.
+- **cwd** is the request's if the child can change to it, else HOME, else `/`; `PWD` is set to the one it got. The child starts a new session with the pty as its controlling terminal. The keeper blocks every signal around `fork`, and the child's first act is to reset every disposition (1 to NSIG) to the default, ignored ones included, then empty its mask, so no keeper handler runs in it and nothing the keeper ignored stays ignored.
 
 ## 6. Exits and Close
 
@@ -133,17 +134,19 @@ stateDiagram-v2
 
 - **Exit:** reaped with `waitpid`; reported as `code` or `signal`. The keeper keeps the exited pty (and its master, so the last output can still be read) until it is acknowledged, and tells every new connection about it.
 - **Close:** `SIGHUP` to the process group and the pty's foreground group, `SIGKILL` to both after the grace period (1 s). A closed process's exit isn't reported.
+- **No signal reaches a reused pid:** the keeper reaps only the pids it spawned (`waitpid(pid)`, never `-1`), and a closed process isn't reaped until its `SIGKILL` has gone, so until then its zombie holds the pid and the process group id. The foreground group is killed only if it still belongs to the closed process's session (`getsid`).
 
 ## 7. Life of the Keeper
 
 | | |
 |---|---|
 | **Command line** | `kanna-keeper [--state-dir DIR] [--detach]`. DIR defaults to `$KANNA_STATE_DIR`, else `~/Library/Application Support/kanna` (macOS) or `$XDG_DATA_HOME/kanna`. |
-| **Starting** | The daemon runs `kanna-keeper --state-dir DIR --detach` (via the client's `connect_or_start`): it double-forks into its own session, stdio on `/dev/null`, stderr appended to `keeper.log`, and returns once the socket listens. Without `--detach` it runs in the foreground. |
-| **One per directory** | `flock` on `keeper.lock`; a second keeper returns at once, successfully. |
+| **Starting** | The daemon runs `kanna-keeper --state-dir DIR --detach` (via the client's `connect_or_start`): it double-forks into its own session, changes to `/`, stdio on `/dev/null`, stderr appended to `keeper.log`, and returns once the socket listens (or it found another keeper listening). If the keeper fails before listening, `--detach` prints its error and exits 1; the keeper reports which over a pipe (`1` listening, `2` another keeper, `E` and the error). Without `--detach` it runs in the foreground. |
+| **One per directory** | `flock` on `keeper.lock`; a second keeper returns at once, successfully (with `--detach`, reporting another keeper). The lock's owner may still be starting or already stopping, so `connect_or_start` keeps connecting, and starting a keeper again, with backoff for up to 5 s. |
 | **Files** | `keeper.sock`, `keeper.lock`, `keeper.pid`, `keeper.log` in DIR. |
 | **Client gone** | Nothing happens: the processes and the keeper's copies stay. |
-| **Idle exit** | After 60 s with no live process, no client and nothing being closed. Unacknowledged exits don't keep it. |
+| **Idle exit** | After 60 s with no live process, no client and nothing being closed. Unacknowledged exits don't keep it. It first unlinks the socket, so no one else can connect, then accepts whoever connected meanwhile; if anyone did, it listens again and carries on. |
+| **Descriptors** | At start it raises its soft `RLIMIT_NOFILE` to the hard limit (10240 if the hard limit is unlimited), since a Finder-launched app gets 256; spawned processes get the original limit back. |
 | **Signals** | It unblocks SIGCHLD, SIGTERM and SIGINT at start: the daemon that starts it blocks the signals it waits for, and children inherit that. |
 | **SIGTERM / SIGINT** | It exits without signalling anyone. Its copies close; a pty with no other copy hangs up, and its processes get SIGHUP from the kernel. |
 
@@ -153,8 +156,8 @@ stateDiagram-v2
 
 | Call | Does |
 |---|---|
-| `Client::connect(socket)` / `Client::connect_or_start(state_dir, keeper_bin)` | connects (checking the keeper runs as the same user), starting a detached keeper if none listens |
-| `hello() -> (version, pid)` | |
+| `Client::connect(socket)` / `Client::connect_or_start(state_dir, keeper_bin)` | connects (checking the keeper runs as the same user), starting a detached keeper if none listens; retries for up to `START_TIMEOUT` (5 s), and fails with the keeper's own error if `--detach` does |
+| `hello() -> (version, pid)` | the daemon compares `version` with its `PROTOCOL_VERSION` and refuses a keeper that differs, saying which pid to stop |
 | `spawn(&SpawnRequest) -> Pty` | `SpawnRequest::shell(id)` / `::command(id, cmd)`, then set `shell`, `cwd`, `env`, `cols`, `rows` |
 | `adopt() -> Vec<Pty>` | every pty held; `Pty { id, pid, cmd, cwd, master: OwnedFd, exit }` |
 | `close(id)`, `ack(id)` | |
@@ -166,18 +169,21 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 
 ## 9. Security and Limits
 
-- **State directory** 0700 and owned by the user; **socket** 0600.
+- **State directory** 0700, owned by the user and a real directory: a symlink there is refused (it is opened `O_NOFOLLOW`, checked and tightened through that descriptor). **Socket** 0600.
 - **Peer check:** every connection's uid (`getpeereid` on macOS, `SO_PEERCRED` on Linux) must be the keeper's; others are closed and logged. The client checks the keeper's uid the same way.
 - **Masters** are close-on-exec: no spawned process inherits another's pty.
+- **Inherited descriptors:** the keeper marks every descriptor above stderr it was started with close-on-exec, and `--detach` closes them, so no spawned process inherits, say, a socket of the daemon that started it. The daemon's own copy of the keeper connection (its watch thread's) is `F_DUPFD_CLOEXEC`.
 
 | What | Limit | Setting |
 |---|---|---|
 | Idle exit | 60 s | `KANNA_KEEPER_IDLE_MS` |
 | Grace before SIGKILL | 1 s | `KANNA_KEEPER_CLOSE_GRACE_MS` |
-| Ptys held | 256 | `KANNA_KEEPER_MAX_PTYS` |
+| From fork to exec | 5 s, then the child is killed and the spawn fails | `KANNA_KEEPER_SPAWN_TIMEOUT_MS` |
+| Ptys held, counting closed processes not yet gone | 256 | `KANNA_KEEPER_MAX_PTYS` |
 | Connections | 16 | — |
+| Out of descriptors when accepting | stops polling the socket for 100 ms (Linux leaves the connection queued, so the socket stays readable; macOS drops it) | — |
 | Request line | 1 MiB | — |
-| Unsent replies per connection | 8 MiB, then it's dropped | — |
+| Unsent replies per connection | 8 MiB, or 2 × the pty limit + 16 descriptors, then it's dropped | — |
 
 ## 10. Known Limitations
 
@@ -185,6 +191,7 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 - **On macOS a process can't finish exiting while its last output is unread** (closing the tty waits for output to drain). With no daemon connected, its exit is reported once a daemon adopts the pty and reads it.
 - **A full pty buffer stops the program** while no daemon is reading, as with any terminal nobody reads.
 - **Exits after an idle exit are lost**: unacknowledged exits don't keep the keeper alive.
+- **macOS `recvmsg` has no `MSG_CMSG_CLOEXEC`**: a received master is made close-on-exec just after `recvmsg` returns, so a process the client's program forks from another thread in that instant could inherit it. On Linux the flag closes the window.
 - **Linux** builds (`cargo check --target x86_64-unknown-linux-gnu`) but the tests have only run on macOS.
 
 ## 11. Testing
@@ -198,6 +205,10 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 - exits while nobody is connected: sent on connect, in `adopt` with the last output, again until acknowledged;
 - close: SIGHUP, SIGKILL for what ignores it, children in the group, closing right after spawning;
 - errors as replies; private files; one keeper per directory; the peer check (a debug-only `KANNA_KEEPER_TEST_PEER_UID`);
+- a slow spawn (a debug-only `KANNA_KEEPER_TEST_SPAWN_DELAY_MS` before exec) doesn't hold up another client, and one past the spawn timeout fails; a shell not on `PATH` is an error even with a file of that name in the cwd;
+- descriptors: nothing inherited reaches a spawned process (foreground or `--detach`), adopt near the descriptor limit, a client queueing too many is dropped, `accept` out of descriptors doesn't spin;
+- signals: dispositions the keeper inherited as ignored are default in its children; a closed process stays a zombie until its SIGKILL;
+- races: concurrent `connect_or_start`, connecting while the keeper goes idle; `--detach` failing when the keeper can't listen; the keeper's own settings stay out of spawned environments.
 - idle exit only with no process and no client; `connect_or_start` with a detached keeper.
 
 ## 12. Glossary

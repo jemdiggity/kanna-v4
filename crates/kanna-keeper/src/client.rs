@@ -11,6 +11,8 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+pub const START_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// A pty the keeper holds: the process in it, and a copy of its master for
 /// the daemon to read, write and resize.
 #[derive(Debug)]
@@ -85,6 +87,7 @@ impl SpawnRequest {
 pub struct Client {
     stream: UnixStream,
     inbuf: Vec<u8>,
+    readbuf: Box<[u8]>,
     /// Descriptors received and not yet claimed by a line.
     fds: VecDeque<OwnedFd>,
     events: VecDeque<Exited>,
@@ -107,7 +110,7 @@ impl Client {
         if fdpass::peer_uid(&stream)? != unsafe { libc::getuid() } {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "the keeper runs as another user"));
         }
-        Ok(Client { stream, inbuf: Vec::new(), fds: VecDeque::new(), events: VecDeque::new(), next_req: 1 })
+        Ok(Client { stream, inbuf: Vec::new(), readbuf: vec![0u8; 65536].into_boxed_slice(), fds: VecDeque::new(), events: VecDeque::new(), next_req: 1 })
     }
 
     /// Connects to the keeper of `state_dir`, first starting `keeper_bin`
@@ -116,19 +119,40 @@ impl Client {
     /// spawned process's environment.
     pub fn connect_or_start(state_dir: &Path, keeper_bin: &Path) -> io::Result<Self> {
         let socket = paths::socket(state_dir);
-        if let Ok(client) = Self::connect(&socket) {
-            return Ok(client);
+        let deadline = Instant::now() + START_TIMEOUT;
+        let mut backoff = Duration::from_millis(5);
+        loop {
+            let error = match Self::connect(&socket) {
+                Ok(client) => return Ok(client),
+                Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(e),
+                Err(e) => e,
+            };
+            if Instant::now() >= deadline {
+                return Err(keeper_error(format!("no keeper is listening on {}: {error}", socket.display())));
+            }
+            let out = std::process::Command::new(keeper_bin)
+                .arg("--state-dir")
+                .arg(state_dir)
+                .arg("--detach")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .output()?;
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                return Err(keeper_error(format!(
+                    "{} --detach failed ({}): {}",
+                    keeper_bin.display(),
+                    out.status,
+                    stderr.trim()
+                )));
+            }
+            if let Ok(client) = Self::connect(&socket) {
+                return Ok(client);
+            }
+            std::thread::sleep(backoff.min(deadline.saturating_duration_since(Instant::now())));
+            backoff = (backoff * 2).min(Duration::from_millis(200));
         }
-        let status = std::process::Command::new(keeper_bin)
-            .arg("--state-dir")
-            .arg(state_dir)
-            .arg("--detach")
-            .stdin(std::process::Stdio::null())
-            .status()?;
-        if !status.success() {
-            return Err(keeper_error(format!("{} --detach failed: {status}", keeper_bin.display())));
-        }
-        Self::connect(&socket)
     }
 
     pub fn set_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
@@ -160,19 +184,28 @@ impl Client {
     /// a restarted daemon gets its terminals back.
     pub fn adopt(&mut self) -> io::Result<Vec<Pty>> {
         let mut ptys = Vec::new();
-        self.request(json!({"op": "adopt"}), |line, fds| {
+        let mut missing = Vec::new();
+        let (reply, _) = self.request(json!({"op": "adopt"}), |line, fds| {
             let p = &line["pty"];
-            if let Some(master) = fds.pop() {
-                ptys.push(Pty {
-                    id: p["id"].as_str().unwrap_or("").into(),
+            let id: String = p["id"].as_str().unwrap_or("").into();
+            match fds.pop() {
+                Some(master) => ptys.push(Pty {
+                    id,
                     pid: p["pid"].as_i64().unwrap_or(0) as i32,
                     cmd: strings(&p["cmd"]),
                     cwd: p["cwd"].as_str().unwrap_or("").into(),
                     master,
                     exit: p.get("exit").and_then(ExitStatus::from_json),
-                });
+                }),
+                None => missing.push(id),
             }
         })?;
+        if !missing.is_empty() {
+            return Err(keeper_error(format!("adopt: no pty came with {}", missing.join(", "))));
+        }
+        if reply["ptys"].as_u64() != Some(ptys.len() as u64) {
+            return Err(keeper_error(format!("adopt: the keeper holds {} ptys, {} came", reply["ptys"], ptys.len())));
+        }
         Ok(ptys)
     }
 
@@ -225,11 +258,10 @@ impl Client {
     /// Reads once. False when not blocking and nothing is there;
     /// `UnexpectedEof` when the keeper has closed the connection.
     fn fill(&mut self, block: bool) -> io::Result<bool> {
-        let mut buf = vec![0u8; 65536];
-        match fdpass::recv(self.stream.as_raw_fd(), &mut buf, !block) {
+        match fdpass::recv(self.stream.as_raw_fd(), &mut self.readbuf, !block) {
             Ok((0, _)) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the keeper closed the connection")),
             Ok((n, fds)) => {
-                self.inbuf.extend_from_slice(&buf[..n]);
+                self.inbuf.extend_from_slice(&self.readbuf[..n]);
                 self.fds.extend(fds);
                 Ok(true)
             }
