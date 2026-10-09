@@ -42,53 +42,67 @@ Read each stack top to bottom, like the OSI model: each layer uses the one below
 
 ```mermaid
 flowchart TB
-    subgraph L1["1 · UI — Kanna app"]
-        direction LR
-        DESK["Desk and Shelf"] ~~~ REVIEW["markdown review"] ~~~ EDIT["code editor"]
+    subgraph PAPP["Kanna app process"]
+        direction TB
+        subgraph L1["1 · UI"]
+            direction LR
+            DESK["Desk and Shelf"] ~~~ REVIEW["markdown review"] ~~~ EDIT["code editor"]
+        end
+        subgraph L2["2 · Kanna"]
+            direction LR
+            TASKS["tasks"] ~~~ AGENTS["agents"] ~~~ WT["worktrees"] ~~~ HOOKS["hooks, attention"]
+        end
+        subgraph L3["3 · Mux UI — kmux library"]
+            direction LR
+            TV["terminal view<br/>(external I/O)"] ~~~ WV["web view"] ~~~ IV["iOS screen"] ~~~ MV["markdown view"]
+        end
+        L1 --> L2 --> L3
     end
-    subgraph L2["2 · Kanna — Kanna app"]
-        direction LR
-        TASKS["tasks"] ~~~ AGENTS["agents"] ~~~ WT["worktrees"] ~~~ HOOKS["hooks, attention"]
+    subgraph PD["Kanna daemon process"]
+        subgraph L4["4 · Sessions — kmux CLI shape"]
+            direction LR
+            TS["terminals<br/>libghostty-vt screens"] ~~~ WS["web<br/>URL, history"] ~~~ IS["iOS<br/>device, agent control"] ~~~ MS["markdown<br/>file"]
+        end
     end
-    subgraph L3["3 · Mux UI — kmux library, in the Kanna app"]
-        direction LR
-        TV["terminal view<br/>(external I/O)"] ~~~ WV["web view"] ~~~ IV["iOS screen"] ~~~ MV["markdown view"]
-    end
-    subgraph L4["4 · Sessions — kmux CLI shape, in the Kanna daemon"]
-        direction LR
-        TS["terminals<br/>libghostty-vt screens"] ~~~ WS["web<br/>URL, history"] ~~~ IS["iOS<br/>device, agent control"] ~~~ MS["markdown<br/>file"]
-    end
-    subgraph L5["5 · Keeper — keeper process"]
-        KEEP["creates and holds the ptys"]
+    subgraph PK["keeper process"]
+        subgraph L5["5 · Keeper"]
+            KEEP["creates and holds the ptys"]
+        end
     end
     subgraph L6["6 · macOS"]
         direction LR
         PTY["ptys, shells, agents"] ~~~ WK["WebKit"] ~~~ SIM["iOS Simulator devices"]
     end
-    L1 --> L2 --> L3 --> L4 --> L5 --> L6
+    L3 -->|"socket"| L4
+    L4 -->|"socket"| L5
+    L5 --> L6
 ```
 
 kmux has the same stack without layers 2 and 5, all in one process:
 
 ```mermaid
 flowchart TB
-    subgraph K1["1 · UI — kmux app"]
-        direction LR
-        WIN["windows"] ~~~ TABS["tabs"] ~~~ SPLITS["splits"]
-    end
-    subgraph K3["3 · Mux UI — kmux library, in the kmux app"]
-        direction LR
-        TV["terminal view<br/>(own pty)"] ~~~ WV["web view"] ~~~ IV["iOS screen"] ~~~ MV["markdown view"]
-    end
-    subgraph K4["4 · Sessions — kmux CLI shape, in the kmux app"]
-        direction LR
-        TS["terminals"] ~~~ WS["web"] ~~~ IS["iOS"] ~~~ MS["markdown"]
+    subgraph PK["kmux app process (the only one)"]
+        direction TB
+        subgraph K1["1 · UI"]
+            direction LR
+            WIN["windows"] ~~~ TABS["tabs"] ~~~ SPLITS["splits"]
+        end
+        subgraph K3["3 · Mux UI — kmux library"]
+            direction LR
+            TV["terminal view<br/>(own pty)"] ~~~ WV["web view"] ~~~ IV["iOS screen"] ~~~ MV["markdown view"]
+        end
+        subgraph K4["4 · Sessions — kmux CLI shape"]
+            direction LR
+            TS["terminals"] ~~~ WS["web"] ~~~ IS["iOS"] ~~~ MS["markdown"]
+        end
+        K1 --> K3 --> K4
     end
     subgraph K6["6 · macOS"]
         direction LR
         PTY["ptys, shells, agents"] ~~~ WK["WebKit"] ~~~ SIM["iOS Simulator devices"]
     end
-    K1 --> K3 --> K4 --> K6
+    K4 --> K6
 ```
 
 | Layer | Kanna | kmux | Kanna process |
