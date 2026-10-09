@@ -23,6 +23,7 @@
    - 4.9 [Web, Markdown and iOS Panes](#49-web-markdown-and-ios-panes)
    - 4.10 [Windows, Tabs and Splits](#410-windows-tabs-and-splits)
    - 4.11 [The kanna CLI](#411-the-kanna-cli)
+   - 4.12 [Terminal Behaviour](#412-terminal-behaviour)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -292,7 +293,8 @@ sequenceDiagram
 | `output {pane, data}` | daemon | bytes the program wrote since the snapshot |
 | `exited {pane, code}` | daemon | the program ended |
 | `input {pane, data}` | app | bytes the view wrote: keys, paste, mouse and focus reports |
-| `resize {pane, cols, rows, width, height}` | app | the view now fits this many cells (and pixels) |
+| `resize {pane, cols, rows, width, height}` | app | the view now fits this many cells (and pixels), after a view or font size change |
+| `settings {foreground, background, cursor, palette, scheme, cursorStyle, cursorBlink, graphemes}` | app | the terminal settings from the app's Ghostty config, sent before any attach and again when the config or the light/dark appearance changes ([4.12](#412-terminal-behaviour)) |
 | `debug.*` (with an `id`) | daemon | a request from a client, passed on; the app's reply is the client's |
 | `start`, `stop`, `pane`; `update`; the app's own requests | both | web, markdown and iOS panes ([4.9](#49-web-markdown-and-ios-panes)) |
 
@@ -303,15 +305,15 @@ sequenceDiagram
 - **Debug commands are off by default.** The app answers `debug.*` only when started with `KANNA_DEBUG=1` (the test scripts set it). `debug.snapshot` takes a plain file name and writes a new file in `$KANNA_STATE_DIR` (or `$TMPDIR`); it never overwrites one.
 - **Limits:** a resize beyond 1000 cells a side is refused; a line over 16 MiB drops the app; an app that falls 16 MiB behind on output stops getting it and starts its terminals over (snapshot, grid) once it has caught up, and one 64 MiB behind is dropped.
 - **The layout is the app's** ([4.7](#47-the-layout)): the daemon keeps none and asks the app for every layout step. M0's `layout` notice, which mirrored a layout the daemon kept, is gone.
-- **Screens:** the daemon keeps each terminal's screen with libghostty-vt (`crates/kanna-vt`), fed from the pty: up to 10,000 lines of scrollback, and no more than 10 MB. `read` answers from it, so it works with the app closed.
-- **Queries are answered once, by the daemon.** The program's queries (cursor position, device status and attributes, modes, size reports, XTVERSION) are answered by the daemon's screen, written back to the pty as they're parsed, whether or not the app is attached. The app's surfaces parse the same output but drop their replies (the Ghostty fork's external backend), so the program never gets two. The daemon's screen has no theme colors, so OSC 10/11 color queries get no answer yet.
+- **Screens:** the daemon keeps each terminal's screen with libghostty-vt (`crates/kanna-vt`), fed from the pty: up to 10 MB of scrollback ([4.12](#412-terminal-behaviour)). `read` answers from it, so it works with the app closed.
+- **Queries are answered once, by the daemon.** The program's queries (cursor position, device status and attributes, modes, size reports, XTVERSION) are answered by the daemon's screen, written back to the pty as they're parsed, whether or not the app is attached. The app's surfaces parse the same output but drop their replies (the Ghostty fork's external backend), so the program never gets two. Colour queries (OSC 4, 10, 11, 12) and colour-scheme reports are answered from the theme the app sends in `settings` ([4.12](#412-terminal-behaviour)).
 - **Attaching:** the daemon takes the snapshot on its main loop under the same lock the pty reader feeds the screen and the outbox with, and empties the outbox as it does: what the snapshot has isn't sent again, and every later byte follows as `output`. The app loads the snapshot (`ghostty_surface_load_snapshot`), then applies the `grid` that follows, since a snapshot carries its own grid; both go through the same queue as output, in order. A restarted terminal is attached the same way.
 - **When a snapshot fails:** inside some unfinished sequences (an APC holding a C1 byte) libghostty-vt can't encode one. The daemon then sends nothing for that pane and tries again after the terminal's next output (which is all that can change it), or when it exits. If the app's surface refuses a snapshot (a full mailbox), it retries every 2 ms; after 250 refusals it gives up on it and goes on with the live output.
 
 ### 4.6 The App's Terminal Views
 
 - **Typed text goes out as key events.** Committed text is sent as the key event's text, as Ghostty's app does; `ghostty_surface_text` is the paste path and would wrap every keystroke in bracketed-paste markers. A lone control character is reported without Control, function-key private-use characters aren't text, and text starting with a control character or DEL is dropped so the encoder works from the key code (Shift+Return reaches kitty-keyboard programs as `CSI 13;2u`).
-- **Clipboard reads need a paste.** Only a user-initiated paste reads the clipboard; an OSC 52 read, which arrives with no input event in flight, is answered with nothing.
+- **The clipboard follows Ghostty's rules**, not kmux's: a paste, and an OSC 52 read or write, go through Ghostty's `clipboard-read` (default: ask) and `clipboard-write` (default: allow) settings and its unsafe-paste check; the app only supplies the clipboard and the confirmation sheet ([4.12](#412-terminal-behaviour)).
 - **Focus follows the first responder**, not key-window status, so a pane keeps its focused cursor across reparenting. `ghostty_surface_set_occlusion` takes visibility: false stops the renderer updating at all, so `KANNA_IGNORE_OCCLUSION=1` (the test scripts) keeps hidden windows drawing.
 - **`debug.snapshot` captures with `CGWindowListCreateImage`**, looked up at run time: it is obsoleted in the macOS 15 SDK but still exported, and an app may capture its own windows without the screen-recording permission ScreenCaptureKit needs.
 
@@ -401,14 +403,16 @@ The daemon can stop, crash or be upgraded without losing a terminal ([plan](plan
 | File | What it holds | Written |
 |---|---|---|
 | `terminals.json` | `{kanna: "terminals", version: 1, counters: {pane}, terminals: [{id, name, type, cmd, cwd, state, exitCode, pid, keeper}]}`: each terminal's pane record (`state` is `running` or `exited`, `keeper` the id the keeper knows its pty by) and the pane counter | on every change (open, close, restart, start, exit), from the daemon's main loop; an exit before the daemon acknowledges it to the keeper |
-| `<pane>.snap` | the terminal's screen as a GHOSTSNP snapshot (kanna-vt), as `attach` sends it | by a saver thread, at most once a second per terminal and only after its screen changed; all of them on a clean stop |
+| `<pane>.snap` | `KANNASNAP1\n`, the journal generation it was taken at (u64 LE), then the terminal's screen as a GHOSTSNP snapshot (kanna-vt), as `attach` sends it | by a saver thread, at most once a second per terminal and only after its screen changed; all of them on a clean stop |
+| `<pane>.<generation>.log` | the journal: every chunk of output and every resize since that generation's snapshot, as records `[kind u8][length u32 LE][payload]` (kind 0 output, kind 1 resize: cols, rows, width, height as u16 LE) | appended by the pty reader as it feeds the screen, under the same lock; a new generation starts with each snapshot, and older ones are deleted once the snapshot is on disk |
 
+- **Why a journal** rather than saving more often: a snapshot is the whole screen and scrollback (up to 10 MB), too much to write on every change; the journal is only what changed, appended as it's read. A snapshot without the header (written before the journal) loads with no journal.
 - **Snapshots** are taken under the same lock the pty reader feeds the screen with, without touching what the app is sent. If one can't be encoded (inside some unfinished sequences, as on attach), the last good file stays and the saver tries again a second later; one over 16 MiB isn't written (the screen keeps at most 10 MB of scrollback, so this shouldn't happen) and the last good one stays. A failed write is tried again a second later.
 - **Bounded:** a snapshot file is at most 16 MiB, `terminals.json` is refused past 4 MiB when read; there is one snapshot per terminal, and the keeper holds at most 256 ptys. Snapshots of terminals that are gone are deleted when they close, and at start.
 - **A file it can't trust** (bad JSON, another version, two terminals with one ID, keeper id or name) is moved aside as `terminals.json.bad`, and the daemon starts as if it had none (it still takes back every pty the keeper has, below).
 - **One daemon per folder:** the daemon holds `flock` on `daemon.lock` there while it runs; a second one waits 5 s for it, then exits 1 ("another daemon (pid …) uses …"). Its keeper is the keeper of that folder only, so no daemon ever adopts or closes another's terminals.
 
-**Stopping.** On SIGTERM, SIGINT or SIGHUP the daemon stops reading every pty (whatever is unread stays in the kernel buffer for the next daemon), writes `terminals.json`, saves every screen that changed since its last save, and exits; its terminals keep running in the keeper. A crash (SIGKILL) skips that: up to a second of screen changes before it are lost from the saved screens, and a full-screen program redraws them when it gets SIGWINCH.
+**Stopping.** On SIGTERM, SIGINT or SIGHUP the daemon stops reading every pty (whatever is unread stays in the kernel buffer for the next daemon), writes `terminals.json`, saves every screen that changed since its last save, and exits; its terminals keep running in the keeper. A crash (SIGKILL) skips that, and loses nothing the pty reader had read: the next daemon loads each snapshot and replays the journals of its generation and later on top of it. A journal stops at 64 MiB (the next snapshot, within a second, starts a new one), and at most 256 MiB of journals is replayed; past either, what's missing is at most a second of screen, which a full-screen program redraws on SIGWINCH.
 
 **Starting.** The daemon connects to the keeper (pending exits arrive as events), adopts every pty it holds, and matches them with `terminals.json` by keeper id:
 
@@ -419,7 +423,7 @@ sequenceDiagram
     participant S as shell
     participant D2 as new daemon
     participant A as Kanna app
-    Note over D1: SIGTERM: stops reading, saves terminals.json and the screens<br/>(SIGKILL: what it saved up to a second before)
+    Note over D1: SIGTERM: stops reading, saves terminals.json and the screens<br/>(SIGKILL: the last snapshot and the journal after it)
     D1--xA: link closes; the app keeps trying to reconnect
     S->>S: output waits in the pty buffer
     D2->>D2: flock daemon.lock
@@ -427,7 +431,7 @@ sequenceDiagram
     D2->>K: adopt
     K->>D2: each pty: {id, pid, cmd, cwd, exit?} + master
     D2->>D2: read terminals.json: same IDs, names, cmd, cwd; counter continues
-    D2->>D2: each screen from <pane>.snap (if the pid matches), sized to the pty (TIOCGWINSZ)
+    D2->>D2: each screen from <pane>.snap and its journals (if the pid matches), sized to the pty (TIOCGWINSZ)
     D2->>S: TIOCSWINSZ, then SIGWINCH to the pty's foreground group
     D2->>S: reads what waited in the buffer into the screen, then carries on
     D2->>K: ack exits that happened meanwhile (after saving them)
@@ -451,7 +455,7 @@ sequenceDiagram
 - **Sizes:** the pty keeps the size the last daemon set; the new daemon sizes each screen to it and sets it again, and the app resizes once it attaches.
 - **The app** sees its link close, keeps trying to reconnect, and on reconnecting says hello and attaches again ([4.5](#45-the-app-link)); the hello reply lists the same IDs, so its layout (in memory and in `layout.json`) still matches and nothing moves ([4.7](#47-the-layout)).
 
-**Checked by** `crates/kanna-daemon/tests/restart.rs` (a running shell keeps its pid and screen, output written while the daemon was down appears, and the app gets all of it on attach; a full-screen program redraws once after SIGWINCH; exits while the daemon is down, with their codes; a SIGKILLed daemon's saved screens; IDs don't repeat; a pty the disk doesn't know is taken back and a record the keeper doesn't know dropped; a second daemon on the folder is refused), the store's unit tests, and S6 of `scripts/e2e-kanna.sh` (with the app attached: same PIDs, screen and layout, output written meanwhile, the app's view).
+**Checked by** `crates/kanna-daemon/tests/restart.rs` (a running shell keeps its pid and screen, output written while the daemon was down appears, and the app gets all of it on attach; a full-screen program redraws once after SIGWINCH; exits while the daemon is down, with their codes; a SIGKILLed daemon's screens, including output written just before the kill; IDs don't repeat; a pty the disk doesn't know is taken back and a record the keeper doesn't know dropped; a second daemon on the folder is refused), the store's unit tests, and S6 of `scripts/e2e-kanna.sh` (with the app attached: same PIDs, screen and layout, output written meanwhile, the app's view).
 
 ### 4.9 Web, Markdown and iOS Panes
 
@@ -690,6 +694,118 @@ sequenceDiagram
 **The app's `debug.*` commands** go through the daemon by name: every `debug.*` the core doesn't answer itself (only `debug.saveState` and `debug.restoreState`) is passed to the app with pane names turned into IDs, so a debug command the app adds (kmux's `debug.click`, `debug.drag`, `debug.menu`, …) needs no change in the daemon. The app answers one it doesn't know with kmux's `unknown command`.
 
 **Checked by** `crates/kanna/tests/kmux_reference.rs` (against kmux's source), the unit tests in `crates/kanna/src` (kmux's CLI tests, ported; target and instance resolution; the app started), `crates/kanna/tests/cli.rs` (every command through a real daemon with a test app answering through `LayoutOwner`, and without it; help, marks and `commands --json`; errors and exit codes; instances; the kmux backend), `crates/kanna/tests/no_launch.rs` (nothing starts with `KANNA_SOCKET`; a missing app is exit 3), `crates/kanna-daemon/tests/app_link.rs` (`debug.*` and `capabilities`), and S20–S22 of `scripts/e2e-kanna.sh`: every command against the real app (S20), without it (S21), and an instance started by `--instance` and listed by `instances` (S22).
+
+### 4.12 Terminal Behaviour
+
+Everything a terminal pane does in kmux works in Kanna.app, although the pty lives in the daemon and not in the app ([plan](plans/mux-build.md) track C). kmux's own handling is small: it loads Ghostty's config, keeps a shell's folder (OSC 7) as the pane's cwd, and leaves the rest to Ghostty. Kanna does the same, and where kmux does nothing (bells, notifications, cursor shapes, link checks) it does what Ghostty's macOS app does.
+
+**Design: the program's state lives in the daemon, the user's in the app.** A terminal has two copies of its screen ([4.5](#45-the-app-link)): the daemon's (libghostty-vt, always there) and the app's surface (GhosttyKit, only while shown). Each behaviour belongs to the copy that is there when it's needed:
+
+- **The daemon** answers the program and remembers what must outlive the app: queries (including colours), modes, the cwd, the scrollback, what `read` returns. So a program gets the same answers with the app closed, and a relaunched app gets the same screen back.
+- **The app's surface** does what a person sees or touches: drawing, the selection, keys and IME, the mouse, the clipboard, links, the bell, notifications, progress. It runs Ghostty's own code for these, with Ghostty's rules, and its replies to the program are dropped (the daemon answered already), except for what only it can say: keys, paste, mouse and focus reports, and the answer to an OSC 52 read, which go to the pty as `input`.
+
+```mermaid
+flowchart LR
+    P["program<br/>(in the keeper's pty)"] -->|output| D["daemon screen<br/>libghostty-vt"]
+    D -->|"replies: queries, colours,<br/>scheme reports"| P
+    D -->|"snapshot, output"| S["app surface<br/>GhosttyKit"]
+    S -->|"input: keys, paste, mouse,<br/>focus, OSC 52 answer"| P
+    S -->|"resize (view or font size)"| D
+    CFG["Ghostty config<br/>+ light/dark appearance"] --> S
+    CFG -->|"settings"| D
+    S --> U["what the user sees:<br/>clipboard, links, bell,<br/>notifications, progress"]
+    D --> L["kanna list (cwd) · kanna read"]
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class D,S kmux
+    class P,CFG,U,L ext
+```
+
+**The config.** The app loads Ghostty's config as kmux does (`ghostty_config_load_default_files`, then the files they include, then `finalize`), so a Kanna terminal looks and behaves as the user's Ghostty does. Ghostty's `reload_config` (⌘⇧, by default) reloads it; a conditional theme (`theme = light:…,dark:…`) follows the app's light/dark appearance: on a change the app tells Ghostty (`ghostty_app_set_color_scheme`), Ghostty applies the matching theme and reports the config it now uses (`CONFIG_CHANGE`), and the app sends the daemon what it needs from it:
+
+```mermaid
+sequenceDiagram
+    participant M as macOS
+    participant A as Kanna.app
+    participant G as GhosttyKit
+    participant D as daemon
+    participant P as program
+    P->>D: ESC[?2031h (report scheme changes)
+    M->>A: appearance → dark
+    A->>G: set color scheme dark (app and every surface)
+    G->>A: CONFIG_CHANGE (the dark theme's config)
+    A->>D: settings {foreground, background, palette, scheme: dark, …}
+    D->>D: every screen: default colours, scheme
+    D->>P: ESC[?997;1n (only to programs that asked)
+    P->>D: OSC 11 ? (background colour)
+    D->>P: OSC 11 ; rgb:… (from the dark theme)
+```
+
+**`settings`** ([4.5](#45-the-app-link)) carries the foreground, background, cursor colour, the 256-colour palette, the scheme, the cursor style and blink, and the grapheme width method. The daemon keeps the last one in `terminals/settings.json` (0600), so a restarted daemon answers colour queries the same way before the app is back, and applies it to every screen, new or restored (default colours, cursor and mode defaults, scrollback limit). The cursor colour isn't readable from a config, so the app takes it from a live surface's defaults.
+
+**What each behaviour does:**
+
+| Behaviour | kmux | Kanna | Checked by |
+|---|---|---|---|
+| Colour queries (OSC 4, 10, 11, 12), DECRQSS cursor style | Ghostty's pty answers from the theme | the daemon answers from `settings`, with or without the app | kanna-vt tests, `terminal_behaviour.rs`, S30 |
+| Light/dark | Ghostty's theme switch | the same, and the daemon reports the scheme to programs that set mode 2031 | `terminal_behaviour.rs`, S30 (screenshots in both) |
+| Shell folder (OSC 7) | the pane's cwd: `list`, restart, restore | the daemon parses it (`file://` on this host, or `kitty-shell-cwd://`) and sets the pane's cwd: `list`, `restart` | `terminal_behaviour.rs`, S31 |
+| Title (OSC 0/2) | not shown | kept on the surface (`onTitle` for the tabs, should they want it); not shown | S31 |
+| Copy, paste, selection, bracketed paste | Ghostty's | Ghostty's; ⌘C/⌘V, the selection clipboard is the app's own | S32 |
+| OSC 52 | read only during input events (so in effect never), write allowed | Ghostty's rules: `clipboard-read` (ask), `clipboard-write` (allow), with a sheet when asked | S32 |
+| Mouse reporting, selection, scrolling | Ghostty's | Ghostty's; reports go to the pty as `input` | S33 |
+| Keys, IME, kitty keyboard | Ghostty's | Ghostty's ([4.6](#46-the-apps-terminal-views)); the program's keyboard mode is in the snapshot, so it survives a relaunch | S33 |
+| Focus reporting (mode 1004) | Ghostty's | the surface reports focus in and out; the mode is in the snapshot | S33 |
+| Cursor shapes, link hover | Ghostty's macOS app sets them; kmux doesn't | the app sets the mouse cursor Ghostty asks for and a pointer over a link | by hand (`debug.terminal` reports `hoveredLink`) |
+| ⌘-click a link | Ghostty's fallback opener: anything | web, mail and plain documents only (below) | KannaLinks tests, S35 |
+| Bell | nothing | Ghostty's `bell-features`: system beep, the Dock's attention request | S35 |
+| Desktop notifications (OSC 9, OSC 777) | nothing | Ghostty's (`desktop-notifications`, its rate limit), posted with UserNotifications | S35 |
+| Progress (OSC 9;4) | nothing | kept on the surface (`onProgress`) | S35 |
+| Font size (⌘+, ⌘−, ⌘0) | the surface's grid changes, and its pty with it | the surface asks the daemon for the new grid (`resize`), as a view resize does | S12, S34 |
+| Synchronized output (mode 2026) | Ghostty's | Ghostty's; a snapshot taken mid-update ends it after Ghostty's timeout | by hand |
+| Scrollback | Ghostty's `scrollback-limit` (10 MB default) | the daemon keeps 10 MB, no line limit; `read --lines` | kanna-vt tests, S34 |
+| Search | none | none, as kmux | — |
+
+**Links** come from terminal output, which any program (or a file being `cat`ed) writes, so a click on one is treated as untrusted. Ghostty opens a link only on a click with ⌘ held; the app then decides, in `KannaLinks` (`UntrustedURL`, started from Ghostty's macOS app's rules for OSC 8 links and made stricter):
+
+| Target | Decision |
+|---|---|
+| `http`, `https` with a host; `mailto` with an address | opened |
+| `file://` (empty host or `localhost`) or a plain absolute path, to a document or plain folder | opened, as the path it resolves to |
+| anything that can run code or hand off to another target: an app or any other package or bundle, anything inside one, a script, an executable (by type or by its execute bit), a Finder alias, a symlink to any of these, `.command`, `.tool`, `.terminal`, `.webloc`, `.inetloc`, `.fileloc`, `.shortcut`, `.workflow`, `.pkg`, `.mobileconfig`, `.jar`, `.webarchive` and the rest of the list | refused |
+| a document whose default app runs code: a terminal (Terminal, iTerm2, Ghostty, Kanna, …), Script Editor, Automator, Installer, Shortcuts, System Settings, Archive Utility, … | refused |
+| any other scheme (`ssh`, `vscode`, `x-apple.systempreferences`, `javascript`, `smb`, …) | refused |
+| invisible, control or line-breaking characters (bidi marks, zero-width and other blank characters), a `file://` with another host, a user, a port, a query or a fragment, a relative path, a missing file or a device | refused |
+
+A refusal shows a sheet with the target, as it would resolve, and a Copy Link button. How the rules hold:
+
+- **What is checked is what is opened.** The text is parsed once into a URL; a web or mail link opens that same URL object, and a file opens as the canonical path the checks were made on (`..`, `.` and symlinks resolved), so no second parser can read it differently. Percent-encoding (`run%2Ecommand`), case (`PAYLOAD.APP`) and a trailing `/` are judged after decoding.
+- **Every part of the path counts**, not just the last: a file inside an `.app` (or any name with a refused extension) is refused, as Launch Services would treat the bundle.
+- **Types and the execute bit as well as names:** the file's content type is checked against application, executable, script, bundle, package, alias, symlink, internet location and web archive, so a misleading name doesn't help.
+- **Left:** the check and the open are a moment apart, so a program racing to swap the file between them could still win; the open is of the resolved path, right after the check, on the main thread.
+
+Ghostty's app asks before opening other schemes and opens plain-text links (its link regex) with no check; Kanna refuses other schemes and checks plain-text links too, since both are written by the program. The screen file Ghostty's `write_screen_file` action writes (a keybinding, the user's own) opens as Ghostty's app opens it.
+
+**Keeping the surface right across a snapshot** (the Ghostty fork, `kmux-external-io`): loading a snapshot replaces the surface's terminal, so the fork keeps what belongs to the surface and not to the program: whether it's focused and visible (focus reports stay correct), the config's cursor style and colours (unless the program chose its own), and the image limits. A widening resize keeps the scrollback inside its byte limit, so a snapshot after it loads whole. A font size change asks the host for a new grid instead of resizing the surface's own terminal, which only the daemon's resize may do ([4.5](#45-the-app-link)).
+
+**Debug mode** (`KANNA_DEBUG=1`) acts on nothing outside the app: the clipboard is a private pasteboard (`dev.kanna.debug.<pid>`), and links, bells and notifications are recorded, not opened, rung or posted; confirmation sheets are answered no. `debug.terminal {pane, clipboard?, action?, zoom?, click?, appearance?}` sets them up and reports the surface: grid and cell size, title, hovered link, selection, background colour, clipboard, links with their decisions, what was opened, bells, notifications, progress, settings and focus.
+
+**Decided:**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Who answers the program | the daemon, for everything it can; the surface only for keys, mouse, focus, paste and OSC 52 reads | one answer, the same with the app closed |
+| Clipboard reads | Ghostty's `clipboard-read` (ask), not kmux's input-event check | kmux's check refuses every OSC 52 read; Ghostty's asks the user, and the config can allow or deny |
+| Bell, notifications, cursor shapes, links | as Ghostty's macOS app | kmux does nothing for them; Ghostty's app is the reference for terminal behaviour |
+| Links | web, mail and plain local documents; every other scheme, and anything that could run code, refused (Ghostty's app asks for other schemes) | terminal output is untrusted; a confirmation is one click from running a handler the program chose |
+| Scrollback | 10 MB, no line limit (kmux: Ghostty's `scrollback-limit`) | the limit can't be read from a config through libghostty's API, and every snapshot crosses the app link and is saved; 10 MB is Ghostty's default |
+| Titles | kept, not shown | kmux doesn't show them; the tabs can |
+| Surfaces | made when a pane is first shown, kept while it's in the layout ([4.10](#410-windows-tabs-and-splits)) | focus, mouse and keyboard modes are the surface's, and a tab switch shows a live screen |
+| A crash of the daemon | the journal ([4.8](#48-restarting-the-daemon)) | the last second of output is the part the user was looking at |
+
+**Not done:** OSC 5522 (kitty's clipboard protocol) gets only part of its replies; kitty graphics aren't in a snapshot, so images go when the app relaunches; an empty OSC 7 is ignored; a title isn't shown again after a relaunch until the program sets it.
+
+**Checked by** `crates/kanna-vt/tests/terminal.rs` (colour answers, scheme reports, cursor defaults, title and cwd changes, snapshots after widening), `crates/kanna-daemon/tests/terminal_behaviour.rs` (colour queries from the app's theme, also after a restart; scheme reports; the shell's folder in `list`), `crates/kanna-daemon/tests/restart.rs` (output just before a SIGKILL survives), `apps/kanna/Tests/KannaLinksTests` (every link rule), and S30–S35 of `scripts/e2e-kanna.sh`: theme and light/dark with screenshots (S30), cwd and title (S31), paste, OSC 52 and selection (S32), kitty keys, mouse and focus reports after a relaunch (S33), font size and the pty, scrollback (S34), links, bell, notifications and progress (S35).
 
 ---
 
@@ -990,4 +1106,12 @@ sequenceDiagram
 | **Divider** | The 1 pt line between two panes of a split; dragging it moves the split between them. |
 | **Grip** | The ⋯ handle at the top of a pane, seen only under the mouse; dragging it moves the pane. |
 | **Drop hint** | The highlight showing where a dragged pane or tab will land. |
+| **Surface** | One terminal view's Ghostty terminal in the app (GhosttyKit): it draws the screen and handles keys, mouse, selection and clipboard ([4.12](#412-terminal-behaviour)). |
+| **Snapshot** | A terminal's whole screen (grid, scrollback, modes, colours) as bytes (GHOSTSNP), sent on attach and saved on disk. |
+| **Journal** | The output and resizes a terminal had since its last saved snapshot, kept so a crashed daemon loses none ([4.8](#48-restarting-the-daemon)). |
+| **Settings (terminal)** | What the app's Ghostty config says about colours, scheme, cursor and graphemes, sent to the daemon so it can answer programs ([4.12](#412-terminal-behaviour)). |
+| **OSC** | Operating System Command: an escape sequence a program writes to set or ask for something (title, folder, colours, clipboard, links, notifications). |
+| **OSC 52** | The escape sequence a program uses to read or write the clipboard. |
+| **OSC 8 link** | A hyperlink a program writes into the terminal; its text and target can differ. |
+| **Light/dark scheme** | Which of a conditional theme's two halves applies; follows the app's appearance and is reported to programs that ask (mode 2031). |
 | **View (of the layout)** | What the app draws: every window with its tabs and the tree on screen, from the layout model ([4.10](#410-windows-tabs-and-splits)). |

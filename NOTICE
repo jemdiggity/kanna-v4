@@ -165,8 +165,9 @@ Derived from Ghostty:
   apps/kanna/Sources/Kanna/Terminal/LinkAlert.swift
       From Ghostty's macOS app at the commit scripts/env.sh pins:
       macos/Sources/Helpers/UntrustedURL.swift, UntrustedURLAlert.swift and
-      macos/Tests/Ghostty/UntrustedURLTests.swift, with comments removed;
-      UntrustedURL(clicked:) and the extra tests are Kanna's.
+      macos/Tests/Ghostty/UntrustedURLTests.swift, with comments removed
+      and the rules made stricter; UntrustedURL(clicked:), the handler,
+      package and path checks and most tests are Kanna's.
 
 Kanna.app links GhosttyKit and the daemon links libghostty-vt, both built
 from a fork of Ghostty: the kmux-external-io branch (upstream a806905, kmux's

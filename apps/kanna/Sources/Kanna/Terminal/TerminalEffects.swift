@@ -52,7 +52,6 @@ final class TerminalEffects {
         }
         switch decision {
         case .allow(let url): NSWorkspace.shared.open(url)
-        case .confirm(let url): LinkAlert.confirm(url, showing: link.displayString, in: window)
         case .deny(let reason):
             LinkAlert.block(reason, showing: link.displayString, in: window) { [weak self] target in
                 self?.write(target, to: GHOSTTY_CLIPBOARD_STANDARD)

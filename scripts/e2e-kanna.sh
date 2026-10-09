@@ -789,7 +789,7 @@ SH
   links="$(terminal links '{"pane":"s35"}' | python3 -c 'import json, sys; print("\n".join(l["decision"] + " " + l["url"] for l in json.load(sys.stdin)))')"
   check test "$links" == "allow https://example.com/s35
 allow https://example.com/osc8
-confirm x-apple.systempreferences:com.apple.Security
+deny:unsupportedScheme x-apple.systempreferences:com.apple.Security
 deny:unsafeFile file:///System/Applications/Calculator.app
 deny:unsafeFile file://$dir/run.command
 allow file://$dir/notes.txt

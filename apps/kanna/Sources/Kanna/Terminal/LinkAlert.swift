@@ -3,23 +3,6 @@ import KannaLinks
 
 @MainActor
 enum LinkAlert {
-    static func confirm(_ url: URL, showing target: String, in window: NSWindow?) {
-        let handler = NSWorkspace.shared.urlForApplication(toOpen: url).map { "\u{201c}\($0.deletingPathExtension().lastPathComponent)\u{201d}" }
-            ?? "the default application"
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.icon = NSImage(named: NSImage.cautionName)
-        alert.messageText = "Open Link from Terminal Output?"
-        alert.informativeText = "This link will open in \(handler). Only continue if you recognize and trust the destination."
-        alert.accessoryView = targetView(target)
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Open Link")
-        present(alert, in: window) { response in
-            guard response == .alertSecondButtonReturn else { return }
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     static func block(_ reason: UntrustedURL.DenialReason, showing target: String, in window: NSWindow?, copy: @escaping @MainActor (String) -> Void) {
         let alert = NSAlert()
         alert.alertStyle = .warning
