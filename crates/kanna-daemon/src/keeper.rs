@@ -32,7 +32,14 @@ impl Keeper {
     pub fn connect(state_dir: &Path, bin: &Path, events: Sender<Event>) -> io::Result<Keeper> {
         let mut client = Client::connect_or_start(state_dir, bin)?;
         client.set_timeout(Some(REPLY_TIMEOUT))?;
-        let (_, pid) = client.hello()?;
+        let (version, pid) = client.hello()?;
+        if version != kanna_keeper::PROTOCOL_VERSION {
+            return Err(io::Error::other(format!(
+                "the keeper running for {} (pid {pid}) speaks protocol {version}, this daemon speaks {}; stop that keeper (its processes go with it) or run a matching daemon",
+                state_dir.display(),
+                kanna_keeper::PROTOCOL_VERSION
+            )));
+        }
         let (resume_watch, watch_resumed) = mpsc::channel();
         Ok(Keeper {
             client: RefCell::new(client),
@@ -164,5 +171,35 @@ impl Spawner for Keeper {
 
     fn acknowledge_exit(&self, id: &str) {
         let _ = self.request(|client| client.ack(id));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixListener;
+
+    #[test]
+    fn a_keeper_speaking_another_protocol_is_refused() {
+        let dir = std::env::temp_dir().join(format!("kdk{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let listener = UnixListener::bind(dir.join("keeper.sock")).unwrap();
+        let fake = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(&stream).read_line(&mut line).unwrap();
+            let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let reply = serde_json::json!({"ok": true, "version": 999, "pid": 4242, "req": req["req"]});
+            (&stream).write_all(format!("{reply}\n").as_bytes()).unwrap();
+        });
+        let (events, _rx) = mpsc::channel();
+        let error = Keeper::connect(&dir, Path::new("/nonexistent/kanna-keeper"), events).err().expect("refused");
+        let message = error.to_string();
+        assert!(message.contains("999") && message.contains(&kanna_keeper::PROTOCOL_VERSION.to_string()), "{message}");
+        assert!(message.contains("4242"), "{message}");
+        fake.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

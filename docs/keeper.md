@@ -154,7 +154,7 @@ stateDiagram-v2
 | Call | Does |
 |---|---|
 | `Client::connect(socket)` / `Client::connect_or_start(state_dir, keeper_bin)` | connects (checking the keeper runs as the same user), starting a detached keeper if none listens |
-| `hello() -> (version, pid)` | |
+| `hello() -> (version, pid)` | the daemon compares `version` with its `PROTOCOL_VERSION` and refuses a keeper that differs, saying which pid to stop |
 | `spawn(&SpawnRequest) -> Pty` | `SpawnRequest::shell(id)` / `::command(id, cmd)`, then set `shell`, `cwd`, `env`, `cols`, `rows` |
 | `adopt() -> Vec<Pty>` | every pty held; `Pty { id, pid, cmd, cwd, master: OwnedFd, exit }` |
 | `close(id)`, `ack(id)` | |
