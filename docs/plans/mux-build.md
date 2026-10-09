@@ -205,7 +205,7 @@ Built ([spec §4.10](../kanna-spec.md#410-windows-tabs-and-splits)): `apps/kanna
 
 Open (for other tracks or the user):
 
-- **Font size and the pty (track C).** ⌘+ / ⌘− change the surface's grid (S12 checks `debug.text`'s `columns`), but the external-I/O surface doesn't ask the daemon to resize, so the pty keeps its old size until the view's size changes. The fix belongs in the Ghostty fork's external backend or `ExternalIO.swift`: a grid change from a font change should send `resize` like a view resize.
+- ~~**Font size and the pty (track C).**~~ Fixed in track C (C.12): the fork's external surface asks the daemon for the new grid on a font size change.
 - **Clicks in a window that isn't key** activate it without focusing the pane under the mouse (terminals don't accept the first mouse, as in kmux). Ghostty's own app accepts it; say if Kanna should.
 - **New Instance** is built but not run by the scenarios: it would create a real `kanna-dev-N` instance in the user's application support folder.
 
@@ -236,8 +236,35 @@ Every kmux CLI command, option and behaviour (kmux 1f05ccb, `crates/kmux`), and 
 
 ### Track C · Terminal behaviour
 
+Everything a terminal pane does in kmux works in Kanna.app, with the pty in the daemon, as [spec §4.12](../kanna-spec.md#412-terminal-behaviour) describes. Inventory from kmux's `Terminal/*` and its action handling (only PWD, child exit and layout actions), kmux's spec, and Ghostty's embedded apprt and macOS app. ✓ when built and checked.
+
 | Step | What | Checked by |
 |---|---|---|
+| **C.1** ✓ | This inventory | — |
+| C.2 ✓ | **Ghostty config** loaded as kmux (default files, includes, finalize); `reload_config` (hard) and Ghostty's soft reloads; `CONFIG_CHANGE` re-reads the settings | S30 |
+| C.3 ✓ | **Theme to the daemon:** `settings` on the app link (colours, palette, cursor colour, scheme, cursor style and blink, graphemes), sent before attaching and on every change; kept in `terminals/settings.json`; applied to new and restored screens | `store` unit test, `terminal_behaviour.rs` |
+| C.4 ✓ | **Colour queries** OSC 4/10/11/12 and DECRQSS cursor answered by the daemon from the theme, also after a restart, with the app closed | kanna-vt tests, `terminal_behaviour.rs`, S30 |
+| C.5 ✓ | **Light/dark:** the app's appearance drives Ghostty's conditional theme (app and surfaces); the daemon reports the scheme to programs with mode 2031 (`CSI ?997;1n`/`2n`) | `terminal_behaviour.rs`, S30 (screenshots light and dark) |
+| C.6 ✓ | **cwd and title:** OSC 7 parsed by the daemon (`file://` on this host, `kitty-shell-cwd://`) into the pane's cwd (`list`, `restart`); OSC 0/2 titles kept on the surface (`onTitle`), not shown, as kmux | `terminal_behaviour.rs`, S31 |
+| C.7 ✓ | **Clipboard:** copy, paste, selection clipboard, bracketed paste, OSC 52 write and read with Ghostty's `clipboard-read`/`clipboard-write` rules and confirmation sheets; debug mode uses a private pasteboard | S32 |
+| C.8 ✓ | **Mouse and keys:** selection, SGR reporting, scrolling, kitty keyboard, IME (as before), all after a relaunch (modes in the snapshot) | S33 |
+| C.9 ✓ | **Focus reporting** (mode 1004) in and out as focus moves between panes, after a relaunch; the fork keeps the surface's focus and visibility across snapshot loads | S33 |
+| C.10 ✓ | **Links, cursor shapes, hover:** mouse shapes and visibility, pointer over links, ⌘-click opens only web, mail and plain local documents (`KannaLinks`), refusing other schemes and anything that could run code | `KannaLinksTests`, S35 |
+| C.11 ✓ | **Bell, notifications, progress** as Ghostty's macOS app (kmux does nothing): `bell-features`, OSC 9/777 with `desktop-notifications` and Ghostty's rate limit, OSC 9;4 progress (`onProgress`) | S35 |
+| C.12 ✓ | **Font size:** ⌘+/⌘−/⌘0 change the surface's cells and the fork asks the daemon for the new grid (`resize`), so the pty follows; scrollback survives | S12, S34 |
+| C.13 ✓ | **DEC modes and defaults after snapshot/attach:** the fork applies the config's cursor style and colours, image limits and focus state to a loaded snapshot, and times out synchronized output a snapshot left on | fork test, S33 |
+| C.14 ✓ | **Scrollback:** 10 MB, no line limit, in the daemon; `read --lines`; a widening reflow keeps the byte limit so the next snapshot restores whole (fork fix) | kanna-vt tests, S34 |
+| C.15 ✓ | **Daemon SIGKILL:** a journal of output and resizes after each snapshot, replayed on start; nothing the reader read is lost | `restart.rs` (`a_crashed_daemon_loses_nothing_of_the_screen`) |
+| C.16 ✓ | `debug.terminal` (grid, cells, title, hovered link, selection, colours, clipboard, links and decisions, bells, notifications, progress, settings, focus; clicks by point or cell; zoom; appearance) | S30–S35 |
+| C.17 ✓ | Spec §4.12 (with §4.5, §4.6 and §4.8 updated, glossary); NOTICE | — |
+
+Decided (spec §4.12): the daemon answers the program, the surface does what the user sees, with Ghostty's semantics where kmux has none; OSC 52 reads follow Ghostty's `clipboard-read`; links from output are untrusted, plain-text ones too; debug mode records effects instead of acting.
+
+Open (for the user):
+
+- **Scrollback is 10 MB with no line limit** (kmux: the config's `scrollback-limit`). libghostty's config API can't read that limit, and every snapshot crosses the app link and is saved; say if a larger or configurable limit is wanted.
+- **Links refuse every scheme but web, mail and file.** Ghostty's app asks before opening others (`vscode://`, `ssh://`); Kanna refuses them after two security reviews. Say if a confirmation sheet (Ghostty's behaviour) is preferred.
+- **Not done:** kitty's clipboard protocol (OSC 5522) is partly answered; kitty images aren't in a snapshot, so they go on relaunch; a title isn't shown again after a relaunch until the program sets it; no search (kmux has none).
 
 ## 8. Clean-up
 
