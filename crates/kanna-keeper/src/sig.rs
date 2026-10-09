@@ -29,6 +29,27 @@ pub fn set_cloexec(fd: libc::c_int) {
     }
 }
 
+/// The descriptors open in this process, from /dev/fd.
+pub fn open_fds() -> Vec<libc::c_int> {
+    let Ok(dir) = std::fs::read_dir("/dev/fd") else { return Vec::new() };
+    dir.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok()).collect()
+}
+
+/// Marks every descriptor above stderr close-on-exec, so nothing this
+/// process was started with reaches the processes it spawns.
+pub fn cloexec_inherited() {
+    for fd in open_fds().into_iter().filter(|&fd| fd > 2) {
+        set_cloexec(fd);
+    }
+}
+
+/// Closes every descriptor above stderr except `keep`.
+pub fn close_inherited(keep: &[libc::c_int]) {
+    for fd in open_fds().into_iter().filter(|fd| *fd > 2 && !keep.contains(fd)) {
+        unsafe { libc::close(fd) };
+    }
+}
+
 /// Routes `signals` into the returned pipe; each byte read is a signal number.
 /// One pipe per process.
 pub fn pipe(signals: &[libc::c_int]) -> Result<OwnedFd> {

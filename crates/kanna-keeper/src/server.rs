@@ -159,6 +159,7 @@ struct Keeper {
 /// Returns at once if another keeper holds the state directory. `ready` is
 /// written to once the socket is listening, and closed either way.
 pub fn run(settings: Settings, ready: Option<OwnedFd>) -> Result<()> {
+    sig::cloexec_inherited();
     let dir = settings.state_dir.clone();
     paths::ensure_dir(&dir).with_context(|| format!("state directory {}", dir.display()))?;
     let lock = std::fs::OpenOptions::new()
@@ -548,6 +549,7 @@ pub fn detach(settings: Settings) -> Result<()> {
             }
             drop(null);
             drop(log);
+            sig::close_inherited(&[write.as_raw_fd()]);
             let code = match run(settings, Some(write)) {
                 Ok(()) => 0,
                 Err(e) => {

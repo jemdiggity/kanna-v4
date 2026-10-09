@@ -169,6 +169,7 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 - **State directory** 0700, owned by the user and a real directory: a symlink there is refused (it is opened `O_NOFOLLOW`, checked and tightened through that descriptor). **Socket** 0600.
 - **Peer check:** every connection's uid (`getpeereid` on macOS, `SO_PEERCRED` on Linux) must be the keeper's; others are closed and logged. The client checks the keeper's uid the same way.
 - **Masters** are close-on-exec: no spawned process inherits another's pty.
+- **Inherited descriptors:** the keeper marks every descriptor above stderr it was started with close-on-exec, and `--detach` closes them, so no spawned process inherits, say, a socket of the daemon that started it. The daemon's own copy of the keeper connection (its watch thread's) is `F_DUPFD_CLOEXEC`.
 
 | What | Limit | Setting |
 |---|---|---|
@@ -185,6 +186,7 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 - **On macOS a process can't finish exiting while its last output is unread** (closing the tty waits for output to drain). With no daemon connected, its exit is reported once a daemon adopts the pty and reads it.
 - **A full pty buffer stops the program** while no daemon is reading, as with any terminal nobody reads.
 - **Exits after an idle exit are lost**: unacknowledged exits don't keep the keeper alive.
+- **macOS `recvmsg` has no `MSG_CMSG_CLOEXEC`**: a received master is made close-on-exec just after `recvmsg` returns, so a process the client's program forks from another thread in that instant could inherit it. On Linux the flag closes the window.
 - **Linux** builds (`cargo check --target x86_64-unknown-linux-gnu`) but the tests have only run on macOS.
 
 ## 11. Testing

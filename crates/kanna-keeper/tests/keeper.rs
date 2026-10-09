@@ -459,3 +459,70 @@ fn a_request_to_a_keeper_that_doesnt_answer_times_out() {
     assert_eq!(c.hello().unwrap_err().kind(), std::io::ErrorKind::TimedOut);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn clean_command(state: &Path, home: &Path) -> Command {
+    let mut cmd = Command::new(BIN);
+    cmd.arg("--state-dir").arg(state).env_clear().stdin(Stdio::null());
+    for key in ["PATH", "USER", "LOGNAME", "TMPDIR"] {
+        if let Some(v) = std::env::var_os(key) {
+            cmd.env(key, v);
+        }
+    }
+    cmd.env("HOME", home).env("SHELL", "/bin/sh");
+    cmd
+}
+
+fn with_inherited_fd(cmd: &mut Command, target: i32) -> OwnedFd {
+    use std::os::fd::FromRawFd;
+    use std::os::unix::process::CommandExt;
+    let mut fds = [-1; 2];
+    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+    for fd in fds {
+        unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+    }
+    let read = fds[0];
+    unsafe {
+        cmd.pre_exec(move || {
+            libc::dup2(read, target);
+            Ok(())
+        });
+        libc::close(fds[1]);
+        OwnedFd::from_raw_fd(read)
+    }
+}
+
+const FD_PROBE: &str = "if [ -e /dev/fd/57 ]; then echo fd57-leaked; else echo fd57-clean; fi; sleep 30";
+
+#[test]
+fn spawned_processes_inherit_no_descriptor_the_keeper_was_started_with() {
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    let _pipe = with_inherited_fd(&mut cmd, 57);
+    let _keeper = KilledOnDrop(cmd.spawn().unwrap());
+    wait_for("the keeper's socket", || Client::connect(&state.join("keeper.sock")).is_ok());
+    let mut c = Client::connect(&state.join("keeper.sock")).unwrap();
+    let pty = c.spawn(&SpawnRequest::command("t1", FD_PROBE)).unwrap();
+    read_until(&pty.master, "fd57-clean");
+    c.close("t1").unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_detached_keeper_closes_what_it_inherited() {
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    cmd.arg("--detach");
+    let _pipe = with_inherited_fd(&mut cmd, 57);
+    assert!(cmd.status().unwrap().success());
+    let mut c = Client::connect(&state.join("keeper.sock")).unwrap();
+    let pid = c.hello().unwrap().1;
+    let pty = c.spawn(&SpawnRequest::command("t1", FD_PROBE)).unwrap();
+    let out = std::panic::catch_unwind(|| read_until(&pty.master, "fd57-clean"));
+    c.close("t1").unwrap();
+    unsafe { libc::kill(pid, libc::SIGTERM) };
+    wait_for("the detached keeper to stop", || !alive(pid));
+    out.unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}

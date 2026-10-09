@@ -67,7 +67,7 @@ impl Keeper {
 
     pub fn watch(&self) -> io::Result<()> {
         let resumed = self.watch_resumed.borrow_mut().take().ok_or_else(|| io::Error::other("already watched"))?;
-        let fd = unsafe { libc::dup(self.client.borrow().as_raw_fd()) };
+        let fd = unsafe { libc::fcntl(self.client.borrow().as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }
