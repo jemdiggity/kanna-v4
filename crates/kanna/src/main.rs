@@ -1,10 +1,13 @@
 //! kanna: drives a mux from the command line (docs/kanna-spec.md).
 
-use kmux_client::{exit, fail, Args, Failure, Kmux};
+use kmux_client::{exit, fail, Args, Brand, Failure, Kmux};
 use serde_json::{json, Map, Value};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: kanna [--mux kmux] [--json] <command>
+/// Kanna's own copy of the kmux app (built from ../kmux by scripts/build-kanna.sh).
+const KANNA: Brand = Brand { id: "kanna", name: "Kanna", bundle_id: "dev.kanna.kanna" };
+
+const USAGE: &str = "usage: kanna [--mux kanna|kmux] [--json] <command>
 
 commands:
   open term [--cmd CMD] [--cwd DIR]   a terminal
@@ -18,7 +21,9 @@ commands:
   send PANE TEXT
   restart PANE
   close PANE
-  mux";
+  mux
+
+--mux kanna (the default) is Kanna.app, Kanna's own copy of kmux; --mux kmux is a kmux you run.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -34,15 +39,14 @@ fn main() -> ExitCode {
 fn run(args: Vec<String>) -> Result<(), Failure> {
     let mut args = Args::new(args);
     let json_output = args.flag("--json");
-    if let Some(mux) = args.option("--mux")? {
-        if mux != "kmux" {
-            return Err(fail(exit::UNSUPPORTED, format!("the {mux} backend isn't supported yet; use --mux kmux")));
-        }
-    } else if let Ok(mux) = std::env::var("KANNA_MUX") {
-        if !mux.is_empty() && mux != "kmux" {
-            return Err(fail(exit::UNSUPPORTED, format!("the {mux} backend (from KANNA_MUX) isn't supported yet")));
-        }
-    }
+    let brand = match args.option("--mux")? {
+        Some(mux) => backend(&mux, "")?,
+        None => match std::env::var("KANNA_MUX") {
+            Ok(mux) if !mux.is_empty() => backend(&mux, " (from KANNA_MUX)")?,
+            _ => KANNA,
+        },
+    };
+    let connect = || Kmux::connect_for(brand);
     let command = args.positional().ok_or_else(|| fail(exit::USAGE, USAGE))?;
     let print = |reply: &Value, human: String| {
         if json_output {
@@ -56,11 +60,11 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
         "open" => {
             let request = open_request(&mut args)?;
             let kind = request["type"].as_str().unwrap_or_default().to_string();
-            let mut mux = Kmux::connect()?;
+            let mut mux = connect()?;
             let capabilities = mux.call("capabilities", json!({}))?;
             let supported = capabilities["paneTypes"].as_array().is_some_and(|types| types.contains(&json!(kind)));
             if !supported {
-                return Err(fail(exit::UNSUPPORTED, format!("kmux can't show {kind} panes yet")));
+                return Err(fail(exit::UNSUPPORTED, format!("{} can't show {kind} panes yet", brand.name)));
             }
             let reply = mux.call("open", Value::Object(request))?;
             let pane = &reply["pane"];
@@ -69,39 +73,48 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
         }
         "navigate" => {
             let request = navigate_request(&mut args)?;
-            let reply = Kmux::connect()?.call("navigate", Value::Object(request))?;
+            let reply = connect()?.call("navigate", Value::Object(request))?;
             print(&reply, String::new());
         }
         "focus" | "restart" | "close" => {
             let pane = args.positional().ok_or_else(|| fail(exit::USAGE, format!("{command} needs a pane")))?;
             finish(&args)?;
-            let reply = Kmux::connect()?.call(&command, json!({ "pane": pane }))?;
+            let reply = connect()?.call(&command, json!({ "pane": pane }))?;
             print(&reply, String::new());
         }
         "send" => {
             let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "send needs a pane and text"))?;
             let text = args.positional().ok_or_else(|| fail(exit::USAGE, "send needs text"))?;
             finish(&args)?;
-            let reply = Kmux::connect()?.call("send", json!({ "pane": pane, "text": text }))?;
+            let reply = connect()?.call("send", json!({ "pane": pane, "text": text }))?;
             print(&reply, String::new());
         }
         "list" => {
             finish(&args)?;
-            let reply = Kmux::connect()?.call("list", json!({}))?;
+            let reply = connect()?.call("list", json!({}))?;
             print(&reply, format_list(&reply));
         }
         "mux" => {
             finish(&args)?;
-            let reply = Kmux::connect()?.call("capabilities", json!({}))?;
+            let reply = connect()?.call("capabilities", json!({}))?;
             let list = |key: &str| {
                 reply[key].as_array().map(|v| v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default()
             };
-            print(&reply, format!("mux: kmux\npane types: {}\nfeatures: {}", list("paneTypes"), list("features")));
+            print(&reply, format!("mux: {}\npane types: {}\nfeatures: {}", brand.name, list("paneTypes"), list("features")));
         }
         "help" | "--help" | "-h" => println!("{USAGE}"),
         other => return Err(fail(exit::USAGE, format!("unknown command \"{other}\"\n{USAGE}"))),
     }
     Ok(())
+}
+
+/// The backend `--mux NAME` picks: Kanna.app, or a kmux the user runs.
+fn backend(mux: &str, from: &str) -> Result<Brand, Failure> {
+    match mux {
+        "kanna" => Ok(KANNA),
+        "kmux" => Ok(Brand::KMUX),
+        other => Err(fail(exit::UNSUPPORTED, format!("the {other} backend{from} isn't supported yet; use kanna or kmux"))),
+    }
 }
 
 /// `open TYPE …` as a kmux `open` request.

@@ -1,6 +1,6 @@
 # kanna — Specification
 
-> **Status:** Draft v0.3 · **Last updated:** 2026-10-08
+> **Status:** Draft v0.4 · **Last updated:** 2026-10-09
 >
 > Items marked **[Assumption]** are guesses made to fill gaps. Confirm or correct them, and see [Open Questions](#10-open-questions).
 >
@@ -33,7 +33,9 @@
 
 `kanna` is a command-line tool that controls a **mux**, an app that shows several things side by side. A single command can open a terminal, show a web app or launch an iOS app in the simulator.
 
-kanna isn't tied to one mux. Its commands work the same way with **kmux** (Kanna's own desktop mux), **tmux** or **cmux**. Each mux supports whatever pane types it can show.
+kanna isn't tied to one mux. Its commands work the same way with **kmux**, **tmux** or **cmux**. Each mux supports whatever pane types it can show.
+
+**Kanna ships its own copy of kmux, Kanna.app.** It's built from a [kmux](https://github.com/tampopogk/kmux) checkout beside this repo (`../kmux`, at the commit in `kmux.rev`), with Kanna's name and icon. It has its own sockets (`~/Library/Application Support/kanna/kanna.sock`) and gives its terminals `KANNA_SOCKET`, `KANNA_PANE` and `KANNA_INSTANCE`, so it never meets a kmux the user runs. It's kanna's default backend.
 
 ```mermaid
 flowchart LR
@@ -106,10 +108,10 @@ flowchart TB
 
 kanna picks the first match in this order:
 
-1. The `--mux kmux|tmux|cmux` flag.
+1. The `--mux kanna|kmux|tmux|cmux` flag. `kanna` is Kanna.app; `kmux` is a kmux the user runs.
 2. The `$KANNA_MUX` environment variable.
-3. **Auto-detect:** if kanna is running inside tmux (`$TMUX` is set), it uses tmux. If it's running inside cmux, it uses cmux.
-4. Otherwise kmux, which kanna starts if it isn't already running.
+3. **Auto-detect:** if kanna is running inside tmux (`$TMUX` is set), it uses tmux. If it's running inside cmux, it uses cmux. **[Not built yet]**
+4. Otherwise Kanna.app, which kanna starts if it isn't already running. Inside a Kanna.app terminal, kanna talks to that instance (`$KANNA_SOCKET`).
 
 ```mermaid
 flowchart TD
@@ -119,7 +121,7 @@ flowchart TD
     C -- yes --> Z
     C -- no --> D{"Inside tmux / cmux?"}
     D -- yes --> E["Use that mux"]
-    D -- no --> F["Use kmux"]
+    D -- no --> F["Use Kanna.app"]
 ```
 
 ### 4.3 Adapter Interface
@@ -347,7 +349,8 @@ sequenceDiagram
 | Term | Meaning |
 |------|---------|
 | **Mux (multiplexer)** | An app that shows several separate sessions in one window. |
-| **kmux** | Kanna's own desktop mux. It can show terminal, web and iOS panes. See the [kmux spec](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md). |
+| **kmux** | A native macOS mux (MIT, public). It can show terminal, web, iOS and markdown panes. See the [kmux spec](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md). |
+| **Kanna.app** | Kanna's own build of kmux, from `../kmux`, with Kanna's name, icon and sockets. |
 | **tmux** | A widely used terminal multiplexer that runs inside a terminal. It shows terminal panes only. |
 | **cmux** | A third-party macOS terminal app with panes, used here as a backend. |
 | **Backend** | The mux that kanna is currently controlling. |
