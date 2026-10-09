@@ -328,10 +328,22 @@ struct MarkdownRenderer {
         guard let source, !source.contains("://") || source.hasPrefix("file://") else { return nil }
         let path = source.removingPercentEncoding ?? source
         let url = path.hasPrefix("file://") ? URL(string: path) : path.hasPrefix("/") ? URL(fileURLWithPath: path) : folder.appendingPathComponent(path)
-        guard let url, let image = NSImage(contentsOf: url) else { return nil }
+        guard let url, let local = Self.localFile(url), let image = NSImage(contentsOf: local) else { return nil }
         let attachment = NSTextAttachment()
         attachment.attachmentCell = ImageCell(image: image)
         return attachment
+    }
+
+    static func localFile(_ url: URL) -> URL? {
+        guard url.isFileURL, (url.host ?? "").isEmpty || url.host == "localhost" else { return nil }
+        let remote = ["/net/", "/Network/", "/private/net/"]
+        func onRemoteMount(_ path: String) -> Bool { remote.contains { path.hasPrefix($0) } }
+        let path = url.standardizedFileURL.path
+        guard !onRemoteMount(path) else { return nil }
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+        guard !onRemoteMount(resolved.path),
+              (try? resolved.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal == true else { return nil }
+        return resolved
     }
 
     private mutating func slug(_ text: String) -> String {
