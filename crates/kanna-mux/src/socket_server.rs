@@ -2,7 +2,7 @@ use crate::error::KmuxError;
 use crate::json::{encode, json, Value};
 use std::io::{BufRead, BufReader};
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,12 +27,12 @@ pub struct SocketServer {
     handler: Handler,
     takeover: Option<(String, Takeover)>,
     stopped: Arc<AtomicBool>,
-    running: Mutex<bool>,
+    bound: Mutex<Option<(u64, u64)>>,
 }
 
 impl SocketServer {
     pub fn new(path: &str, handler: Handler) -> SocketServer {
-        SocketServer { path: path.into(), handler, takeover: None, stopped: Arc::new(AtomicBool::new(false)), running: Mutex::new(false) }
+        SocketServer { path: path.into(), handler, takeover: None, stopped: Arc::new(AtomicBool::new(false)), bound: Mutex::new(None) }
     }
 
     /// A connection whose first request is `cmd` goes to `takeover` instead.
@@ -56,7 +56,7 @@ impl SocketServer {
         let _ = std::fs::remove_file(&self.path);
         let listener = UnixListener::bind(&self.path).map_err(|e| self.posix_error("bind", &e))?;
         let _ = std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600));
-        *self.running.lock().unwrap() = true;
+        *self.bound.lock().unwrap() = identity(&self.path);
 
         let handler = self.handler.clone();
         let takeover = self.takeover.clone();
@@ -79,14 +79,12 @@ impl SocketServer {
     }
 
     pub fn stop(&self) {
-        let mut running = self.running.lock().unwrap();
-        if *running {
-            // Wake the accept loop so it sees it should end.
-            self.stopped.store(true, Ordering::SeqCst);
-            let _ = UnixStream::connect(&self.path);
-            *running = false;
+        let Some(bound) = self.bound.lock().unwrap().take() else { return };
+        self.stopped.store(true, Ordering::SeqCst);
+        let _ = UnixStream::connect(&self.path);
+        if identity(&self.path) == Some(bound) {
+            let _ = std::fs::remove_file(&self.path);
         }
-        let _ = std::fs::remove_file(&self.path);
     }
 
     pub fn is_listening(path: &str) -> bool {
@@ -96,6 +94,10 @@ impl SocketServer {
     fn posix_error(&self, call: &str, error: &std::io::Error) -> KmuxError {
         KmuxError::new("bad_request", format!("{call} failed on {}: {}", self.path, crate::state_file::os_message(error)))
     }
+}
+
+fn identity(path: &str) -> Option<(u64, u64)> {
+    std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
 }
 
 impl Drop for SocketServer {
