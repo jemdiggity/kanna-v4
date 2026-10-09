@@ -103,9 +103,9 @@ impl Terminals {
     }
 
     fn spec(&self, pane: &Pane) -> Spec {
-        let mut env: Vec<(String, Option<String>)> = self.env.iter().map(|(k, v)| (k.clone(), Some(v.clone()))).collect();
+        let mut env: Vec<(String, Option<String>)> = vec![("KANNA_INSTANCE".into(), None)];
+        env.extend(self.env.iter().map(|(k, v)| (k.clone(), Some(v.clone()))));
         env.push(("KANNA_PANE".into(), Some(pane.id.clone())));
-        env.push(("KANNA_INSTANCE".into(), None));
         let (cols, rows) = self.sizes.borrow().get(&pane.id).copied().unwrap_or((COLS, ROWS));
         let command = pane.command.clone().filter(|c| !c.is_empty());
         Spec { id: pane.id.clone(), command, cwd: pane.cwd.clone(), env, cols, rows }

@@ -28,6 +28,8 @@ pub trait PaneHost {
 
 pub type CommandHandler = Rc<dyn Fn(Value, Responder)>;
 
+pub type PrefixHandler = Rc<dyn Fn(&str, Value, Responder)>;
+
 pub const CORE_COMMANDS: [&str; 8] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read"];
 
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
@@ -52,6 +54,7 @@ struct Inner {
     host: RefCell<Option<Rc<dyn PaneHost>>>,
     on_change: RefCell<Option<Rc<dyn Fn()>>>,
     extra: RefCell<HashMap<String, CommandHandler>>,
+    prefixes: RefCell<Vec<(String, PrefixHandler)>>,
     waiters: RefCell<HashMap<String, Vec<Rc<Signal>>>>,
 }
 
@@ -96,6 +99,7 @@ impl Core {
             host: RefCell::new(None),
             on_change: RefCell::new(None),
             extra: RefCell::new(HashMap::new()),
+            prefixes: RefCell::new(vec![]),
             waiters: RefCell::new(HashMap::new()),
         })))
     }
@@ -114,6 +118,7 @@ impl Drop for Core {
         inner.exec.clear();
         inner.waiters.borrow_mut().clear();
         inner.extra.borrow_mut().clear();
+        inner.prefixes.borrow_mut().clear();
         inner.host.borrow_mut().take();
         inner.on_change.borrow_mut().take();
     }
@@ -170,6 +175,10 @@ impl CoreHandle {
 
     pub fn add_command(&self, name: &str, handler: CommandHandler) {
         self.0.extra.borrow_mut().insert(name.into(), handler);
+    }
+
+    pub fn add_prefix(&self, prefix: &str, handler: PrefixHandler) {
+        self.0.prefixes.borrow_mut().push((prefix.into(), handler));
     }
 
     pub fn commands(&self) -> Vec<String> {
@@ -388,10 +397,15 @@ impl CoreHandle {
                 result
             }
             _ => {
-                let handler = self.0.extra.borrow().get(cmd).cloned();
-                let Some(handler) = handler else { return Err(bad_request(format!("unknown command \"{cmd}\""))) };
                 let (responder, answer) = responder();
-                handler(args, responder);
+                let handler = self.0.extra.borrow().get(cmd).cloned();
+                if let Some(handler) = handler {
+                    handler(args, responder);
+                    return answer.await;
+                }
+                let prefixed = self.0.prefixes.borrow().iter().find(|(prefix, _)| cmd.starts_with(prefix.as_str())).map(|(_, h)| h.clone());
+                let Some(handler) = prefixed else { return Err(bad_request(format!("unknown command \"{cmd}\""))) };
+                handler(cmd, args, responder);
                 answer.await
             }
         }

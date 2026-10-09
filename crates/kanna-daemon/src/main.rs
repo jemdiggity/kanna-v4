@@ -6,7 +6,7 @@ mod reader;
 mod store;
 mod terminals;
 
-use app_link::{AppLayout, AppLink, Outbox, APP_COMMANDS, HELLO};
+use app_link::{AppLayout, AppLink, Outbox, APP_PREFIX, HELLO};
 use kanna_mux::json::Value;
 use host::Host;
 use kanna_mux::json::json;
@@ -35,6 +35,8 @@ running in the keeper; it saves them in that folder (terminals/), and the
 next daemon takes them back.
 
   --uses-keeper   exits 0: this daemon gets its ptys from a keeper";
+
+const INSTANCE_FOLDER: &str = "kanna-dev-";
 
 const APP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -105,7 +107,8 @@ fn run() -> Result<(), String> {
     let (events, inbox) = mpsc::channel::<Event>();
     let layout = Rc::new(AppLayout::default());
     let core = Core::with_link(layout.clone());
-    core.set_instance(Instance::with_socket(DEFAULT_NAME, Some(socket_path.clone())));
+    let instance = instance_name(&socket);
+    core.set_instance(Instance::with_socket(&instance, Some(socket_path.clone())));
     let wake = events.clone();
     core.set_wakeup(Some(Arc::new(move || {
         let _ = wake.send(Event::Wake);
@@ -140,7 +143,7 @@ fn run() -> Result<(), String> {
         }
     };
 
-    let env = vec![("KANNA_SOCKET".to_string(), socket_path.clone())];
+    let env = vec![("KANNA_SOCKET".to_string(), socket_path.clone()), ("KANNA_INSTANCE".to_string(), instance.clone())];
     let terminals = Rc::new(Terminals::new(keeper.clone(), store, events.clone(), env));
     *terminals.core.borrow_mut() = Some(core.weak());
     let host = Rc::new(Host::new(terminals.clone()));
@@ -184,17 +187,15 @@ fn run() -> Result<(), String> {
             app.started(pane);
         }
     }));
-    for cmd in APP_COMMANDS {
-        let link = Rc::downgrade(&app);
-        core.add_command(
-            cmd,
-            Rc::new(move |args, responder| {
-                if let Some(link) = link.upgrade() {
-                    link.forward(cmd, args, responder);
-                }
-            }),
-        );
-    }
+    let link = Rc::downgrade(&app);
+    core.add_prefix(
+        APP_PREFIX,
+        Rc::new(move |cmd, args, responder| {
+            if let Some(link) = link.upgrade() {
+                link.forward(cmd, args, responder);
+            }
+        }),
+    );
 
     let pid_file = state_dir.join("daemon.pid");
     let _ = std::fs::write(&pid_file, format!("{}\n", std::process::id()));
@@ -238,6 +239,15 @@ fn run() -> Result<(), String> {
         match event {
             Event::Request(request, reply) => match app.unreachable(&request) {
                 Some(error) => reply(json!({ "id": request.get("id").cloned().unwrap_or(Value::Null), "ok": false, "error": { "code": error.code, "message": error.message } })),
+                None if request.get("cmd").and_then(Value::as_str) == Some("capabilities") => {
+                    let attached = app.attached();
+                    core.handle(request, move |mut answer| {
+                        if answer.get("ok") == Some(&Value::Bool(true)) {
+                            answer["app"] = Value::Bool(attached);
+                        }
+                        reply(answer)
+                    })
+                }
                 None => core.handle(request, reply),
             },
             Event::Wake => {}
@@ -302,6 +312,18 @@ fn run() -> Result<(), String> {
     }
 }
 
+fn instance_name(socket: &Path) -> String {
+    let folder = socket.parent().and_then(Path::file_name).and_then(|name| name.to_str()).unwrap_or_default();
+    match folder.strip_prefix(INSTANCE_FOLDER) {
+        Some(name) if valid_instance(name) => name.to_string(),
+        _ => DEFAULT_NAME.to_string(),
+    }
+}
+
+fn valid_instance(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 32 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 fn lock(state_dir: &Path) -> Result<std::fs::File, String> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::OpenOptionsExt;
@@ -334,5 +356,19 @@ fn signal_set(signals: &[libc::c_int]) -> libc::sigset_t {
             libc::sigaddset(&mut set, *signal);
         }
         set
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_instance_is_named_by_its_folder() {
+        let name = |path: &str| instance_name(Path::new(path));
+        assert_eq!(name("/Users/x/Library/Application Support/kanna-dev/kanna.sock"), "default");
+        assert_eq!(name("/Users/x/Library/Application Support/kanna-dev-work/kanna.sock"), "work");
+        assert_eq!(name("/tmp/kanna-dev-a b/kanna.sock"), "default");
+        assert_eq!(name("/tmp/kanna-e2e.x/kanna.sock"), "default");
     }
 }

@@ -286,3 +286,31 @@ fn an_attach_that_comes_before_the_terminal_starts_gets_its_output() {
     }
     assert_eq!(opening.join().unwrap()["ok"], true);
 }
+
+#[test]
+fn every_debug_command_goes_to_the_app_with_pane_names_resolved() {
+    let instance = Instance::start();
+    let opened = instance.open("named", Some("exec sleep 60"));
+    let reply = instance.call("debug.click", json!({"pane": "named"}));
+    assert_eq!(reply["error"]["code"], "no_app", "{reply}");
+    assert_eq!(instance.call("capabilities", json!({}))["app"], false);
+
+    let mut app = instance.app();
+    let socket = instance.socket();
+    let asking = std::thread::spawn(move || common::call(&socket, "debug.whatever", json!({"pane": "named", "x": 1})));
+    let request = app.until("the request", |m| m["cmd"] == "debug.whatever");
+    assert_eq!(request["args"], json!({"pane": opened, "x": 1}));
+    app.send(json!({"id": request["id"], "ok": true, "seen": true}));
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["seen"], true, "{reply}");
+    assert_eq!(instance.call("debug.click", json!({"pane": "nope"}))["error"]["code"], "not_found");
+    assert_eq!(instance.call("nope.click", json!({}))["error"]["code"], "bad_request");
+
+    let socket = instance.socket();
+    let asking = std::thread::spawn(move || common::call(&socket, "capabilities", json!({})));
+    let capabilities = asking.join().unwrap();
+    assert_eq!(capabilities["app"], true, "{capabilities}");
+    assert_eq!(capabilities["mux"], "kmux");
+    assert_eq!(capabilities["instance"], "default");
+    assert!(capabilities["commands"].as_array().unwrap().contains(&json!("read")));
+}

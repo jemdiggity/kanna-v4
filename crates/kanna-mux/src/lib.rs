@@ -13,7 +13,7 @@ mod socket_server;
 mod state;
 mod state_file;
 
-pub use crate::core::{normalize_url, resolve, responder, CommandHandler, Core, CoreHandle, PaneHost, Responder, WeakCore, CORE_COMMANDS, DEBUG_COMMANDS};
+pub use crate::core::{normalize_url, resolve, responder, CommandHandler, Core, PrefixHandler, CoreHandle, PaneHost, Responder, WeakCore, CORE_COMMANDS, DEBUG_COMMANDS};
 pub use brand::Brand;
 pub use error::KmuxError;
 pub use exec::Wakeup;

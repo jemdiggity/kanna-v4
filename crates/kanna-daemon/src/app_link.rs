@@ -48,7 +48,7 @@ impl Outbox {
 
 const SNAPSHOT_RETRY: Duration = Duration::from_millis(100);
 
-pub const APP_COMMANDS: [&str; 8] = ["debug.app", "debug.type", "debug.key", "debug.text", "debug.snapshot", "debug.web", "debug.md", "debug.ios"];
+pub const APP_PREFIX: &str = "debug.";
 
 const TERMINAL_ONLY: [&str; 4] = ["send", "read", "list", "capabilities"];
 
