@@ -21,3 +21,20 @@ fn a_resize_beyond_reason_is_refused() {
     let grid = app.until("the grid", |m| is(m, "grid", &pane));
     assert_eq!((grid["args"]["cols"].as_u64(), grid["args"]["rows"].as_u64()), (Some(1000), Some(1000)), "{grid}");
 }
+
+#[test]
+fn pixel_sizes_reach_the_pty() {
+    let instance = Instance::start();
+    let pane = instance.open("sh", None);
+    let mut app = instance.app();
+    app.tell("attach", json!({"pane": pane}));
+    app.tell("resize", json!({"pane": pane, "cols": 90, "rows": 30, "width": 900, "height": 600}));
+    app.until("the grid", |m| is(m, "grid", &pane) && m["args"]["cols"] == 90);
+    app.tell("resize", json!({"pane": pane, "cols": 90, "rows": 30, "width": 1800, "height": 1200}));
+    app.until("the grid", |m| is(m, "grid", &pane));
+    let probe = "python3 -c 'import fcntl,termios,struct;print(\"size\",*struct.unpack(\"HHHH\",fcntl.ioctl(0,termios.TIOCGWINSZ,bytes(8))))'";
+    instance.call("send", json!({"pane": pane, "text": probe}));
+    wait_for("the probe", || instance.screen(&pane).contains("size "));
+    let screen = instance.screen(&pane);
+    assert!(screen.contains("size 30 90 1800 1200"), "{screen}");
+}

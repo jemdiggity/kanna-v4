@@ -40,6 +40,7 @@ struct Terminal {
     replay: VecDeque<u8>,
     cols: u16,
     rows: u16,
+    pixels: (u16, u16),
     exit_code: Option<i32>,
 }
 
@@ -132,8 +133,11 @@ impl Terminals {
             return Some((terminal.cols, terminal.rows));
         }
         let (cols, rows) = (cols.max(1), rows.max(1));
-        if (cols, rows) != (terminal.cols, terminal.rows) {
+        if (cols, rows, (width, height)) != (terminal.cols, terminal.rows, terminal.pixels) {
             pty::set_size(&terminal.master, cols, rows, width, height);
+            terminal.pixels = (width, height);
+        }
+        if (cols, rows) != (terminal.cols, terminal.rows) {
             (terminal.cols, terminal.rows) = (cols, rows);
             guarded(id, terminal, |screen| screen.resize(cols, rows));
             self.sizes.borrow_mut().insert(id.into(), (cols, rows));
@@ -251,6 +255,7 @@ impl Terminals {
             replay: VecDeque::new(),
             cols: spec.cols,
             rows: spec.rows,
+            pixels: (0, 0),
             exit_code: None,
         })
     }
