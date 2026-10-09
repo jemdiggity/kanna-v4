@@ -20,6 +20,7 @@
    - 4.6 [The App's Terminal Views](#46-the-apps-terminal-views)
    - 4.7 [The Layout](#47-the-layout)
    - 4.8 [Restarting the Daemon](#48-restarting-the-daemon)
+   - 4.9 [Web, Markdown and iOS Panes](#49-web-markdown-and-ios-panes)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -437,6 +438,31 @@ sequenceDiagram
 - **The app** sees its link close, keeps trying to reconnect, and on reconnecting says hello and attaches again ([4.5](#45-the-app-link)); the hello reply lists the same IDs, so its layout (in memory and in `layout.json`) still matches and nothing moves ([4.7](#47-the-layout)).
 
 **Checked by** `crates/kanna-daemon/tests/restart.rs` (a running shell keeps its pid and screen, output written while the daemon was down appears, and the app gets all of it on attach; a full-screen program redraws once after SIGWINCH; exits while the daemon is down, with their codes; a SIGKILLed daemon's saved screens; IDs don't repeat; a pty the disk doesn't know is taken back and a record the keeper doesn't know dropped; a second daemon on the folder is refused), the store's unit tests, and S6 of `scripts/e2e-kanna.sh` (with the app attached: same PIDs, screen and layout, output written meanwhile, the app's view).
+
+### 4.9 Web, Markdown and iOS Panes
+
+A web, markdown or iOS pane is a view in the app and a record in its layout: a web pane's URL (and whether it keeps history), a markdown pane's file and zoom, an iOS pane's app and device, saved in `layout.json` in kmux's state file format. The daemon runs none of them ([4.2](#42-what-the-daemon-keeps-what-the-app-keeps)), but its `kanna-mux` core still gives them their IDs, checks and answers every command about them as kmux does (`open`, `navigate` with its history, `close`, `restart`, `list`), and passes them to the app to show ([plan](plans/mux-build.md) M3).
+
+**Design: the app's panes are lent to the daemon while it's attached.** The app owns the records and saves them; on hello it hands them to the daemon, whose core holds them beside its terminals for as long as the link lasts, so kmux's core logic runs unchanged on one pane table; when the app goes, so do they. Why not keep them in the daemon: they'd outlive the app with nothing to show them, and `list` would report pages no view has; and why not answer their commands in the app: the core (IDs, names, history, errors) would be split in two. Every change to a record goes through the daemon's core and comes back to the app, so there is one writer.
+
+| Message (app link) | From | What it says |
+|---|---|---|
+| `app.hello {pid, panes}` | app | `panes`: the app's web, markdown and iOS panes (records, with each view's `state`). The daemon takes each whose ID and name no terminal has (the others are dropped and logged), continues its pane counter past them, and lists them in the reply's `panes` with its terminals |
+| pane tables (`panes` in the hello reply and every `layout` step) | daemon | records now: `{id, name, type}` plus the state file's fields (`url`, `history`; `path`, `zoom`; `app`, `device`; `cmd`, `cwd` for terminals); the app's layout keeps and saves them |
+| `start {pane: record}` | daemon | show this pane (`open`, `restart`, `navigate`, `debug.restoreState`), replacing any view it had |
+| `stop {pane}` | daemon | the pane closed, or is about to start again |
+| `update {pane, state?, error?, url?, device?, zoom?}` | app | the view is `running` or `failed` (with `error`); the page moved (`url`, applied as kmux's page moves, history included); the simulator chosen (`device`); the markdown zoom |
+| `pane {pane: record}` | daemon | the record after an `update`, for the app's layout |
+| requests (`{id, cmd, args}`) | app | `navigate` from the views (the URL editor, a markdown link, back and forward), answered as any client's |
+| `debug.web`, `debug.md`, `debug.ios` (with an `id`) | daemon | kmux's commands for these panes (the page's URL and text; the rendered markdown; a tap or Home on the simulator), passed on like `debug.text` |
+
+- **Starting:** a web pane reports `running` as soon as its view loads the URL (a server that isn't up yet shows a notice and is retried, as kmux); a markdown pane once the file is read (`failed`: "No such file"); an iOS pane once the simulator is booted, the app launched and the screen attached (up to 180 s). `open` waits for that, as kmux.
+- **With the app closed** the daemon knows only terminals: `list` shows terminals and `windows: []`. `open web|md|ios` fails with `no_app` (the CLI starts the app, [4.7](#47-the-layout)); so does any command naming a pane the daemon doesn't know (it may be one of the app's), except `send` and `read`, which only work on terminals and answer `not_found`. `navigate` and `debug.web|md|ios` reach the app or fail with `no_app`.
+- **When the app goes away** its panes leave the daemon's table; an `open` still waiting for one fails (`app_gone`).
+- **After a relaunch** the app reads `layout.json`, says hello with its panes and shows them: pages load at their URL (cookies and logins stay in WebKit's store; the back and forward lists aren't kept, as kmux), files reopen at their zoom, iOS panes find their device (still booted) and attach to its screen, launching the app only if it isn't running. After a daemon restart the app's views are untouched: the hello hands the same records back.
+- **The iOS screen** comes straight from the simulator (Xcode's private CoreSimulator and SimulatorKit frameworks, as kmux); `simctl` boots, installs and launches. A simulator is never shut down by Kanna.
+
+**Conformance.** With this, all 31 of kmux's protocol cases also pass through the daemon and the app link (the test app shows every pane at once); S8 of `scripts/e2e-kanna.sh` checks the real views.
 
 ---
 
