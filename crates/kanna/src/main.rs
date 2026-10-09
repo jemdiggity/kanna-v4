@@ -10,7 +10,7 @@ const KANNA: Brand = Brand { id: "kanna", name: "Kanna", bundle_id: "dev.kanna.k
 const USAGE: &str = "usage: kanna [--mux kanna|kmux] [--json] <command>
 
 commands:
-  open term [--cmd CMD] [--cwd DIR]   a terminal
+  open [term] [--cmd CMD] [--cwd DIR] a terminal
   open web URL [--history]            a web page
   open md FILE                        a markdown file, rendered (with mermaid diagrams)
   open ios --app APP [--device NAME]  an iOS app in the simulator
@@ -19,6 +19,7 @@ commands:
   focus PANE
   navigate PANE URL|FILE|--back|--forward
   send PANE TEXT
+  read PANE [--lines N]               a terminal's screen as text (the last N lines, with scrollback)
   restart PANE
   close PANE
   mux
@@ -89,6 +90,20 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             let reply = connect()?.call("send", json!({ "pane": pane, "text": text }))?;
             print(&reply, String::new());
         }
+        "read" => {
+            let lines = match args.option("--lines")? {
+                Some(n) => Some(n.parse::<u64>().ok().filter(|n| *n > 0).ok_or_else(|| fail(exit::USAGE, "--lines needs a number above 0"))?),
+                None => None,
+            };
+            let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "read needs a pane"))?;
+            finish(&args)?;
+            let mut request = json!({ "pane": pane });
+            if let Some(lines) = lines {
+                request["lines"] = json!(lines);
+            }
+            let reply = connect()?.call("read", request)?;
+            print(&reply, reply["text"].as_str().unwrap_or_default().to_string());
+        }
         "list" => {
             finish(&args)?;
             let reply = connect()?.call("list", json!({}))?;
@@ -133,7 +148,8 @@ fn open_request(args: &mut Args) -> Result<Map<String, Value>, Failure> {
             request.insert(key.into(), json!(value));
         }
     }
-    let kind = args.positional().ok_or_else(|| fail(exit::USAGE, "open needs a pane type: term, web, md or ios"))?;
+    // As kmux: a terminal unless a type is given.
+    let kind = args.positional().unwrap_or_else(|| "term".into());
     match kind.as_str() {
         "web" => {
             let url = args.positional().ok_or_else(|| fail(exit::USAGE, "open web needs a URL"))?;
@@ -261,6 +277,13 @@ mod tests {
         assert_eq!(ios["device"], "iPhone 16");
         assert!(open_request(&mut args(&["ios"])).is_err());
         assert!(open_request(&mut args(&["md"])).is_err());
+    }
+
+    #[test]
+    fn open_is_a_terminal_by_default() {
+        let request = open_request(&mut args(&["--name", "s1"])).unwrap();
+        assert_eq!(request["type"], "term");
+        assert_eq!(request["name"], "s1");
     }
 
     #[test]
