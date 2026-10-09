@@ -2,6 +2,7 @@ mod app_link;
 mod keeper;
 mod pty;
 mod reader;
+mod store;
 mod terminals;
 
 use app_link::{AppLayout, AppLink, Outbox, APP_COMMANDS, HELLO};
@@ -15,7 +16,9 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use reader::Taken;
-use terminals::Terminals;
+use pty::Spawner;
+use store::Store;
+use terminals::{Restored, Terminals};
 
 const USAGE: &str = "usage: kanna-daemon [--uses-keeper]
 
@@ -24,11 +27,15 @@ Serves Kanna's terminals and kmux's control protocol on $KANNA_SOCKET
 folder; never Kanna.app's own kanna/kanna.sock). Keeps its files in
 $KANNA_STATE_DIR (default: that socket's folder). Gets its ptys from the
 keeper of that folder, starting $KANNA_KEEPER (default: the kanna-keeper
-beside this binary) if none runs.
+beside this binary) if none runs. Stopping the daemon leaves the terminals
+running in the keeper; it saves them in that folder (terminals/), and the
+next daemon takes them back.
 
   --uses-keeper   exits 0: this daemon gets its ptys from a keeper";
 
 const APP_TIMEOUT: Duration = Duration::from_secs(10);
+
+const LOCK_WAIT: Duration = Duration::from_secs(5);
 
 pub enum Event {
     Request(Value, Box<dyn FnOnce(Value) + Send>),
@@ -87,6 +94,7 @@ fn run() -> Result<(), String> {
     let state_dir = env_path("KANNA_STATE_DIR").unwrap_or_else(|| socket.parent().map(Path::to_path_buf).unwrap_or_default());
     std::fs::create_dir_all(&state_dir).map_err(|e| format!("can't make {}: {e}", state_dir.display()))?;
     let socket_path = socket.to_string_lossy().into_owned();
+    let _lock = lock(&state_dir)?;
 
     let stop_signals = signal_set(&[libc::SIGTERM, libc::SIGINT, libc::SIGHUP]);
     unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, &stop_signals, std::ptr::null_mut()) };
@@ -121,21 +129,47 @@ fn run() -> Result<(), String> {
             return Err(format!("can't reach the keeper ({}): {error}", keeper_bin.display()));
         }
     };
-    match keeper.close_leftovers() {
-        Ok(0) => {}
-        Ok(n) => eprintln!("kanna-daemon: closed {n} terminal(s) an earlier daemon left in the keeper"),
-        Err(error) => eprintln!("kanna-daemon: couldn't close what an earlier daemon left in the keeper: {error}"),
+    eprintln!("kanna-daemon: using the keeper of {} (pid {})", state_dir.display(), keeper.pid());
+    let store = match Store::open(&state_dir) {
+        Ok(store) => store,
+        Err(error) => {
+            server.stop();
+            return Err(format!("can't keep the terminals in {}: {error}", state_dir.display()));
+        }
+    };
+
+    let env = vec![("KANNA_SOCKET".to_string(), socket_path.clone())];
+    let terminals = Rc::new(Terminals::new(keeper.clone(), store, events.clone(), env));
+    *terminals.core.borrow_mut() = Some(core.weak());
+    core.set_host(Some(terminals.clone()));
+    let on_change = Rc::downgrade(&terminals);
+    core.set_on_change(Some(Rc::new(move || {
+        if let Some(terminals) = on_change.upgrade() {
+            terminals.mark_changed();
+        }
+    })));
+    let adopted = match keeper.adopt() {
+        Ok(adopted) => adopted,
+        Err(error) => {
+            server.stop();
+            return Err(format!("can't take the terminals back from the keeper: {error}"));
+        }
+    };
+    let restored = terminals.restore(adopted);
+    if restored != Restored::default() {
+        eprintln!(
+            "kanna-daemon: took back {} terminal(s) from the keeper ({} the disk didn't know), {} that had exited; {} gone",
+            restored.adopted + restored.unknown,
+            restored.unknown,
+            restored.exited,
+            restored.dropped
+        );
     }
     if let Err(error) = keeper.watch() {
         server.stop();
+        terminals.shutdown();
         return Err(format!("can't watch the keeper: {error}"));
     }
-    eprintln!("kanna-daemon: using the keeper of {} (pid {})", state_dir.display(), keeper.pid());
-
-    let env = vec![("KANNA_SOCKET".to_string(), socket_path.clone())];
-    let terminals = Rc::new(Terminals::new(keeper.clone(), events.clone(), env));
-    *terminals.core.borrow_mut() = Some(core.weak());
-    core.set_host(Some(terminals.clone()));
 
     let app_timeout = std::env::var("KANNA_APP_TIMEOUT_MS").ok().and_then(|ms| ms.parse().ok()).map(Duration::from_millis).unwrap_or(APP_TIMEOUT);
     let app = Rc::new(AppLink::new(core.weak(), terminals.clone(), app_timeout));
@@ -187,6 +221,7 @@ fn run() -> Result<(), String> {
         }
         app.expire(Instant::now());
         let deadline = [core.poll(), app.next_deadline()].into_iter().flatten().min();
+        terminals.save_if_changed();
         let event = match deadline {
             Some(at) => inbox.recv_timeout(at.saturating_duration_since(Instant::now())),
             None => inbox.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -218,8 +253,8 @@ fn run() -> Result<(), String> {
                     Ok(exits) => {
                         for exit in exits {
                             let code = exit.status.shell_status();
-                            if let Some(code) = terminals.exited(&exit.id, exit.pid, code) {
-                                app.exited(&exit.id, code);
+                            if let Some((pane, code)) = terminals.exited(&exit.id, exit.pid, code) {
+                                app.exited(&pane, code);
                             }
                         }
                     }
@@ -243,12 +278,36 @@ fn run() -> Result<(), String> {
 
     server.stop();
     app.close();
-    terminals.close_all();
+    terminals.shutdown();
     let _ = std::fs::remove_file(&pid_file);
     match failure {
         Some(reason) => Err(format!("{reason}; stopping")),
         None => Ok(()),
     }
+}
+
+fn lock(state_dir: &Path) -> Result<std::fs::File, String> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = state_dir.join("daemon.lock");
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&path)
+        .map_err(|e| format!("can't open {}: {e}", path.display()))?;
+    let deadline = Instant::now() + LOCK_WAIT;
+    while unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        if Instant::now() >= deadline {
+            let other = std::fs::read_to_string(state_dir.join("daemon.pid")).unwrap_or_default();
+            return Err(format!("another daemon (pid {}) uses {}", other.trim(), state_dir.display()));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Ok(file)
 }
 
 fn signal_set(signals: &[libc::c_int]) -> libc::sigset_t {

@@ -24,6 +24,7 @@ fn keeper_binary() -> PathBuf {
 pub struct Instance {
     pub dir: PathBuf,
     pub daemon: Child,
+    env: Vec<(String, String)>,
 }
 
 impl Instance {
@@ -37,28 +38,26 @@ impl Instance {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("home")).unwrap();
         let dir = dir.canonicalize().unwrap();
-        let log = std::fs::File::create(dir.join("daemon.log")).unwrap();
-        let mut command = Command::new(DAEMON);
-        command.env_clear();
-        for key in ["PATH", "USER", "LOGNAME", "TMPDIR"] {
-            if let Some(value) = std::env::var_os(key) {
-                command.env(key, value);
-            }
-        }
-        command
-            .env("HOME", dir.join("home"))
-            .env("SHELL", "/bin/sh")
-            .env("KANNA_SOCKET", dir.join("kanna.sock"))
-            .env("KANNA_STATE_DIR", dir.join("state"))
-            .env("KANNA_KEEPER", keeper_binary())
-            .env("KANNA_KEEPER_CLOSE_GRACE_MS", "300")
-            .envs(env.iter().copied())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(log);
-        let instance = Instance { daemon: command.spawn().unwrap(), dir };
+        let env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let daemon = spawn_daemon(&dir, &env);
+        let instance = Instance { daemon, dir, env };
         wait_for("the daemon's socket", || UnixStream::connect(instance.socket()).is_ok());
         instance
+    }
+
+    pub fn stop(&mut self, signal: i32) {
+        unsafe { libc::kill(self.pid(), signal) };
+        let _ = self.daemon.wait();
+    }
+
+    pub fn start_again(&mut self) {
+        self.daemon = spawn_daemon(&self.dir, &self.env);
+        wait_for("the daemon's socket", || UnixStream::connect(self.socket()).is_ok());
+    }
+
+    pub fn restart(&mut self, signal: i32) {
+        self.stop(signal);
+        self.start_again();
     }
 
     pub fn socket(&self) -> PathBuf {
@@ -127,6 +126,29 @@ impl Drop for Instance {
         }
         let _ = std::fs::remove_dir_all(&self.dir);
     }
+}
+
+fn spawn_daemon(dir: &Path, env: &Vec<(String, String)>) -> Child {
+    let log = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("daemon.log")).unwrap();
+    let mut command = Command::new(DAEMON);
+    command.env_clear();
+    for key in ["PATH", "USER", "LOGNAME", "TMPDIR"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    command
+        .env("HOME", dir.join("home"))
+        .env("SHELL", "/bin/sh")
+        .env("KANNA_SOCKET", dir.join("kanna.sock"))
+        .env("KANNA_STATE_DIR", dir.join("state"))
+        .env("KANNA_KEEPER", keeper_binary())
+        .env("KANNA_KEEPER_CLOSE_GRACE_MS", "300")
+        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(log);
+    command.spawn().unwrap()
 }
 
 pub struct App {

@@ -1,0 +1,186 @@
+mod common;
+
+use common::{alive, data, is, wait_for, Instance};
+use kanna_vt::{Lines, Terminal};
+use serde_json::{json, Value};
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixStream;
+use std::time::Duration;
+
+fn shows(instance: &Instance, pane: &str, text: &str) -> bool {
+    instance.screen(pane).contains(text)
+}
+
+fn saved(instance: &Instance) -> Value {
+    let text = std::fs::read_to_string(instance.dir.join("state/terminals/terminals.json")).unwrap_or_default();
+    serde_json::from_str(&text).unwrap_or(Value::Null)
+}
+
+#[test]
+fn a_restart_keeps_a_running_shell_its_screen_and_what_it_wrote_meanwhile() {
+    let mut instance = Instance::start();
+    let pane = instance.open("shell", None);
+    let pid = instance.pane("shell")["pid"].as_i64().unwrap();
+    instance.call("send", json!({"pane": "shell", "text": "echo before-$((6*7))"}));
+    wait_for("the shell's output", || shows(&instance, &pane, "before-42"));
+    instance.call("send", json!({"pane": "shell", "text": "sleep 1; echo during-$((6*7))"}));
+
+    instance.stop(libc::SIGTERM);
+    assert!(alive(pid), "stopping the daemon ended the shell");
+    std::thread::sleep(Duration::from_millis(1500));
+    instance.start_again();
+
+    let shell = instance.pane("shell");
+    assert_eq!((shell["id"].as_str(), shell["pid"].as_i64(), shell["state"].as_str()), (Some(pane.as_str()), Some(pid), Some("running")), "{shell}");
+    assert!(shows(&instance, &pane, "before-42"), "{}", instance.screen(&pane));
+    wait_for("what the shell wrote while the daemon was down", || shows(&instance, &pane, "during-42"));
+    instance.call("send", json!({"pane": "shell", "text": "echo after-$((6*7))"}));
+    wait_for("the shell to answer again", || shows(&instance, &pane, "after-42"));
+
+    let mut app = instance.app();
+    app.tell("attach", json!({"pane": pane}));
+    let snapshot = app.until("the snapshot", |m| is(m, "snapshot", &pane));
+    let replica = Terminal::from_snapshot(&data(&snapshot)).unwrap().text(Lines::Screen);
+    assert!(replica.contains("before-42") && replica.contains("during-42") && replica.contains("after-42"), "{replica}");
+    assert!(instance.log().contains("took back 1 terminal"), "{}", instance.log());
+}
+
+#[test]
+fn a_full_screen_program_redraws_after_a_restart() {
+    let mut instance = Instance::start();
+    let script = r#"printf '\033[?1049h\033[Hfull screen'; n=0; trap 'n=$((n+1)); printf "\033[2J\033[Hredrawn %s" $n' WINCH; while :; do sleep 0.1; done"#;
+    let pane = instance.open("full", Some(script));
+    wait_for("the program to draw", || shows(&instance, &pane, "full screen"));
+    std::thread::sleep(Duration::from_millis(1500));
+
+    instance.restart(libc::SIGTERM);
+    wait_for("the program to redraw", || shows(&instance, &pane, "redrawn 1"));
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(instance.screen(&pane), "redrawn 1");
+}
+
+#[test]
+fn an_exit_while_the_daemon_is_down_is_reported_after_it_comes_back() {
+    let mut instance = Instance::start();
+    let early = instance.open("early", Some("echo early-out; exit 3"));
+    wait_for("early to exit", || instance.pane("early")["state"] == "exited");
+    let late = instance.open("late", Some("sleep 1; echo late-out; exit 7"));
+    let late_pid = instance.pane("late")["pid"].as_i64().unwrap();
+
+    instance.stop(libc::SIGTERM);
+    std::thread::sleep(Duration::from_millis(2000));
+    instance.start_again();
+
+    wait_for("late's exit", || instance.pane("late")["state"] == "exited");
+    let pane = instance.pane("late");
+    assert_eq!((pane["exitCode"].as_i64(), pane["pid"].as_i64()), (Some(7), Some(late_pid)), "{pane}");
+    assert!(shows(&instance, &late, "late-out"), "{}", instance.screen(&late));
+    let pane = instance.pane("early");
+    assert_eq!((pane["state"].as_str(), pane["exitCode"].as_i64()), (Some("exited"), Some(3)), "{pane}");
+    assert!(shows(&instance, &early, "early-out"), "{}", instance.screen(&early));
+
+    let mut app = instance.app();
+    app.tell("attach", json!({"pane": late}));
+    let exited = app.until("late's exit", |m| is(m, "exited", &late));
+    assert_eq!(exited["args"]["code"], 7, "{exited}");
+
+    instance.restart(libc::SIGTERM);
+    let pane = instance.pane("late");
+    assert_eq!((pane["state"].as_str(), pane["exitCode"].as_i64()), (Some("exited"), Some(7)), "{pane}");
+}
+
+#[test]
+fn a_crashed_daemon_loses_nothing_it_had_saved() {
+    let mut instance = Instance::start();
+    let pane = instance.open("shell", None);
+    let pid = instance.pane("shell")["pid"].as_i64().unwrap();
+    instance.call("send", json!({"pane": "shell", "text": "printf 'saved-%s\\n' $((6*7))"}));
+    wait_for("the output", || shows(&instance, &pane, "saved-42"));
+    wait_for("the screen on disk", || instance.dir.join(format!("state/terminals/{pane}.snap")).exists());
+    std::thread::sleep(Duration::from_millis(1500));
+    let on_disk = std::fs::read(instance.dir.join(format!("state/terminals/{pane}.snap"))).unwrap();
+    assert_eq!(Terminal::from_snapshot(&on_disk).unwrap().text(Lines::Screen), instance.screen(&pane));
+
+    instance.restart(libc::SIGKILL);
+    let shell = instance.pane("shell");
+    assert_eq!((shell["id"].as_str(), shell["pid"].as_i64()), (Some(pane.as_str()), Some(pid)), "{shell}");
+    assert!(shows(&instance, &pane, "saved-42"), "{}", instance.screen(&pane));
+    instance.call("send", json!({"pane": "shell", "text": "echo again-$((6*7))"}));
+    wait_for("the shell to answer", || shows(&instance, &pane, "again-42"));
+}
+
+#[test]
+fn pane_ids_never_repeat_across_restarts() {
+    let mut instance = Instance::start();
+    let first = instance.open("one", Some("exec sleep 600"));
+    let second = instance.open("two", Some("exec sleep 600"));
+    instance.call("close", json!({"pane": second}));
+    assert_eq!(saved(&instance)["counters"]["pane"], 2);
+
+    instance.restart(libc::SIGKILL);
+    let third = instance.open("three", Some("exec sleep 600"));
+    assert_eq!((first.as_str(), second.as_str(), third.as_str()), ("p1", "p2", "p3"));
+
+    instance.call("close", json!({"pane": first}));
+    instance.call("close", json!({"pane": third}));
+    instance.restart(libc::SIGTERM);
+    assert!(instance.call("list", json!({}))["panes"].as_array().unwrap().is_empty());
+    assert_eq!(instance.open("four", None), "p4");
+}
+
+#[test]
+fn what_the_keeper_has_and_the_disk_does_not_is_taken_back_and_the_reverse_dropped() {
+    let mut instance = Instance::start();
+    let kept = instance.open("kept", Some("echo kept; exec sleep 600"));
+    let lost = instance.open("lost", Some("exec sleep 600"));
+    let kept_pid = instance.pane("kept")["pid"].as_i64().unwrap();
+    let lost_pid = instance.pane("lost")["pid"].as_i64().unwrap();
+
+    instance.stop(libc::SIGKILL);
+    keeper(&instance, json!({"op": "close", "id": lost}));
+    wait_for("the keeper to end lost", || !alive(lost_pid));
+    std::fs::remove_file(instance.dir.join("state/terminals/terminals.json")).unwrap();
+    instance.start_again();
+
+    let panes = instance.call("list", json!({}))["panes"].clone();
+    let panes = panes.as_array().unwrap();
+    assert_eq!(panes.len(), 1, "{panes:?}");
+    assert_eq!((panes[0]["id"].as_str(), panes[0]["pid"].as_i64(), panes[0]["cmd"].as_str()), (Some(kept.as_str()), Some(kept_pid), Some("echo kept; exec sleep 600")));
+    assert!(panes[0]["name"].is_null());
+    let new = instance.open("new", None);
+    assert_ne!(new, kept);
+
+    instance.restart(libc::SIGTERM);
+    let restored = saved(&instance);
+    let ids: Vec<&str> = restored["terminals"].as_array().unwrap().iter().filter_map(|t| t["id"].as_str()).collect();
+    assert_eq!(ids, [kept.as_str(), new.as_str()]);
+}
+
+#[test]
+fn a_second_daemon_on_the_same_folder_is_refused() {
+    let instance = Instance::start();
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_kanna-daemon"))
+        .env("KANNA_SOCKET", instance.dir.join("other.sock"))
+        .env("KANNA_STATE_DIR", instance.dir.join("state"))
+        .env("HOME", instance.dir.join("home"))
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .unwrap();
+    assert!(!status.status.success());
+    assert!(String::from_utf8_lossy(&status.stderr).contains("another daemon"), "{}", String::from_utf8_lossy(&status.stderr));
+}
+
+fn keeper(instance: &Instance, request: Value) -> Value {
+    let stream = UnixStream::connect(instance.dir.join("state/keeper.sock")).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    (&stream).write_all(format!("{request}\n").as_bytes()).unwrap();
+    let mut reader = BufReader::new(&stream);
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        if reply.get("ok").is_some() {
+            return reply;
+        }
+    }
+}

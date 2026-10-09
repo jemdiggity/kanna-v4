@@ -1,4 +1,4 @@
-use crate::pty::{Spawned, Spawner, Spec};
+use crate::pty::{Adopted, Spawned, Spawner, Spec};
 use crate::Event;
 use kanna_keeper::client::{Client, Exited, SpawnRequest};
 use std::cell::RefCell;
@@ -54,15 +54,6 @@ impl Keeper {
 
     pub fn pid(&self) -> i32 {
         self.pid
-    }
-
-    pub fn close_leftovers(&self) -> io::Result<usize> {
-        let leftovers = self.client.borrow_mut().adopt()?;
-        for pty in &leftovers {
-            self.client.borrow_mut().close(&pty.id)?;
-        }
-        self.collect_received();
-        Ok(leftovers.len())
     }
 
     pub fn watch(&self) -> io::Result<()> {
@@ -171,6 +162,14 @@ impl Spawner for Keeper {
 
     fn acknowledge_exit(&self, id: &str) {
         let _ = self.request(|client| client.ack(id));
+    }
+
+    fn adopt(&self) -> io::Result<Vec<Adopted>> {
+        let ptys = self.request(|client| client.adopt())?;
+        Ok(ptys
+            .into_iter()
+            .map(|pty| Adopted { id: pty.id, pid: pty.pid, cmd: pty.cmd, cwd: pty.cwd, master: pty.master, exit: pty.exit.map(|status| status.shell_status()) })
+            .collect())
     }
 }
 

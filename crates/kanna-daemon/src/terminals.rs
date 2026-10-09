@@ -1,7 +1,8 @@
-use crate::pty::{self, Spawned, Spawner, Spec};
+use crate::pty::{self, Adopted, Spawned, Spawner, Spec};
 use crate::reader::{Feed, Reader, Taken};
+use crate::store::{pane_number, Record, Saved, Store};
 use crate::Event;
-use kanna_mux::{KmuxError, Pane, PaneHost, PaneState, WeakCore};
+use kanna_mux::{KmuxError, Pane, PaneHost, PaneState, PaneType, WeakCore};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fs::File;
@@ -25,33 +26,65 @@ const ROWS: u16 = 24;
 
 const MAX_SIDE: u16 = 1000;
 
+struct Pty {
+    master: OwnedFd,
+    input: Sender<Vec<u8>>,
+    reader: Reader,
+}
+
 struct Terminal {
     serial: u64,
     pid: i32,
-    master: OwnedFd,
-    input: Sender<Vec<u8>>,
+    keeper: String,
+    pty: Option<Pty>,
     feed: Arc<Mutex<Feed>>,
-    reader: Reader,
     pixels: (u16, u16),
     exit_code: Option<i32>,
     exit_reported: bool,
     drained: bool,
 }
 
+impl Terminal {
+    fn running(&self) -> Option<&Pty> {
+        self.pty.as_ref().filter(|_| self.exit_code.is_none())
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct Restored {
+    pub adopted: usize,
+    pub unknown: usize,
+    pub exited: usize,
+    pub dropped: usize,
+}
+
 pub struct Terminals {
     pub core: RefCell<Option<WeakCore>>,
     spawner: Rc<dyn Spawner>,
+    store: Store,
     events: Sender<Event>,
     env: Vec<(String, String)>,
     live: RefCell<HashMap<String, Terminal>>,
     serial: Cell<u64>,
     sizes: RefCell<HashMap<String, (u16, u16)>>,
+    changed: Cell<bool>,
     pub on_start: RefCell<Option<OnStart>>,
 }
 
 impl Terminals {
-    pub fn new(spawner: Rc<dyn Spawner>, events: Sender<Event>, env: Vec<(String, String)>) -> Terminals {
-        Terminals { core: RefCell::new(None), spawner, events, env, live: RefCell::default(), serial: Cell::new(0), sizes: RefCell::default(), on_start: RefCell::new(None) }
+    pub fn new(spawner: Rc<dyn Spawner>, store: Store, events: Sender<Event>, env: Vec<(String, String)>) -> Terminals {
+        Terminals {
+            core: RefCell::new(None),
+            spawner,
+            store,
+            events,
+            env,
+            live: RefCell::default(),
+            serial: Cell::new(0),
+            sizes: RefCell::default(),
+            changed: Cell::new(false),
+            on_start: RefCell::new(None),
+        }
     }
 
     fn report(&self, id: &str, state: PaneState, exit_code: Option<i64>, error: Option<String>) {
@@ -78,6 +111,12 @@ impl Terminals {
         Spec { id: pane.id.clone(), command, cwd: pane.cwd.clone(), env, cols, rows }
     }
 
+    fn next_serial(&self) -> u64 {
+        let serial = self.serial.get() + 1;
+        self.serial.set(serial);
+        serial
+    }
+
     pub fn output(&self, id: &str, serial: u64) -> Option<Taken> {
         let live = self.live.borrow();
         let terminal = live.get(id).filter(|t| t.serial == serial)?;
@@ -85,20 +124,27 @@ impl Terminals {
         taken
     }
 
-    pub fn exited(&self, id: &str, pid: i32, code: i32) -> Option<i32> {
-        let drained = match self.live.borrow_mut().get_mut(id).filter(|t| t.pid == pid && t.exit_code.is_none()) {
-            Some(terminal) => {
+    pub fn exited(&self, keeper: &str, pid: i32, code: i32) -> Option<(String, i32)> {
+        let pane = {
+            let mut live = self.live.borrow_mut();
+            let found = live.iter_mut().find(|(_, t)| t.keeper == keeper && t.pid == pid && t.exit_code.is_none() && t.pty.is_some());
+            found.map(|(id, terminal)| {
                 terminal.exit_code = Some(code);
                 if !terminal.drained {
-                    terminal.reader.drain();
+                    if let Some(pty) = &terminal.pty {
+                        pty.reader.drain();
+                    }
                 }
-                Some(terminal.drained)
-            }
-            None => None,
+                (id.clone(), terminal.drained)
+            })
         };
-        self.spawner.acknowledge_exit(id);
-        match drained {
-            Some(true) => self.report_exit(id),
+        if pane.is_some() {
+            self.changed.set(true);
+            self.save_if_changed();
+        }
+        self.spawner.acknowledge_exit(keeper);
+        match pane {
+            Some((id, true)) => self.report_exit(&id).map(|code| (id, code)),
             _ => None,
         }
     }
@@ -121,8 +167,8 @@ impl Terminals {
     }
 
     pub fn write(&self, id: &str, bytes: Vec<u8>) {
-        if let Some(terminal) = self.live.borrow().get(id).filter(|t| t.exit_code.is_none()) {
-            let _ = terminal.input.send(bytes);
+        if let Some(pty) = self.live.borrow().get(id).and_then(Terminal::running) {
+            let _ = pty.input.send(bytes);
         }
     }
 
@@ -136,12 +182,14 @@ impl Terminals {
         }
         let (cols, rows) = (cols.max(1), rows.max(1));
         if (cols, rows, (width, height)) != (feed.cols, feed.rows, terminal.pixels) {
-            pty::set_size(&terminal.master, cols, rows, width, height);
+            if let Some(pty) = &terminal.pty {
+                pty::set_size(&pty.master, cols, rows, width, height);
+            }
             terminal.pixels = (width, height);
             self.sizes.borrow_mut().insert(id.into(), (cols, rows));
             let replies = feed.resize(id, cols, rows, width, height);
-            if !replies.is_empty() && terminal.exit_code.is_none() {
-                let _ = terminal.input.send(replies);
+            if let (false, Some(pty)) = (replies.is_empty(), terminal.running()) {
+                let _ = pty.input.send(replies);
             }
         }
         Some((cols, rows))
@@ -155,24 +203,225 @@ impl Terminals {
         Some(Attach { cols: feed.cols, rows: feed.rows, snapshot, exit_code: t.exit_code.filter(|_| t.exit_reported) })
     }
 
-    pub fn close_all(&self) {
-        let ids: Vec<String> = self.live.borrow_mut().drain().filter(|(_, t)| t.exit_code.is_none()).map(|(id, _)| id).collect();
-        for id in ids {
-            self.spawner.close(&id);
+    pub fn mark_changed(&self) {
+        self.changed.set(true);
+    }
+
+    pub fn save_if_changed(&self) {
+        if !self.changed.replace(false) {
+            return;
         }
+        let Some(saved) = self.saved() else { return };
+        if let Err(error) = self.store.save(&saved) {
+            eprintln!("kanna-daemon: couldn't save the terminals to {}: {error}", self.store.dir().display());
+        }
+    }
+
+    fn saved(&self) -> Option<Saved> {
+        let core = self.core.borrow().as_ref().and_then(WeakCore::upgrade)?;
+        let live = self.live.borrow();
+        Some(core.with_panes(|panes| Saved {
+            counter: panes.counter(),
+            records: panes
+                .iter()
+                .filter(|pane| pane.kind == PaneType::Term)
+                .filter_map(|pane| {
+                    let terminal = live.get(&pane.id)?;
+                    let (state, exit_code) = match terminal.exit_code {
+                        Some(code) => (PaneState::Exited, Some(code as i64)),
+                        None => (PaneState::Running, None),
+                    };
+                    Some(Record {
+                        id: pane.id.clone(),
+                        name: pane.name.clone(),
+                        cmd: pane.command.clone(),
+                        cwd: pane.cwd.clone(),
+                        state,
+                        exit_code,
+                        pid: terminal.pid as i64,
+                        keeper: terminal.keeper.clone(),
+                    })
+                })
+                .collect(),
+        }))
+    }
+
+    pub fn shutdown(&self) {
+        let mut live = self.live.borrow_mut();
+        for pty in live.values().filter_map(|t| t.pty.as_ref()) {
+            pty.reader.stop();
+        }
+        for pty in live.values_mut().filter_map(|t| t.pty.as_mut()) {
+            pty.reader.join();
+        }
+        drop(live);
+        self.changed.set(true);
+        self.save_if_changed();
+        self.store.flush();
+        self.store.stop();
+    }
+
+    pub fn restore(&self, adopted: Vec<Adopted>) -> Restored {
+        let saved = self.store.load();
+        let mut counter = saved.counter;
+        for id in saved.records.iter().flat_map(|r| [&r.id, &r.keeper]).chain(adopted.iter().map(|a| &a.id)) {
+            counter = counter.max(pane_number(id).unwrap_or(0));
+        }
+        let mut ptys: HashMap<String, Adopted> = adopted.into_iter().map(|pty| (pty.id.clone(), pty)).collect();
+        let mut restored = Restored::default();
+        let mut panes = Vec::new();
+        let mut exits = Vec::new();
+        for record in saved.records {
+            let mut pane = Pane::new(&record.id, record.name.clone(), PaneType::Term);
+            (pane.command, pane.cwd, pane.pid) = (record.cmd.clone(), record.cwd.clone(), Some(record.pid));
+            let terminal = match ptys.remove(&record.keeper) {
+                Some(pty) => {
+                    let snapshot = (i64::from(pty.pid) == record.pid).then(|| self.store.snapshot(&record.id)).flatten();
+                    pane.pid = Some(pty.pid as i64);
+                    pane.state = PaneState::Running;
+                    exits.extend(pty.exit.map(|code| (record.keeper.clone(), pty.pid, code)));
+                    restored.adopted += 1;
+                    self.adopt(&record.id, &record.keeper, pty, snapshot)
+                }
+                None if record.state == PaneState::Exited => {
+                    pane.state = PaneState::Exited;
+                    pane.exit_code = record.exit_code;
+                    restored.exited += 1;
+                    self.ended(&record, self.store.snapshot(&record.id))
+                }
+                None => {
+                    eprintln!("kanna-daemon: {} ended while no daemon was running, and the keeper has no exit for it", pane.label());
+                    restored.dropped += 1;
+                    continue;
+                }
+            };
+            match terminal {
+                Ok(terminal) => {
+                    self.live.borrow_mut().insert(record.id.clone(), terminal);
+                    panes.push(pane);
+                }
+                Err(error) => eprintln!("kanna-daemon: couldn't take {} back: {error}", pane.label()),
+            }
+        }
+        let mut unknown: Vec<Adopted> = ptys.into_values().collect();
+        unknown.sort_by_key(|pty| (pane_number(&pty.id).unwrap_or(usize::MAX), pty.id.clone()));
+        for pty in unknown {
+            let id = match pane_number(&pty.id) {
+                Some(_) if !self.live.borrow().contains_key(&pty.id) => pty.id.clone(),
+                _ => {
+                    counter += 1;
+                    format!("p{counter}")
+                }
+            };
+            let mut pane = Pane::new(&id, None, PaneType::Term);
+            pane.command = match pty.cmd.as_slice() {
+                [sh, c, command] if sh == "/bin/sh" && c == "-c" => Some(command.clone()),
+                _ => None,
+            };
+            pane.cwd = Some(pty.cwd.clone()).filter(|cwd| !cwd.is_empty());
+            pane.pid = Some(pty.pid as i64);
+            pane.state = PaneState::Running;
+            let keeper = pty.id.clone();
+            exits.extend(pty.exit.map(|code| (keeper.clone(), pty.pid, code)));
+            match self.adopt(&id, &keeper, pty, None) {
+                Ok(terminal) => {
+                    eprintln!("kanna-daemon: took back {id}, which the keeper had and the disk didn't know");
+                    self.live.borrow_mut().insert(id, terminal);
+                    panes.push(pane);
+                    restored.unknown += 1;
+                }
+                Err(error) => {
+                    eprintln!("kanna-daemon: couldn't take back the keeper's {keeper}: {error}; closing it");
+                    self.spawner.close(&keeper);
+                }
+            }
+        }
+        if let Some(core) = self.core.borrow().as_ref().and_then(WeakCore::upgrade) {
+            core.install_panes(panes, counter);
+        }
+        let keep: Vec<String> = self.live.borrow().keys().cloned().collect();
+        self.store.prune(&keep);
+        self.changed.set(true);
+        self.save_if_changed();
+        for (keeper, pid, code) in exits {
+            if let Some((pane, _)) = self.exited(&keeper, pid, code) {
+                eprintln!("kanna-daemon: {pane} exited ({code}) while no daemon was running");
+            }
+        }
+        restored
+    }
+
+    fn adopt(&self, id: &str, keeper: &str, pty: Adopted, snapshot: Option<Vec<u8>>) -> std::io::Result<Terminal> {
+        let restored = snapshot.and_then(|snapshot| match Feed::restore(&snapshot) {
+            Ok(feed) => Some(feed),
+            Err(error) => {
+                eprintln!("kanna-daemon: {id}'s saved screen can't be read ({error}); starting it blank");
+                None
+            }
+        });
+        let fresh = restored.is_none();
+        let feed = match restored {
+            Some(feed) => feed,
+            None => Feed::new(COLS, ROWS)?,
+        };
+        let (cols, rows) = {
+            let mut screen = Feed::lock(&feed);
+            let (cols, rows) = pty::size(&pty.master).unwrap_or((screen.cols, screen.rows));
+            let (cols, rows) = (cols.min(MAX_SIDE), rows.min(MAX_SIDE));
+            if (cols, rows) != (screen.cols, screen.rows) {
+                screen.resize(id, cols, rows, 0, 0);
+            }
+            screen.unsaved |= fresh;
+            (cols, rows)
+        };
+        pty::set_size(&pty.master, cols, rows, 0, 0);
+        self.sizes.borrow_mut().insert(id.into(), (cols, rows));
+        let serial = self.next_serial();
+        let terminal = self.run(id, keeper, serial, Spawned { pid: pty.pid, master: pty.master }, feed)?;
+        if let (None, Some(running)) = (pty.exit, &terminal.pty) {
+            pty::redraw(&running.master);
+        }
+        Ok(terminal)
+    }
+
+    fn ended(&self, record: &Record, snapshot: Option<Vec<u8>>) -> std::io::Result<Terminal> {
+        let feed = match snapshot.map(|snapshot| Feed::restore(&snapshot)) {
+            Some(Ok(feed)) => feed,
+            _ => Feed::new(COLS, ROWS)?,
+        };
+        let (cols, rows) = {
+            let screen = Feed::lock(&feed);
+            (screen.cols, screen.rows)
+        };
+        self.sizes.borrow_mut().insert(record.id.clone(), (cols, rows));
+        self.store.track(&record.id, feed.clone());
+        Ok(Terminal {
+            serial: self.next_serial(),
+            pid: record.pid as i32,
+            keeper: record.keeper.clone(),
+            pty: None,
+            feed,
+            pixels: (0, 0),
+            exit_code: Some(record.exit_code.unwrap_or(-1) as i32),
+            exit_reported: true,
+            drained: true,
+        })
     }
 }
 
 impl PaneHost for Terminals {
     fn start(&self, pane: &Pane) {
-        let serial = self.serial.get() + 1;
-        self.serial.set(serial);
+        let serial = self.next_serial();
         let spec = self.spec(pane);
-        let started = self.spawner.spawn(&spec).and_then(|spawned| self.run(&pane.id, serial, spawned, &spec));
+        let started = self.spawner.spawn(&spec).and_then(|spawned| {
+            let feed = Feed::new(spec.cols, spec.rows)?;
+            self.run(&pane.id, &pane.id, serial, spawned, feed)
+        });
         match started {
             Ok(terminal) => {
                 let pid = terminal.pid;
                 self.live.borrow_mut().insert(pane.id.clone(), terminal);
+                self.changed.set(true);
                 if let Some(on_start) = self.on_start.borrow().as_ref() {
                     on_start(&pane.id);
                 }
@@ -187,8 +436,12 @@ impl PaneHost for Terminals {
 
     fn stop(&self, pane: &Pane) {
         let removed = self.live.borrow_mut().remove(&pane.id);
-        if removed.is_some_and(|terminal| terminal.exit_code.is_none()) {
-            self.spawner.close(&pane.id);
+        if let Some(terminal) = removed {
+            if terminal.running().is_some() {
+                self.spawner.close(&terminal.keeper);
+            }
+            self.store.forget(&pane.id);
+            self.changed.set(true);
         }
         let restarting = self.core.borrow().as_ref().and_then(WeakCore::upgrade).is_some_and(|core| core.pane(&pane.id).is_some());
         if !restarting {
@@ -209,9 +462,8 @@ impl PaneHost for Terminals {
 }
 
 impl Terminals {
-    fn run(&self, id: &str, serial: u64, spawned: Spawned, spec: &Spec) -> std::io::Result<Terminal> {
+    fn run(&self, id: &str, keeper: &str, serial: u64, spawned: Spawned, feed: Arc<Mutex<Feed>>) -> std::io::Result<Terminal> {
         let Spawned { pid, master } = spawned;
-        let feed = Feed::new(spec.cols, spec.rows)?;
         let (input, inputs) = mpsc::channel::<Vec<u8>>();
         let reader = Reader::start(id, serial, master.try_clone()?, feed.clone(), input.clone(), self.events.clone())?;
         let mut writer = File::from(master.try_clone()?);
@@ -222,13 +474,13 @@ impl Terminals {
                 }
             }
         })?;
+        self.store.track(id, feed.clone());
         Ok(Terminal {
             serial,
             pid,
-            master,
-            input,
+            keeper: keeper.into(),
+            pty: Some(Pty { master, input, reader }),
             feed,
-            reader,
             pixels: (0, 0),
             exit_code: None,
             exit_reported: false,
