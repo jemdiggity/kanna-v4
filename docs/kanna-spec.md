@@ -21,6 +21,7 @@
    - 4.7 [The Layout](#47-the-layout)
    - 4.8 [Restarting the Daemon](#48-restarting-the-daemon)
    - 4.9 [Web, Markdown and iOS Panes](#49-web-markdown-and-ios-panes)
+   - 4.11 [The kanna CLI](#411-the-kanna-cli)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -384,7 +385,7 @@ sequenceDiagram
     D->>C: ok, p4
 ```
 
-**The CLI starts the app** ([plan](plans/mux-build.md) step 1.4). When the daemon answers a command with `no_app` and `KANNA_SOCKET` isn't set, `kanna` starts Kanna.app (`open -n -a $KANNA_APP`, or by bundle ID `dev.kanna.app.dev`, never the branded kmux `dev.kanna.kanna`; with `KANNA_SOCKET` and `KANNA_STATE_DIR` passed on, in the background with `KANNA_BG=1`), retries the command every 200 ms until the app has attached (a `no_app` answer changes nothing, so the retry is safe), and gives up after 20 s with exit 6. With `KANNA_SOCKET` set (a test, a script, a terminal inside Kanna) it never starts an app: it exits 6 with the daemon's message and "KANNA_SOCKET is set, so kanna doesn't start Kanna.app for it". Until the new app replaces the branded kmux one, the daemon is reached without `KANNA_SOCKET` as `--mux kanna-dev` (or `KANNA_MUX=kanna-dev`): the daemon's default socket, `kanna-dev/kanna.sock` in the app support folder; if nothing answers there kanna exits 3 (it doesn't start daemons; the app does, [4.5](#45-the-app-link)).
+**The CLI starts the app** ([plan](plans/mux-build.md) steps 1.4 and B.6). When the daemon answers a command with `no_app` and `KANNA_SOCKET` isn't set, `kanna` starts Kanna.app (`open -n -a $KANNA_APP`, or by bundle ID `dev.kanna.app.dev`, never the branded kmux `dev.kanna.kanna`; with `KANNA_SOCKET` and `KANNA_STATE_DIR` passed on, in the background with `--bg` or `KANNA_BG=1`), retries the command every 200 ms until the app has attached (a `no_app` answer changes nothing, so the retry is safe), and gives up after 20 s with exit 6. With `KANNA_SOCKET` set (a test, a script, a terminal inside Kanna) it never starts an app: it exits 6 with the daemon's message and "KANNA_SOCKET is set, so kanna doesn't start Kanna.app for it". Without `KANNA_SOCKET`, kanna talks to the daemon of its instance (the default one's socket is `kanna-dev/kanna.sock` in the app support folder), and when nothing answers there it starts Kanna.app, which starts the daemon ([4.5](#45-the-app-link)), as kmux's CLI starts kmux; the CLI itself never starts a daemon ([4.11](#411-the-kanna-cli)).
 
 **Conformance.** kmux's 31 protocol cases pass three ways: against `kanna-mux` with the model in-process; with the model behind `LayoutOwner`, every step sent as JSON and answered on a later turn (`crates/kanna-mux/tests/protocol_cases.rs`); and through a running daemon, keeper and app link, with a test app answering through `LayoutOwner` (`crates/kanna-daemon/tests/protocol_cases.rs`: all 31 since M3, [4.9](#49-web-markdown-and-ios-panes)). The app's own glue is checked by S5 and S9 of `scripts/e2e-kanna.sh` and by `crates/kanna-layout/tests`.
 
@@ -475,6 +476,115 @@ A web, markdown or iOS pane is a view in the app and a record in its layout: a w
 
 **Conformance.** With this, all 31 of kmux's protocol cases also pass through the daemon and the app link (the test app reports every pane running at once). `crates/kanna-daemon/tests/panes.rs` checks lending, clashes, updates, the app's requests, an app that goes away and the answers with no app; S8 of `scripts/e2e-kanna.sh` checks the real views: a page and a markdown file open, `navigate` with history, `list` and `no_app` (exit 6) with the app closed, both back after a relaunch and untouched by a daemon restart, and, when an iPhone simulator is already booted, an iOS pane (Settings) running and reattached after a relaunch.
 
+### 4.11 The kanna CLI
+
+`kanna` is kmux's command line for Kanna: every command, option, help text, output, error and exit code of kmux's `kmux` (kmux's `crates/kmux`, at 1f05ccb), branded kanna, plus a few additions of Kanna's. It sends kmux's control protocol to Kanna's daemon over its socket (or, with `--mux kmux`, to a kmux), through kmux's `kmux-client` crate ([plan](plans/mux-build.md) track B).
+
+**Design: a port of kmux's CLI, checked against kmux's own source.** kmux's CLI is one table of commands (name, group, summary, usage, options, notes, examples, how its arguments become a request, how its reply prints); help, `commands --json`, parsing and output all come from it. `kanna` has the same table, ported into `crates/kanna/src/commands.rs` (with `output.rs`, and `lib.rs` for help, `commands`, `instances`, `raw` and errors; provenance in NOTICE), and `crates/kanna/tests/kmux_reference.rs` compiles kmux's own `commands.rs` and `output.rs`, unchanged, beside it and checks one against the other.
+
+```mermaid
+flowchart LR
+    KSRC["kmux's CLI source<br/>commands.rs · output.rs<br/>(unchanged, ../kmux)"] -->|"compiled into"| REF["kmux_reference.rs<br/>(conformance test)"]
+    TABLE["kanna's command table<br/>crates/kanna/src/commands.rs"] --> REF
+    TABLE --> HELP["help · commands --json"]
+    TABLE --> PARSE["arguments → request"]
+    TABLE --> OUT["reply → text"]
+    PARSE -->|"kmux-client"| D["Kanna's daemon<br/>(or a kmux)"]
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class KSRC kmuxapp
+    class TABLE,HELP,PARSE,OUT,REF kmux
+    class D ext
+```
+
+Why this and not:
+
+| Option | Why not |
+|---|---|
+| Depend on kmux's CLI crate as a library | it's a binary with no library and kmux's name in every string; giving it one, with a brand, would change kmux, which stays as it is ([4.3](#43-kmux-is-the-reference-model)) |
+| Build kmux's source files into `kanna` and rebrand the strings as it runs | a private file of kmux's would become kanna's API, so any refactor in kmux breaks kanna's build; replacing "kmux" in text gets some sentences wrong; and Kanna's additions (`read`, its notes) can't be added to kmux's fixed table |
+| **Port it, and check the port against kmux's source** (chosen) | one source of truth for Kanna's commands, inside kanna; kmux stays the reference: when kmux's CLI changes and kanna hasn't followed, the test fails, as kmux's protocol cases do for the core |
+
+**What the conformance test checks:** the same commands, groups and order as kmux (plus `read`); every summary, usage, option, note and example is kmux's with "kmux" read as "kanna" (the notes of `open`, `send` and `list` may only add to kmux's); every kmux example and request line parses to the same request; every usage error has kmux's exit code and message; every reply prints as kmux prints it. kmux's own CLI tests (`every_documented_example_parses`, `requests`, `usage_errors_say_what_to_do`, `layouts_print_as_expressions`) are ported as kanna's unit tests.
+
+**Commands** (`kanna help`, `kanna help COMMAND` or `kanna COMMAND --help`):
+
+| Group | Commands |
+|---|---|
+| Panes | `open`, `close`, `focus`, `zoom`, `restart`, `send`, `read` (Kanna's), `resize`, `move`, `navigate` |
+| Tabs and windows | `arrange`, `rename-tab`, `move-tab` |
+| Information | `list`, `capabilities` |
+| More | `help [COMMAND\|instances\|raw]`, `commands [--json]`, `raw REQUEST`, `instances [--json]` |
+
+Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-h`, `--version`, `--instance NAME`, `--bg` (`KANNA_BG=1`), `--fresh` (`KANNA_FRESH=1`); and Kanna's `--mux kanna|kmux` (`KANNA_MUX`; `kanna-dev` is another name for `kanna`) and `--`. Exit codes are kmux's 0–5 and Kanna's 6 ([9](#9-output-errors-and-exit-codes)).
+
+**Where kanna differs from kmux** (decided; everything else is kmux's):
+
+| | kmux | kanna | Why |
+|---|---|---|---|
+| `read PANE [--lines N]` | — | prints a terminal's screen as text, scrollback with `--lines` | the daemon keeps every screen, with or without the app; agents read terminals |
+| `--` | — (`--json` is taken from anywhere, so it can't be typed) | ends the options: `kanna send p1 -- --json` | text that looks like an option |
+| `--mux`, `KANNA_MUX` | — | `kanna` (default) or `kmux` | kanna can drive a kmux too |
+| Exit 6 | — | the command needs Kanna.app, which isn't attached and wasn't started | terminals work without the app; layout commands don't ([4.7](#47-the-layout)) |
+| Starting | starts the kmux app | starts Kanna.app (`$KANNA_APP` or `dev.kanna.app.dev`, never the branded `dev.kanna.kanna`), which starts the daemon; never with `KANNA_SOCKET` set | the app starts the daemon ([4.5](#45-the-app-link)) |
+| The app closed | (the app is kmux) | `open` prints "opened p3 (logs), unplaced until Kanna.app opens"; `list` lists the terminals under "no windows: Kanna.app isn't open" | the terminals still run |
+| An instance | an app with its own socket, `kmux-NAME.sock` | a folder, `kanna-dev-NAME` (below) | a daemon needs a folder of its own |
+| `open --cwd DIR` | sent as given | made absolute where kanna runs | the daemon's directory isn't yours |
+| `capabilities` | kmux's fields | kmux's fields, `read` among the commands, and `app`: whether Kanna.app is attached (its own line in the text) | so a script can tell |
+| `raw REQUEST` | sends it | sends it, and starts the app on `no_app` like any command | one way of reaching Kanna |
+| `kanna mux` | — | gone (M0's): `capabilities` and `instances` say what it said | kmux has no such command |
+
+**Instances.** A Kanna instance is a whole Kanna: a daemon, its keeper, its terminals, a Kanna.app and its saved layout, all in one folder, since a daemon holds a lock on its folder and keeps its keeper, terminals and the app's `layout.json` there ([4.8](#48-restarting-the-daemon)). The default instance's folder is `kanna-dev` in the application support folder (`$XDG_DATA_HOME` or `~/.local/share` on Linux); an instance named `work` uses `kanna-dev-work` beside it, so its socket is `kanna-dev-work/kanna.sock` (short enough for a Unix socket's 104 bytes with a 32-character name). kmux puts every instance's socket in one folder instead; Kanna can't, as two daemons can't share a folder.
+
+```text
+~/Library/Application Support/
+├── kanna-dev/            the default instance
+│   ├── kanna.sock        its daemon (socket, daemon.lock, daemon.pid, daemon.log)
+│   ├── keeper.sock …     its keeper
+│   ├── terminals/        its terminals (4.8)
+│   └── layout.json       its app's layout (4.7)
+└── kanna-dev-work/       the instance named work, the same inside
+```
+
+- **Which instance a command goes to**, as kmux: `--instance NAME`; else `$KANNA_SOCKET` (set in Kanna's terminals, with `$KANNA_INSTANCE` and `$KANNA_PANE`, so kanna run in a pane reaches that pane's Kanna); else `$KANNA_INSTANCE`; else the default. Names are kmux's: letters, digits, `-` and `_`, up to 32; anything else is bad usage.
+- **Starting one:** `kanna --instance work open` with nothing answering starts Kanna.app with `KANNA_SOCKET` set to `kanna-dev-work/kanna.sock`; the app keeps its layout in that folder and starts the daemon there.
+- **The daemon names itself** from its folder (`kanna-dev-NAME` is NAME; anything else, such as a test's private folder, is `default`), reports it in `capabilities`, and sets `KANNA_INSTANCE` in its terminals.
+- **`kanna instances`** lists the folders whose daemon answers, with their windows and panes, `*` marking the one this shell's commands go to; `--json` as kmux.
+- **Why `kanna-dev`:** the branded copy of kmux still uses `kanna/kanna.sock` until Kanna.app replaces it; the folder's name is one constant in the CLI (`FOLDER`), the daemon and the app.
+
+**Reaching Kanna:**
+
+```mermaid
+sequenceDiagram
+    participant C as kanna CLI
+    participant A as Kanna.app
+    participant D as daemon
+    C->>D: connect (the instance's socket)
+    Note over C: nothing answers, KANNA_SOCKET not set
+    C->>A: open -n [-g] --env KANNA_SOCKET=… -b dev.kanna.app.dev [--args --bg --fresh]
+    A->>D: starts it (detached)
+    C->>D: connect, within 20 s (else exit 3)
+    C->>D: focus server
+    D->>C: no_app (the app hasn't attached yet)
+    Note over C: already started it: retry every 200 ms, up to 20 s (else exit 6)
+    A->>D: app.hello
+    C->>D: focus server
+    D->>A: layout {op: command, cmd: focus}
+    A->>D: ok
+    D->>C: ok
+```
+
+**With the app closed** the daemon answers what it can ([4.7](#47-the-layout)):
+
+| Works | Needs the app (`no_app`: started, or exit 6 with `KANNA_SOCKET`) |
+|---|---|
+| `list` (terminals, no windows), `send`, `read`, `close PANE`, `restart`, `open` (a terminal, unplaced), `capabilities`, `raw` of these | `open` with `--split`, `--size`, `--tab` or `--window`; `open web\|md\|ios`; `focus`, `zoom`, `resize`, `move`, `arrange`, `rename-tab`, `move-tab`; `close --tab\|--window`; `navigate`; every `debug.*` |
+
+**The app's `debug.*` commands** go through the daemon by name: every `debug.*` the core doesn't answer itself (only `debug.saveState` and `debug.restoreState`) is passed to the app with pane names turned into IDs, so a debug command the app adds (kmux's `debug.click`, `debug.drag`, `debug.menu`, …) needs no change in the daemon. The app answers one it doesn't know with kmux's `unknown command`.
+
+**Checked by** `crates/kanna/tests/kmux_reference.rs` (against kmux's source), the unit tests in `crates/kanna/src` (kmux's CLI tests, ported; target and instance resolution; the app started), `crates/kanna/tests/cli.rs` (every command through a real daemon with a test app answering through `LayoutOwner`, and without it; help, marks and `commands --json`; errors and exit codes; instances; the kmux backend), `crates/kanna/tests/no_launch.rs` (nothing starts with `KANNA_SOCKET`; a missing app is exit 3), `crates/kanna-daemon/tests/app_link.rs` (`debug.*` and `capabilities`), and S20–S22 of `scripts/e2e-kanna.sh`: every command against the real app (S20), without it (S21), and an instance started by `--instance` and listed by `instances` (S22).
+
 ---
 
 ## 5. Mux Backends
@@ -537,17 +647,23 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 | `kanna open web URL [--history]` | Open a web pane; `--history` gives it back/forward. |
 | `kanna open md FILE` | Show a markdown file, rendered natively with mermaid diagrams; it reloads when the file changes. |
 | `kanna open ios --app APP [--device NAME]` | Launch an iOS app in a simulator pane. |
-| `kanna arrange LAYOUT` | Rearrange existing panes in one go ([7.2](#72-the-layout-expression)). |
+| `kanna arrange LAYOUT` | Rearrange existing panes in one go. Today LAYOUT is kmux's JSON tree ([4.11](#411-the-kanna-cli)); the expression of [7.2](#72-the-layout-expression) is planned. |
 | `kanna resize PANE SIZE` | Change one pane's size. |
 | `kanna up [FILE]` | Open a whole setup from a file, `kanna.yaml` by default ([7.3](#73-layout-files)). |
 | `kanna list` | List panes with their names, IDs, types and states. |
-| `kanna focus PANE` | Bring a pane to the front. |
-| `kanna close PANE` | Close a pane. |
+| `kanna focus PANE` / `--tab TAB` / `--window WINDOW` | Bring a pane, tab or window to the front. |
+| `kanna zoom PANE` | Toggle zoom: the pane fills its tab. |
+| `kanna move PANE --to OTHER [--side SIDE]` / `--tab TAB\|new` / `--window WINDOW\|new` | Move a pane beside another, swap two, or move it to another tab or window. |
+| `kanna rename-tab TAB TITLE` | Rename a tab. |
+| `kanna move-tab TAB [--window WINDOW\|new] [--index N]` | Reorder a tab, or move it to another window. |
+| `kanna close PANE` / `--tab TAB` / `--window WINDOW` | Close a pane, or a tab or window with everything in it. |
 | `kanna restart PANE` | Restart what's inside a pane. |
 | `kanna send PANE TEXT` | Type text into a terminal pane. |
 | `kanna read PANE [--lines N]` | Print a terminal pane's screen as text; with `--lines`, its last N lines, counting scrollback. Kanna.app only (kmux has no `read` yet). |
 | `kanna navigate PANE URL\|FILE\|--back\|--forward` | Point a web pane at a new URL (or move through its history), or a markdown pane at another `.md` file. |
-| `kanna mux` | Show the backend in use and what it supports. |
+| `kanna capabilities` | Show what the running mux supports (and, for Kanna, whether the app is attached). |
+| `kanna instances` | List the running Kanna instances ([4.11](#411-the-kanna-cli)). |
+| `kanna help [COMMAND]`, `kanna commands [--json]`, `kanna raw REQUEST` | Help; every command, for scripts; one control-protocol request as JSON. |
 
 `PANE` can be a name (`site`) or an ID (`p2`).
 
@@ -558,12 +674,13 @@ Options for `open`:
 | Option | Meaning |
 |--------|---------|
 | `--name NAME` | A stable name to use in later commands. |
-| `--split [right\|down]` | Where to put the new pane relative to the focused one. |
+| `--split [right\|down\|auto]` | Where to put the new pane relative to the focused one. |
 | `--size FRACTION` | How much of the split space the new pane gets, e.g. `1/3`. |
 | `--tab` | Open in a new tab instead of splitting. |
+| `--window ID\|new` | Open in that window, or a new one. |
 | `--no-wait` | Return as soon as the pane is created, without waiting until it's running. |
 
-Global options: `--mux NAME`, `--json`.
+Global options: `--mux kanna|kmux`, `--instance NAME`, `--bg`, `--fresh`, `--json`, `--`. Every command, option, output and error is kmux's CLI's, except where [4.11](#411-the-kanna-cli) says otherwise.
 
 ---
 
@@ -693,7 +810,7 @@ sequenceDiagram
 
 ## 9. Output, Errors and Exit Codes
 
-- `open` prints the new pane's name or ID. Other commands print short human-readable text.
+- `open` prints the new pane's ID, name, window, tab and state, as kmux's CLI (`opened p3 (logs) in window w1, tab t1: running`). Other commands print short human-readable text, as kmux's.
 - `--json` prints one JSON object per command.
 - `open` waits until the pane is running or has failed, unless `--no-wait` is given.
 
@@ -702,7 +819,7 @@ sequenceDiagram
 | 0 | Success |
 | 1 | The command failed (for example, the pane failed to start) |
 | 2 | Bad usage (unknown flag, invalid layout expression) |
-| 3 | The mux isn't running and couldn't be started |
+| 3 | The mux isn't running and couldn't be started (for Kanna: nothing answers, and Kanna.app couldn't be started or its daemon didn't answer within 20 s; or `KANNA_SOCKET` is set and nothing answers there) |
 | 4 | Pane not found |
 | 5 | Not supported by this backend |
 | 6 | The command needs Kanna.app, which isn't attached and wasn't started (`KANNA_SOCKET` is set, or it didn't start or attach within 20 s) |
