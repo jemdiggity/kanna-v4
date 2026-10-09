@@ -1,4 +1,5 @@
 use crate::reader::Feed;
+use crate::settings::Settings;
 use kanna_mux::json::{json, num, opt, string, Value};
 use kanna_mux::PaneState;
 use std::collections::HashMap;
@@ -16,6 +17,10 @@ pub const VERSION: u32 = 1;
 const RECORDS: &str = "terminals.json";
 
 const SNAPSHOT: &str = "snap";
+
+const SETTINGS: &str = "settings.json";
+
+const MAX_SETTINGS: u64 = 1 << 20;
 
 pub const SAVE_EVERY: Duration = Duration::from_secs(1);
 
@@ -162,6 +167,26 @@ impl Store {
         let mut text = serde_json::to_string_pretty(&value).map_err(io::Error::other)?;
         text.push('\n');
         write_atomic(&self.records_path(), text.as_bytes())
+    }
+
+    pub fn load_settings(&self) -> Settings {
+        let Ok(file) = fs::File::open(self.dir.join(SETTINGS)) else { return Settings::default() };
+        let mut text = String::new();
+        if io::Read::read_to_string(&mut io::Read::take(file, MAX_SETTINGS), &mut text).is_err() {
+            return Settings::default();
+        }
+        serde_json::from_str::<Value>(&text)
+            .ok()
+            .filter(|value| string(value, "kanna") == Some("settings"))
+            .map_or_else(Settings::default, |value| Settings::from_value(&value))
+    }
+
+    pub fn save_settings(&self, settings: &Settings) -> io::Result<()> {
+        let mut value = settings.to_value();
+        value["kanna"] = Value::String("settings".into());
+        let mut text = serde_json::to_string_pretty(&value).map_err(io::Error::other)?;
+        text.push('\n');
+        write_atomic(&self.dir.join(SETTINGS), text.as_bytes())
     }
 
     pub fn snapshot(&self, id: &str) -> Option<Vec<u8>> {
@@ -345,6 +370,24 @@ mod tests {
     }
 
     #[test]
+    fn settings_are_kept_privately() {
+        let dir = folder("settings");
+        let store = Store::open(&dir).unwrap();
+        assert_eq!(store.load_settings(), Settings::default());
+        let settings = Settings { graphemes: false, scrollback_lines: Some(9), ..Settings::default() };
+        store.save_settings(&settings).unwrap();
+        assert_eq!(store.load_settings(), settings);
+        let mode = fs::metadata(store.dir().join(SETTINGS)).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        store.prune(&[]);
+        assert_eq!(store.load_settings(), settings);
+        fs::write(store.dir().join(SETTINGS), "{").unwrap();
+        assert_eq!(store.load_settings(), Settings::default());
+        store.stop();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_bad_file_is_moved_aside() {
         let dir = folder("bad");
         let store = Store::open(&dir).unwrap();
@@ -362,7 +405,7 @@ mod tests {
     fn screens_are_saved_when_they_change_and_kept_when_they_cannot_be() {
         let dir = folder("screens");
         let store = Store::open(&dir).unwrap();
-        let feed = Feed::new(20, 4).unwrap();
+        let feed = Feed::new(20, 4, &Settings::default()).unwrap();
         Feed::lock(&feed).push(b"first");
         store.track("p1", feed.clone());
         store.flush();

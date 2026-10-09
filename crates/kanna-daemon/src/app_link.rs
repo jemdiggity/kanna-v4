@@ -1,3 +1,4 @@
+use crate::settings::Settings;
 use crate::terminals::Terminals;
 use crate::Event;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -290,6 +291,7 @@ impl AppLink {
                 }
             }
             "update" => self.updated(&pane, &args),
+            "settings" => self.terminals.set_settings(Settings::from_value(&args)),
             other => eprintln!("kanna-daemon: the app sent an unknown message \"{other}\""),
         }
         None

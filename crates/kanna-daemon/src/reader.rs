@@ -1,3 +1,4 @@
+use crate::settings::Settings;
 use crate::Event;
 use kanna_vt::{Lines, Terminal};
 use std::fs::File;
@@ -6,10 +7,6 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
-
-pub const SCROLLBACK_LINES: usize = 10_000;
-
-pub const SCROLLBACK_BYTES: usize = 10_000_000;
 
 const OUTBOX: usize = 1 << 20;
 
@@ -29,6 +26,7 @@ pub struct Feed {
     pub unsaved: bool,
     pub cols: u16,
     pub rows: u16,
+    cwd: Option<String>,
 }
 
 pub enum Taken {
@@ -37,21 +35,32 @@ pub enum Taken {
 }
 
 impl Feed {
-    pub fn new(cols: u16, rows: u16) -> io::Result<Arc<Mutex<Feed>>> {
-        let screen = Terminal::new(cols, rows, SCROLLBACK_LINES).map_err(io::Error::other)?;
+    pub fn new(cols: u16, rows: u16, settings: &Settings) -> io::Result<Arc<Mutex<Feed>>> {
+        let mut screen = Terminal::new(cols, rows, 0).map_err(io::Error::other)?;
+        settings.start(&mut screen);
         Feed::with(screen, true)
     }
 
-    pub fn restore(snapshot: &[u8]) -> io::Result<Arc<Mutex<Feed>>> {
+    pub fn restore(snapshot: &[u8], settings: &Settings) -> io::Result<Arc<Mutex<Feed>>> {
         let mut screen = Terminal::from_snapshot(snapshot).map_err(io::Error::other)?;
-        screen.set_scrollback_lines(SCROLLBACK_LINES).map_err(io::Error::other)?;
+        settings.apply(&mut screen);
+        screen.take_replies();
         Feed::with(screen, false)
     }
 
-    fn with(mut screen: Terminal, unsaved: bool) -> io::Result<Arc<Mutex<Feed>>> {
-        screen.set_scrollback_bytes(Some(SCROLLBACK_BYTES)).map_err(io::Error::other)?;
+    fn with(screen: Terminal, unsaved: bool) -> io::Result<Arc<Mutex<Feed>>> {
         let (cols, rows) = screen.size();
-        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, unsaved, cols, rows })))
+        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, unsaved, cols, rows, cwd: None })))
+    }
+
+    pub fn apply(&mut self, settings: &Settings) -> Vec<u8> {
+        settings.apply(&mut self.screen);
+        self.unsaved = true;
+        self.screen.take_replies()
+    }
+
+    pub fn take_cwd(&mut self) -> Option<String> {
+        self.cwd.take()
     }
 
     pub fn lock(feed: &Mutex<Feed>) -> MutexGuard<'_, Feed> {
@@ -62,6 +71,11 @@ impl Feed {
         self.screen.write(bytes);
         self.unsaved = true;
         let replies = self.screen.take_replies();
+        if self.screen.take_changed().pwd {
+            if let Some(cwd) = cwd_from_url(&self.screen.pwd()) {
+                self.cwd = Some(cwd);
+            }
+        }
         if self.overflowed || self.outbox.len() + bytes.len() > OUTBOX {
             self.outbox = Vec::new();
             self.overflowed = true;
@@ -106,6 +120,54 @@ impl Feed {
     pub fn text(&self, lines: Option<usize>) -> String {
         self.screen.text(lines.map_or(Lines::Screen, Lines::Last))
     }
+}
+
+pub fn cwd_from_url(url: &str) -> Option<String> {
+    let (rest, raw) = if let Some(rest) = url.strip_prefix("file://") {
+        (rest, false)
+    } else {
+        (url.strip_prefix("kitty-shell-cwd://")?, true)
+    };
+    let slash = rest.find('/')?;
+    let (host, path) = rest.split_at(slash);
+    if !is_local(host) {
+        return None;
+    }
+    if raw {
+        return Some(path.to_string());
+    }
+    let bytes = path.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' => {
+                let byte = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok().and_then(|h| u8::from_str_radix(h, 16).ok())?;
+                out.push(byte);
+                i += 3;
+            }
+            b'?' | b'#' => break,
+            byte => {
+                out.push(byte);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+fn is_local(host: &str) -> bool {
+    if host.is_empty() || host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let mut name = [0u8; 256];
+    if unsafe { libc::gethostname(name.as_mut_ptr() as *mut libc::c_char, name.len()) } != 0 {
+        return false;
+    }
+    let length = name.iter().position(|b| *b == 0).unwrap_or(name.len());
+    let local = String::from_utf8_lossy(&name[..length]).to_string();
+    let short = |h: &str| h.split('.').next().unwrap_or(h).to_ascii_lowercase();
+    host.eq_ignore_ascii_case(&local) || short(host) == short(&local) && (local.ends_with(".local") || host.ends_with(".local"))
 }
 
 pub struct Reader {
@@ -228,7 +290,7 @@ mod tests {
     use super::*;
 
     fn feed(cols: u16, rows: u16, output: &str) -> Arc<Mutex<Feed>> {
-        let feed = Feed::new(cols, rows).unwrap();
+        let feed = Feed::new(cols, rows, &Settings::default()).unwrap();
         Feed::lock(&feed).push(output.as_bytes());
         feed
     }
@@ -245,8 +307,20 @@ mod tests {
     }
 
     #[test]
+    fn a_shell_reporting_its_folder_changes_the_cwd() {
+        let f = feed(20, 5, "\x1b]7;file://localhost/tmp/a%20b\x07");
+        assert_eq!(Feed::lock(&f).take_cwd().as_deref(), Some("/tmp/a b"));
+        assert_eq!(Feed::lock(&f).take_cwd(), None);
+        Feed::lock(&f).push(b"\x1b]7;file://elsewhere.example/etc\x07\x1b]7;kitty-shell-cwd:///x%y\x07");
+        assert_eq!(Feed::lock(&f).take_cwd().as_deref(), Some("/x%y"));
+        assert_eq!(cwd_from_url("file:///a%2"), None);
+        assert_eq!(cwd_from_url("http://localhost/a"), None);
+        assert_eq!(cwd_from_url("file://"), None);
+    }
+
+    #[test]
     fn queries_are_answered() {
-        let f = Feed::new(20, 5).unwrap();
+        let f = Feed::new(20, 5, &Settings::default()).unwrap();
         let (posted, replies) = Feed::lock(&f).push(b"\x1b[2;3H\x1b[6n");
         assert!(posted);
         assert_eq!(replies, b"\x1b[2;3R");
@@ -267,13 +341,13 @@ mod tests {
 
     #[test]
     fn a_full_scrollback_stays_within_its_byte_limit() {
-        let f = Feed::new(1000, 50).unwrap();
+        let f = Feed::new(1000, 50, &Settings::default()).unwrap();
         let mut f = Feed::lock(&f);
         let line: String = (0..998u32).map(|c| char::from_u32(0x4e00 + c % 2000).unwrap()).collect();
         for i in 0..3000 {
             f.push(format!("\x1b[38;5;{}m\x1b[48;2;{i};1;2m{line}\x1b[0m\r\n", i % 256).as_bytes());
         }
         let snapshot = f.snapshot().unwrap();
-        assert!(snapshot.len() < SCROLLBACK_BYTES, "{} bytes", snapshot.len());
+        assert!(snapshot.len() < crate::settings::MAX_SCROLLBACK_BYTES, "{} bytes", snapshot.len());
     }
 }

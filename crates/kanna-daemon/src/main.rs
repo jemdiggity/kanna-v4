@@ -3,6 +3,7 @@ mod host;
 mod keeper;
 mod pty;
 mod reader;
+mod settings;
 mod store;
 mod terminals;
 

@@ -1,5 +1,6 @@
 use crate::pty::{self, Adopted, Spawned, Spawner, Spec};
 use crate::reader::{Feed, Reader, Taken};
+use crate::settings::Settings;
 use crate::store::{pane_number, Record, Saved, Store};
 use crate::Event;
 use kanna_mux::{KmuxError, Pane, PaneHost, PaneState, PaneType, WeakCore};
@@ -68,12 +69,15 @@ pub struct Terminals {
     serial: Cell<u64>,
     sizes: RefCell<HashMap<String, (u16, u16)>>,
     changed: Cell<bool>,
+    settings: RefCell<Settings>,
     pub on_start: RefCell<Option<OnStart>>,
 }
 
 impl Terminals {
     pub fn new(spawner: Rc<dyn Spawner>, store: Store, events: Sender<Event>, env: Vec<(String, String)>) -> Terminals {
+        let settings = RefCell::new(store.load_settings());
         Terminals {
+            settings,
             core: RefCell::new(None),
             spawner,
             store,
@@ -118,10 +122,42 @@ impl Terminals {
     }
 
     pub fn output(&self, id: &str, serial: u64) -> Option<Taken> {
-        let live = self.live.borrow();
-        let terminal = live.get(id).filter(|t| t.serial == serial)?;
-        let taken = Feed::lock(&terminal.feed).take();
+        let (taken, cwd) = {
+            let live = self.live.borrow();
+            let terminal = live.get(id).filter(|t| t.serial == serial)?;
+            let mut feed = Feed::lock(&terminal.feed);
+            (feed.take(), feed.take_cwd())
+        };
+        if let Some(cwd) = cwd {
+            self.moved(id, cwd);
+        }
         taken
+    }
+
+    fn moved(&self, id: &str, cwd: String) {
+        let Some(core) = self.core.borrow().as_ref().and_then(WeakCore::upgrade) else { return };
+        core.with_pane_mut(id, |pane| pane.cwd = Some(cwd));
+        self.changed.set(true);
+    }
+
+    pub fn settings(&self) -> Settings {
+        self.settings.borrow().clone()
+    }
+
+    pub fn set_settings(&self, settings: Settings) {
+        if *self.settings.borrow() == settings {
+            return;
+        }
+        if let Err(error) = self.store.save_settings(&settings) {
+            eprintln!("kanna-daemon: couldn't save the terminal settings: {error}");
+        }
+        for terminal in self.live.borrow().values() {
+            let replies = Feed::lock(&terminal.feed).apply(&settings);
+            if let (false, Some(pty)) = (replies.is_empty(), terminal.running()) {
+                let _ = pty.input.send(replies);
+            }
+        }
+        *self.settings.borrow_mut() = settings;
     }
 
     pub fn exited(&self, keeper: &str, pid: i32, code: i32) -> Option<(String, i32)> {
@@ -353,7 +389,8 @@ impl Terminals {
     }
 
     fn adopt(&self, id: &str, keeper: &str, pty: Adopted, snapshot: Option<Vec<u8>>) -> std::io::Result<Terminal> {
-        let restored = snapshot.and_then(|snapshot| match Feed::restore(&snapshot) {
+        let settings = self.settings();
+        let restored = snapshot.and_then(|snapshot| match Feed::restore(&snapshot, &settings) {
             Ok(feed) => Some(feed),
             Err(error) => {
                 eprintln!("kanna-daemon: {id}'s saved screen can't be read ({error}); starting it blank");
@@ -363,7 +400,7 @@ impl Terminals {
         let fresh = restored.is_none();
         let feed = match restored {
             Some(feed) => feed,
-            None => Feed::new(COLS, ROWS)?,
+            None => Feed::new(COLS, ROWS, &settings)?,
         };
         let (cols, rows) = {
             let mut screen = Feed::lock(&feed);
@@ -386,9 +423,10 @@ impl Terminals {
     }
 
     fn ended(&self, record: &Record, snapshot: Option<Vec<u8>>) -> std::io::Result<Terminal> {
-        let feed = match snapshot.map(|snapshot| Feed::restore(&snapshot)) {
+        let settings = self.settings();
+        let feed = match snapshot.map(|snapshot| Feed::restore(&snapshot, &settings)) {
             Some(Ok(feed)) => feed,
-            _ => Feed::new(COLS, ROWS)?,
+            _ => Feed::new(COLS, ROWS, &settings)?,
         };
         let (cols, rows) = {
             let screen = Feed::lock(&feed);
@@ -415,7 +453,7 @@ impl PaneHost for Terminals {
         let serial = self.next_serial();
         let spec = self.spec(pane);
         let started = self.spawner.spawn(&spec).and_then(|spawned| {
-            let feed = Feed::new(spec.cols, spec.rows)?;
+            let feed = Feed::new(spec.cols, spec.rows, &self.settings())?;
             self.run(&pane.id, &pane.id, serial, spawned, feed)
         });
         match started {
