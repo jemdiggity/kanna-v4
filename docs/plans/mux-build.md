@@ -26,8 +26,9 @@
 | **M1 · The app can quit** | quit or crash Kanna.app, reopen it, and find every terminal still running with its screen exactly as it was | kanna-v4 (+ Ghostty fork) |
 | **M2 · The daemon can restart** | kill or upgrade the daemon and lose nothing | kanna-v4 |
 | **M3 · Web, markdown, iOS** | use every pane kmux has, with `kanna` commands passed to the app | kanna-v4 |
+| **M4 · kmux parity** | use Kanna.app every day in place of kmux: every window, tab, split, menu, shortcut, mouse gesture, terminal behaviour and CLI command kmux has | kanna-v4 (+ Ghostty fork) |
 
-After M3 Kanna's own layers (Desk and Shelf, tasks, agents) are built on top; they're not in this plan.
+After M4 Kanna's own layers (Desk and Shelf, tasks, agents) are built on top; they're not in this plan.
 
 ---
 
@@ -155,6 +156,25 @@ flowchart TB
 **M3 is complete:** S8 passes (with S1, S3–S7 and S9), three runs in a row; kmux's 31 protocol cases pass in-process, through `LayoutOwner` and through the daemon and app link. S2's pixel check needs an unlocked screen.
 
 ---
+
+## 7a. M4 · kmux parity
+
+kmux is the reference: anything you can do in kmux you can do in Kanna.app, the same way. M4 is three tracks, built side by side; each lists its steps here as it goes.
+
+### Track A · Windows, tabs and splits (the app's UI)
+
+| Step | What | Checked by |
+|---|---|---|
+
+### Track B · The CLI
+
+| Step | What | Checked by |
+|---|---|---|
+
+### Track C · Terminal behaviour
+
+| Step | What | Checked by |
+|---|---|---|
 
 ## 8. Clean-up
 
