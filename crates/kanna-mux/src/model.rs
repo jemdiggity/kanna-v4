@@ -627,9 +627,10 @@ impl Model {
         let tab = &mut self.windows[location.window].tabs[location.tab];
         let parent = split_at(tab.root.as_mut().unwrap(), path);
         let old = parent.kids[location.index].size;
+        let others = (parent.kids.len() - 1) as f64;
         for (i, kid) in parent.kids.iter_mut().enumerate() {
             if i != location.index {
-                kid.size *= (1.0 - size) / (1.0 - old);
+                kid.size = if old < 1.0 - 1e-9 { kid.size * (1.0 - size) / (1.0 - old) } else { (1.0 - size) / others };
             }
         }
         parent.kids[location.index].size = size;
