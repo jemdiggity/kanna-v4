@@ -15,6 +15,7 @@ let package = Package(
         .target(name: "KannaDiagram", dependencies: ["KannaMerman"], linkerSettings: ["AppKit", "CoreText"].map { .linkedFramework($0) }),
         .target(name: "KannaMarkdown", dependencies: ["KannaDiagram", .product(name: "Markdown", package: "swift-markdown")],
                 linkerSettings: ["AppKit"].map { .linkedFramework($0) }),
+        .testTarget(name: "KannaMarkdownTests", dependencies: ["KannaMarkdown"]),
         .target(name: "SimBridge", linkerSettings: ["AppKit", "IOSurface", "QuartzCore"].map { .linkedFramework($0) }),
         .executableTarget(
             name: "Kanna",
