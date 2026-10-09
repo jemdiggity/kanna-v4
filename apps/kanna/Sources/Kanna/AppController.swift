@@ -15,11 +15,24 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
     private var layout: LayoutView!
     private var focused: String?
+    private var appLayout: AppLayout?
+    private var saveTimer: Timer?
 
     static var daemonSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_SOCKET"], !path.isEmpty { return path }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent("kanna-dev/kanna.sock").path
+    }
+
+    static var statePath: String? {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["KANNA_NO_STATE"] == "1" { return nil }
+        let folder = environment["KANNA_STATE_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? (daemonSocketPath as NSString).deletingLastPathComponent
+        return (folder as NSString).appendingPathComponent("layout.json")
+    }
+
+    static var fresh: Bool {
+        CommandLine.arguments.contains("--fresh") || ProcessInfo.processInfo.environment["KANNA_FRESH"] == "1"
     }
 
     static var appSocketPath: String {
@@ -58,7 +71,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         } else {
             if Self.isAppSocket(Self.daemonSocketPath) { fatal("kanna: \(Self.daemonSocketPath) belongs to Kanna.app; use another KANNA_SOCKET") }
             let daemon = DaemonLink(socketPath: Self.daemonSocketPath, commands: commands)
-            daemon.onLayout = { [weak self] in self?.mirror($0) }
+            appLayout = AppLayout(statePath: Self.statePath, fresh: Self.fresh)
+            daemon.onAttach = { [weak self] in self?.attached($0) }
+            daemon.onLayout = { [weak self] in self?.layoutRequest($0) ?? ["ok": false, "error": ["code": "app_gone", "message": "Kanna.app is closing"]] }
             terminals = ExternalIOBackend(runtime: runtime, link: daemon)
             self.daemon = daemon
         }
@@ -77,6 +92,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        saveTimer?.invalidate()
+        appLayout?.save()
         for case let terminal as TerminalSurfaceView in layout?.panes.values.map({ $0 }) ?? [] { terminals.stop(terminal) }
         daemon?.stop()
         server?.stop()
@@ -92,7 +109,12 @@ final class AppController: NSObject, NSApplicationDelegate {
         window.title = "Kanna"
         layout = LayoutView(frame: NSRect(origin: .zero, size: window.contentLayoutRect.size))
         layout.autoresizingMask = [.width, .height]
-        layout.make = { id, type in type == "term" ? TerminalSurfaceView(frame: .zero) : PlaceholderView(pane: id, type: type) }
+        layout.make = { [weak self] id, type in
+            guard type == "term" else { return PlaceholderView(pane: id, type: type) }
+            let view = TerminalSurfaceView(frame: .zero)
+            view.focused = { self?.userFocused(id) }
+            return view
+        }
         layout.added = { [weak self] id, view in
             guard let self, let terminal = view as? TerminalSurfaceView else { return }
             if !self.terminals.start(terminal, pane: Pane(id: id)) {
@@ -105,6 +127,43 @@ final class AppController: NSObject, NSApplicationDelegate {
         window.contentView = layout
         window.center()
         present(window)
+    }
+
+    private func attached(_ panes: JSON) {
+        guard let appLayout else { return }
+        let reply = appLayout.attach(panes)
+        if let problem = reply["problem"]?.string { FileHandle.standardError.write(Data("kanna: \(problem)\n".utf8)) }
+        if reply["ok"]?.bool != true {
+            FileHandle.standardError.write(Data("kanna: the daemon's panes could not be placed: \(reply["error"]?["message"]?.string ?? "")\n".utf8))
+        }
+        layoutChanged()
+    }
+
+    private func layoutRequest(_ request: JSON) -> JSON {
+        guard let appLayout else { return ["ok": false, "error": ["code": "no_layout", "message": "this app keeps no layout"]] }
+        let reply = appLayout.serve(request)
+        layoutChanged()
+        return reply
+    }
+
+    private func userFocused(_ pane: String) {
+        guard let appLayout, pane != focused else { return }
+        focused = pane
+        _ = appLayout.serve(["op": "command", "cmd": "focus", "args": ["pane": .string(pane)]])
+        scheduleSave()
+    }
+
+    private func layoutChanged() {
+        guard let appLayout else { return }
+        mirror(appLayout.view)
+        scheduleSave()
+    }
+
+    private func scheduleSave() {
+        guard appLayout != nil, saveTimer?.isValid != true else { return }
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.appLayout?.save() }
+        }
     }
 
     private func mirror(_ args: JSON) {

@@ -66,6 +66,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanna-layout"
+version = "0.1.0"
+dependencies = [
+ "kanna-mux",
+ "serde_json",
+]
+
+[[package]]
 name = "kanna-mux"
 version = "0.1.0"
 dependencies = [

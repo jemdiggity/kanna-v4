@@ -7,7 +7,8 @@ final class DaemonLink: TerminalLink {
     private var terminals: [String: ExternalTerminal] = [:]
     private var sizes: [String: JSON] = [:]
     private(set) var attached = false
-    var onLayout: ((JSON) -> Void)?
+    var onAttach: ((JSON) -> Void)?
+    var onLayout: ((JSON) -> JSON)?
 
     var socketPath: String { connection.path }
 
@@ -49,6 +50,7 @@ final class DaemonLink: TerminalLink {
             attached = ok
             if ok {
                 connection.accepted()
+                onAttach?(message["panes"] ?? [])
             } else {
                 connection.refused()
                 FileHandle.standardError.write(Data("kanna: the daemon refused this app: \(message["error"]?["message"]?.string ?? "")\n".utf8))
@@ -56,6 +58,15 @@ final class DaemonLink: TerminalLink {
             return
         }
         guard let cmd = message["cmd"]?.string else { return }
+        if cmd == "layout", let id = message["id"] {
+            var reply = onLayout?(message["args"] ?? [:]) ?? ["ok": false, "error": ["code": "no_layout", "message": "this app keeps no layout"]]
+            if case .object(var fields) = reply {
+                fields["id"] = id
+                reply = .object(fields)
+            }
+            connection.send(reply, generation: delivery.generation)
+            return
+        }
         if message["id"] != nil {
             Task { [commands] in connection.send(await commands.handle(message), generation: delivery.generation) }
             return
@@ -63,7 +74,6 @@ final class DaemonLink: TerminalLink {
         let args = message["args"] ?? [:]
         let terminal = args["pane"]?.string.flatMap { terminals[$0] }
         switch cmd {
-        case "layout": onLayout?(args)
         case "output":
             if let terminal, let data = args["data"]?.string.flatMap({ Data(base64Encoded: $0) }) {
                 consumed = false

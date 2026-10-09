@@ -1,0 +1,5 @@
+module KannaLayoutC {
+    header "../../../../crates/kanna-layout/include/kanna_layout.h"
+    link "kanna_layout"
+    export *
+}

@@ -6,6 +6,7 @@ import QuartzCore
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     var surface: ghostty_surface_t? { didSet { if surface != nil { syncSurfaceGeometry(); updateVisibility() } } }
     var isHandlingInputEvent = false
+    var focused: (() -> Void)?
     static let ignoresOcclusion = ProcessInfo.processInfo.environment["KANNA_IGNORE_OCCLUSION"] == "1"
     private static var lastSurfaceID: UInt = 0
     let surfaceID: UInt
@@ -70,6 +71,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         if let surface { ghostty_surface_set_focus(surface, true) }
+        if result { focused?() }
         return result
     }
 

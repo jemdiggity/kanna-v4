@@ -17,6 +17,8 @@ if [[ "$built" != "$KANNA_GHOSTTY_COMMIT" ]]; then
   echo "note: GhosttyKit is Ghostty $built from GHOSTTY_SOURCE_DIR, not the pinned $KANNA_GHOSTTY_COMMIT" >&2
 fi
 
+(cd "$repo_root" && cargo build --release -p kanna-layout)
+
 configuration="${KANNA_CONFIGURATION:-release}"
 bundle_id="${KANNA_BUNDLE_ID:-dev.kanna.app.dev}"
 build=(swift build --package-path "$repo_root/apps/kanna" --configuration "$configuration" --scratch-path "$repo_root/target/kanna-build")

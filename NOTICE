@@ -12,12 +12,20 @@ Derived from kmux:
       A Rust port of kmux's core, apps/kmux/Sources/KmuxCore (Core.swift,
       Core+Layout.swift, Model.swift, JSON.swift, Fraction.swift, Brand.swift,
       Instance.swift, SocketServer.swift), and of its reference model,
-      reference/kmux/core.js and reference/kmux/index.html.
+      reference/kmux/core.js and reference/kmux/index.html. Its layout
+      owner (src/owner.rs) keeps and saves the layout by kmux's rules in
+      apps/kmux/Sources/Kmux/AppController.swift (restoreLayout,
+      scheduleSave, saveLayout): a file it can't trust is set aside as
+      .bad, and a save that would change nothing writes nothing.
+
+  crates/kanna-layout
+      kanna-mux's layout owner for Kanna.app, behind a C interface.
 
   apps/kanna/Sources/Kanna/AppController.swift
       Parts follow apps/kmux/Sources/Kmux/AppController.swift: --bg and
-      `present`, the socket and signal handling, the Edit menu, and the
-      debug commands' shapes.
+      `present`, the socket and signal handling, the Edit menu, the
+      debug commands' shapes, and saving the layout half a second after a
+      change and on quit (scheduleSave), with --fresh.
   apps/kanna/Sources/Kanna/Control/Commands.swift
       The request envelope and error follow Core.handle and KmuxError in
       apps/kmux/Sources/KmuxCore/Core.swift.
