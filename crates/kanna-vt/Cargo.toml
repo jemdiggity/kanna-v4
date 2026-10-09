@@ -1,0 +1,10 @@
+[package]
+name = "kanna-vt"
+version.workspace = true
+edition.workspace = true
+license = "FSL-1.1-MIT"
+description = "A terminal's screen, kept by libghostty-vt: feed it output, read its text, snapshot it (GHOSTSNP) for Kanna.app."
+links = "ghostty-vt"
+
+[build-dependencies]
+cc = "1"

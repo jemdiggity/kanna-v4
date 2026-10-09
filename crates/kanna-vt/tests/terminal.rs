@@ -1,0 +1,280 @@
+use kanna_vt::{Lines, Terminal};
+
+fn terminal(cols: u16, rows: u16, output: &str) -> Terminal {
+    let mut t = Terminal::new(cols, rows, 1000).unwrap();
+    t.write(output.as_bytes());
+    t
+}
+
+#[test]
+fn text_after_writes() {
+    let mut t = terminal(20, 5, "hello\r\nworld   ");
+    assert_eq!(t.text(Lines::Screen), "hello\nworld");
+    assert_eq!(t.cursor(), (8, 1));
+    let bytes = "\x1b[1;31mred\x1b[0m é 字".as_bytes();
+    t.write(b"\r\n");
+    for b in bytes {
+        t.write(std::slice::from_ref(b));
+    }
+    assert_eq!(t.text(Lines::Screen), "hello\nworld\nred é 字");
+    t.write(b"\x1b[2J\x1b[Htop\x1b[3;5Hmid");
+    assert_eq!(t.text(Lines::Screen), "top\n\n    mid");
+    assert_eq!(t.size(), (20, 5));
+}
+
+#[test]
+fn empty_terminal_is_empty_text() {
+    let t = Terminal::new(80, 24, 100).unwrap();
+    assert_eq!(t.text(Lines::Screen), "");
+    assert_eq!(t.text(Lines::Last(10)), "");
+    assert_eq!(t.title(), "");
+    assert_eq!(t.cursor(), (0, 0));
+}
+
+#[test]
+fn long_lines_wrap_into_rows() {
+    let t = terminal(5, 4, "abcdefghij12\r\nx");
+    assert_eq!(t.text(Lines::Screen), "abcde\nfghij\n12\nx");
+}
+
+#[test]
+fn alternate_screen_and_back() {
+    let mut t = terminal(10, 3, "shell$ top");
+    t.write(b"\x1b[?1049h\x1b[H\x1b[2Jfull\r\nscreen");
+    assert!(t.alternate_screen());
+    assert_eq!(t.text(Lines::Screen), "full\nscreen");
+    assert_eq!(t.text(Lines::Last(100)), "full\nscreen");
+    t.write(b"\x1b[?1049l");
+    assert!(!t.alternate_screen());
+    assert_eq!(t.text(Lines::Screen), "shell$ top");
+}
+
+#[test]
+fn resize_keeps_text_and_reports_size() {
+    let mut t = terminal(10, 4, "a\r\nb\r\nc\r\nd");
+    t.resize(10, 2).unwrap();
+    assert_eq!(t.size(), (10, 2));
+    assert_eq!(t.text(Lines::Screen), "c\nd");
+    assert_eq!(t.text(Lines::Last(10)), "a\nb\nc\nd");
+    let mut t = terminal(10, 3, "abcdefgh");
+    t.resize(4, 3).unwrap();
+    assert_eq!(t.text(Lines::Screen), "abcd\nefgh");
+    t.resize(0, 0).unwrap();
+    assert_eq!(t.size(), (1, 1));
+}
+
+#[test]
+fn last_lines_count_scrollback() {
+    let mut t = Terminal::new(10, 3, 1000).unwrap();
+    for i in 0..20 {
+        t.write(format!("line {i}\r\n").as_bytes());
+    }
+    assert_eq!(t.text(Lines::Screen), "line 18\nline 19");
+    assert_eq!(t.text(Lines::Last(4)), "line 16\nline 17\nline 18\nline 19");
+    assert_eq!(t.text(Lines::Last(1)), "line 19");
+    let all: Vec<String> = (0..20).map(|i| format!("line {i}")).collect();
+    assert_eq!(t.text(Lines::Last(1000)), all.join("\n"));
+    assert_eq!(t.text(Lines::Last(0)), "");
+}
+
+#[test]
+fn scrollback_is_limited_in_whole_pages() {
+    let mut t = Terminal::new(10, 3, 0).unwrap();
+    t.set_scrollback_lines(100).unwrap();
+    assert_eq!(t.scrollback_lines(), Some(100));
+    for i in 0..50_000 {
+        t.write(format!("line {i}\r\n").as_bytes());
+    }
+    assert!(t.scrollback_rows() < 5_000, "{} rows kept", t.scrollback_rows());
+    assert_eq!(t.text(Lines::Last(1)), "line 49999");
+}
+
+#[test]
+fn title_and_pwd() {
+    let t = terminal(20, 3, "\x1b]0;my title\x07\x1b]7;file://host/tmp/x\x1b\\");
+    assert_eq!(t.title(), "my title");
+    assert_eq!(t.pwd(), "file://host/tmp/x");
+}
+
+#[test]
+fn queries_get_replies() {
+    let mut t = terminal(20, 5, "ab\x1b[6n");
+    assert_eq!(t.take_replies(), b"\x1b[1;3R");
+    assert!(t.take_replies().is_empty());
+}
+
+#[test]
+fn snapshot_round_trip() {
+    let mut t = Terminal::new(30, 6, 1000).unwrap();
+    for i in 0..40 {
+        t.write(format!("\x1b[3{}mline {i}\x1b[0m\r\n", i % 8).as_bytes());
+    }
+    t.write("\x1b]2;snap\x07wide 字 é".as_bytes());
+    let snap = t.snapshot().unwrap();
+    assert!(snap.starts_with(b"GHOSTSNP"));
+    let r = Terminal::from_snapshot(&snap).unwrap();
+    assert_eq!(r.size(), t.size());
+    assert_eq!(r.cursor(), t.cursor());
+    assert_eq!(r.title(), "snap");
+    assert_eq!(r.text(Lines::Screen), t.text(Lines::Screen));
+    assert_eq!(r.text(Lines::Last(1000)), t.text(Lines::Last(1000)));
+    let (mut a, mut b) = (t, r);
+    for out in [&mut a, &mut b] {
+        out.write(b" more\r\nnext");
+    }
+    assert_eq!(a.text(Lines::Last(1000)), b.text(Lines::Last(1000)));
+    let again = Terminal::from_snapshot(&b.snapshot().unwrap()).unwrap();
+    assert_eq!(again.text(Lines::Last(1000)), a.text(Lines::Last(1000)));
+}
+
+#[test]
+fn snapshot_of_alternate_screen_and_unfinished_sequence() {
+    let mut t = terminal(20, 4, "shell\x1b[?1049h\x1b[Htop");
+    t.write(b"\x1b[3");
+    let mut r = Terminal::from_snapshot(&t.snapshot().unwrap()).unwrap();
+    assert!(r.alternate_screen());
+    for out in [&mut t, &mut r] {
+        out.write(b";1Hx\x1b[?1049l");
+    }
+    assert_eq!(r.text(Lines::Screen), t.text(Lines::Screen));
+    assert_eq!(r.text(Lines::Screen), "shell");
+}
+
+#[test]
+fn bad_snapshots_are_refused() {
+    let t = terminal(20, 4, "hello");
+    let snap = t.snapshot().unwrap();
+    assert!(Terminal::from_snapshot(b"").is_err());
+    assert!(Terminal::from_snapshot(b"GHOSTSNP").is_err());
+    assert!(Terminal::from_snapshot(&snap[..snap.len() / 2]).is_err());
+    assert!(Terminal::from_snapshot(&snap[..snap.len() - 1]).is_err());
+    let mut flipped = snap.clone();
+    let mid = flipped.len() / 2;
+    flipped[mid] ^= 0x40;
+    assert!(Terminal::from_snapshot(&flipped).is_err());
+}
+
+#[test]
+fn snapshot_waits_for_an_apc_holding_a_c1_byte_to_end() {
+    let mut t = terminal(20, 4, "before");
+    t.write(b"\x1b_a\x9d");
+    assert!(t.snapshot().is_err());
+    t.write(b"more\x1b\\after");
+    let r = Terminal::from_snapshot(&t.snapshot().unwrap()).unwrap();
+    assert_eq!(r.text(Lines::Screen), "beforeafter");
+}
+
+#[test]
+#[ignore = "libghostty-vt bug at the pinned commit: after a widening reflow, the snapshot drops the oldest history rows"]
+fn snapshot_after_widening_reflow_keeps_all_history() {
+    let mut t = Terminal::from_snapshot(include_bytes!("fixtures/reflow-drops-history.snap")).unwrap();
+    assert_eq!(t.size(), (126, 1));
+    t.resize(204, 86).unwrap();
+    let r = Terminal::from_snapshot(&t.snapshot().unwrap()).unwrap();
+    assert_eq!(r.scrollback_rows(), t.scrollback_rows());
+    assert_eq!(r.text(Lines::Last(10_000)), t.text(Lines::Last(10_000)));
+}
+
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+}
+#[test]
+fn hostile_output_never_panics() {
+    let nasty: [&[u8]; 22] = [
+        b"\x1b[99999999;99999999H",
+        b"\x1b[0;0r",
+        b"\x1b[65535;1r",
+        b"\x1b[5;3r",
+        b"\x1b[99999L",
+        b"\x1b[99999M",
+        b"\x1b[99999P",
+        b"\x1b[99999@",
+        b"\x1b[99999X",
+        b"\x1b[99999S",
+        b"\x1b[99999T",
+        b"\x1b[99999A\x1b[99999D",
+        b"\x1b[?1049h\x1b[?1049h\x1b[?47l\x1b[?1049l",
+        b"\x1bM\x1bM\x1bD\x1bE\x1b8\x1bc",
+        b"\xff\xfe\xc3\x28\xf0\x28\x8c\x28",
+        b"\x1b[;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;H",
+        b"\x1b[8;9999;9999t\x1b[4;99999;99999t\x1b[18t\x1b[14t",
+        b"\x1b]4;1;rgb:ff/00/00\x07\x1b]10;?\x07\x1b]11;?\x1b\\\x1b]52;c;?\x07",
+        b"\x1b_Ga=T,f=100,s=99999,v=99999;AAAA\x1b\\",
+        b"\x1bP+q544e\x1b\\\x1b[c\x1b[>c\x1b[=c\x1b[>q\x1b[?996n",
+        b"\x1b]8;;http://x\x1b\\link\x1b]8;;\x1b\\\x1b[?2026h\x1b[?2026l",
+        b"\x1b[>1u\x1b[=5;1u\x1b[<u\x1b(0lqk\x1b(B\x1b#8",
+    ];
+    let mut t = Terminal::new(80, 24, 2000).unwrap();
+    for bytes in nasty {
+        t.write(bytes);
+        t.write("wide 字 and e\u{301} ".as_bytes());
+        let _ = t.text(Lines::Screen);
+    }
+    let mut rng = Rng(0x9e3779b97f4a7c15);
+    let alphabet = b"\x1b[]?;:0123456789HJKLMPSTX@ABCDEFGdfhlmnqrstu78DcP_\\\r\n\x08\t\x07\x9b\x9dab";
+    for round in 0..3000 {
+        let len = (rng.next() % 300) as usize;
+        let bytes: Vec<u8> = (0..len)
+            .map(|_| {
+                let r = rng.next();
+                if r.is_multiple_of(4) { (r >> 8) as u8 } else { alphabet[(r >> 8) as usize % alphabet.len()] }
+            })
+            .collect();
+        t.write(&bytes);
+        if round % 50 == 0 {
+            t.resize((rng.next() % 300) as u16, (rng.next() % 100) as u16).unwrap();
+        }
+        let _ = t.text(Lines::Screen);
+        let _ = t.text(Lines::Last((rng.next() % 50) as usize + 1));
+        let _ = (t.size(), t.cursor(), t.title(), t.pwd(), t.take_replies());
+        if round % 100 == 0 {
+            if let Ok(snap) = t.snapshot() {
+                let r = Terminal::from_snapshot(&snap).expect("own snapshot loads");
+                assert_eq!(r.size(), t.size());
+                assert_eq!(r.cursor(), t.cursor());
+                assert_eq!(r.text(Lines::Screen), t.text(Lines::Screen));
+                let (kept, all) = (r.text(Lines::Last(500)), t.text(Lines::Last(500)));
+                assert!(all.ends_with(&kept), "the restored history isn't the original's newest lines");
+                t = r;
+            }
+        }
+    }
+}
+#[test]
+fn hostile_snapshots_never_panic() {
+    let mut t = Terminal::new(40, 10, 1000).unwrap();
+    for i in 0..60 {
+        t.write(format!("\x1b[1;3{}mrow {i} 字\x1b[0m\r\n", i % 8).as_bytes());
+    }
+    let snap = t.snapshot().unwrap();
+    let mut rng = Rng(0x2545f4914f6cdd1d);
+    for _ in 0..2000 {
+        let mut bytes = snap.clone();
+        match rng.next() % 4 {
+            0 => bytes.truncate((rng.next() as usize) % bytes.len()),
+            1 => {
+                for _ in 0..1 + rng.next() % 8 {
+                    let i = (rng.next() as usize) % bytes.len();
+                    bytes[i] = rng.next() as u8;
+                }
+            }
+            2 => {
+                let i = 10 + (rng.next() as usize) % (bytes.len() - 10);
+                bytes[i] ^= 1 << (rng.next() % 8);
+                assert!(Terminal::from_snapshot(&bytes).is_err(), "a flipped bit at {i} was accepted");
+            }
+            _ => bytes = (0..(rng.next() % 4096)).map(|_| rng.next() as u8).collect(),
+        }
+        if let Ok(mut r) = Terminal::from_snapshot(&bytes) {
+            r.write(b"still works\r\n");
+            let _ = r.text(Lines::Last(100));
+        }
+    }
+}
