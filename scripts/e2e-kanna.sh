@@ -15,7 +15,7 @@ usage: scripts/e2e-kanna.sh [--through M0|M1|M2|M3|M4] [S1 S4 …]
   S…           only these scenarios
 
 Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app
-(scripts/build-kanna.sh). The private instance gets:
+(cargo build --workspace --release, scripts/build-kanna-app.sh). The private instance gets:
   KANNA_SOCKET     the daemon's socket (the CLI and the app connect to it)
   KANNA_STATE_DIR  where the daemon, keeper and app keep their files
                    (the keeper writes keeper.pid there)

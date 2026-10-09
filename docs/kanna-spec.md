@@ -48,7 +48,7 @@
 
 kanna isn't tied to one mux. Its commands work the same way with **kmux**, **tmux** or **cmux**. Each mux supports whatever pane types it can show.
 
-**Kanna ships its own mux, Kanna.app** ([4](#4-kannaapp)): its terminals live in a background daemon, so they survive the app quitting. **[Being built]** Until then Kanna.app is a copy of kmux built from a [kmux](https://github.com/tampopogk/kmux) checkout beside this repo (`../kmux`, at the commit in `kmux.rev`), with Kanna's name and icon. It has its own sockets (`~/Library/Application Support/kanna/kanna.sock`) and gives its terminals `KANNA_SOCKET`, `KANNA_PANE` and `KANNA_INSTANCE`, so it never meets a kmux the user runs. It's kanna's default backend.
+**Kanna ships its own mux, Kanna.app** ([4](#4-kannaapp)): its terminals live in a background daemon, so they survive the app quitting. It does what [kmux](https://github.com/tampopogk/kmux) does, keeps its files and sockets in `~/Library/Application Support/kanna-dev/`, and gives its terminals `KANNA_SOCKET`, `KANNA_PANE` and `KANNA_INSTANCE`, so it never meets a kmux the user runs. It's kanna's default backend.
 
 ```mermaid
 flowchart LR
@@ -104,7 +104,7 @@ flowchart TB
 
 ## 4. Kanna.app
 
-**[Being built]** — see [the build plan](plans/mux-build.md) and [the architecture research](research/mux-architecture.md).
+Built in milestones M0–M4 — see [the build plan](plans/mux-build.md) and [the architecture research](research/mux-architecture.md).
 
 Kanna.app is kanna's own mux: a desktop app, a background **daemon** and a **keeper**. Terminals live in the daemon, so quitting or crashing the app loses nothing, and the keeper holds the terminals open, so even restarting the daemon loses nothing. It shows the same panes as kmux (terminal, web, markdown, iOS) and answers the same commands.
 
@@ -228,7 +228,6 @@ flowchart LR
 - **What kmux is the reference for:** the mux core and its control protocol, the CLI, and the mux UI (windows, tabs, splits, pane views). Kanna's own layers on top (Desk and Shelf, tasks, agents) have no kmux counterpart.
 - **Building doesn't need kmux; checking does.** Kanna builds from its own sources, including its copies of kmux's socket client (`crates/kanna-client`) and mermaid bridge (`crates/kanna-merman`). The tests that compare Kanna with kmux read `references/kmux` (or `$KMUX_DIR`, to check against another kmux): the protocol cases, and the CLI check that compiles kmux's `commands.rs` and `output.rs`. If it's missing they fail and say so, rather than pass without checking.
 - Where Kanna and kmux behave differently, Kanna is wrong unless we decided otherwise.
-- `kmux.rev` is only for `scripts/build-kanna.sh`, which builds the old kmux-branded Kanna.app from `../kmux` until the new app replaces it.
 - Nothing changes in kmux for Kanna's sake.
 
 ### 4.4 Languages and Platforms
@@ -661,7 +660,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 - **Starting one:** `kanna --instance work open` with nothing answering starts Kanna.app with `KANNA_SOCKET` set to `kanna-dev-work/kanna.sock`; the app keeps its layout in that folder and starts the daemon there.
 - **The daemon names itself** from its folder (`kanna-dev-NAME` is NAME; anything else, such as a test's private folder, is `default`), reports it in `capabilities`, and sets `KANNA_INSTANCE` in its terminals.
 - **`kanna instances`** lists the folders whose daemon answers, with their windows and panes, `*` marking the one this shell's commands go to; `--json` as kmux.
-- **Why `kanna-dev`:** the branded copy of kmux still uses `kanna/kanna.sock` until Kanna.app replaces it; the folder's name is one constant in the CLI (`FOLDER`), the daemon and the app.
+- **Why `kanna-dev`:** the kmux-branded Kanna.app that came before used `kanna/kanna.sock`, and may still be running; the folder's name is one constant in the CLI (`FOLDER`), the daemon and the app.
 
 **Reaching Kanna:**
 
@@ -1083,7 +1082,7 @@ sequenceDiagram
 |------|---------|
 | **Mux (multiplexer)** | An app that shows several separate sessions in one window. |
 | **kmux** | A native macOS mux (MIT, public). It can show terminal, web, iOS and markdown panes. See the [kmux spec](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md). |
-| **Kanna.app** | Kanna's own mux ([4](#4-kannaapp)). Until it's built, a copy of kmux from `../kmux` with Kanna's name, icon and sockets. |
+| **Kanna.app** | Kanna's own mux ([4](#4-kannaapp)): the app, with its daemon and keeper. |
 | **Daemon** | Kanna's background process that keeps the terminals; it outlives the app. |
 | **Keeper** | A tiny background process that creates the ptys and holds them open, so shells outlive the daemon too. |
 | **kanna-mux** | Kanna's mux core (Rust): kmux's protocol and the terminals, in the daemon. |

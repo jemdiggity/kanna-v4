@@ -3,7 +3,7 @@ Kanna includes code derived from the following projects.
 ================================================================================
 kmux
 https://github.com/tampopogk/kmux
-MIT License, at the commit recorded in kmux.rev unless noted otherwise.
+MIT License, at kmux 6a022cb unless noted otherwise.
 references/kmux is kmux itself at 1f05ccb (a git subtree, under its own
 LICENSE and NOTICE), kept as the reference model's source and tests; it is
 not built into Kanna.
@@ -53,7 +53,7 @@ Derived from kmux:
       From apps/kmux/Sources/Kmux/Terminal/ExternalIO.swift and
       TerminalBackend.swift on kmux's spike/ghostty-external-io branch.
 
-  From kmux 1f05ccb (after kmux.rev), with comments removed:
+  From kmux 1f05ccb, with comments removed:
   apps/kanna/Sources/KannaDiagram
       From apps/kmux/Sources/KmuxDiagram; merman's module is KannaMerman.
   apps/kanna/Sources/KannaMarkdown

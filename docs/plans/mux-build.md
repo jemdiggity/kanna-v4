@@ -269,7 +269,8 @@ Open (for the user):
 
 | What | Where | When |
 |---|---|---|
-| Push the Ghostty fork's `kanna4` (Kanna v3's `kanna3` plus v4's four commits) | jemdiggity/ghostty | before anyone else builds Kanna |
+| ✓ Push the Ghostty fork's `kanna4` (Kanna v3's `kanna3` plus v4's four commits); the build clones it from GitHub | jemdiggity/ghostty | done |
+| ✓ Retire `scripts/build-kanna.sh` and `kmux.rev` (the kmux-branded Kanna.app); the new Kanna.app is the one in use | kanna-v4 | done |
 | Retire `feat/keeper` once 0.5 has taken what it needs | kanna-v4 | after 0.5 |
 | Delete the kanna-mux fork (no longer needed) | GitHub | only when you say so |
 
@@ -325,7 +326,6 @@ The mux UI stays Swift: it's the macOS app's views. A Linux UI would be its own,
 | **LayoutOwner** | The app's side of the layout: kanna-mux's model plus the pane table and the state file, answering layout steps; Kanna.app runs it through `kanna-layout`. |
 | **TerminalBackend** | The seam in Kanna's mux UI between a terminal view and where its bytes come from (Kanna's daemon). |
 | **`references/kmux`** | kmux's source and tests as a git subtree: what Kanna is matched against. |
-| **`kmux.rev`** | The kmux commit the old kmux-branded Kanna.app is built from (`scripts/build-kanna.sh`). |
 | **External I/O** | The Ghostty fork's mode where a surface has no pty: output is pushed in, keystrokes come out through a callback. |
 | **libghostty-vt** | Ghostty's terminal engine as a library, with no drawing: the daemon's copy of each screen. |
 | **Snapshot** | A terminal's whole screen state, sent to the app on attach and saved to disk for daemon restarts. |
