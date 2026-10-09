@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Checks Kanna.app (scripts/build-kanna-app.sh): starts target/Kanna.app in the
-# background in echo mode (KANNA_ECHO=1: no daemon) on a private debug socket,
-# types "echo hi" into its terminal through the real key path, and checks the stub backend echoed it, both as
-# the terminal's text and as glyphs drawn in the window. Stops the app by PID.
-# Never touches another running Kanna or kmux.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,23 +8,22 @@ out="$repo_root/target/check-kanna-app"
 mkdir -p "$out"
 dir="$(mktemp -d "${TMPDIR:-/tmp}/kanna-check.XXXXXX")"
 [[ -n "$dir" && -d "$dir" ]] || { echo "FAIL: mktemp gave no folder" >&2; exit 1; }
-# Echo mode: no daemon; the app's one terminal echoes, on its own debug socket.
 export KANNA_ECHO=1
 export KANNA_DEBUG=1
 export KANNA_STATE_DIR="$dir"
 export KANNA_APP_SOCKET="$dir/app.sock"
-export KANNA_IGNORE_OCCLUSION=1 # draw even if the window is covered
+export KANNA_IGNORE_OCCLUSION=1
 
 "$app" --bg >"$out/app.log" 2>&1 &
 app_pid=$!
-stop() { # only the app started here, by its PID
+stop() {
   if [[ -n "$app_pid" ]]; then kill "$app_pid" 2>/dev/null || true; wait "$app_pid" 2>/dev/null || true; fi
   app_pid=""
 }
 trap 'stop; rm -rf "$dir"' EXIT
 
 fail() { echo "FAIL: $*" >&2; echo "--- app log:" >&2; cat "$out/app.log" >&2; exit 1; }
-raw() { # one debug request, printed as JSON
+raw() {
   python3 -c 'import json, socket, sys
 s = socket.socket(socket.AF_UNIX); s.settimeout(30); s.connect(sys.argv[1])
 s.sendall(sys.argv[2].encode() + b"\n"); print(s.makefile().readline().strip())' "$KANNA_APP_SOCKET" "$1"
@@ -41,12 +35,10 @@ print(json.dumps(v) if isinstance(v, (dict, list)) else v)' "$1"; }
 for _ in $(seq 100); do [[ -S "$KANNA_APP_SOCKET" ]] && break; kill -0 $app_pid 2>/dev/null || fail "the app exited"; sleep 0.1; done
 [[ -S "$KANNA_APP_SOCKET" ]] || fail "the app did not open $KANNA_APP_SOCKET"
 
-# 1. The app answers, and it's the one started here.
 reply="$(raw '{"id":1,"cmd":"debug.app"}')"
 [[ "$(field ok <<<"$reply")" == True ]] || fail "debug.app: $reply"
 [[ "$(field pid <<<"$reply")" == "$app_pid" ]] || fail "debug.app answered from another process: $reply"
 
-# 2. Typing echoes: the line, then the cursor on the next one.
 reply="$(raw '{"id":2,"cmd":"debug.type","args":{"text":"echo hi\n"}}')"
 [[ "$(field ok <<<"$reply")" == True ]] || fail "debug.type: $reply"
 text=""
@@ -57,7 +49,6 @@ for _ in $(seq 50); do
 done
 [[ "$(printf '%s\n' "$text" | head -1)" == "echo hi" ]] || fail "the terminal shows: $(printf '%q' "$text")"
 
-# 3. And it's drawn: every glyph of the marker has ink in the window.
 drawn() {
   python3 - "$1" <<'PY'
 import json, sys
@@ -81,7 +72,6 @@ for name in echo.png ../escape.png /tmp/escape.png; do
   [[ "$(field ok <<<"$reply")" == False ]] || fail "debug.snapshot wrote $name: $reply"
 done
 
-# 4. It stops cleanly when asked, and takes its socket with it.
 kill "$app_pid"
 for _ in $(seq 50); do kill -0 "$app_pid" 2>/dev/null || break; sleep 0.1; done
 kill -0 "$app_pid" 2>/dev/null && fail "the app did not stop on SIGTERM"

@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
-# Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-# Each scenario (S1–S8) is one behaviour of the finished system; the plan
-# makes them pass milestone by milestone. Runs a private Kanna (daemon,
-# keeper, app in the background) on its own socket and folder, never yours,
-# and stops it by PID.
-#
-# usage: scripts/e2e-kanna.sh [--through M0|M1|M2|M3] [S1 S4 …]
-#   --through M  run the scenarios due by milestone M (default: all);
-#                later ones are listed as not due
-#   S…           only these scenarios
-#
-# Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app
-# (scripts/build-kanna.sh). The private instance gets:
-#   KANNA_SOCKET     the daemon's socket (the CLI and the app connect to it)
-#   KANNA_STATE_DIR  where the daemon, keeper and app keep their files
-#                    (the keeper writes keeper.pid there)
-#   KANNA_KEEPER     the keeper binary the daemon starts (once it uses one)
 set -uo pipefail
+
+usage() {
+  cat <<'USAGE'
+Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
+Each scenario (S1–S8) is one behaviour of the finished system; the plan
+makes them pass milestone by milestone. Runs a private Kanna (daemon,
+keeper, app in the background) on its own socket and folder, never yours,
+and stops it by PID.
+
+usage: scripts/e2e-kanna.sh [--through M0|M1|M2|M3] [S1 S4 …]
+  --through M  run the scenarios due by milestone M (default: all);
+               later ones are listed as not due
+  S…           only these scenarios
+
+Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app
+(scripts/build-kanna.sh). The private instance gets:
+  KANNA_SOCKET     the daemon's socket (the CLI and the app connect to it)
+  KANNA_STATE_DIR  where the daemon, keeper and app keep their files
+                   (the keeper writes keeper.pid there)
+  KANNA_KEEPER     the keeper binary the daemon starts (once it uses one)
+USAGE
+}
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin="$repo_root/target/release"
@@ -29,14 +34,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
     S[1-8]) only+=("$1") ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
   shift
 done
 
-# A private instance. This may run inside a Kanna pane, whose variables point
-# at your Kanna: replace them all.
 unset KANNA_PANE KANNA_INSTANCE
 new_state_dir() {
   KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)" || exit 1
@@ -44,14 +47,12 @@ new_state_dir() {
   export KANNA_STATE_DIR KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
 }
 new_state_dir
-export KANNA_IGNORE_OCCLUSION=1 # draw even if the window is covered
+export KANNA_IGNORE_OCCLUSION=1
 export KANNA_DEBUG=1
 daemon_pid="" app_pid=""
 
-# ── the instance ──────────────────────────────────────────────────────────
-
 need() { [[ -x "$1" ]] || { echo "not built: ${1#$repo_root/}"; return 1; }; }
-wait_for() { # wait_for SECONDS COMMAND…: until COMMAND succeeds
+wait_for() {
   local tries=$(($1 * 10)); shift
   for _ in $(seq "$tries"); do "$@" 2>/dev/null && return 0; sleep 0.1; done
   return 1
@@ -91,10 +92,8 @@ stop_keeper() {
 }
 trap cleanup EXIT
 
-# ── helpers ───────────────────────────────────────────────────────────────
-
 kanna() { "$bin/kanna" "$@"; }
-raw() { # one control-protocol request to the daemon, printed as JSON
+raw() {
   python3 -c 'import json, socket, sys
 s = socket.socket(socket.AF_UNIX); s.settimeout(30); s.connect(sys.argv[1])
 s.sendall(sys.argv[2].encode() + b"\n"); print(s.makefile().readline().strip())' "$KANNA_SOCKET" "$1"
@@ -102,19 +101,16 @@ s.sendall(sys.argv[2].encode() + b"\n"); print(s.makefile().readline().strip())'
 field() { python3 -c 'import json, sys; v = json.load(sys.stdin)
 for k in sys.argv[1].split("."): v = v[int(k)] if k.isdigit() else v[k]
 print(json.dumps(v) if isinstance(v, (dict, list)) else v)' "$1"; }
-pane() { # pane NAME FIELD: a field of one pane in `kanna list --json`
+pane() {
   kanna list --json | python3 -c 'import json, sys
 p = [p for p in json.load(sys.stdin)["panes"] if sys.argv[1] in (p.get("name"), p.get("id"))][0]
 print(json.dumps(p.get(sys.argv[2])) if isinstance(p.get(sys.argv[2]), (dict, list)) else p.get(sys.argv[2]))' "$1" "$2"
 }
-shows() { kanna read "$1" | grep -q -- "$2"; } # shows PANE TEXT: the terminal's screen has TEXT
-is() { [[ "$(pane "$1" "$2")" == "$3" ]]; }    # is PANE FIELD VALUE
+shows() { kanna read "$1" | grep -q -- "$2"; }
+is() { [[ "$(pane "$1" "$2")" == "$3" ]]; }
 check() { "$@" || { echo "failed: $*"; return 1; }; }
 layout() { kanna list --json | field windows.0.tabs.0.layout; }
 
-# ── the scenarios ─────────────────────────────────────────────────────────
-
-# S1 · The CLI drives a terminal: open it, type into it, read its screen.
 S1() {
   start_daemon || return 1
   kanna open --name s1 >/dev/null || return 1
@@ -122,7 +118,6 @@ S1() {
   check wait_for 5 shows s1 S1-42
 }
 
-# S2 · Typing in the app's terminal reaches the shell, and its output is drawn.
 S2() {
   start_daemon && start_app || return 1
   kanna open --name s2 >/dev/null || return 1
@@ -136,7 +131,6 @@ m = [p["marker"] for p in json.loads(sys.argv[1])["panes"] if p.get("marker", {}
 assert m and all(x["inked"] == x["glyphs"] > 0 for x in m)' "$drawn"
 }
 
-# S3 · Terminals don't need the app: list and read with it closed.
 S3() {
   start_daemon && start_app || return 1
   kanna open --name s3 --cmd 'echo S3-READY; exec sleep 600' >/dev/null || return 1
@@ -145,22 +139,18 @@ S3() {
   check is s3 state running
 }
 
-# S4 · Quitting the app loses nothing: the same process, the same screen.
 S4() {
   start_daemon && start_app || return 1
-  # A full-screen program: clears, draws at fixed places, then waits.
   kanna open --name s4 --cmd 'printf "\033[2J\033[3;5HS4 TOP\033[10;20HS4 MIDDLE"; exec sleep 600' >/dev/null || return 1
   wait_for 5 shows s4 'S4 MIDDLE' || { echo "s4 never drew"; return 1; }
   local pid before after
   pid="$(pane s4 pid)" before="$(kanna read s4)"
   stop_app; start_app || return 1
   check is s4 pid "$pid" || return 1
-  # What the app draws after relaunch is what the daemon had.
   after="$(raw '{"id":1,"cmd":"debug.text","args":{"pane":"s4"}}' | field text)"
   check test "$after" == "$before"
 }
 
-# S5 · The layout comes back after a relaunch.
 S5() {
   start_daemon && start_app || return 1
   kanna open --name left >/dev/null && kanna open --name right --split right --size 1/3 >/dev/null || return 1
@@ -170,7 +160,6 @@ S5() {
   check test "$(layout)" == "$before"
 }
 
-# S6 · The daemon can restart: shells keep running, output meanwhile isn't lost.
 S6() {
   start_daemon || return 1
   kanna open --name s6 >/dev/null || return 1
@@ -178,13 +167,12 @@ S6() {
   pid="$(pane s6 pid)"
   kanna send s6 'sleep 2; echo S6-AFTER' || return 1
   stop_daemon
-  sleep 3 # the shell writes while no daemon is reading
+  sleep 3
   start_daemon || return 1
   check is s6 pid "$pid" || return 1
   check wait_for 5 shows s6 S6-AFTER
 }
 
-# S7 · Exit codes are the command's own.
 S7() {
   start_daemon || return 1
   kanna open --name s7 --cmd 'exit 3' >/dev/null || return 1
@@ -192,7 +180,6 @@ S7() {
   check is s7 exitCode 3
 }
 
-# S8 · Web, markdown and iOS panes: opened, restored after a relaunch, and answering.
 S8() {
   start_daemon && start_app || return 1
   printf '# S8 DOC\n' >"$KANNA_STATE_DIR/s8.md"
@@ -212,9 +199,7 @@ S8() {
   fi
 }
 
-# ── the run ───────────────────────────────────────────────────────────────
-
-due() { # due SCENARIO: the milestone that makes it pass
+due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5) echo M1 ;; S6|S7) echo M2 ;; S8) echo M3 ;; esac
 }
 [[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8)
@@ -222,7 +207,6 @@ passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
   if [[ "$m" > "$through" ]]; then printf '%-3s --   not due (%s)\n' "$s" "$m"; continue; fi
-  # Each scenario on a fresh instance, in this shell (so we keep its PIDs).
   cleanup
   new_state_dir
   if "$s" >"$out/$s.log" 2>&1; then

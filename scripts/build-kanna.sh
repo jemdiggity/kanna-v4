@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Builds Kanna: Kanna.app (Kanna's own copy of the kmux app, built from a kmux
-# checkout beside this repo, ../kmux) and target/release/kanna (the command line).
-# Kanna.app has its own sockets (~/Library/Application Support/kanna) and
-# variables (KANNA_SOCKET, KANNA_PANE), so it never meets a kmux you run.
-# KMUX_DIR overrides where kmux is checked out.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,7 +9,6 @@ if [[ ! -x "$kmux/scripts/build-kmux.sh" ]]; then
 fi
 kmux="$(cd "$kmux" && pwd)"
 
-# kmux.rev is the kmux commit this kanna was last built and tested with.
 pinned="$(cat "$repo_root/kmux.rev")"
 actual="$(git -C "$kmux" rev-parse HEAD)"
 if [[ "$actual" != "$pinned" ]]; then
@@ -29,7 +23,6 @@ fi
 KMUX_BRAND=kanna KMUX_BRAND_NAME=Kanna KMUX_BUNDLE_ID=dev.kanna.kanna KMUX_ICON="$repo_root/assets/Kanna.icns" \
   "$kmux/scripts/build-kmux.sh"
 app="$kmux/target/Kanna.app"
-# So `kanna` can start it by bundle ID before it has ever been opened.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
 
 (cd "$repo_root" && cargo build --release -p kanna)

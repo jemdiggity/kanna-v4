@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Builds target/Kanna.app from apps/kanna, against GhosttyKit from the Ghostty
-# fork (built first if missing: scripts/build-ghosttykit.sh). As kmux's
-# scripts/build-kmux.sh. Set KANNA_CONFIGURATION=debug for a debug build.
-#
-# For now its bundle ID is dev.kanna.app.dev, so it never meets the Kanna.app
-# that scripts/build-kanna.sh builds from kmux (dev.kanna.kanna). It isn't
-# registered with Launch Services; start it by path.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
