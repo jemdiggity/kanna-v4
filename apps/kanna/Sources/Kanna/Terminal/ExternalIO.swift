@@ -7,6 +7,7 @@ protocol TerminalLink: AnyObject {
     func input(_ bytes: Data, from terminal: ExternalTerminal)
     func resizeRequested(_ terminal: ExternalTerminal, cols: UInt16, rows: UInt16, width: UInt32, height: UInt32)
     func closed(_ terminal: ExternalTerminal)
+    func settingsChanged(_ settings: TerminalSettings)
 }
 
 @MainActor
@@ -106,6 +107,7 @@ final class ExternalIOBackend: TerminalBackend {
         self.runtime = runtime
         self.link = link
         Self.shared = self
+        runtime.onSettings = { [weak link] settings in link?.settingsChanged(settings) }
     }
 
     func start(_ view: TerminalSurfaceView, pane: Pane) -> Bool {

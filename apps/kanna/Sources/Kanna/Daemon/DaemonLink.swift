@@ -44,6 +44,7 @@ final class DaemonLink: TerminalLink {
 
     private func connected() {
         starter?.connected()
+        if let settings = GhosttyRuntime.shared?.settings { send("settings", settings.objectFields) }
         for pane in terminals.keys.sorted() {
             send("attach", ["pane": .string(pane)])
             if case .object(let size)? = sizes[pane] { send("resize", size) }
@@ -156,6 +157,10 @@ final class DaemonLink: TerminalLink {
                                     "width": .number(Double(width)), "height": .number(Double(height))]
         sizes[terminal.pane.id] = .object(size)
         send("resize", size)
+    }
+
+    func settingsChanged(_ settings: TerminalSettings) {
+        send("settings", settings.objectFields)
     }
 
     func closed(_ terminal: ExternalTerminal) {

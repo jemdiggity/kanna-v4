@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-6]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -452,6 +452,29 @@ v = w
 for k in sys.argv[2].split("."): v = v[int(k)] if k.isdigit() else v[k]
 print(json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v)' "$1" "$2"
 }
+xdg() { mkdir -p "$KANNA_STATE_DIR/xdg/ghostty"; printf '%s\n' "$@" >"$KANNA_STATE_DIR/xdg/ghostty/config"; }
+term_app() { XDG_CONFIG_HOME="$KANNA_STATE_DIR/xdg" start_app; }
+terminal() { raw "{\"id\":1,\"cmd\":\"debug.terminal\",\"args\":$2}" | python3 -c 'import json, sys; m = json.load(sys.stdin)
+assert m.get("ok"), m
+v = m
+for k in sys.argv[1].split("."): v = v[int(k)] if k.isdigit() else v[k]
+print(json.dumps(v) if isinstance(v, (dict, list)) else v)' "$1"; }
+probe() {
+  cat >"$KANNA_STATE_DIR/probe.py" <<'PY'
+import os, sys, tty
+tty.setraw(0)
+arg = lambda a: a.encode().decode("unicode_escape").encode("latin1")
+os.write(1, arg(sys.argv[1]) + b"READY\r\n")
+until, count, got = arg(sys.argv[2]), int(sys.argv[3]), b""
+while count == 0 or got.count(until) < count:
+    chunk = os.read(0, 256)
+    got += chunk
+    if count == 0:
+        os.write(1, b"IN " + chunk.replace(b"\x1b", b"^").replace(b"\x07", b"~").replace(b"\r", b"\\r") + b"\r\n")
+os.write(1, b"GOT " + got.replace(b"\x1b", b"^").replace(b"\x07", b"~") + b"\r\n")
+PY
+  printf "python3 %s '%s' '%s' %s; exec cat" "$KANNA_STATE_DIR/probe.py" "$1" "${2:-\\007}" "${3:-1}"
+}
 count() { python3 -c 'import json, sys; print(len(json.load(sys.stdin)))'; }
 snap() {
   local shot
@@ -628,10 +651,125 @@ S13() {
   done
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22) echo M4 ;; esac
+near() { python3 -c 'import sys
+a, b = (bytes.fromhex(x.lstrip("#")) for x in sys.argv[1:3])
+sys.exit(0 if max(abs(x - y) for x, y in zip(a, b)) <= 16 else 1)' "$1" "$2"; }
+
+S30() {
+  xdg 'palette = 1=#0102fe' 'cursor-style = bar' \
+    'theme = light:'"$KANNA_STATE_DIR"'/light,dark:'"$KANNA_STATE_DIR"'/dark'
+  printf 'background = #f0f0e0\nforeground = #202020\n' >"$KANNA_STATE_DIR/light"
+  printf 'background = #123456\nforeground = #e5d4b0\n' >"$KANNA_STATE_DIR/dark"
+  start_daemon && term_app || return 1
+  terminal background '{"appearance":"dark"}' >/dev/null 2>&1
+  kanna open --name s30 --cmd "$(probe '\033]11;?\007\033]10;?\007\033]4;1;?\007\033[?996n' n 1)" >/dev/null || return 1
+  check wait_for 5 shows s30 'GOT ^]11;rgb:1212/3434/5656~^]10;rgb:e5e5/d4d4/b0b0~^]4;1;rgb:0101/0202/fefe~^\[?997;1n' || return 1
+  check test "$(terminal settings.cursorStyle '{"pane":"s30"}')" == bar || return 1
+  local drawn
+  drawn="$(raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"s30.png"}}' | field panes.0.background)"
+  cp "$KANNA_STATE_DIR/s30.png" "$out/s30-dark.png" 2>/dev/null
+  check near "$drawn" '#123456' || return 1
+  kanna open --name s30b --cmd "$(probe '\033[?2031h' n 1)" >/dev/null || return 1
+  check wait_for 5 shows s30b READY || return 1
+  terminal background '{"pane":"s30","appearance":"light"}' >/dev/null
+  check wait_for 5 shows s30b 'GOT ^\[?997;2n' || return 1
+  check wait_for 5 eval '[[ "$(terminal settings.background "{\"pane\":\"s30\"}")" == "#f0f0e0" ]]' || return 1
+  kanna open --name s30c --cmd "$(probe '\033]11;?\007')" >/dev/null || return 1
+  check wait_for 5 shows s30c 'GOT ^]11;rgb:f0f0/f0f0/e0e0~' || return 1
+  sleep 0.5
+  drawn="$(raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"s30-light.png"}}' | field panes.0.background)"
+  cp "$KANNA_STATE_DIR/s30-light.png" "$out/s30-light.png" 2>/dev/null
+  check near "$drawn" '#f0f0e0'
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22)
+
+S31() {
+  start_daemon && start_app || return 1
+  kanna open --name s31 --cmd "printf '\033]7;file://localhost/private/tmp\007\033]2;S31 TITLE\007S31-READY'; exec cat" >/dev/null || return 1
+  check wait_for 5 shows s31 S31-READY || return 1
+  check wait_for 5 is s31 cwd /private/tmp || return 1
+  check wait_for 5 eval '[[ "$(terminal title "{\"pane\":\"s31\"}")" == "S31 TITLE" ]]' || return 1
+  stop_app
+  kanna open --name s31b --cmd "printf '\033]7;file://localhost/usr\007'; exec cat" >/dev/null || return 1
+  check wait_for 5 is s31b cwd /usr || return 1
+  stop_daemon; start_daemon || return 1
+  check is s31b cwd /usr || return 1
+  kanna restart s31b --cmd 'pwd; exec cat' >/dev/null 2>&1 || kanna restart s31b >/dev/null || return 1
+  check wait_for 5 is s31b cwd /usr
+}
+
+S32() {
+  xdg 'clipboard-read = allow'
+  start_daemon && term_app || return 1
+  kanna open --name s32 --cmd "$(probe '\033[?2004h' x 0)" >/dev/null || return 1
+  check wait_for 5 shows s32 READY || return 1
+  terminal clipboard '{"pane":"s32","clipboard":"S32 PASTE"}' >/dev/null || return 1
+  raw '{"id":1,"cmd":"debug.key","args":{"pane":"s32","key":"cmd+v"}}' >/dev/null
+  check wait_for 5 shows s32 'IN ^\[200~S32 PASTE^\[201~' || return 1
+  kanna open --name s32w --cmd "printf '\033]52;c;UzMyIENPUElFRA==\007S32W'; exec cat" >/dev/null || return 1
+  check wait_for 5 shows s32w S32W || return 1
+  check wait_for 5 eval '[[ "$(terminal clipboard "{\"pane\":\"s32\"}")" == "S32 COPIED" ]]' || return 1
+  kanna open --name s32r --cmd "$(probe '\033]52;c;?\007' '\\' 1)" >/dev/null || return 1
+  check wait_for 5 shows s32r 'GOT ^]52;c;UzMyIENPUElFRA==^' || return 1
+  kanna open --name s32s --cmd "printf 'S32 SELECTED'; exec cat" >/dev/null || return 1
+  check wait_for 5 shows s32s 'S32 SELECTED' || return 1
+  terminal selection '{"pane":"s32s","action":"select_all"}' >/dev/null
+  terminal clipboard '{"pane":"s32s","action":"copy_to_clipboard"}' >/dev/null
+  check wait_for 5 eval 'terminal clipboard "{\"pane\":\"s32s\"}" | grep -q "S32 SELECTED"' || return 1
+  stop_app; term_app || return 1
+  terminal clipboard '{"pane":"s32","clipboard":"AFTER"}' >/dev/null || return 1
+  raw '{"id":1,"cmd":"debug.key","args":{"pane":"s32","key":"cmd+v"}}' >/dev/null
+  check wait_for 5 shows s32 'IN ^\[200~AFTER^\[201~'
+}
+
+S33() {
+  start_daemon && start_app || return 1
+  kanna open --name s33 --cmd "$(probe '\033[>1u\033[?1000h\033[?1006h\033[?1004h' x 0)" >/dev/null || return 1
+  check wait_for 5 shows s33 READY || return 1
+  stop_app; start_app || return 1
+  raw '{"id":1,"cmd":"debug.key","args":{"pane":"s33","key":"shift+return"}}' >/dev/null
+  check wait_for 5 shows s33 'IN ^\[13;2u' || return 1
+  terminal cols '{"pane":"s33","click":{"at":[5,5]}}' >/dev/null || return 1
+  check wait_for 5 shows s33 'IN ^\[<0;1;1M' || return 1
+  check wait_for 5 shows s33 '\[<0;1;1m'
+}
+
+S34() {
+  start_daemon && start_app || return 1
+  kanna open --name s34 >/dev/null || return 1
+  kanna send s34 'seq 1 3000' || return 1
+  check wait_for 5 shows s34 '^3000$' || return 1
+  local cols wide cell
+  cols="$(terminal cols '{"pane":"s34"}')" cell="$(terminal cellWidth '{"pane":"s34"}')"
+  terminal cols '{"pane":"s34","zoom":1}' >/dev/null
+  check wait_for 5 eval '[[ "$(terminal cellWidth "{\"pane\":\"s34\"}")" -gt "$cell" ]]' || return 1
+  check wait_for 5 eval '[[ "$(terminal cols "{\"pane\":\"s34\"}")" -lt "$cols" ]]' || return 1
+  terminal cols '{"pane":"s34","zoom":0}' >/dev/null
+  terminal cols '{"pane":"s34","zoom":-1}' >/dev/null
+  check wait_for 5 eval '[[ "$(terminal cols "{\"pane\":\"s34\"}")" -gt "$cols" ]]' || return 1
+  wide="$(terminal cols '{"pane":"s34"}')"
+  kanna send s34 "stty size" || return 1
+  check wait_for 5 eval 'kanna read s34 | grep -qE " $wide\$"' || return 1
+  check test "$(kanna read s34 --lines 10000 | grep -c '^[0-9]*$')" -ge 3000 || return 1
+  stop_app; start_app || return 1
+  check test "$(kanna read s34 --lines 10000 | grep -c '^[0-9]*$')" -ge 3000
+}
+
+S35() {
+  start_daemon && start_app || return 1
+  kanna open --name s35 --cmd "printf 'https://example.com/s35\r\n\007\033]9;S35 NOTE\007\033]9;4;1;40\007'; sleep 1.5; printf '\033]777;notify;S35 T;S35 B\007S35-READY'; exec cat" >/dev/null || return 1
+  check wait_for 5 shows s35 S35-READY || return 1
+  terminal cols '{"pane":"s35","click":{"at":[30,8],"mods":["cmd"]}}' >/dev/null || return 1
+  check wait_for 5 eval 'terminal opened "{\"pane\":\"s35\"}" | grep -q "https://example.com/s35"' || return 1
+  check test "$(terminal bells '{"pane":"s35"}')" -ge 1 || return 1
+  check terminal notifications '{"pane":"s35"}' | grep -q "S35 NOTE" || return 1
+  check terminal notifications '{"pane":"s35"}' | grep -q "S35 B" || return 1
+  check test "$(terminal progress.value '{"pane":"s35"}')" == 40
+}
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-6]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

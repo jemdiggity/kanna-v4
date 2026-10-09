@@ -8,6 +8,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     var isHandlingInputEvent = false
     var focused: (() -> Void)?
     var contextMenu: (() -> NSMenu?)?
+    var title = ""
+    var progress: ghostty_action_progress_report_s?
+    var hoveredLink: String? { didSet { updateCursor() } }
+    private var shape = NSCursor.iBeam
     static let ignoresOcclusion = ProcessInfo.processInfo.environment["KANNA_IGNORE_OCCLUSION"] == "1"
     private static var lastSurfaceID: UInt = 0
     let surfaceID: UInt
@@ -80,6 +84,40 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let result = super.resignFirstResponder()
         if let surface { ghostty_surface_set_focus(surface, false) }
         return result
+    }
+
+    func setMouseShape(_ value: ghostty_action_mouse_shape_e) {
+        shape = switch value {
+        case GHOSTTY_MOUSE_SHAPE_DEFAULT: .arrow
+        case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU: .contextualMenu
+        case GHOSTTY_MOUSE_SHAPE_POINTER: .pointingHand
+        case GHOSTTY_MOUSE_SHAPE_CROSSHAIR, GHOSTTY_MOUSE_SHAPE_CELL: .crosshair
+        case GHOSTTY_MOUSE_SHAPE_TEXT: .iBeam
+        case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT: .iBeamCursorForVerticalLayout
+        case GHOSTTY_MOUSE_SHAPE_ALIAS: .dragLink
+        case GHOSTTY_MOUSE_SHAPE_COPY: .dragCopy
+        case GHOSTTY_MOUSE_SHAPE_NO_DROP, GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED: .operationNotAllowed
+        case GHOSTTY_MOUSE_SHAPE_GRAB: .openHand
+        case GHOSTTY_MOUSE_SHAPE_GRABBING, GHOSTTY_MOUSE_SHAPE_MOVE, GHOSTTY_MOUSE_SHAPE_ALL_SCROLL: .closedHand
+        case GHOSTTY_MOUSE_SHAPE_COL_RESIZE, GHOSTTY_MOUSE_SHAPE_EW_RESIZE, GHOSTTY_MOUSE_SHAPE_E_RESIZE, GHOSTTY_MOUSE_SHAPE_W_RESIZE: .resizeLeftRight
+        case GHOSTTY_MOUSE_SHAPE_ROW_RESIZE, GHOSTTY_MOUSE_SHAPE_NS_RESIZE, GHOSTTY_MOUSE_SHAPE_N_RESIZE, GHOSTTY_MOUSE_SHAPE_S_RESIZE: .resizeUpDown
+        default: .arrow
+        }
+        updateCursor()
+    }
+
+    var pointer: NSCursor { hoveredLink == nil ? shape : .pointingHand }
+
+    private func updateCursor() {
+        guard let window, window.isKeyWindow else { return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        if bounds.contains(point) { pointer.set() }
+    }
+
+    override func cursorUpdate(with event: NSEvent) { pointer.set() }
+
+    func zoom(by step: Int) {
+        perform(step > 0 ? "increase_font_size:1" : step < 0 ? "decrease_font_size:1" : "reset_font_size")
     }
 
     @objc func copy(_ sender: Any?) { perform("copy_to_clipboard") }
@@ -219,7 +257,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        let area = NSTrackingArea(rect: bounds, options: [.mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(area)
         trackingArea = area
     }

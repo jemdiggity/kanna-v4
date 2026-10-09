@@ -21,4 +21,6 @@ final class EchoLink: TerminalLink {
     }
 
     func closed(_ terminal: ExternalTerminal) {}
+
+    func settingsChanged(_ settings: TerminalSettings) {}
 }

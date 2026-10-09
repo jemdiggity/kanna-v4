@@ -4,6 +4,10 @@ import GhosttyKit
 extension AppController {
     func installCommands() {
         guard debugCommands else { return }
+        TerminalDebug.install(commands, runtime: runtime) { [weak self] id in
+            guard let self else { throw KannaError("app_gone", "Kanna.app is closing") }
+            return try self.terminal(id)
+        }
         commands["debug.app"] = { [weak self] _ in
             guard let self else { return [:] }
             var reply: [String: JSON] = [
