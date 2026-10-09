@@ -8,3 +8,7 @@ license = "FSL-1.1-MIT"
 # kmux's control-socket client, from the kmux checkout beside this repo (../kmux).
 kmux-client = { path = "../../../kmux/crates/kmux-client" }
 serde_json = "1"
+
+[dev-dependencies]
+kanna-mux = { path = "../kanna-mux" }
+libc = "0.2"
