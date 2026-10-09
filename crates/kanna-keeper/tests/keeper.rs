@@ -316,10 +316,15 @@ fn close_ends_the_process_group() {
         wait_for(&format!("{pid} to end"), || !alive(pid));
     }
     // Closing right after spawning works too (the reply waits for exec).
-    for i in 0..20 {
-        let id = format!("quick{i}");
-        let pid = c.spawn(&SpawnRequest::command(&id, "sleep 60")).unwrap().pid;
-        c.close(&id).unwrap();
+    let quick: Vec<i32> = (0..20)
+        .map(|i| {
+            let id = format!("quick{i}");
+            let pid = c.spawn(&SpawnRequest::command(&id, "sleep 60")).unwrap().pid;
+            c.close(&id).unwrap();
+            pid
+        })
+        .collect();
+    for pid in quick {
         wait_for(&format!("{pid} to end"), || !alive(pid));
     }
     // Closed processes aren't reported as exits, and the ids are free.
@@ -707,4 +712,20 @@ fn a_client_that_queues_too_many_descriptors_is_dropped() {
     for i in 0..4 {
         c.close(&format!("s{i}")).unwrap();
     }
+}
+
+fn process_state(pid: i32) -> String {
+    let out = Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]).output().unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[test]
+fn a_closed_process_keeps_its_pid_until_the_kill_is_done() {
+    let f = Fixture::with(&[("KANNA_KEEPER_CLOSE_GRACE_MS", "1500")]);
+    let mut c = f.client();
+    let pid = c.spawn(&SpawnRequest::command("t1", "sleep 60")).unwrap().pid;
+    c.close("t1").unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(process_state(pid).starts_with('Z'), "{pid} is {:?}", process_state(pid));
+    wait_for(&format!("{pid} to be reaped"), || !alive(pid));
 }

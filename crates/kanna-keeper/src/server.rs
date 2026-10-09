@@ -72,15 +72,9 @@ struct Pty {
 }
 
 impl Pty {
-    /// The process groups to signal: the session's and the pty's
-    /// foreground group.
-    fn groups(&self) -> Vec<i32> {
-        let mut groups = vec![self.pid];
+    fn foreground(&self) -> Option<i32> {
         let fg = unsafe { libc::tcgetpgrp(self.master.as_raw_fd()) };
-        if fg > 0 && fg != self.pid {
-            groups.push(fg);
-        }
-        groups
+        (fg > 0 && fg != self.pid).then_some(fg)
     }
 
     fn describe(&self, id: &str) -> Value {
@@ -146,15 +140,19 @@ impl Conn {
     }
 }
 
+struct Closed {
+    pid: i32,
+    foreground: Option<i32>,
+    kill_at: Option<Instant>,
+}
+
 struct Keeper {
     listener: UnixListener,
     sigs: OwnedFd,
     conns: Vec<Conn>,
     ptys: BTreeMap<String, Pty>,
     /// Closed processes not reaped yet; their exits aren't reported.
-    closed: Vec<i32>,
-    /// Process groups to SIGKILL when the close grace runs out.
-    kills: Vec<(Instant, Vec<i32>)>,
+    closed: Vec<Closed>,
     settings: Settings,
     idle_since: Instant,
     accept_paused_until: Option<Instant>,
@@ -212,7 +210,6 @@ pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
         conns: Vec::new(),
         ptys: BTreeMap::new(),
         closed: Vec::new(),
-        kills: Vec::new(),
         settings,
         idle_since: Instant::now(),
         accept_paused_until: None,
@@ -285,7 +282,9 @@ impl Keeper {
                 c.flush();
             }
             self.conns.retain(|c| !c.dead);
-            self.run_kills();
+            if self.run_kills() {
+                self.reap();
+            }
             self.check_idle();
         }
         Ok(())
@@ -294,7 +293,7 @@ impl Keeper {
     fn timeout(&self) -> libc::c_int {
         let now = Instant::now();
         let mut wait = Duration::from_secs(1);
-        if let Some(at) = self.kills.iter().map(|(at, _)| *at).min() {
+        if let Some(at) = self.closed.iter().filter_map(|c| c.kill_at).min() {
             wait = wait.min(at.saturating_duration_since(now));
         }
         if let Some(until) = self.accept_paused_until {
@@ -310,7 +309,6 @@ impl Keeper {
     fn idle(&self) -> bool {
         self.conns.is_empty()
             && self.closed.is_empty()
-            && self.kills.is_empty()
             && self.ptys.values().all(|p| p.exit.is_some())
     }
 
@@ -339,17 +337,21 @@ impl Keeper {
         self.idle_since = Instant::now();
     }
 
-    fn run_kills(&mut self) {
+    fn run_kills(&mut self) -> bool {
         let now = Instant::now();
-        self.kills.retain(|(at, groups)| {
-            if *at > now {
-                return true;
+        let mut killed = false;
+        for c in &mut self.closed {
+            if c.kill_at.is_none_or(|at| at > now) {
+                continue;
             }
-            for &pg in groups {
-                unsafe { libc::killpg(pg, libc::SIGKILL) };
+            unsafe { libc::killpg(c.pid, libc::SIGKILL) };
+            if let Some(fg) = c.foreground.filter(|&fg| unsafe { libc::getsid(fg) } == c.pid) {
+                unsafe { libc::killpg(fg, libc::SIGKILL) };
             }
-            false
-        });
+            c.kill_at = None;
+            killed = true;
+        }
+        killed
     }
 
     fn accept(&mut self) {
@@ -501,12 +503,11 @@ impl Keeper {
             return Err(format!("no pty {id:?}"));
         };
         if p.exit.is_none() {
-            let groups = p.groups();
-            for &pg in &groups {
+            let foreground = p.foreground();
+            for pg in std::iter::once(p.pid).chain(foreground) {
                 unsafe { libc::killpg(pg, libc::SIGHUP) };
             }
-            self.kills.push((Instant::now() + self.settings.close_grace, groups));
-            self.closed.push(p.pid);
+            self.closed.push(Closed { pid: p.pid, foreground, kill_at: Some(Instant::now() + self.settings.close_grace) });
         }
         Ok((json!({}), vec![]))
     }
@@ -524,31 +525,32 @@ impl Keeper {
     }
 
     fn reap(&mut self) {
-        loop {
-            let mut raw = 0;
-            let pid = unsafe { libc::waitpid(-1, &mut raw, libc::WNOHANG) };
-            if pid <= 0 {
-                break;
+        self.closed.retain(|c| c.kill_at.is_some() || wait(c.pid).is_none());
+        let mut events = Vec::new();
+        for (id, p) in self.ptys.iter_mut().filter(|(_, p)| p.exit.is_none()) {
+            if let Some(exit) = wait(p.pid) {
+                p.exit = Some(exit);
+                events.push(exited_event(id, p.pid, exit));
             }
-            if let Some(i) = self.closed.iter().position(|&p| p == pid) {
-                self.closed.swap_remove(i);
-                continue;
-            }
-            let exit = if libc::WIFSIGNALED(raw) {
-                ExitStatus::Signal(libc::WTERMSIG(raw))
-            } else {
-                ExitStatus::Code(libc::WEXITSTATUS(raw))
-            };
-            let Some((id, p)) = self.ptys.iter_mut().find(|(_, p)| p.pid == pid && p.exit.is_none()) else {
-                continue;
-            };
-            p.exit = Some(exit);
-            let event = exited_event(id, pid, exit);
+        }
+        for event in events {
             for c in &mut self.conns {
                 c.send(event.clone(), vec![]);
             }
         }
     }
+}
+
+fn wait(pid: i32) -> Option<ExitStatus> {
+    let mut raw = 0;
+    if unsafe { libc::waitpid(pid, &mut raw, libc::WNOHANG) } != pid {
+        return None;
+    }
+    Some(if libc::WIFSIGNALED(raw) {
+        ExitStatus::Signal(libc::WTERMSIG(raw))
+    } else {
+        ExitStatus::Code(libc::WEXITSTATUS(raw))
+    })
 }
 
 fn exited_event(id: &str, pid: i32, exit: ExitStatus) -> Value {

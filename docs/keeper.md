@@ -133,6 +133,7 @@ stateDiagram-v2
 
 - **Exit:** reaped with `waitpid`; reported as `code` or `signal`. The keeper keeps the exited pty (and its master, so the last output can still be read) until it is acknowledged, and tells every new connection about it.
 - **Close:** `SIGHUP` to the process group and the pty's foreground group, `SIGKILL` to both after the grace period (1 s). A closed process's exit isn't reported.
+- **No signal reaches a reused pid:** the keeper reaps only the pids it spawned (`waitpid(pid)`, never `-1`), and a closed process isn't reaped until its `SIGKILL` has gone, so until then its zombie holds the pid and the process group id. The foreground group is killed only if it still belongs to the closed process's session (`getsid`).
 
 ## 7. Life of the Keeper
 
