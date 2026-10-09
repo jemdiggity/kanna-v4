@@ -274,6 +274,9 @@ S10() {
   first="$(cat "$KANNA_STATE_DIR/daemon.pid")"
   check grep -q "Kanna.app/Contents/Helpers/kanna-daemon" <(ps -o command= -p "$first") || return 1
   wait_for 5 eval '[[ "$(kanna list --json | field panes.0.type)" == term ]]' || { echo "the app did not open a first terminal"; return 1; }
+  kanna open --name live --split right --cmd 'echo LIVE-READY; exec cat' >/dev/null || return 1
+  app_shows_live() { raw '{"id":1,"cmd":"debug.text","args":{"pane":"live"}}' | field text | grep -q LIVE-READY; }
+  check wait_for 5 app_shows_live || return 1
   kill "$first"
   wait_for 15 eval '[[ "$(cat "$KANNA_STATE_DIR/daemon.pid" 2>/dev/null)" != "$first" ]] && app_attached' || { echo "the app did not start a new daemon"; return 1; }
   check test "$(kanna list --json | field panes.0.type)" == term || return 1

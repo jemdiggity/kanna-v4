@@ -267,3 +267,22 @@ fn output_inside_an_open_sequence_leaves_the_daemon_responsive() {
     let elapsed = started.elapsed();
     assert!(elapsed < Duration::from_secs(2), "20 lists took {elapsed:?}");
 }
+
+#[test]
+fn an_attach_that_comes_before_the_terminal_starts_gets_its_output() {
+    let instance = Instance::start();
+    let mut app = instance.app();
+    app.tell("attach", json!({"pane": "p1"}));
+    let socket = instance.socket();
+    let opening = std::thread::spawn(move || common::call(&socket, "open", json!({"type": "term", "name": "early", "cmd": "sleep 0.5; echo EARLY-READY; exec cat"})));
+    let mut seen = Vec::new();
+    while !String::from_utf8_lossy(&seen).contains("EARLY-READY") {
+        let Some(m) = app.next() else {
+            panic!("no output; open answered {:?}; log:\n{}", opening.join().ok(), instance.log());
+        };
+        if is(&m, "output", "p1") {
+            seen.extend(data(&m));
+        }
+    }
+    assert_eq!(opening.join().unwrap()["ok"], true);
+}

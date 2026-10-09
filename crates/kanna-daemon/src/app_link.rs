@@ -349,10 +349,8 @@ impl AppLink {
     }
 
     fn attach(&self, pane: &str) {
-        let Some(attach) = self.terminals.attach(pane) else {
-            return self.notify("exited", json!({ "pane": pane, "code": Value::Null }));
-        };
         self.attached.borrow_mut().insert(pane.into());
+        let Some(attach) = self.terminals.attach(pane) else { return };
         let snapshot = match attach.snapshot {
             Ok(snapshot) => snapshot,
             Err(error) => {
