@@ -1,8 +1,8 @@
 # kanna — Specification
 
-> **Status:** Draft v0.4 · **Last updated:** 2026-10-09
+> **Status:** Draft v0.5 · **Last updated:** 2026-10-09
 >
-> Items marked **[Assumption]** are guesses made to fill gaps. Confirm or correct them, and see [Open Questions](#10-open-questions).
+> Items marked **[Assumption]** are guesses made to fill gaps. Confirm or correct them, and see [Open Questions](#11-open-questions).
 >
 > **Related:** [kmux spec](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md) (the separate, public kmux repo), Kanna's own mux and kanna's most capable backend.
 
@@ -11,21 +11,26 @@
 1. [Summary](#1-summary)
 2. [Goals and Non-Goals](#2-goals-and-non-goals)
 3. [How It Fits Together](#3-how-it-fits-together)
-4. [Mux Backends](#4-mux-backends)
-   - 4.1 [What Each Backend Supports](#41-what-each-backend-supports)
-   - 4.2 [Choosing a Backend](#42-choosing-a-backend)
-   - 4.3 [Adapter Interface](#43-adapter-interface)
-5. [Commands](#5-commands)
-6. [Sizing and Arranging Panes](#6-sizing-and-arranging-panes)
-   - 6.1 [One Pane at a Time](#61-one-pane-at-a-time)
-   - 6.2 [The Layout Expression](#62-the-layout-expression)
-   - 6.3 [Layout Files](#63-layout-files)
-   - 6.4 [How Sizes Map to Each Backend](#64-how-sizes-map-to-each-backend)
-7. [Example Session](#7-example-session)
-8. [Output, Errors and Exit Codes](#8-output-errors-and-exit-codes)
-9. [Platform Requirements](#9-platform-requirements)
-10. [Open Questions](#10-open-questions)
-11. [Glossary](#11-glossary)
+4. [Kanna.app](#4-kannaapp)
+   - 4.1 [Layers and Processes](#41-layers-and-processes)
+   - 4.2 [What the Daemon Keeps, What the App Keeps](#42-what-the-daemon-keeps-what-the-app-keeps)
+   - 4.3 [kmux Is the Reference Model](#43-kmux-is-the-reference-model)
+   - 4.4 [Languages and Platforms](#44-languages-and-platforms)
+5. [Mux Backends](#5-mux-backends)
+   - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
+   - 5.2 [Choosing a Backend](#52-choosing-a-backend)
+   - 5.3 [Adapter Interface](#53-adapter-interface)
+6. [Commands](#6-commands)
+7. [Sizing and Arranging Panes](#7-sizing-and-arranging-panes)
+   - 7.1 [One Pane at a Time](#71-one-pane-at-a-time)
+   - 7.2 [The Layout Expression](#72-the-layout-expression)
+   - 7.3 [Layout Files](#73-layout-files)
+   - 7.4 [How Sizes Map to Each Backend](#74-how-sizes-map-to-each-backend)
+8. [Example Session](#8-example-session)
+9. [Output, Errors and Exit Codes](#9-output-errors-and-exit-codes)
+10. [Platform Requirements](#10-platform-requirements)
+11. [Open Questions](#11-open-questions)
+12. [Glossary](#12-glossary)
 
 ---
 
@@ -35,7 +40,7 @@
 
 kanna isn't tied to one mux. Its commands work the same way with **kmux**, **tmux** or **cmux**. Each mux supports whatever pane types it can show.
 
-**Kanna ships its own copy of kmux, Kanna.app.** It's built from a [kmux](https://github.com/tampopogk/kmux) checkout beside this repo (`../kmux`, at the commit in `kmux.rev`), with Kanna's name and icon. It has its own sockets (`~/Library/Application Support/kanna/kanna.sock`) and gives its terminals `KANNA_SOCKET`, `KANNA_PANE` and `KANNA_INSTANCE`, so it never meets a kmux the user runs. It's kanna's default backend.
+**Kanna ships its own mux, Kanna.app** ([4](#4-kannaapp)): its terminals live in a background daemon, so they survive the app quitting. **[Being built]** Until then Kanna.app is a copy of kmux built from a [kmux](https://github.com/tampopogk/kmux) checkout beside this repo (`../kmux`, at the commit in `kmux.rev`), with Kanna's name and icon. It has its own sockets (`~/Library/Application Support/kanna/kanna.sock`) and gives its terminals `KANNA_SOCKET`, `KANNA_PANE` and `KANNA_INSTANCE`, so it never meets a kmux the user runs. It's kanna's default backend.
 
 ```mermaid
 flowchart LR
@@ -89,9 +94,146 @@ flowchart TB
 
 ---
 
-## 4. Mux Backends
+## 4. Kanna.app
 
-### 4.1 What Each Backend Supports
+**[Being built]** — see [the build plan](plans/mux-build.md) and [the architecture research](research/mux-architecture.md).
+
+Kanna.app is kanna's own mux: a desktop app, a background **daemon** and a **keeper**. Terminals live in the daemon, so quitting or crashing the app loses nothing, and the keeper holds the terminals open, so even restarting the daemon loses nothing. It shows the same panes as kmux (terminal, web, markdown, iOS) and answers the same commands.
+
+### 4.1 Layers and Processes
+
+Read the stack top to bottom, like the OSI model: each layer uses the ones below it. The outer boxes are processes.
+
+**Colours:** green is Kanna's own, blue is Kanna's code that follows kmux (the reference), purple is kmux itself, grey is macOS, orange is the CLIs.
+
+```mermaid
+flowchart TB
+    subgraph CLIP["CLI processes"]
+        CLI["kanna CLI, agents"]
+    end
+    subgraph APP["Kanna app process"]
+        L1["1 · UI<br/>Desk and Shelf<br/>review · editor"]
+        L2["2 · Kanna<br/>tasks · agents<br/>worktrees · hooks"]
+        L3["3 · Mux UI (as kmux)<br/>terminal · web<br/>iOS · markdown views"]
+        L1 --> L2 --> L3
+    end
+    subgraph DAEMON["Kanna daemon process"]
+        L4["4 · kanna-mux (as kmux)<br/>commands · terminals<br/>libghostty-vt screens"]
+    end
+    subgraph KEEPER["keeper process"]
+        L5["5 · Keeper<br/>holds the ptys"]
+    end
+    subgraph OS["6 · macOS"]
+        PTY["ptys<br/>shells, agents"]
+        WK["WebKit"]
+        SIM["iOS Simulator"]
+    end
+    CLI -->|"socket"| L4
+    L3 <-->|"socket"| L4
+    L4 <-->|"socket"| L5
+    L5 -->|"creates"| PTY
+    L4 <-->|"reads, writes"| PTY
+    L3 --> WK
+    L3 <--> SIM
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class L1,L2,L5 kanna
+    class L3,L4 kmux
+    class PTY,WK,SIM os
+    class CLI ext
+```
+
+| Layer | What's in it | Process |
+|---|---|---|
+| 1 · UI | Desk and Shelf, markdown review, code editor | app |
+| 2 · Kanna | tasks, agents, worktrees, hooks | app |
+| 3 · Mux UI | the pane views (terminal, web, iOS, markdown) and their layout state; Swift, started from kmux's views | app |
+| 4 · kanna-mux | the commands (kmux's protocol) and the terminals, each with its screen kept by libghostty-vt; Rust | daemon |
+| 5 · Keeper | creates the ptys and holds a copy of each; Rust | keeper |
+| 6 · macOS | ptys and shells, WebKit, iOS Simulator devices | — |
+
+- **The CLI is a client, not a layer:** like the app, it calls down into the daemon. Neither serves the other.
+- **The keeper isn't in the path of any byte:** it hands each pty to the daemon, which reads and writes it.
+- **The app draws terminals from the daemon** through a forked Ghostty whose surfaces take their output from outside instead of a pty ("external I/O").
+
+### 4.2 What the Daemon Keeps, What the App Keeps
+
+**Only terminals live in the daemon.** Everything else a pane shows is layout state, kept and saved by the app.
+
+```mermaid
+flowchart LR
+    subgraph A["Kanna app: layout state"]
+        DESK["Desk and Shelf"]
+        P1["pane → t1"]
+        P2["pane → t2"]
+        P3["web pane<br/>URL, history"]
+        P4["markdown pane<br/>file"]
+        P5["iOS pane<br/>device, app"]
+        DESK --- P1 & P2 & P3 & P4 & P5
+    end
+    subgraph D["Kanna daemon: terminals"]
+        T1["t1<br/>pty, screen, scrollback<br/>cwd, exit code"]
+        T2["t2<br/>pty, screen, scrollback<br/>cwd, exit code"]
+    end
+    P1 -. "by ID" .-> T1
+    P2 -. "by ID" .-> T2
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class DESK,P1,P2,P3,P4,P5 kanna
+    class T1,T2 kmux
+```
+
+| | What it is | Kept by | After the app restarts |
+|---|---|---|---|
+| **Terminal** | a pty, its screen and scrollback, cwd, exit code | the daemon | exactly as it was, still running |
+| **Layout state** | where panes are; a web pane's URL and history, a markdown pane's file, an iOS pane's device and app | the app | reopened: pages reload at their URL, files reopen, simulators never stopped |
+
+Terminal commands (`list`, `send`, `read`, `close`, `restart`) work with the app closed. Layout, web, markdown and iOS commands are passed to the app; with the app closed, kanna starts it or fails clearly.
+
+### 4.3 kmux Is the Reference Model
+
+kmux stays as it is. It's the model Kanna's mux is checked against, not a library Kanna builds on.
+
+```mermaid
+flowchart LR
+    KMUX["kmux<br/>unchanged"] -->|"protocol cases"| KM["kanna-mux<br/>(layer 4)"]
+    KMUX -->|"pane views to start from"| UI["Kanna's mux UI<br/>(layer 3)"]
+    KMUX -->|"behaviour to match"| SC["scripts/e2e-kanna.sh<br/>scenarios"]
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    class KMUX kmuxapp
+    class KM,UI kmux
+    class SC kanna
+```
+
+- `kanna-mux` runs kmux's own protocol cases (`../kmux/tests/kmux-protocol/cases`).
+- Where Kanna and kmux behave differently, Kanna is wrong unless we decided otherwise.
+- `kmux.rev` records the kmux commit Kanna matches. When kmux changes and Kanna should follow, port the change and move `kmux.rev`.
+- Nothing changes in kmux for Kanna's sake.
+
+### 4.4 Languages and Platforms
+
+| Part | Language | Runs on |
+|---|---|---|
+| Kanna.app (layers 1–3) | Swift (AppKit) | macOS |
+| Daemon and `kanna-mux` (layer 4) | Rust | macOS and Linux |
+| Keeper (layer 5) | Rust | macOS and Linux |
+| `kanna` CLI | Rust | macOS and Linux |
+
+The daemon has to run on Linux too, so everything below the app is Rust. A Linux UI would be its own, on the same daemon.
+
+---
+
+## 5. Mux Backends
+
+### 5.1 What Each Backend Supports
 
 | Capability | kmux | tmux | cmux |
 |------------|:----:|:----:|:----:|
@@ -104,7 +246,7 @@ flowchart TB
 
 `kanna mux` prints this table for the backend in use.
 
-### 4.2 Choosing a Backend
+### 5.2 Choosing a Backend
 
 kanna picks the first match in this order:
 
@@ -124,7 +266,7 @@ flowchart TD
     D -- no --> F["Use Kanna.app"]
 ```
 
-### 4.3 Adapter Interface
+### 5.3 Adapter Interface
 
 Every adapter implements the same operations. Adding a new mux means writing a new adapter.
 
@@ -141,7 +283,7 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 
 ---
 
-## 5. Commands
+## 6. Commands
 
 | Command | What it does |
 |---------|--------------|
@@ -149,9 +291,9 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 | `kanna open web URL [--history]` | Open a web pane; `--history` gives it back/forward. |
 | `kanna open md FILE` | Show a markdown file, rendered natively with mermaid diagrams; it reloads when the file changes. |
 | `kanna open ios --app APP [--device NAME]` | Launch an iOS app in a simulator pane. |
-| `kanna arrange LAYOUT` | Rearrange existing panes in one go ([6.2](#62-the-layout-expression)). |
+| `kanna arrange LAYOUT` | Rearrange existing panes in one go ([7.2](#72-the-layout-expression)). |
 | `kanna resize PANE SIZE` | Change one pane's size. |
-| `kanna up [FILE]` | Open a whole setup from a file, `kanna.yaml` by default ([6.3](#63-layout-files)). |
+| `kanna up [FILE]` | Open a whole setup from a file, `kanna.yaml` by default ([7.3](#73-layout-files)). |
 | `kanna list` | List panes with their names, IDs, types and states. |
 | `kanna focus PANE` | Bring a pane to the front. |
 | `kanna close PANE` | Close a pane. |
@@ -176,7 +318,7 @@ Global options: `--mux NAME`, `--json`.
 
 ---
 
-## 6. Sizing and Arranging Panes
+## 7. Sizing and Arranging Panes
 
 Sizes are **fractions** like `1/2`, `1/3` or `2/3`, never pixels. You only add detail when you care about it.
 
@@ -188,7 +330,7 @@ Sizes are **fractions** like `1/2`, `1/3` or `2/3`, never pixels. You only add d
 | 3 | `kanna arrange 'server \| (site / phone)'` | Arranges several panes at once. |
 | 4 | `kanna up` | Opens and arranges a whole setup from a file. |
 
-### 6.1 One Pane at a Time
+### 7.1 One Pane at a Time
 
 `--size` is the new pane's share of the space being split. The existing pane gets the rest.
 
@@ -204,7 +346,7 @@ kanna open web URL          --split right            --split down --size 1/3
 
 `kanna resize PANE 1/4` changes an existing pane's share of its split. Its neighbours share the difference.
 
-### 6.2 The Layout Expression
+### 7.2 The Layout Expression
 
 `kanna arrange` takes a short expression describing several named panes:
 
@@ -249,7 +391,7 @@ flowchart TD
     C --> D["phone · 1/3"]
 ```
 
-### 6.3 Layout Files
+### 7.3 Layout Files
 
 A `kanna.yaml` file defines the panes and uses the same layout expression:
 
@@ -264,7 +406,7 @@ panes:
 
 `kanna up` opens the panes in the order listed and then applies the layout. If the backend can't show one of the pane types, kanna stops before opening anything.
 
-### 6.4 How Sizes Map to Each Backend
+### 7.4 How Sizes Map to Each Backend
 
 | Backend | How a fraction is applied |
 |---------|---------------------------|
@@ -274,7 +416,7 @@ panes:
 
 ---
 
-## 7. Example Session
+## 8. Example Session
 
 ```sh
 kanna open term --name server --cmd "npm run dev"
@@ -300,7 +442,7 @@ sequenceDiagram
 
 ---
 
-## 8. Output, Errors and Exit Codes
+## 9. Output, Errors and Exit Codes
 
 - `open` prints the new pane's name or ID. Other commands print short human-readable text.
 - `--json` prints one JSON object per command.
@@ -325,16 +467,17 @@ sequenceDiagram
 
 ---
 
-## 9. Platform Requirements
+## 10. Platform Requirements
 
 | Requirement | Why |
 |-------------|-----|
-| macOS | Needed for kmux and iOS panes. **[Assumption]** kanna with tmux could also run on Linux. |
+| macOS | Needed for Kanna.app, kmux and iOS panes. |
+| Linux | The `kanna` CLI, Kanna's daemon and keeper run there too ([4.4](#44-languages-and-platforms)). **[Assumption]** kanna with tmux works there. |
 | The chosen mux | kmux, tmux or cmux must be installed. |
 
 ---
 
-## 10. Open Questions
+## 11. Open Questions
 
 1. **Unsupported pane types:** for example, should `web` on tmux fall back to opening the system browser, or always fail?
 2. **cmux:** confirm what its API supports (web panes, sizing, naming).
@@ -344,13 +487,21 @@ sequenceDiagram
 
 ---
 
-## 11. Glossary
+## 12. Glossary
 
 | Term | Meaning |
 |------|---------|
 | **Mux (multiplexer)** | An app that shows several separate sessions in one window. |
 | **kmux** | A native macOS mux (MIT, public). It can show terminal, web, iOS and markdown panes. See the [kmux spec](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md). |
-| **Kanna.app** | Kanna's own build of kmux, from `../kmux`, with Kanna's name, icon and sockets. |
+| **Kanna.app** | Kanna's own mux ([4](#4-kannaapp)). Until it's built, a copy of kmux from `../kmux` with Kanna's name, icon and sockets. |
+| **Daemon** | Kanna's background process that keeps the terminals; it outlives the app. |
+| **Keeper** | A tiny background process that creates the ptys and holds them open, so shells outlive the daemon too. |
+| **kanna-mux** | Kanna's mux core (Rust): kmux's protocol and the terminals, in the daemon. |
+| **Reference model** | What Kanna's mux is checked against: kmux, unchanged. |
+| **Layout state** | Where panes are and what each non-terminal pane shows; kept by the app. |
+| **External I/O** | A mode of Kanna's forked Ghostty where a terminal view draws output it's given instead of running its own pty. |
+| **libghostty-vt** | Ghostty's terminal engine as a library, without drawing; the daemon's copy of each screen. |
+| **pty** | Pseudo-terminal: what a shell talks to as if it were a real terminal. |
 | **tmux** | A widely used terminal multiplexer that runs inside a terminal. It shows terminal panes only. |
 | **cmux** | A third-party macOS terminal app with panes, used here as a backend. |
 | **Backend** | The mux that kanna is currently controlling. |
