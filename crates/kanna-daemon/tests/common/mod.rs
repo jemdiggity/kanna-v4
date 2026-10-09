@@ -74,14 +74,7 @@ impl Instance {
     }
 
     pub fn call(&self, cmd: &str, args: Value) -> Value {
-        let mut stream = UnixStream::connect(self.socket()).unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-        let mut line = json!({"id": 1, "cmd": cmd, "args": args}).to_string();
-        line.push('\n');
-        stream.write_all(line.as_bytes()).unwrap();
-        let mut reply = String::new();
-        BufReader::new(stream).read_line(&mut reply).unwrap();
-        serde_json::from_str(&reply).unwrap()
+        call(&self.socket(), cmd, args)
     }
 
     pub fn open(&self, name: &str, cmd: Option<&str>) -> String {
@@ -139,6 +132,7 @@ impl Drop for Instance {
 pub struct App {
     pub stream: UnixStream,
     reader: BufReader<UnixStream>,
+    pub owner: kanna_mux::LayoutOwner,
 }
 
 impl App {
@@ -160,7 +154,13 @@ impl App {
         let stream = UnixStream::connect(socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let reader = BufReader::new(stream.try_clone().unwrap());
-        App { stream, reader }
+        App { stream, reader, owner: kanna_mux::LayoutOwner::new() }
+    }
+
+    pub fn answering(self) -> std::thread::JoinHandle<()> {
+        self.stream.set_read_timeout(None).unwrap();
+        let mut app = self;
+        std::thread::spawn(move || while app.next().is_some() {})
     }
 
     pub fn send(&mut self, message: Value) {
@@ -174,10 +174,21 @@ impl App {
     }
 
     pub fn next(&mut self) -> Option<Value> {
-        let mut line = String::new();
-        match self.reader.read_line(&mut line) {
-            Ok(0) | Err(_) => None,
-            Ok(_) => Some(serde_json::from_str(&line).unwrap()),
+        loop {
+            let mut line = String::new();
+            let message: Value = match self.reader.read_line(&mut line) {
+                Ok(0) | Err(_) => return None,
+                Ok(_) => serde_json::from_str(&line).unwrap(),
+            };
+            if message["id"] == 0 && message["ok"] == true {
+                self.owner.handle(&json!({"call": "attach", "panes": message["panes"]}));
+            }
+            if message["cmd"] != "layout" {
+                return Some(message);
+            }
+            let mut reply = self.owner.handle(&json!({"call": "serve", "request": message["args"]}));
+            reply["id"] = message["id"].clone();
+            self.send(reply);
         }
     }
 
@@ -192,6 +203,17 @@ impl App {
             }
         }
     }
+}
+
+pub fn call(socket: &Path, cmd: &str, args: Value) -> Value {
+    let mut stream = UnixStream::connect(socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let mut line = json!({"id": 1, "cmd": cmd, "args": args}).to_string();
+    line.push('\n');
+    stream.write_all(line.as_bytes()).unwrap();
+    let mut reply = String::new();
+    BufReader::new(stream).read_line(&mut reply).unwrap();
+    serde_json::from_str(&reply).unwrap()
 }
 
 pub fn is(message: &Value, cmd: &str, pane: &str) -> bool {

@@ -4,7 +4,7 @@ mod pty;
 mod reader;
 mod terminals;
 
-use app_link::{AppLink, Outbox, APP_COMMANDS, HELLO};
+use app_link::{AppLayout, AppLink, Outbox, APP_COMMANDS, HELLO};
 use kanna_mux::json::Value;
 use kanna_mux::{Brand, Core, Instance, PaneType, SocketServer, DEFAULT_NAME};
 use std::os::unix::net::UnixStream;
@@ -92,7 +92,8 @@ fn run() -> Result<(), String> {
     unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, &stop_signals, std::ptr::null_mut()) };
 
     let (events, inbox) = mpsc::channel::<Event>();
-    let core = Core::default();
+    let layout = Rc::new(AppLayout::default());
+    let core = Core::with_link(layout.clone());
     core.set_instance(Instance::with_socket(DEFAULT_NAME, Some(socket_path.clone())));
     core.set_pane_types(vec![PaneType::Term]);
     let wake = events.clone();
@@ -138,12 +139,7 @@ fn run() -> Result<(), String> {
 
     let app_timeout = std::env::var("KANNA_APP_TIMEOUT_MS").ok().and_then(|ms| ms.parse().ok()).map(Duration::from_millis).unwrap_or(APP_TIMEOUT);
     let app = Rc::new(AppLink::new(core.weak(), terminals.clone(), app_timeout));
-    let on_change = Rc::downgrade(&app);
-    core.set_on_change(Some(Rc::new(move || {
-        if let Some(app) = on_change.upgrade() {
-            app.layout_changed();
-        }
-    })));
+    layout.connect(&app);
     let on_start = Rc::downgrade(&app);
     *terminals.on_start.borrow_mut() = Some(Box::new(move |pane| {
         if let Some(app) = on_start.upgrade() {

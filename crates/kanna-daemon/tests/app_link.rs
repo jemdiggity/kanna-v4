@@ -258,6 +258,7 @@ fn output_inside_an_open_sequence_leaves_the_daemon_responsive() {
     for _ in 0..20 {
         app.tell("attach", json!({"pane": pane}));
     }
+    let _answering = app.answering();
     std::thread::sleep(Duration::from_millis(500));
     let started = Instant::now();
     for _ in 0..20 {
