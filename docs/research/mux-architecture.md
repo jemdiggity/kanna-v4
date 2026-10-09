@@ -1,113 +1,159 @@
 # Kanna's mux: architecture
 
-> 2026-10-09. How Kanna's mux will keep terminals alive across app restarts, compared with kanna-v3 and with vanilla kmux. The design is v3's, rebuilt on the kmux code base.
+> 2026-10-09. Proposed. How kmux is restructured so its mux layer lends itself to Kanna, and how Kanna's fork of it (kanna-mux) keeps terminals alive across restarts, the way kanna-v3 did.
 
 ## Contents
 
-1. [At a glance](#1-at-a-glance)
-2. [kanna-v3](#2-kanna-v3)
-3. [Kanna's mux (proposed)](#3-kannas-mux-proposed)
-4. [Vanilla kmux, for comparison](#4-vanilla-kmux-for-comparison)
+1. [The plan in one picture](#1-the-plan-in-one-picture)
+2. [The repos](#2-the-repos)
+3. [kmux, restructured](#3-kmux-restructured)
+4. [kanna-mux: what the fork adds](#4-kanna-mux-what-the-fork-adds)
 5. [Typing and output](#5-typing-and-output)
 6. [Restarting the app](#6-restarting-the-app)
-7. [Differences from v3](#7-differences-from-v3)
-8. [Open choice: who owns the layout](#8-open-choice-who-owns-the-layout)
-9. [Glossary](#9-glossary)
+7. [Restarting the daemon](#7-restarting-the-daemon)
+8. [Compared with kanna-v3](#8-compared-with-kanna-v3)
+9. [Build order](#9-build-order)
+10. [Glossary](#10-glossary)
 
 ---
 
-## 1. At a glance
-
-| | kanna-v3 | Kanna's mux (proposed) | Vanilla kmux |
-|---|---|---|---|
-| Who owns the ptys | `kanna3-keeper` | the terminal daemon | the app (Ghostty spawns them) |
-| Who keeps the screen state | `kanna3d` (libghostty-vt) | the terminal daemon (libghostty-vt) | the app (Ghostty) |
-| How the app draws a terminal | forked Ghostty, **external I/O** (no pty in the app) | the same, rebased onto current Ghostty | upstream Ghostty with its own pty |
-| Terminals survive an app restart | yes, screen exact | yes, screen exact | no: new terminals in the saved layout |
-| Ghostty | fork (`jemdiggity/ghostty`, `kanna3`) | same fork, branch `kmux-external-io` | upstream, untouched |
-
-**Same architecture as v3:** a daemon owns the terminals and the app only draws them. The pieces are rebuilt in kmux's code base, and the mux is its own layer under Kanna.
-
----
-
-## 2. kanna-v3
+## 1. The plan in one picture
 
 ```mermaid
 flowchart TB
-    subgraph APP["kanna3-mac (app)"]
-        S1["Ghostty surface<br/>external I/O, no pty"]
-        S2["Ghostty surface<br/>external I/O, no pty"]
+    KANNA["Kanna (kanna-v4)<br/>agents, Desk and Shelf, tasks"]
+    subgraph MUX["kanna-mux: Kanna's mux layer, a fork of kmux"]
+        APP["Kanna.app<br/>draws panes"]
+        DAEMON["daemon<br/>layout, workspaces, terminal state"]
+        KEEPER["keeper<br/>holds the ptys"]
     end
-    subgraph D["kanna3d (daemon)"]
-        M["libghostty-vt mirror<br/>per terminal"]
-        R["output ring + snapshots"]
-        MOD["model.json<br/>workspaces, layouts"]
-        DET["agent detection"]
-    end
-    subgraph K["kanna3-keeper"]
-        P["pty masters<br/>fork + exec, reap"]
-    end
-    SH1["shell / agent"]
-    SH2["shell / agent"]
-    APP <-->|"socket: output, input,<br/>resize, snapshot"| D
-    K -->|"pty fds (SCM_RIGHTS)"| D
-    D -->|"spawn, adopt, kill"| K
-    P --- SH1
-    P --- SH2
-```
-
-- **The keeper** only holds ptys. It never reads them, so the daemon can crash or be upgraded without killing a shell.
-- **kanna3d** reads every pty, keeps each terminal's screen in libghostty-vt, owns the workspace model, and serves the app.
-- **The app** has no ptys. Its Ghostty surfaces draw what the daemon streams to them.
-
----
-
-## 3. Kanna's mux (proposed)
-
-```mermaid
-flowchart TB
-    subgraph KANNA["Kanna (kanna-v4): agents, Desk & Shelf, tasks"]
-        KC["kanna CLI / Kanna UI"]
-    end
-    subgraph MUX["Kanna's mux: a fork of kmux"]
-        subgraph APP["Kanna.app"]
-            CORE["KmuxCore<br/>layout, panes, control socket"]
-            S1["terminal pane<br/>forked Ghostty, external I/O"]
-            W["web / md / iOS panes"]
-        end
-        subgraph TD["terminal daemon"]
-            PT["pty masters<br/>spawn, reap, env"]
-            VT["libghostty-vt per session<br/>(upstream)"]
-            RING["output ring + snapshots"]
-        end
-    end
-    SH["shells, agents"]
-    KC -->|"mux protocol (socket)"| CORE
-    S1 <-->|"socket: output, input,<br/>resize, snapshot"| TD
-    PT --- SH
+    SH["shells and agents"]
+    KANNA -->|"mux protocol"| DAEMON
+    APP <-->|"mux protocol + terminal streams"| DAEMON
+    DAEMON <-->|"pty handles"| KEEPER
+    KEEPER --- SH
 ```
 
 - **Kanna** sits on top and only speaks the mux protocol. The mux is a layer of its own.
-- **The mux** is a private fork of kmux. It pulls kmux's improvements with `git merge upstream/main`.
-- **The terminal daemon** comes from the keeper work. Each session has its pty, a headless Ghostty terminal (upstream libghostty-vt) and an output ring.
-- **Kanna.app's terminal panes** draw from the daemon through external I/O. Web, markdown and iOS panes are unchanged.
+- **The daemon** owns everything: the layout, the workspaces, and each terminal's screen.
+- **The keeper** only holds the ptys, so shells survive both an app restart and a daemon restart.
+- **The app** is only a view.
 
 ---
 
-## 4. Vanilla kmux, for comparison
+## 2. The repos
+
+```mermaid
+flowchart LR
+    GU["ghostty-org/ghostty<br/>upstream"] -->|"pinned, untouched"| KMUX["tampopogk/kmux<br/>public, MIT"]
+    GU -->|"rebased"| GF["jemdiggity/ghostty<br/>branch kmux-external-io"]
+    KMUX -->|"git merge upstream/main"| KM["jemdiggity/kanna-mux<br/>public fork, MIT"]
+    GF -->|"GhosttyKit"| KM
+    KM -->|"builds Kanna.app from ../kanna-mux"| KV["jemdiggity/kanna-v4<br/>private, FSL"]
+```
+
+| Repo | What it is | Ghostty |
+|---|---|---|
+| kmux | The mux, client/server, terminals in the app | upstream, untouched |
+| kanna-mux | kmux + keeper + terminals in the daemon | the fork, with external I/O |
+| kanna-v4 | Kanna: the `kanna` CLI, and later Desk and Shelf | none of its own |
+
+Almost all work lands in kmux, and kanna-mux merges it. The fork's own diff stays small (section 4).
+
+---
+
+## 3. kmux, restructured
+
+Today the app *is* the mux: the core, the views and the terminals all live in one process. After the restructure, **the app is a client of the core**, even when they share a process, and the core can also run on its own.
+
+### Today
 
 ```mermaid
 flowchart TB
-    subgraph APP["kmux.app"]
-        CORE["KmuxCore<br/>layout, panes, control socket"]
-        S1["terminal pane<br/>upstream Ghostty"]
+    subgraph P["kmux.app (one process)"]
+        CORE["KmuxCore<br/>layout, protocol"]
+        VIEWS["views<br/>terminal, web, md, iOS"]
+        CORE -. "direct calls" .- VIEWS
     end
-    PTY["pty (Ghostty's own)"]
-    SH["shell"]
-    S1 --- PTY --- SH
+    AG["agents, kanna"] -->|"control socket"| CORE
 ```
 
-No daemon and no fork. After a restart the layout comes back with **new** terminals.
+### Restructured: the core in the app (vanilla kmux's default)
+
+```mermaid
+flowchart TB
+    subgraph P["kmux.app (one process)"]
+        CORE["KmuxCore<br/>layout, protocol, subscriptions"]
+        CLIENT["app client<br/>follows the model"]
+        TB["TerminalBackend: pty<br/>upstream Ghostty"]
+        CLIENT -->|"protocol + subscription"| CORE
+        CLIENT --> TB
+    end
+    AG["agents, kanna"] -->|"control socket"| CORE
+```
+
+### Restructured: the core as a daemon (kmux's option, kanna-mux's default)
+
+```mermaid
+flowchart TB
+    subgraph D["daemon (headless)"]
+        CORE["KmuxCore<br/>layout, protocol, subscriptions"]
+    end
+    subgraph A1["app (Mac)"]
+        C1["app client"]
+    end
+    subgraph A2["second client (iPad, another Mac)"]
+        C2["client"]
+    end
+    AG["agents, kanna"] -->|"control socket"| CORE
+    C1 <-->|"protocol + subscription"| CORE
+    C2 <-->|"protocol + subscription"| CORE
+```
+
+What changes in kmux:
+
+| Change | Why |
+|---|---|
+| The app follows the model through the protocol and a **subscription**, not direct calls | One API for people and agents; any client can do what the app does |
+| **KmuxCore runs in the app or as a headless daemon**, chosen at launch | Agents work with no window open; a crashed window loses nothing; extra clients become possible |
+| A **TerminalBackend** seam between hosting a pane and how its terminal gets bytes | kmux ships the pty backend; kanna-mux plugs in its external-I/O backend |
+| Requests that need a view (web page text, pixel snapshots) are **forwarded** from the core to an attached app | The daemon owns the state; only an app can draw. With no app attached they fail clearly |
+
+In vanilla kmux, terminals still live in the app (upstream Ghostty, own ptys), so they're still new after an app restart. Only kanna-mux keeps them.
+
+---
+
+## 4. kanna-mux: what the fork adds
+
+```mermaid
+flowchart TB
+    subgraph K["keeper (new, about 500 lines)"]
+        PT["pty masters<br/>spawn, reap, exit codes<br/>Ghostty env + shell integration"]
+    end
+    subgraph D["daemon = kmux's core, plus"]
+        CORE["KmuxCore<br/>layout, workspaces"]
+        VT["a libghostty-vt terminal<br/>per session"]
+        SNAP["screen snapshots on disk"]
+    end
+    subgraph A["Kanna.app = kmux's app, plus"]
+        EXT["TerminalBackend: external I/O<br/>forked Ghostty, no pty"]
+        WEB["web, md, iOS panes<br/>unchanged"]
+    end
+    SH["shells, agents"]
+    PT --- SH
+    K <-->|"pty handles (SCM_RIGHTS)"| D
+    EXT <-->|"output, input, resize, snapshot"| D
+```
+
+| kanna-mux adds | From |
+|---|---|
+| keeper | the `feat/keeper` branch (spawn, reap, env, shell integration, limits) and v3's keeper |
+| libghostty-vt sessions and snapshots in the daemon | v3's `kanna3-term`, built on **upstream** libghostty-vt |
+| external-I/O terminal backend | the Ghostty spike (`spike/ghostty-external-io`) |
+| GhosttyKit from `jemdiggity/ghostty` `kmux-external-io` | the fork: 9 files, +598/−38 |
+| Kanna's name, icon and sockets | kmux's brand setting |
+
+Everything else comes from kmux by merging.
 
 ---
 
@@ -116,22 +162,21 @@ No daemon and no fork. After a restart the layout comes back with **new** termin
 ```mermaid
 sequenceDiagram
     actor You
-    participant G as Ghostty surface (app)
-    participant D as terminal daemon
-    participant P as pty
+    participant G as Ghostty surface (Kanna.app)
+    participant D as daemon
+    participant K as keeper
     participant S as shell
+    Note over D,K: at spawn, the keeper handed the daemon the pty
     You->>G: key press
-    G->>D: input bytes (io_write_cb)
-    D->>P: write
-    P->>S: read
-    S->>P: output
-    P->>D: read
-    D->>D: update libghostty-vt + ring
-    D->>G: output bytes (push into surface)
+    G->>D: input bytes
+    D->>S: write to the pty
+    S->>D: output from the pty
+    D->>D: update libghostty-vt
+    D->>G: output bytes
     G->>You: drawn
 ```
 
-Each byte is parsed twice: once by the daemon's headless terminal (the true state) and once by the surface that draws it. v3 worked the same way.
+The keeper isn't in the path of any byte. It holds a copy of each pty only so it outlives the daemon.
 
 ---
 
@@ -140,65 +185,83 @@ Each byte is parsed twice: once by the daemon's headless terminal (the true stat
 ```mermaid
 sequenceDiagram
     participant A as Kanna.app
-    participant D as terminal daemon
+    participant D as daemon
     participant S as shell
-    Note over A: quit
-    A--xD: connection closes
-    Note over D,S: sessions keep running, output keeps arriving
-    S->>D: output while the app is away
-    Note over A: launch, restore the saved layout
-    A->>D: attach session (pane p3)
-    D->>A: snapshot (exact screen) + output since
-    A->>D: resize to the pane's size
-    D->>S: SIGWINCH
+    Note over A: quit or crash
+    S->>D: output keeps arriving
+    Note over D: layout and screens kept
+    Note over A: launch
+    A->>D: subscribe to the model
+    D->>A: windows, tabs, panes
+    A->>D: attach each terminal
+    D->>A: exact screen snapshot + live output
 ```
 
-The screen comes back exactly: the daemon sends its headless terminal's snapshot, not a replay of recent output.
+Nothing is replayed: the daemon already has the exact screen.
 
 ---
 
-## 7. Differences from v3
+## 7. Restarting the daemon
 
-| | kanna-v3 | Kanna's mux | Why |
-|---|---|---|---|
-| Processes | keeper + kanna3d | one terminal daemon to start with | Simpler. Splitting off a pty-only keeper later lets the daemon be upgraded without killing shells; v3's fd-passing code is ready for it. |
-| Layout and workspaces | in the daemon (model.json) | in the app (KmuxCore, the saved state file) | See [section 8](#8-open-choice-who-owns-the-layout). |
-| Agent detection | in kanna3d | in Kanna, above the mux | The mux is its own layer. It reports facts (output, exits, attention); Kanna decides what they mean. |
-| Headless terminal | libghostty-rs, built from the fork | libghostty-vt from **upstream** Ghostty | Upstream now has the VT formatter and snapshots; only the app needs the fork. |
-| Ghostty fork | `kanna3` | `kmux-external-io`, rebased onto kmux's pin | The patch is 9 files, +598/−38. A trial merge onto upstream main was clean. |
-| App | kanna3-mac | kmux's app (fork), branded Kanna | Reuses kmux's panes, layout, protocol and tests. |
+```mermaid
+sequenceDiagram
+    participant A as Kanna.app
+    participant D as daemon
+    participant K as keeper
+    participant S as shell
+    Note over D: crash or upgrade
+    Note over S: output waits in the kernel buffer
+    Note over D: start again
+    D->>K: adopt
+    K->>D: every live pty (SCM_RIGHTS)
+    D->>D: load layout and screen snapshots from disk
+    D->>S: SIGWINCH (programs redraw)
+    A->>D: reconnect, resubscribe
+```
+
+This is why the keeper is separate: the daemon is big and changes often, and the keeper is small and almost never does.
 
 ---
 
-## 8. Open choice: who owns the layout
+## 8. Compared with kanna-v3
+
+| | kanna-v3 | kanna-mux |
+|---|---|---|
+| Shape | keeper + kanna3d + app | keeper + daemon + app: **the same** |
+| Layout and workspaces | in kanna3d | in the daemon (KmuxCore): **the same** |
+| Screen state | libghostty-vt from the fork | libghostty-vt from **upstream** |
+| App terminals | fork, external I/O | the same fork, rebased onto current Ghostty |
+| Agent detection | in kanna3d | in Kanna, above the mux (the mux reports facts) |
+| Panes | terminals | terminals, web, markdown, iOS (kmux's) |
+| Shared with a public mux | no | kmux gets the client/server structure too |
+
+---
+
+## 9. Build order
 
 ```mermaid
 flowchart LR
-    subgraph A["Now: layout in the app"]
-        A1["app: layout + drawing"] <--> A2["daemon: terminals"]
-    end
-    subgraph B["v3: layout in the daemon"]
-        B1["app: drawing only"] <--> B2["daemon: layout + terminals"]
-        B3["iPad / second Mac"] <--> B2
-    end
+    S1["1. kmux: TerminalBackend seam<br/>app as a client over subscriptions"] --> S2["2. kmux: core runs as a daemon"]
+    S2 --> S3["3. kanna-mux: keeper, external-I/O backend,<br/>libghostty-vt sessions"]
+    S3 --> S4["4. kanna-v4 builds Kanna.app<br/>from ../kanna-mux"]
 ```
 
-- **In the app** (kmux today): fewer changes. Layouts come back from the state file, and terminals come back from the daemon.
-- **In the daemon** (v3, and the client/server paper's direction): the app becomes a pure client. A second client, such as an iPad or another Mac, sees the same workspaces, and agents can work with the layout while no window is open. KmuxCore has no AppKit, so the daemon could be a headless Swift process that runs KmuxCore and libghostty-vt.
-
-The second is the better architecture and v3's. The first is a step on the way there.
+Each step works on its own and is built the usual way: the reference model and shared cases first, then the app, tests and spec. Persistent terminals arrive with step 3. Clean-up along the way: kmux's terminal-wrapper hook and `KMUX_RESTORED` are removed, since nothing uses them.
 
 ---
 
-## 9. Glossary
+## 10. Glossary
 
 | Term | Meaning |
 |---|---|
-| **pty** | Pseudo-terminal: the pair of endpoints a shell talks to as if it were a real terminal. |
-| **pty master** | The end a terminal app holds: reading gives the shell's output, writing types into it. |
-| **External I/O** | A Ghostty surface mode from the fork: it has no pty, output is pushed in, and keystrokes come out through a callback. |
-| **libghostty-vt** | Ghostty's terminal engine as a library, without drawing. It keeps a terminal's screen, formats it as VT text and makes snapshots. |
+| **Mux layer** | The part that owns panes, layouts and terminals and speaks the mux protocol. Kanna sits on top of it. |
+| **Daemon** | The background process that owns the mux state: layout, workspaces and terminal screens. It outlives the app. |
+| **Keeper** | A tiny background process that only holds the ptys, so shells outlive the daemon too. |
+| **Client** | Anything that shows or drives the mux through the protocol: the app, an iPad, an agent. |
+| **Subscription** | A client asks the core to send it every change to the model, so it can follow along without polling. |
+| **TerminalBackend** | The seam in the app between a terminal pane and where its bytes come from: its own pty (kmux) or the daemon (kanna-mux). |
+| **External I/O** | A Ghostty surface mode from the fork: no pty; output is pushed in, keystrokes come out through a callback. |
+| **libghostty-vt** | Ghostty's terminal engine as a library, without drawing. It keeps a screen, formats it and makes snapshots. |
+| **pty** | Pseudo-terminal: what a shell talks to as if it were a real terminal. The **master** end is held by the terminal app (here, the keeper and daemon). |
+| **SCM_RIGHTS** | Sending open file descriptors, such as pty masters, to another process over a Unix socket. |
 | **Snapshot** | A terminal's whole screen state, used to restore it exactly. |
-| **Terminal daemon** | The background process that owns the ptys and their screen state. It outlives the app. |
-| **SCM_RIGHTS** | A way to send open file descriptors (here, pty masters) to another process over a Unix socket. |
-| **Fork (of kmux)** | A private copy of kmux's repo that pulls kmux's changes and adds Kanna's mux work. |
