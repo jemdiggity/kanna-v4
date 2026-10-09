@@ -50,8 +50,6 @@ impl PaneState {
     }
 }
 
-/// Back/forward history: of URLs for web panes opened with `history: true`;
-/// of files, always, for markdown panes.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct History {
     pub back: Vec<String>,
@@ -62,7 +60,6 @@ pub struct History {
 pub struct Pane {
     pub id: String,
     pub name: Option<String>,
-    /// The pane type (`type` in the protocol).
     pub kind: PaneType,
     pub state: PaneState,
     pub exit_code: Option<i64>,
@@ -70,18 +67,11 @@ pub struct Pane {
     pub command: Option<String>,
     pub cwd: Option<String>,
     pub url: Option<String>,
-    /// iOS panes: the app (a .app path or a bundle ID) and the simulator
-    /// device it runs on (a name or UDID; the host fills in the one it chose).
     pub app: Option<String>,
     pub device: Option<String>,
-    /// The markdown file a `md` pane shows.
     pub path: Option<String>,
     pub history: Option<History>,
-    /// Markdown panes: the magnification, kept across restarts (the host
-    /// fills it in before the layout is saved).
     pub zoom: Option<f64>,
-    /// Terminals: reserved for re-attaching a hosted terminal session. Saved
-    /// and restored, unused for now.
     pub session: Option<String>,
     pub pid: Option<i64>,
 }
@@ -115,7 +105,6 @@ impl Pane {
         }
     }
 
-    /// The pane as `list` and replies show it.
     pub fn summary(&self) -> Value {
         let mut out = Map::new();
         out.insert("id".into(), Value::String(self.id.clone()));
@@ -152,8 +141,6 @@ impl Pane {
     }
 }
 
-/// Every pane, in the order they were opened. IDs (`p1`, `p2`, …) are never
-/// reused while kmux runs.
 #[derive(Debug, Default)]
 pub struct Panes {
     panes: HashMap<String, Pane>,
@@ -170,7 +157,6 @@ impl Panes {
         self.panes.get_mut(id)
     }
 
-    /// A pane by ID or name.
     pub fn pane(&self, reference: &str) -> Option<&Pane> {
         self.panes.get(reference).or_else(|| self.iter().find(|p| p.name.as_deref() == Some(reference)))
     }
@@ -180,12 +166,10 @@ impl Panes {
         self.pane(reference).ok_or_else(|| KmuxError::new("not_found", format!("no pane \"{reference}\"")))
     }
 
-    /// The name a layout shows for a pane: its name, else its ID.
     pub fn display(&self, id: &str) -> String {
         self.panes.get(id).and_then(|p| p.name.clone()).unwrap_or_else(|| id.into())
     }
 
-    /// In the order they were opened.
     pub fn iter(&self) -> impl Iterator<Item = &Pane> {
         self.order.iter().filter_map(|id| self.panes.get(id))
     }
@@ -198,7 +182,6 @@ impl Panes {
         self.order.is_empty()
     }
 
-    /// The ID the next pane will get.
     pub fn next_id(&self) -> String {
         format!("p{}", self.counter + 1)
     }
@@ -220,7 +203,6 @@ impl Panes {
         self.counter
     }
 
-    /// Replaces every pane with restored ones. The counter only moves forward.
     pub fn install(&mut self, panes: Vec<Pane>, counter: usize) {
         self.order = panes.iter().map(|p| p.id.clone()).collect();
         self.panes = panes.into_iter().map(|p| (p.id.clone(), p)).collect();

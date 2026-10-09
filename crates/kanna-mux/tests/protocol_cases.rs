@@ -1,9 +1,3 @@
-//! Runs the protocol cases shared with the reference model and the Swift
-//! core (tests/kmux-protocol/cases, also run by tests/kmux-protocol/run-model.mjs
-//! and ProtocolCasesTests.swift). Cases that use a command or pane type this
-//! core doesn't have yet are skipped and listed, so the gap to the model
-//! stays visible.
-
 mod support;
 
 use kanna_mux::json::{encode, num, Value};
@@ -12,15 +6,11 @@ use std::path::PathBuf;
 use support::make_core;
 
 fn cases_directory() -> PathBuf {
-    // kmux is the reference model: its cases, from the kmux checkout beside
-    // this repo (../kmux, or KMUX_DIR).
     let kmux = std::env::var_os("KMUX_DIR").map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../kmux"));
     kmux.join("tests/kmux-protocol/cases")
 }
 
-/// `expected` matches when every field it names matches; objects may have
-/// extra fields, arrays must be the same length. Same rule as cases.mjs.
 fn mismatch(expected: &Value, actual: Option<&Value>, path: &str) -> Option<String> {
     let actual = actual.unwrap_or(&Value::Null);
     match expected {

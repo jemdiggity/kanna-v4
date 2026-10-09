@@ -1,6 +1,3 @@
-//! kanna-keeper: creates Kanna's ptys and holds them, so the processes in
-//! them outlive a daemon restart. See docs/keeper.md.
-
 use kanna_keeper::{paths, server};
 
 const USAGE: &str = "usage: kanna-keeper [--state-dir DIR] [--detach]

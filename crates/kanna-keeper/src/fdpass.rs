@@ -1,12 +1,6 @@
-//! Sending and receiving bytes with file descriptors attached
-//! (`SCM_RIGHTS`), and the peer's uid, on Unix sockets.
-
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 
-/// Most descriptors one message carries. The keeper sends at most one per
-/// line; the room is for a peer that sends more by mistake (the extras are
-/// closed).
 const MAX_FDS: usize = 16;
 
 fn cmsg_space(n: usize) -> usize {
@@ -23,14 +17,11 @@ const RECV_FLAGS: libc::c_int = libc::MSG_CMSG_CLOEXEC;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 const RECV_FLAGS: libc::c_int = 0;
 
-/// One `sendmsg`: `bytes`, with `fds` attached to the first byte. Returns
-/// how many bytes went (the fds went if it's more than 0).
 pub fn send(sock: RawFd, bytes: &[u8], fds: &[RawFd], nonblocking: bool) -> io::Result<usize> {
     let mut iov = libc::iovec { iov_base: bytes.as_ptr() as *mut _, iov_len: bytes.len() };
     let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
     msg.msg_iov = &mut iov;
     msg.msg_iovlen = 1;
-    // u64 for the alignment cmsghdr needs.
     let mut control = vec![0u64; cmsg_space(fds.len().max(1)).div_ceil(8)];
     if !fds.is_empty() {
         msg.msg_control = control.as_mut_ptr().cast();
@@ -56,8 +47,6 @@ pub fn send(sock: RawFd, bytes: &[u8], fds: &[RawFd], nonblocking: bool) -> io::
     }
 }
 
-/// One `recvmsg` into `buf`. Returns the byte count (0 at end of file) and
-/// the descriptors that came with them, close-on-exec.
 pub fn recv(sock: RawFd, buf: &mut [u8], nonblocking: bool) -> io::Result<(usize, Vec<OwnedFd>)> {
     let mut iov = libc::iovec { iov_base: buf.as_mut_ptr().cast(), iov_len: buf.len() };
     let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
@@ -100,7 +89,6 @@ pub fn recv(sock: RawFd, buf: &mut [u8], nonblocking: bool) -> io::Result<(usize
     Ok((n, fds))
 }
 
-/// The uid of the process at the other end of a Unix socket.
 pub fn peer_uid(sock: &impl AsRawFd) -> io::Result<libc::uid_t> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {

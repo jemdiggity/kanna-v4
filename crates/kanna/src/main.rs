@@ -1,11 +1,8 @@
-//! kanna: drives a mux from the command line (docs/kanna-spec.md).
-
 use kmux_client::{exit, fail, Args, Brand, Error, Failure, Kmux, Target};
 use std::collections::VecDeque;
 use serde_json::{json, Map, Value};
 use std::process::ExitCode;
 
-/// Kanna's own copy of the kmux app (built from ../kmux by scripts/build-kanna.sh).
 const KANNA: Brand = Brand { id: "kanna", name: "Kanna", bundle_id: "dev.kanna.kanna" };
 
 const USAGE: &str = "usage: kanna [--mux kanna|kmux] [--json] <command>
@@ -177,7 +174,6 @@ impl Argv {
     }
 }
 
-/// The backend `--mux NAME` picks: Kanna.app, or a kmux the user runs.
 fn backend(mux: &str, from: &str) -> Result<Brand, Failure> {
     match mux {
         "kanna" => Ok(KANNA),
@@ -186,7 +182,6 @@ fn backend(mux: &str, from: &str) -> Result<Brand, Failure> {
     }
 }
 
-/// `open TYPE …` as a kmux `open` request.
 fn open_request(args: &mut Argv) -> Result<Map<String, Value>, Failure> {
     let mut request = Map::new();
     for (flag, key) in [
@@ -202,7 +197,6 @@ fn open_request(args: &mut Argv) -> Result<Map<String, Value>, Failure> {
             request.insert(key.into(), json!(value));
         }
     }
-    // As kmux: a terminal unless a type is given.
     let kind = args.positional().unwrap_or_else(|| "term".into());
     match kind.as_str() {
         "web" => {
@@ -225,7 +219,6 @@ fn open_request(args: &mut Argv) -> Result<Map<String, Value>, Failure> {
     Ok(request)
 }
 
-/// `navigate PANE URL|FILE|--back|--forward`: a `.md` target is a file for a markdown pane.
 fn navigate_request(args: &mut Argv) -> Result<Map<String, Value>, Failure> {
     let back = args.flag("--back");
     let forward = args.flag("--forward");
@@ -250,7 +243,6 @@ fn is_markdown(target: &str) -> bool {
     !target.contains("://") && [".md", ".markdown", ".mdown"].iter().any(|ext| target.to_lowercase().ends_with(ext))
 }
 
-/// Paths are sent absolute: kmux doesn't share kanna's working directory.
 fn absolute(path: &str) -> String {
     let expanded = match path.strip_prefix("~/") {
         Some(rest) => std::env::var("HOME").map(|home| format!("{home}/{rest}")).unwrap_or_else(|_| path.to_string()),
@@ -289,7 +281,6 @@ fn format_list(reply: &Value) -> String {
         .join("\n")
 }
 
-/// Layout trees name panes by name when they have one, else by ID.
 fn layout_has(node: &Value, pane: &Value) -> bool {
     if let Some(name) = node["pane"].as_str() {
         return Some(name) == pane["name"].as_str().or(pane["id"].as_str());

@@ -1,7 +1,3 @@
-//! Spawning a process on a new pty, in its own session with the pty as its
-//! controlling terminal. From the relay keeper (feat/keeper), without
-//! login(1).
-
 use crate::ghostty_env::{self, Env, Plan};
 use anyhow::{bail, Context, Result};
 use serde_json::{Map, Value};
@@ -12,17 +8,12 @@ use std::path::{Path, PathBuf};
 
 pub struct Spawned {
     pub pid: i32,
-    /// Blocking and close-on-exec. The keeper never reads it.
     pub master: OwnedFd,
     pub exec: OwnedFd,
 }
 
-/// What to run.
 pub enum What<'a> {
-    /// An interactive shell, run as a login shell (argv[0] is `-zsh`).
-    /// None is the user's login shell.
     Shell(Option<&'a str>),
-    /// `/bin/sh -c LINE`.
     Command(&'a str),
 }
 
@@ -102,8 +93,6 @@ impl Base {
         Base { env, ctx, login_shell, delay_us: test_delay_us() }
     }
 
-    /// The argv a request runs, before Ghostty's planning: what `adopt` reports
-    /// as the pty's command.
     pub fn argv(&self, what: &What) -> Vec<OsString> {
         match what {
             What::Shell(Some(shell)) if !shell.is_empty() => vec![(*shell).into()],
@@ -154,10 +143,6 @@ impl Image {
     }
 }
 
-/// Plans the command and environment as Ghostty would, then spawns it on a
-/// new pty of `rows` x `cols`, as a session leader with the pty as its
-/// controlling terminal. A shell gets the login-shell convention (`-zsh`).
-/// The exit status is the command's own: nothing sits in between.
 pub fn spawn(
     base: &Base,
     what: &What,
@@ -201,10 +186,7 @@ pub fn spawn(
     if unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws) } < 0 {
         return Err(std::io::Error::last_os_error()).context("openpty");
     }
-    // No child (this one or later ones) may inherit a master.
     crate::sig::set_cloexec(master);
-    // Closes when the child execs (or gives up): until then it may not be
-    // its own process group yet, so a close couldn't reach it.
     let mut exec_pipe = [-1; 2];
     if unsafe { libc::pipe(exec_pipe.as_mut_ptr()) } < 0 {
         let e = std::io::Error::last_os_error();
@@ -237,7 +219,6 @@ pub fn spawn(
         return Err(e).context("fork");
     }
     if pid == 0 {
-        // Only async-signal-safe calls from here to exec.
         unsafe {
             let mut default: libc::sigaction = std::mem::zeroed();
             default.sa_sigaction = libc::SIG_DFL;

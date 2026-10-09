@@ -1,7 +1,3 @@
-//! The daemon's side of the keeper protocol: spawn, adopt, close and
-//! acknowledge ptys, and receive exit events. Blocking; for a poll loop,
-//! watch [`Client::as_raw_fd`] and call [`Client::poll_events`].
-
 use crate::{fdpass, paths, ExitStatus};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, VecDeque};
@@ -13,24 +9,16 @@ use std::time::{Duration, Instant};
 
 pub const START_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// A pty the keeper holds: the process in it, and a copy of its master for
-/// the daemon to read, write and resize.
 #[derive(Debug)]
 pub struct Pty {
     pub id: String,
     pub pid: i32,
-    /// What runs in it, e.g. `["/bin/zsh"]` or `["/bin/sh", "-c", "make"]`.
     pub cmd: Vec<String>,
-    /// The working directory asked for at spawn ("" if none).
     pub cwd: String,
-    /// Close-on-exec, blocking.
     pub master: OwnedFd,
-    /// Set (by `adopt`) when the process has exited but the exit hasn't been
-    /// acknowledged: its last output may still be in the pty.
     pub exit: Option<ExitStatus>,
 }
 
-/// An exit event: the process in pty `id` ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Exited {
     pub id: String,
@@ -38,27 +26,22 @@ pub struct Exited {
     pub status: ExitStatus,
 }
 
-/// What to spawn. `command` runs as `/bin/sh -c COMMAND`; otherwise `shell`
-/// (or the user's login shell) runs as an interactive login shell.
 #[derive(Clone, Debug, Default)]
 pub struct SpawnRequest {
     pub id: String,
     pub command: Option<String>,
     pub shell: Option<String>,
     pub cwd: Option<PathBuf>,
-    /// Over the keeper's environment and Ghostty's additions; None unsets.
     pub env: BTreeMap<String, Option<String>>,
     pub cols: u16,
     pub rows: u16,
 }
 
 impl SpawnRequest {
-    /// The user's login shell, 80x24.
     pub fn shell(id: &str) -> Self {
         SpawnRequest { id: id.into(), cols: 80, rows: 24, ..Default::default() }
     }
 
-    /// `/bin/sh -c COMMAND`, 80x24.
     pub fn command(id: &str, command: &str) -> Self {
         SpawnRequest { command: Some(command.into()), ..Self::shell(id) }
     }
@@ -83,12 +66,10 @@ impl SpawnRequest {
     }
 }
 
-/// A connection to the keeper.
 pub struct Client {
     stream: UnixStream,
     inbuf: Vec<u8>,
     readbuf: Box<[u8]>,
-    /// Descriptors received and not yet claimed by a line.
     fds: VecDeque<OwnedFd>,
     events: VecDeque<Exited>,
     next_req: u64,
@@ -103,8 +84,6 @@ fn keeper_error(msg: impl Into<String>) -> io::Error {
 }
 
 impl Client {
-    /// Connects to the keeper listening on `socket`, which must run as the
-    /// same user.
     pub fn connect(socket: &Path) -> io::Result<Self> {
         let stream = UnixStream::connect(socket)?;
         if fdpass::peer_uid(&stream)? != unsafe { libc::getuid() } {
@@ -113,10 +92,6 @@ impl Client {
         Ok(Client { stream, inbuf: Vec::new(), readbuf: vec![0u8; 65536].into_boxed_slice(), fds: VecDeque::new(), events: VecDeque::new(), next_req: 1 })
     }
 
-    /// Connects to the keeper of `state_dir`, first starting `keeper_bin`
-    /// (detached, in its own session) if none is listening. The keeper
-    /// inherits this process's environment: it is the base of every
-    /// spawned process's environment.
     pub fn connect_or_start(state_dir: &Path, keeper_bin: &Path) -> io::Result<Self> {
         let socket = paths::socket(state_dir);
         let deadline = Instant::now() + START_TIMEOUT;
@@ -160,13 +135,11 @@ impl Client {
         self.stream.set_write_timeout(timeout)
     }
 
-    /// The protocol version and the keeper's pid.
     pub fn hello(&mut self) -> io::Result<(u64, i32)> {
         let (reply, _) = self.request(json!({"op": "hello"}), |_, _| {})?;
         Ok((reply["version"].as_u64().unwrap_or(0), reply["pid"].as_i64().unwrap_or(0) as i32))
     }
 
-    /// Spawns a process on a new pty and returns it with a copy of the master.
     pub fn spawn(&mut self, req: &SpawnRequest) -> io::Result<Pty> {
         let (reply, mut fds) = self.request(req.to_json(), |_, _| {})?;
         let master = fds.pop().ok_or_else(|| keeper_error("spawn: no pty in the reply"))?;
@@ -180,8 +153,6 @@ impl Client {
         })
     }
 
-    /// Every pty the keeper holds, each with a new copy of its master: how
-    /// a restarted daemon gets its terminals back.
     pub fn adopt(&mut self) -> io::Result<Vec<Pty>> {
         let mut ptys = Vec::new();
         let mut missing = Vec::new();
@@ -209,28 +180,20 @@ impl Client {
         Ok(ptys)
     }
 
-    /// Ends the process group in pty `id` (SIGHUP, then SIGKILL after the
-    /// keeper's grace period) and drops the keeper's copy. Its exit isn't
-    /// reported. Also forgets an exited pty.
     pub fn close(&mut self, id: &str) -> io::Result<()> {
         self.request(json!({"op": "close", "id": id}), |_, _| {}).map(|_| ())
     }
 
-    /// Acknowledges an exit: the keeper forgets the pty and its copy.
     pub fn ack(&mut self, id: &str) -> io::Result<()> {
         self.request(json!({"op": "ack", "id": id}), |_, _| {}).map(|_| ())
     }
 
-    /// Exit events received so far, without blocking. Events not yet
-    /// acknowledged are sent again on the next connection. An error
-    /// (`UnexpectedEof` when the keeper went away) means reconnect.
     pub fn poll_events(&mut self) -> io::Result<Vec<Exited>> {
         while self.fill(false)? {}
         self.parse_lines(None, &mut |_, _| {});
         Ok(self.events.drain(..).collect())
     }
 
-    /// The next exit event, waiting up to `timeout` (forever if None).
     pub fn wait_event(&mut self, timeout: Option<Duration>) -> io::Result<Option<Exited>> {
         let deadline = timeout.map(|t| Instant::now() + t);
         loop {
@@ -255,8 +218,6 @@ impl Client {
         }
     }
 
-    /// Reads once. False when not blocking and nothing is there;
-    /// `UnexpectedEof` when the keeper has closed the connection.
     fn fill(&mut self, block: bool) -> io::Result<bool> {
         match fdpass::recv(self.stream.as_raw_fd(), &mut self.readbuf, !block) {
             Ok((0, _)) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the keeper closed the connection")),
@@ -273,9 +234,6 @@ impl Client {
         }
     }
 
-    /// Takes complete lines off the buffer: events are queued, lines tagged
-    /// `req` go to `on_line` with their descriptors; returns the final reply
-    /// to `req` (the one with `ok`) if it came.
     fn parse_lines(
         &mut self,
         req: Option<u64>,
@@ -329,8 +287,6 @@ impl Client {
 }
 
 impl AsRawFd for Client {
-    /// Readable when events (or stray data) arrive; then call
-    /// [`Client::poll_events`].
     fn as_raw_fd(&self) -> RawFd {
         self.stream.as_raw_fd()
     }

@@ -1,9 +1,3 @@
-//! kmux's core, shared by the kmux app and products built on it: the control
-//! protocol (docs/kmux-spec.md §7), panes and their lifecycle, kmux's layout
-//! model, the saved state and its file, the control socket, and brand and
-//! instance naming. The app plugs in through `PaneHost` (what runs in a
-//! pane) and `LayoutHost` (where panes are).
-
 mod brand;
 mod core;
 mod error;

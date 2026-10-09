@@ -1,7 +1,3 @@
-//! Handles control-protocol requests (docs/kmux-spec.md §7). The core owns
-//! panes and the commands that act on them alone; where panes are belongs to
-//! the `LayoutHost`. Everything runs on one thread.
-
 use crate::error::KmuxError;
 use crate::exec::{sleep, Executor, Signal, Wakeup};
 use crate::instance::{Instance, DEFAULT_NAME};
@@ -20,47 +16,32 @@ use std::sync::{Arc, Mutex};
 use std::task::{Poll, Waker};
 use std::time::{Duration, Instant};
 
-/// Starts and stops what is inside a pane. The app supplies Ghostty and web
-/// views; tests supply a fake. Hosts report progress through `Core::update`,
-/// at once or later, on the core's thread.
 pub trait PaneHost {
     fn start(&self, pane: &Pane);
     fn stop(&self, pane: &Pane);
-    /// Types `text` into a running terminal pane and presses Return.
     fn send(&self, pane: &Pane, text: &str);
-    /// A terminal pane's screen as text, one line per row; with `lines`, the
-    /// last `lines` lines, counting scrollback. Hosts whose terminals keep no
-    /// screen the core can read (kmux's) don't answer it.
     fn read(&self, pane: &Pane, lines: Option<usize>) -> Result<String, KmuxError> {
         let _ = lines;
         Err(KmuxError::new("unsupported", format!("{} can't be read here", pane.label())))
     }
 }
 
-/// A command the embedder adds, such as `debug.snapshot`. It answers through
-/// the `Responder`, now or later, from any thread.
 pub type CommandHandler = Rc<dyn Fn(Value, Responder)>;
 
-/// Commands this core handles itself; the layout host adds its own.
 pub const CORE_COMMANDS: [&str; 8] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read"];
 
-/// Commands for tests that the core handles but `capabilities` doesn't list.
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
 
-/// The order `capabilities` lists features in.
 const FEATURES: [&str; 6] = ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle"];
 const CORE_FEATURES: [&str; 2] = ["namedPanes", "lifecycle"];
 
 struct State {
     panes: Panes,
     layout: Box<dyn LayoutHost>,
-    /// Which kmux this is; `capabilities` reports its name.
     instance: Instance,
     pane_types: Vec<PaneType>,
     start_timeout: Duration,
-    /// iOS panes may boot a simulator first, which takes much longer.
     ios_start_timeout: Duration,
-    /// The last state `debug.saveState` made.
     saved_state: Option<Value>,
 }
 
@@ -68,22 +49,16 @@ struct Inner {
     state: RefCell<State>,
     exec: Rc<Executor>,
     host: RefCell<Option<Rc<dyn PaneHost>>>,
-    /// Called after every change so the UI can redraw.
     on_change: RefCell<Option<Rc<dyn Fn()>>>,
     extra: RefCell<HashMap<String, CommandHandler>>,
-    /// Requests waiting for a pane to leave `starting`.
     waiters: RefCell<HashMap<String, Vec<Rc<Signal>>>>,
 }
 
-/// The core. Owns its tasks: dropping it drops any request still waiting.
-/// Hosts keep a `WeakCore`.
 pub struct Core(CoreHandle);
 
-/// What the core's methods are on. Running requests hold one.
 #[derive(Clone)]
 pub struct CoreHandle(Rc<Inner>);
 
-/// A reference that doesn't keep the core alive, for hosts.
 #[derive(Clone)]
 pub struct WeakCore(Weak<Inner>);
 
@@ -94,7 +69,6 @@ impl WeakCore {
 }
 
 impl Default for Core {
-    /// kmux: the core with its own layout model.
     fn default() -> Core {
         Core::new(Box::new(Model::new()))
     }
@@ -156,8 +130,6 @@ impl CoreHandle {
         WeakCore(Rc::downgrade(&self.0))
     }
 
-    // MARK: Setup
-
     pub fn set_host(&self, host: Option<Rc<dyn PaneHost>>) {
         *self.0.host.borrow_mut() = host;
     }
@@ -166,8 +138,6 @@ impl CoreHandle {
         *self.0.on_change.borrow_mut() = on_change;
     }
 
-    /// Called from any thread when a request has work to do; the embedder
-    /// then calls `poll` on the core's thread.
     pub fn set_wakeup(&self, wakeup: Option<Wakeup>) {
         self.0.exec.set_wakeup(wakeup);
     }
@@ -180,7 +150,6 @@ impl CoreHandle {
         self.state().instance.clone()
     }
 
-    /// The pane types this product shows (all of them for kmux).
     pub fn set_pane_types(&self, types: Vec<PaneType>) {
         self.state().pane_types = types;
     }
@@ -197,14 +166,11 @@ impl CoreHandle {
         self.0.extra.borrow_mut().insert(name.into(), handler);
     }
 
-    /// The commands `capabilities` lists: the core's and the layout's.
     pub fn commands(&self) -> Vec<String> {
         let mut commands: Vec<String> = CORE_COMMANDS.iter().chain(self.state().layout.commands()).map(|c| c.to_string()).collect();
         commands.sort();
         commands
     }
-
-    // MARK: Reading and changing the model
 
     pub fn pane(&self, reference: &str) -> Option<Pane> {
         self.state().panes.pane(reference).cloned()
@@ -218,13 +184,10 @@ impl CoreHandle {
         f(&self.state().panes)
     }
 
-    /// Changes a pane in place, such as an iOS pane's device once the host
-    /// has chosen one. Doesn't notify.
     pub fn with_pane_mut<R>(&self, id: &str, f: impl FnOnce(&mut Pane) -> R) -> Option<R> {
         self.state().panes.get_mut(id).map(f)
     }
 
-    /// The layout host as its own type (`Model` for kmux), with the panes.
     pub fn with_layout<L: 'static, R>(&self, f: impl FnOnce(&mut L, &Panes) -> R) -> Option<R> {
         let mut state = self.state();
         let State { layout, panes, .. } = &mut *state;
@@ -242,18 +205,12 @@ impl CoreHandle {
         }
     }
 
-    // MARK: Running requests
-
-    /// Handles a request; `reply` gets the answer, before this returns or
-    /// later, on the core's thread.
     pub fn handle(&self, request: Value, reply: impl FnOnce(Value) + 'static) {
         let core = self.clone();
         self.0.exec.spawn(Box::pin(async move { reply(core.respond(request).await) }));
         self.0.exec.run();
     }
 
-    /// Handles a request and waits for the answer, running timers meanwhile.
-    /// For tests and simple embedders that own the core's thread.
     pub fn handle_blocking(&self, request: Value) -> Value {
         let answer = Rc::new(RefCell::new(None));
         let slot = answer.clone();
@@ -269,20 +226,14 @@ impl CoreHandle {
         }
     }
 
-    /// Runs `f` on the core's thread after what's running now, the way a
-    /// host reports that a pane has started.
     pub fn later(&self, f: impl FnOnce() + 'static) {
         self.0.exec.spawn(Box::pin(async move { f() }));
     }
 
-    /// Runs whatever is ready. Returns when the next timer is due; the
-    /// embedder calls `poll` again then (or sooner, after a wakeup).
     pub fn poll(&self) -> Option<Instant> {
         self.0.exec.run();
         self.0.exec.next_deadline()
     }
-
-    // MARK: Lifecycle reports from hosts
 
     pub fn update(&self, id: &str, state: PaneState, exit_code: Option<i64>, error: Option<String>) {
         {
@@ -305,7 +256,6 @@ impl CoreHandle {
         }
     }
 
-    /// A web page followed a link or redirect on its own.
     pub fn page_moved(&self, id: &str, url: &str) {
         if let Some(pane) = self.state().panes.get_mut(id) {
             moved(pane, url.into());
@@ -319,7 +269,6 @@ impl CoreHandle {
         }
     }
 
-    /// Waits for a pane to leave `starting`, failing it if it takes too long.
     async fn settled(&self, id: &str) {
         let timeout = {
             let state = self.state();
@@ -383,8 +332,6 @@ impl CoreHandle {
             "send" => self.send(&args),
             "read" => self.read(&args),
             "navigate" => self.navigate(&args).await,
-            // Persistence, for tests: the state kmux would save, and restoring one
-            // as a launch would (without `state`, the last one saved).
             "debug.saveState" => {
                 let state = self.export_state();
                 self.state().saved_state = Some(state.clone());
@@ -574,7 +521,6 @@ impl CoreHandle {
         Ok(reply([("closed", victims.into())]))
     }
 
-    /// Removes a pane from the layout and stops it. Callers then `tidy`.
     pub fn close_pane(&self, id: &str) {
         let pane = {
             let mut s = self.state();
@@ -587,12 +533,10 @@ impl CoreHandle {
         self.resume(id);
     }
 
-    /// Closes empty tabs and windows and repairs focus.
     pub fn tidy(&self) {
         self.state().layout.tidy();
     }
 
-    /// Stops a pane and starts it again as it now is, then waits for it.
     async fn reload(&self, id: &str, clear_exit: bool) -> Pane {
         let pane = self.state().panes.get(id).cloned().unwrap();
         if let Some(host) = self.host() {
@@ -634,7 +578,6 @@ impl CoreHandle {
         Ok(Map::new())
     }
 
-    /// Kanna's: kmux has no `read` yet. `{pane, lines?}` → `{text}`.
     fn read(&self, args: &Value) -> Result<Map, KmuxError> {
         let pane = self.need_pane(string(args, "pane"))?;
         if pane.kind != PaneType::Term {
@@ -711,8 +654,6 @@ impl CoreHandle {
         Ok(reply([("pane", self.summary(&pane.id, &snapshot))]))
     }
 
-    // MARK: Persistence (state.rs)
-
     pub fn export_state(&self) -> Value {
         let s = self.state();
         let mut out = s.layout.export_state();
@@ -728,9 +669,6 @@ impl CoreHandle {
         Value::Object(out)
     }
 
-    /// Replaces everything with a saved state, as kmux does when it launches:
-    /// the old panes stop, the restored ones start (without waiting for them).
-    /// Fails with `bad_request`, changing nothing, if the state can't be read.
     pub fn restore_state(&self, saved: &Value) -> Result<(), KmuxError> {
         let (panes, counter) = state::import_panes(saved)?;
         let ids: HashSet<String> = panes.iter().map(|p| p.id.clone()).collect();
@@ -755,7 +693,6 @@ impl CoreHandle {
     }
 }
 
-/// The pane's page is now `url` (asked for, or a link the page followed).
 fn moved(pane: &mut Pane, url: String) {
     let same = |a: &str, b: &str| a == b || format!("{a}/") == b || a == format!("{b}/");
     if let (Some(history), Some(current)) = (pane.history.as_mut(), pane.url.as_ref()) {
@@ -767,7 +704,6 @@ fn moved(pane: &mut Pane, url: String) {
     pane.url = Some(url);
 }
 
-/// Adds `http://` to a URL without a scheme.
 pub fn normalize_url(url: &str) -> String {
     let mut chars = url.chars();
     let scheme = chars.next().is_some_and(|c| c.is_ascii_alphabetic()) && {
@@ -778,7 +714,6 @@ pub fn normalize_url(url: &str) -> String {
     if scheme { url.into() } else { format!("http://{url}") }
 }
 
-/// A link's target relative to the file it is in: docs/a.md + ../b.md → b.md.
 pub fn resolve(link: &str, file: &str) -> String {
     if link.starts_with('/') {
         return link.into();
@@ -795,7 +730,6 @@ pub fn resolve(link: &str, file: &str) -> String {
     parts.join("/")
 }
 
-/// The answer to an added command.
 pub struct Responder(Arc<Mutex<Answer>>);
 
 #[derive(Default)]

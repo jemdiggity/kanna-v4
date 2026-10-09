@@ -1,10 +1,3 @@
-//! The app link: Kanna.app's long-lived connection to the daemon
-//! (docs/kanna-spec.md §4.5). The app says `app.hello` on the control
-//! socket, and from then on the connection carries JSON lines both ways:
-//! the daemon sends the layout to mirror, terminal output and sizes, and
-//! requests for the app (`debug.*`); the app sends keystrokes, sizes, which
-//! terminals it shows, and its answers. One app at a time.
-
 use crate::terminals::Terminals;
 use crate::Event;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -23,7 +16,6 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// The first request of an app's connection.
 pub const HELLO: &str = "app.hello";
 
 const MAX_LINE: u64 = 16 << 20;
@@ -57,11 +49,8 @@ impl Outbox {
     }
 }
 
-/// The requests any client may make that the daemon passes to the app.
 pub const APP_COMMANDS: [&str; 5] = ["debug.app", "debug.type", "debug.key", "debug.text", "debug.snapshot"];
 
-/// Serves an app's connection on the socket server's thread: posts what it
-/// reads to the main thread, and writes what the main thread sends.
 pub fn takeover(events: Sender<Event>) -> Takeover {
     let counter = Arc::new(AtomicU64::new(0));
     Arc::new(move |hello: Value, mut reader: BufReader<UnixStream>, stream: UnixStream| {
@@ -117,18 +106,14 @@ struct Connection {
     cut: Cell<bool>,
 }
 
-/// The app's side of the daemon, on the main thread.
 pub struct AppLink {
     core: WeakCore,
     terminals: Rc<Terminals>,
     app: RefCell<Option<Connection>>,
-    /// Requests passed to the app, by the ID the daemon gave them.
     pending: RefCell<HashMap<u64, (Instant, Responder)>>,
     timeout: Duration,
     next_id: Cell<u64>,
-    /// The terminals the app shows: it gets their output.
     attached: RefCell<HashSet<String>>,
-    /// The layout last sent.
     shown: RefCell<Option<Value>>,
 }
 
@@ -190,8 +175,6 @@ impl AppLink {
         self.send(json!({ "cmd": cmd, "args": args }));
     }
 
-    // MARK: The connection
-
     pub fn hello(&self, conn: u64, hello: Value, out: Outbox, stream: UnixStream) {
         let id = hello.get("id").cloned().unwrap_or(Value::Null);
         let answer = |reply: Value| {
@@ -224,7 +207,6 @@ impl AppLink {
         }
     }
 
-    /// Closes the app's connection (the daemon is stopping).
     pub fn close(&self) {
         if let Some(app) = self.app.borrow_mut().take() {
             let _ = app.stream.shutdown(Shutdown::Both);
@@ -235,7 +217,6 @@ impl AppLink {
         if self.app.borrow().as_ref().map(|a| a.id) != Some(conn) {
             return;
         }
-        // An answer to a request the daemon passed on.
         if message.get("ok").is_some() {
             let responder = message.get("id").and_then(Value::as_u64).and_then(|id| self.pending.borrow_mut().remove(&id));
             if let Some((_, responder)) = responder {
@@ -265,8 +246,6 @@ impl AppLink {
         }
     }
 
-    /// The app shows a terminal: its size, what it has written lately, and
-    /// its exit if it has ended; then its output as it comes.
     fn attach(&self, pane: &str) {
         let Some((cols, rows, replay, exit_code)) = self.terminals.attach(pane) else {
             return self.notify("exited", json!({ "pane": pane, "code": Value::Null }));
@@ -282,8 +261,6 @@ impl AppLink {
         }
     }
 
-    // MARK: From the terminals
-
     pub fn output(&self, pane: &str, bytes: &[u8]) {
         if self.shows(pane) {
             self.notify("output", json!({ "pane": pane, "data": BASE64.encode(bytes) }));
@@ -296,8 +273,6 @@ impl AppLink {
         }
     }
 
-    /// A terminal started. If the app already shows the pane, it's a
-    /// `restart`: the app's view starts over, at the new terminal's size.
     pub fn started(&self, pane: &str) {
         if self.shows(pane) {
             self.output(pane, RESET);
@@ -307,9 +282,6 @@ impl AppLink {
         }
     }
 
-    // MARK: The layout
-
-    /// Sends the layout to mirror, if it changed.
     pub fn layout_changed(&self) {
         if self.app.borrow().is_none() {
             return;
@@ -323,10 +295,6 @@ impl AppLink {
         self.notify("layout", layout);
     }
 
-    // MARK: Requests for the app
-
-    /// Passes a request to the app, with its pane (a name or an ID) as the
-    /// pane's ID; the app's answer is the reply.
     pub fn forward(&self, cmd: &str, mut args: Value, responder: Responder) {
         if self.app.borrow().is_none() {
             return responder.reply(Err(KmuxError::new("no_app", format!("{cmd} needs Kanna.app, and none is attached to this daemon"))));
@@ -357,7 +325,6 @@ impl AppLink {
     }
 }
 
-/// An answer from the app as the reply's fields, or its error.
 fn answer(message: Value) -> Result<Map, KmuxError> {
     let Value::Object(mut fields) = message else { return Err(KmuxError::new("bad_request", "the app's answer isn't an object")) };
     if fields.get("ok") != Some(&Value::Bool(true)) {
@@ -370,8 +337,6 @@ fn answer(message: Value) -> Result<Map, KmuxError> {
     Ok(fields)
 }
 
-/// What the app mirrors for M0: the first window's active tab, with panes
-/// by ID. (The app owns the layout from M1.)
 fn mirror(core: &CoreHandle) -> Value {
     core.with_layout::<Model, _>(|model, panes| {
         let Some(window) = model.windows().first() else { return json!({ "window": null }) };
@@ -392,8 +357,6 @@ fn contains(node: &Node, pane: &str) -> bool {
     }
 }
 
-/// `{pane, type}` for a pane; `{split: row|column, children}` for a split,
-/// each child with its `size`, a fraction of the split.
 fn tree(node: &Node, panes: &Panes) -> Value {
     match node {
         Node::Pane(id) => json!({ "pane": id, "type": panes.get(id).map_or("term", |p| p.kind.as_str()) }),

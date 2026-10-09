@@ -1,10 +1,6 @@
 use crate::brand::Brand;
 use std::path::PathBuf;
 
-/// One running kmux: a name and the socket it listens on. Several instances
-/// can run at once, each with its own windows. The default instance listens
-/// on `kmux.sock`; one named `work` listens on `kmux-work.sock` beside it.
-/// (Other brands use their own names: `kanna.sock` in `…/kanna`.)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Instance {
     pub name: String,
@@ -22,8 +18,6 @@ impl Instance {
         Instance { name: name.into(), socket_path: socket_path.unwrap_or_else(|| Instance::socket_path_for(name)) }
     }
 
-    /// Where the sockets live: `~/Library/Application Support/kmux` on macOS,
-    /// `$XDG_DATA_HOME/kmux` (`~/.local/share/kmux`) elsewhere.
     pub fn directory() -> String {
         let id = &Brand::current().id;
         let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());

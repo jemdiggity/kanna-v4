@@ -1,18 +1,3 @@
-//! What Ghostty does to a shell or command before it runs, so a process the
-//! keeper spawns behaves like one Ghostty spawned itself: Kanna's terminals
-//! are drawn by Ghostty but their ptys come from the keeper, so Ghostty
-//! cannot inject its environment and shell integration; the keeper does.
-//!
-//! Ported from kanna-v3's kanna3-keeper, by way of the relay keeper
-//! (feat/keeper). Unlike Ghostty on macOS, nothing runs through login(1),
-//! which always exits 0 and would hide the command's exit status.
-//!
-//! Adapted from Ghostty at the pinned commit (MIT, Mitchell Hashimoto and
-//! Ghostty contributors): src/termio/Exec.zig (Subprocess.init and
-//! execCommand), src/termio/shell_integration.zig, src/os/locale.zig,
-//! src/os/resourcesdir.zig and src/apprt/embedded.zig (defaultTermioEnv).
-//! Deliberate differences are commented where they occur.
-
 use serde_json::{Map, Value};
 use std::{
     collections::BTreeMap,
@@ -23,12 +8,8 @@ use std::{
 
 pub type Env = BTreeMap<OsString, OsString>;
 
-/// Ghostty's default `shell-integration-features` (cursor, path, title) with
-/// its default blinking cursor (`cursor-style-blink` unset).
 const SHELL_FEATURES: &str = "cursor:blink,path,title";
 
-/// Resources staged by scripts/stage-ghostty-resources.sh. `share` holds
-/// `terminfo/` and `ghostty/`, like Ghostty's share/ or Contents/Resources/.
 #[derive(Clone, Debug)]
 pub struct Resources {
     pub share: PathBuf,
@@ -62,16 +43,11 @@ impl Resources {
 }
 
 fn has_terminfo(share: &Path) -> bool {
-    // tic hashes entries by hex on macOS (78/) and by letter elsewhere (x/).
     ["78/xterm-ghostty", "x/xterm-ghostty"]
         .iter()
         .any(|entry| share.join("terminfo").join(entry).is_file())
 }
 
-/// The resources of the Ghostty that runs the client: the parent of the
-/// client's GHOSTTY_RESOURCES_DIR. Else KANNA_KEEPER_RESOURCES_DIR, else the
-/// first `share/` (or, on macOS, an app bundle's `Contents/Resources/`)
-/// holding Ghostty's terminfo found by climbing from the keeper binary.
 pub fn find_resources(env: &Env) -> Option<Resources> {
     if let Some(share) = get(env, "GHOSTTY_RESOURCES_DIR")
         .and_then(|dir| Path::new(dir).parent())
@@ -96,7 +72,6 @@ pub fn find_resources(env: &Env) -> Option<Resources> {
     None
 }
 
-/// The passwd entry of the keeper's user.
 #[derive(Clone, Debug)]
 pub struct User {
     pub name: OsString,
@@ -133,16 +108,12 @@ pub fn current_user() -> Option<User> {
 
 pub struct Context {
     pub resources: Option<Resources>,
-    /// The keeper's directory, appended to PATH as Ghostty appends its own.
     pub exe_dir: Option<PathBuf>,
-    /// Ghostty's macOS-only behaviour (Darwin bash, data dirs).
     pub macos: bool,
-    /// For bash's HISTFILE when HOME is unset.
     pub user: Option<User>,
 }
 
 impl Context {
-    /// The context for a session whose environment is `env`.
     pub fn for_env(env: &Env, user: Option<User>) -> Self {
         Self {
             resources: find_resources(env),
@@ -177,7 +148,6 @@ fn join(a: &OsStr, b: &OsStr) -> OsString {
     out
 }
 
-/// Ghostty's appendEnv: append unless empty.
 fn append_env(current: &OsStr, value: &OsStr) -> OsString {
     if current.is_empty() {
         value.to_os_string()
@@ -186,7 +156,6 @@ fn append_env(current: &OsStr, value: &OsStr) -> OsString {
     }
 }
 
-/// Ghostty's prependEnv: prepend unless empty.
 fn prepend_env(current: &OsStr, value: &OsStr) -> OsString {
     if current.is_empty() {
         value.to_os_string()
@@ -195,8 +164,6 @@ fn prepend_env(current: &OsStr, value: &OsStr) -> OsString {
     }
 }
 
-/// Builds the argv and environment for a spawn request: the keeper's own
-/// environment, then Ghostty's additions, then the request's env.
 pub fn plan(
     argv: &[String],
     runs_bin_bash: bool,
@@ -206,10 +173,6 @@ pub fn plan(
 ) -> Plan {
     let mut env = inherited;
 
-    // embedded.zig defaultTermioEnv and Surface.zig: variables that belong to
-    // the process that launched us, not to a new terminal. Ghostty sets a fresh
-    // GHOSTTY_SURFACE_ID per surface; a kept session outlives the surface
-    // that created it, so an inherited one would go stale and is dropped.
     if ctx.macos {
         if get(&env, "__XCODE_BUILT_PRODUCTS_DIR_PATHS").is_some() {
             for key in [
@@ -230,24 +193,18 @@ pub fn plan(
     remove(&mut env, "GHOSTTY_LOG");
     remove(&mut env, "GHOSTTY_SURFACE_ID");
 
-    // Exec.zig: TERM=xterm-ghostty only when the resources (and so the
-    // terminfo next to them) exist.
     if let Some(res) = &ctx.resources {
         set(&mut env, "GHOSTTY_RESOURCES_DIR", res.ghostty());
         set(&mut env, "TERM", "xterm-ghostty");
         set(&mut env, "COLORTERM", "truecolor");
         set(&mut env, "TERMINFO", res.share.join("terminfo"));
     } else {
-        // Unlike Ghostty, keep the client's TERM: it came from the Ghostty
-        // that runs the client.
         if get(&env, "TERM").is_none_or(OsStr::is_empty) {
             set(&mut env, "TERM", "xterm-256color");
         }
         set(&mut env, "COLORTERM", "truecolor");
     }
 
-    // Ghostty appends its binary's directory so `ghostty` is reachable; ours
-    // makes `kanna` reachable. GHOSTTY_BIN_DIR passes through from the client.
     if let Some(dir) = &ctx.exe_dir {
         let dir = dir.as_os_str();
         match get(&env, "PATH") {
@@ -267,7 +224,6 @@ pub fn plan(
                 res.share.as_os_str(),
             );
             set(&mut env, "XDG_DATA_DIRS", data);
-            // appendEnvAlways: a leading colon keeps the system man path.
             let man = join(
                 get(&env, "MANPATH").unwrap_or_default(),
                 res.share.join("man").as_os_str(),
@@ -276,9 +232,6 @@ pub fn plan(
         }
     }
 
-    // Our renderer is Ghostty's, so programs that key features off
-    // TERM_PROGRAM=ghostty (kitty keyboard and graphics, OSC 8, synchronized
-    // output, ...) get what they expect. The version is the pinned commit's.
     set(&mut env, "TERM_PROGRAM", "ghostty");
     if let Some(version) = ctx.resources.as_ref().and_then(Resources::version) {
         set(&mut env, "TERM_PROGRAM_VERSION", version);
@@ -286,11 +239,6 @@ pub fn plan(
     remove(&mut env, "VTE_VERSION");
     set(&mut env, "GHOSTTY_SHELL_FEATURES", SHELL_FEATURES);
 
-    // The request's env overrides everything Ghostty sets, like Ghostty's
-    // `env` config; null removes a variable. Unlike Ghostty, shell
-    // integration runs after it, so a requested ZDOTDIR or ENV is preserved
-    // and restored by the integration scripts instead of disabling the
-    // integration.
     for (key, value) in request_env.into_iter().flatten() {
         match value.as_str() {
             Some(value) => {
@@ -336,13 +284,9 @@ pub fn candidates(arg0: &OsStr, path: &OsStr) -> Vec<PathBuf> {
     std::env::split_paths(path).filter(|dir| dir.is_absolute()).map(|dir| dir.join(arg0)).collect()
 }
 
-/// shell_integration.zig detectShell.
 fn detect_shell(argv: &[OsString], apple_bash: bool) -> Option<Shell> {
     let arg0 = argv.first()?;
     Some(match basename(arg0) {
-        // Apple's /bin/bash (3.2) ignores ENV, so Ghostty cannot inject into
-        // it. Ghostty compares the literal argument; a bare `bash` that PATH
-        // resolves to /bin/bash is skipped too, or bash would lose its flags.
         b"bash" if apple_bash => return None,
         b"bash" => Shell::Bash,
         b"elvish" => Shell::Elvish,
@@ -363,7 +307,6 @@ fn integrate(
     let integ = res.ghostty().join("shell-integration");
     match shell {
         Shell::Zsh => {
-            // setupZsh: zsh reads our .zshenv, which restores ZDOTDIR.
             let dir = integ.join("zsh");
             if !res.zsh {
                 return None;
@@ -402,7 +345,6 @@ fn integrate(
     }
 }
 
-/// setupXdgDataDirs, for shells that load modules from XDG_DATA_DIRS.
 fn setup_xdg_data_dirs(integ: &Path, present: bool, env: &mut Env) -> bool {
     if !present {
         return false;
@@ -416,8 +358,6 @@ fn setup_xdg_data_dirs(integ: &Path, present: bool, env: &mut Env) -> bool {
     true
 }
 
-/// setupBash: start bash in POSIX mode with ENV pointing at Ghostty's script,
-/// which then loads the user's startup files and leaves POSIX mode.
 fn setup_bash(
     argv: &[OsString],
     integ: &Path,
@@ -464,7 +404,6 @@ fn setup_bash(
     if let Some(rcfile) = rcfile {
         set(env, "GHOSTTY_BASH_RCFILE", rcfile);
     }
-    // POSIX mode defaults HISTFILE to ~/.sh_history.
     if get(env, "HISTFILE").is_none() {
         let home = get(env, "HOME")
             .filter(|h| !h.is_empty())
@@ -565,7 +504,6 @@ mod tests {
             val(&p, "ZDOTDIR"),
             share.join("ghostty/shell-integration/zsh").to_str()
         );
-        // Linux: no login(1), no data dirs.
         assert_eq!(args(&p), ["zsh", "-l"]);
         assert_eq!(val(&p, "XDG_DATA_DIRS"), None);
     }
@@ -648,7 +586,6 @@ mod tests {
                 .to_str()
         );
         assert_eq!(val(&p, "HISTFILE"), Some("/h/.bash_history"));
-        // Apple's bash and bash -c are left alone.
         let p = plan(
             &["/bin/bash".into()],
             true,

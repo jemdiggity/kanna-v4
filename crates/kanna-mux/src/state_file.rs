@@ -6,10 +6,6 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
-/// Where an instance keeps its saved layout (docs/kmux-spec.md §3.6), and
-/// reading and writing it safely. Restoring re-runs terminal commands, so
-/// kmux only reads a file it wrote itself: a regular file (not a link) owned
-/// by this user, readable by no one else, in a folder no one else can write to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StateFile {
     pub path: String,
@@ -17,20 +13,15 @@ pub struct StateFile {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Contents {
-    /// No saved layout.
     None,
     State(Value),
-    /// There is a file, but kmux won't restore it; the reason says why.
     Refused(String),
 }
 
-/// Larger than any real layout; a bigger file is not one kmux wrote.
 const MAX_SIZE: u64 = 16 << 20;
 
-/// An OS error's message, without Rust's " (os error N)".
 pub(crate) fn os_message(error: &std::io::Error) -> String {
     match error.raw_os_error() {
-        // SAFETY: strerror returns a valid C string.
         Some(code) => unsafe { std::ffi::CStr::from_ptr(libc::strerror(code)) }.to_string_lossy().into_owned(),
         None => error.to_string(),
     }
@@ -41,7 +32,6 @@ fn folder_of(path: &str) -> String {
 }
 
 fn uid() -> u32 {
-    // SAFETY: getuid can't fail.
     unsafe { libc::getuid() }
 }
 
@@ -50,10 +40,6 @@ impl StateFile {
         StateFile { path: path.into() }
     }
 
-    /// Next to the instance's socket: `state-default.json` (`state-work.json`, …)
-    /// in the sockets' folder, or, for a socket elsewhere (`$KMUX_SOCKET`),
-    /// the socket's path with `.state.json` for `.sock`, so tests on private
-    /// sockets keep private state.
     pub fn path_for(instance: &Instance) -> String {
         if instance.socket_path == Instance::socket_path_for(&instance.name) {
             return Path::new(&Instance::directory()).join(format!("state-{}.json", instance.name)).to_string_lossy().into_owned();
@@ -89,7 +75,6 @@ impl StateFile {
         }
     }
 
-    /// Why a file with `info` must not be trusted, or nil.
     fn unsafe_file(info: &Metadata, regular_file: bool) -> Option<String> {
         if regular_file && !info.file_type().is_file() {
             return Some("is not a regular file".into());
@@ -103,9 +88,6 @@ impl StateFile {
         None
     }
 
-    /// Why files in `folder` can't be trusted (someone else could have put
-    /// them there), or nil. A sticky folder such as /tmp is fine: others can't
-    /// replace a file this user owns there.
     fn unsafe_folder(folder: &str) -> Option<String> {
         let Ok(info) = std::fs::metadata(folder) else { return Some(format!("can't check {folder}")) };
         let sticky = info.mode() & 0o1000 != 0;
@@ -118,8 +100,6 @@ impl StateFile {
         None
     }
 
-    /// Writes `state` atomically: to a temporary file beside it (mode 0600),
-    /// flushed to disk, then renamed over the old one.
     pub fn write(&self, state: &Value) -> Result<(), KmuxError> {
         let failure = |message: String, e: &std::io::Error| KmuxError::new("io_error", format!("{message}: {}", os_message(e)));
         let folder = folder_of(&self.path);
@@ -147,8 +127,6 @@ impl StateFile {
         Ok(())
     }
 
-    /// Moves a file kmux won't restore out of the way, keeping it for a
-    /// person to look at: `state-default.json.bad`. Returns where it went.
     pub fn set_aside(&self) -> Option<String> {
         let aside = format!("{}.bad", self.path);
         std::fs::rename(&self.path, &aside).ok().map(|_| aside)

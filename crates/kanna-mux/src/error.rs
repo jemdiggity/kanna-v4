@@ -1,6 +1,5 @@
 use std::fmt;
 
-/// A protocol error: `{ code, message }` in a reply (docs/kmux-spec.md §7.3).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KmuxError {
     pub code: String,

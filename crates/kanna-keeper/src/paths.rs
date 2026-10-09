@@ -1,13 +1,9 @@
-//! Where the keeper keeps its socket, lock, pid and log.
-
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
-/// `$KANNA_STATE_DIR` if set, else `~/Library/Application Support/kanna` on
-/// macOS and `$XDG_DATA_HOME/kanna` (`~/.local/share/kanna`) elsewhere.
 pub fn default_state_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("KANNA_STATE_DIR").filter(|d| !d.is_empty()) {
         return PathBuf::from(dir);
@@ -36,14 +32,11 @@ pub fn log(dir: &Path) -> PathBuf {
     dir.join("keeper.log")
 }
 
-/// `sizeof(sockaddr_un.sun_path)`.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const SUN_PATH: usize = 108;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 const SUN_PATH: usize = 104;
 
-/// Creates the directory 0700, or checks that an existing one belongs to us
-/// and tightens it to 0700.
 pub fn ensure_dir(dir: &Path) -> io::Result<()> {
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     let path = std::ffi::CString::new(dir.as_os_str().as_bytes())

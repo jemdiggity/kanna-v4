@@ -1,20 +1,3 @@
-//! Persistence (docs/kmux-spec.md §3.6): the layout as a versioned state,
-//! ported from the reference model (reference/kmux/core.js: exportState,
-//! importState). Panes keep their IDs. Restoring starts every pane again:
-//! terminals as new terminals in their cwd with their command, web panes at
-//! their URL, md panes on their file, iOS panes relaunching their app.
-//!
-//! ```text
-//! { kmux: "state", version: 1, key, counters: { pane, tab, window },
-//!   windows: [{ id, frame?, active, focused, zoomed, tabCount,
-//!               tabs: [{ id, title, lastFocus, layout }] }],
-//!   panes: [{ id, name, type, …what it shows }] }
-//! ```
-//!
-//! A layout is `{ pane: ID }` or `{ split: row|column, children: [{ …layout, size }] }`.
-//! The core reads and writes `panes` and the pane counter; the layout host
-//! the rest.
-
 use crate::error::KmuxError;
 use crate::json::{encode, is_true, num, opt, string, Map, Value};
 use crate::pane::{History, Pane, PaneType, Panes};
@@ -26,18 +9,15 @@ pub(crate) fn bad(message: &str) -> KmuxError {
     KmuxError::new("bad_request", format!("bad state: {message}"))
 }
 
-/// A value as JSON, for messages.
 pub(crate) fn quoted(value: Option<&Value>) -> String {
     encode(value.unwrap_or(&Value::Null))
 }
 
-/// `n` from an ID such as `p3`, if it is exactly that.
 pub(crate) fn number_in(id: &str, prefix: &str) -> Option<usize> {
     let n: usize = id.strip_prefix(prefix)?.parse().ok()?;
     (n > 0 && n < 1_000_000_000 && format!("{prefix}{n}") == id).then_some(n)
 }
 
-/// A whole number from 0 up to a billion.
 pub(crate) fn whole(value: Option<&Value>) -> Option<usize> {
     let n = value?.as_f64()?;
     (n.round() == n && n >= 0.0 && n < 1e9).then_some(n as usize)
@@ -77,8 +57,6 @@ pub(crate) fn export_panes(panes: &Panes) -> Value {
     )
 }
 
-/// Checks a saved state's version and panes and builds the panes. Returns
-/// them with the saved pane counter.
 pub(crate) fn import_panes(state: &Value) -> Result<(Vec<Pane>, usize), KmuxError> {
     if !state.is_object() {
         return Err(bad("not an object"));

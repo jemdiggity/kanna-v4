@@ -1,9 +1,3 @@
-//! Terminal panes: kanna-mux's `PaneHost` for the daemon. Each terminal is a
-//! program on a pty (from a `Spawner`), its screen (a `Screen`, for `read`)
-//! and its recent output (replayed to the app when it attaches). Everything
-//! here runs on the daemon's main thread; a reader thread per pty posts its
-//! output there as events.
-
 use crate::pty::{self, Spawned, Spawner, Spec};
 use crate::reader::{Feed, Reader, Taken};
 use crate::Event;
@@ -17,8 +11,6 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
-/// A terminal's size before anything has asked for one.
-/// Told which pane started.
 pub type OnStart = Box<dyn Fn(&str)>;
 
 const COLS: u16 = 80;
@@ -27,8 +19,6 @@ const ROWS: u16 = 24;
 const MAX_SIDE: u16 = 1000;
 
 struct Terminal {
-    /// Which start of the pane this is: a restart is a new one, and events
-    /// from an older one are ignored.
     serial: u64,
     pid: i32,
     master: OwnedFd,
@@ -45,13 +35,10 @@ pub struct Terminals {
     pub core: RefCell<Option<WeakCore>>,
     spawner: Rc<dyn Spawner>,
     events: Sender<Event>,
-    /// Every terminal's environment gets these (`KANNA_SOCKET`).
     env: Vec<(String, String)>,
     live: RefCell<HashMap<String, Terminal>>,
     serial: Cell<u64>,
-    /// Each pane's last size, kept for a restart.
     sizes: RefCell<HashMap<String, (u16, u16)>>,
-    /// Called when a pane's terminal starts (again, on `restart`).
     pub on_start: RefCell<Option<OnStart>>,
 }
 
@@ -83,8 +70,6 @@ impl Terminals {
         let command = pane.command.clone().filter(|c| !c.is_empty());
         Spec { id: pane.id.clone(), command, cwd: pane.cwd.clone(), env, cols, rows }
     }
-
-    // MARK: Events from the reader and wait threads
 
     pub fn output(&self, id: &str, serial: u64) -> Option<Taken> {
         let live = self.live.borrow();
@@ -128,16 +113,12 @@ impl Terminals {
         Some(code)
     }
 
-    // MARK: For the app
-
-    /// Keystrokes and other input, as the app's terminal view wrote them.
     pub fn write(&self, id: &str, bytes: Vec<u8>) {
         if let Some(terminal) = self.live.borrow().get(id).filter(|t| t.exit_code.is_none()) {
             let _ = terminal.input.send(bytes);
         }
     }
 
-    /// Sets a terminal's size; returns the size it now has.
     pub fn resize(&self, id: &str, cols: u16, rows: u16, width: u16, height: u16) -> Option<(u16, u16)> {
         let mut live = self.live.borrow_mut();
         let terminal = live.get_mut(id)?;
@@ -158,8 +139,6 @@ impl Terminals {
         Some((cols, rows))
     }
 
-    /// What the app needs to show a terminal it attaches to: its size, its
-    /// recent output, and its exit code if it has ended.
     pub fn attach(&self, id: &str) -> Option<(u16, u16, Vec<u8>, Option<i32>)> {
         let live = self.live.borrow();
         let t = live.get(id)?;
@@ -205,12 +184,10 @@ impl PaneHost for Terminals {
     }
 
     fn stop(&self, pane: &Pane) {
-        // Dropping it closes the pty and ends its writer thread.
         let removed = self.live.borrow_mut().remove(&pane.id);
         if removed.is_some_and(|terminal| terminal.exit_code.is_none()) {
             self.spawner.close(&pane.id);
         }
-        // A closed pane never comes back; a restarted one starts at once.
         let restarting = self.core.borrow().as_ref().and_then(WeakCore::upgrade).is_some_and(|core| core.pane(&pane.id).is_some());
         if !restarting {
             self.sizes.borrow_mut().remove(&pane.id);
@@ -230,7 +207,6 @@ impl PaneHost for Terminals {
 }
 
 impl Terminals {
-    /// Starts the threads that read and write a new terminal's pty.
     fn run(&self, id: &str, serial: u64, spawned: Spawned, spec: &Spec) -> std::io::Result<Terminal> {
         let Spawned { pid, master } = spawned;
         let feed = Feed::new(spec.cols, spec.rows);

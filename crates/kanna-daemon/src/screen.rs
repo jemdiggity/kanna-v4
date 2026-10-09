@@ -1,17 +1,9 @@
-//! The daemon's copy of each terminal's screen, for `read`. For M0 a small
-//! text grid behind the `Screen` trait: characters only (no colours or
-//! attributes), the usual cursor, erase and scroll sequences, the alternate
-//! screen, and plain-text scrollback. libghostty-vt replaces it in M1.
-
 use std::collections::VecDeque;
 use vte::{Params, Parser, Perform};
 
 pub trait Screen {
-    /// Output from the program, as it arrives.
     fn feed(&mut self, bytes: &[u8]);
     fn resize(&mut self, cols: u16, rows: u16);
-    /// The screen, one line per row, without trailing blanks or blank rows at
-    /// the bottom; with `lines`, the last `lines` lines, counting scrollback.
     fn text(&self, lines: Option<usize>) -> String;
 }
 
@@ -60,13 +52,10 @@ struct Grid {
     scrollback: VecDeque<String>,
     row: usize,
     col: usize,
-    /// The last column was written: the next character wraps first.
     wrap_next: bool,
     saved: (usize, usize),
-    /// The scroll region, inclusive.
     top: usize,
     bottom: usize,
-    /// The main screen and cursor while the alternate one shows.
     main: Option<(Vec<Vec<char>>, usize, usize)>,
 }
 
@@ -95,8 +84,6 @@ impl Grid {
         for line in &mut self.lines {
             line.resize(cols, ' ');
         }
-        // The main screen, kept while the alternate one shows, takes the new
-        // size too.
         if let Some((screen, row, col)) = &mut self.main {
             for line in screen.iter_mut() {
                 line.resize(cols, ' ');
@@ -105,7 +92,6 @@ impl Grid {
             (*row, *col) = ((*row).min(rows - 1), (*col).min(cols - 1));
         }
         self.cols = cols;
-        // Shrinking keeps the cursor's row: lines above it go to scrollback.
         while self.lines.len() > rows && self.row > 0 {
             let line = self.lines.remove(0);
             self.keep(line);
@@ -122,7 +108,6 @@ impl Grid {
         self.wrap_next = false;
     }
 
-    /// A line scrolled off the top of the main screen.
     fn keep(&mut self, line: Vec<char>) {
         if self.main.is_some() {
             return;
@@ -133,7 +118,6 @@ impl Grid {
         }
     }
 
-    /// The scroll region, always within the screen.
     fn region(&mut self) -> usize {
         self.bottom = self.bottom.min(self.rows - 1);
         if self.top > self.bottom {
@@ -370,7 +354,6 @@ mod tests {
         let text = s.text(None);
         let lines: Vec<&str> = text.split('\n').collect();
         assert_eq!(lines[2], "    S4 TOP");
-        // Row 10 has room for one character at column 20: the rest wraps.
         assert_eq!(lines[9], format!("{}S", " ".repeat(19)));
         assert_eq!(lines[10], "4 MIDDLE");
         let s = screen(10, 2, "abcdef\x1b[3D\x1b[K");
@@ -403,11 +386,9 @@ mod tests {
         s.feed(b"\x1b[?1049l\x1b[9;9Hxy");
         s.resize(20, 6);
         s.feed(b"\x1b[?1049h\x1b[?1049l\x1b[20;20Hz");
-        // The wrap scrolled "main" into scrollback.
         assert_eq!(s.text(Some(100)), "main\n   x\ny\n\n\n\n                   z");
     }
 
-    /// Output is whatever a program writes: no bytes may panic the screen.
     #[test]
     fn hostile_output_never_panics() {
         let nasty: [&[u8]; 16] = [
@@ -421,7 +402,6 @@ mod tests {
             s.feed(bytes);
             s.feed("wide 字 and e\u{301} ".as_bytes());
         }
-        // Random bytes, weighted towards escape sequences, with resizes.
         let mut seed: u64 = 0x9e3779b97f4a7c15;
         let mut next = move || {
             seed ^= seed << 13;

@@ -1,8 +1,3 @@
-//! kanna-daemon: Kanna's terminals and kmux's protocol (kanna-mux) on
-//! Kanna's socket. The CLI and the app are its clients; the app keeps a
-//! long-lived link (app_link.rs). Everything kanna-mux touches runs on the
-//! main thread; socket, pty and signal threads post events to it.
-
 mod app_link;
 mod keeper;
 mod pty;
@@ -36,11 +31,8 @@ beside this binary) if none runs.
 
 const APP_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// What the main thread acts on.
 pub enum Event {
-    /// A control-protocol request and where its reply goes.
     Request(Value, Box<dyn FnOnce(Value) + Send>),
-    /// The core has work to do.
     Wake,
     Output { pane: String, serial: u64 },
     Drained { pane: String, serial: u64 },
@@ -71,8 +63,6 @@ fn main() {
     }
 }
 
-/// Where Kanna's files live: `~/Library/Application Support` on macOS,
-/// `$XDG_DATA_HOME` (`~/.local/share`) elsewhere.
 fn support_folder() -> PathBuf {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     if cfg!(target_os = "macos") {
@@ -85,8 +75,6 @@ fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
-/// The socket of the Kanna.app you use (kmux-branded until the end of M1),
-/// which this daemon must never take or touch.
 fn app_socket() -> PathBuf {
     support_folder().join("kanna/kanna.sock")
 }
@@ -94,7 +82,6 @@ fn app_socket() -> PathBuf {
 fn run() -> Result<(), String> {
     let _ = Brand::set_current(Brand::new("kanna", "Kanna"));
     let socket = env_path("KANNA_SOCKET").unwrap_or_else(|| support_folder().join("kanna-dev/kanna.sock"));
-    // The support folder may be case-insensitive (macOS): compare as such.
     if socket.to_string_lossy().to_lowercase() == app_socket().to_string_lossy().to_lowercase() {
         return Err(format!("{} belongs to Kanna.app; use another KANNA_SOCKET", socket.display()));
     }
@@ -102,16 +89,12 @@ fn run() -> Result<(), String> {
     std::fs::create_dir_all(&state_dir).map_err(|e| format!("can't make {}: {e}", state_dir.display()))?;
     let socket_path = socket.to_string_lossy().into_owned();
 
-    // The signals that stop the daemon are waited for on a thread of their
-    // own, so every thread (and so every child) starts with them blocked.
     let stop_signals = signal_set(&[libc::SIGTERM, libc::SIGINT, libc::SIGHUP]);
-    // SAFETY: a valid signal set.
     unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, &stop_signals, std::ptr::null_mut()) };
 
     let (events, inbox) = mpsc::channel::<Event>();
     let core = Core::default();
     core.set_instance(Instance::with_socket(DEFAULT_NAME, Some(socket_path.clone())));
-    // Web, markdown and iOS panes come with the app (M3).
     core.set_pane_types(vec![PaneType::Term]);
     let wake = events.clone();
     core.set_wakeup(Some(Arc::new(move || {
@@ -191,7 +174,6 @@ fn run() -> Result<(), String> {
         .name("kanna.signals".into())
         .spawn(move || loop {
             let mut signal = 0;
-            // SAFETY: a valid signal set and out-pointer.
             if unsafe { libc::sigwait(&stop_signals, &mut signal) } == 0 {
                 stop.store(signal, Ordering::SeqCst);
                 let _ = quit.send(Event::Quit(signal));
@@ -275,7 +257,6 @@ fn run() -> Result<(), String> {
 }
 
 fn signal_set(signals: &[libc::c_int]) -> libc::sigset_t {
-    // SAFETY: sigset_t is plain data, initialised by sigemptyset.
     unsafe {
         let mut set: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut set);

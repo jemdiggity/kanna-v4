@@ -1,9 +1,3 @@
-//! The keeper: one per state directory, a single-threaded poll loop over its
-//! socket and its clients. It spawns processes on ptys, keeps a copy of each
-//! pty master, hands the masters to its client (the daemon), reaps the
-//! processes and reports their exits. It never reads or writes a pty.
-//! See docs/keeper.md.
-
 use crate::pty::{self, What};
 use crate::{fdpass, paths, sig, ExitStatus, PROTOCOL_VERSION};
 use anyhow::{Context, Result};
@@ -17,19 +11,14 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// Connections at once; more are refused.
 const MAX_CONNS: usize = 16;
 const ACCEPT_PAUSE: Duration = Duration::from_millis(100);
-/// Longest request line.
 const MAX_LINE: usize = 1 << 20;
-/// Unsent replies and events per connection before it is dropped.
 const MAX_OUT: usize = 8 << 20;
 
 pub struct Settings {
     pub state_dir: PathBuf,
-    /// Exit after this long with no live process and no client.
     pub idle: Duration,
-    /// Between SIGHUP and SIGKILL on `close`.
     pub close_grace: Duration,
     pub max_ptys: usize,
     pub spawn_timeout: Duration,
@@ -40,8 +29,6 @@ fn env_u64(key: &str, default: u64) -> u64 {
 }
 
 impl Settings {
-    /// From the environment: `KANNA_KEEPER_IDLE_MS` (60 s),
-    /// `KANNA_KEEPER_CLOSE_GRACE_MS` (1 s), `KANNA_KEEPER_MAX_PTYS` (256).
     pub fn from_env(state_dir: PathBuf) -> Self {
         Settings {
             state_dir,
@@ -53,7 +40,6 @@ impl Settings {
     }
 }
 
-/// The uid a peer must have: ours. Debug builds let tests pretend otherwise.
 fn expected_uid() -> libc::uid_t {
     #[cfg(debug_assertions)]
     if let Some(uid) = std::env::var("KANNA_KEEPER_TEST_PEER_UID").ok().and_then(|v| v.parse().ok()) {
@@ -62,13 +48,10 @@ fn expected_uid() -> libc::uid_t {
     unsafe { libc::getuid() }
 }
 
-/// A process the keeper spawned, and its pty.
 struct Pty {
     pid: i32,
     cmd: Vec<String>,
     cwd: String,
-    /// The keeper's copy, kept until the exit is acknowledged, so a daemon
-    /// that connects later can still read the last output.
     master: Rc<OwnedFd>,
     exit: Option<ExitStatus>,
 }
@@ -88,7 +71,6 @@ impl Pty {
     }
 }
 
-/// A line to send, with the descriptors that go with its first byte.
 struct Out {
     bytes: Vec<u8>,
     sent: usize,
@@ -170,7 +152,6 @@ struct Keeper {
     pending: Vec<Pending>,
     base: pty::Base,
     next_serial: u64,
-    /// Closed processes not reaped yet; their exits aren't reported.
     closed: Vec<Closed>,
     settings: Settings,
     idle_since: Instant,
@@ -189,8 +170,6 @@ fn tell(ready: Option<&OwnedFd>, bytes: &[u8]) {
     }
 }
 
-/// Runs the keeper until it is idle or told to stop (SIGTERM, SIGINT).
-/// Returns at once if another keeper holds the state directory.
 pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
     sig::cloexec_inherited();
     pty::raise_nofile();
@@ -339,7 +318,6 @@ impl Keeper {
         wait.as_millis() as libc::c_int + 1
     }
 
-    /// No client, no live process, nothing waiting to be killed.
     fn idle(&self) -> bool {
         self.conns.is_empty()
             && self.pending.is_empty()
@@ -416,7 +394,6 @@ impl Keeper {
                         max_out_fds: 2 * self.settings.max_ptys + 16,
                         dead: false,
                     };
-                    // Exits nobody has acknowledged yet.
                     for (id, p) in &self.ptys {
                         if let Some(exit) = p.exit {
                             conn.send(exited_event(id, p.pid, exit), vec![]);
@@ -604,8 +581,6 @@ impl Keeper {
         }
     }
 
-    /// SIGHUP to the process group and the pty's foreground group, SIGKILL
-    /// to both after the grace period. The id is free at once.
     fn close(&mut self, id: &str) -> Result<(Value, Vec<Rc<OwnedFd>>), String> {
         if self.pending.iter().any(|p| p.id == id) {
             return Err(format!("pty {id:?} is still starting"));
@@ -623,7 +598,6 @@ impl Keeper {
         Ok((json!({}), vec![]))
     }
 
-    /// Forgets an exited pty. Acknowledging one that's gone is fine.
     fn ack(&mut self, id: &str) -> Result<(Value, Vec<Rc<OwnedFd>>), String> {
         match self.ptys.get(id) {
             Some(p) if p.exit.is_none() => Err(format!("pty {id:?} is still running")),
@@ -680,9 +654,6 @@ fn valid_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `--detach`: runs the keeper in the background, in its own session, with
-/// stdio on /dev/null and stderr appended to keeper.log. Returns once it is
-/// listening, or once it has found another keeper already running.
 pub fn detach(mut settings: Settings) -> Result<()> {
     paths::ensure_dir(&settings.state_dir).with_context(|| format!("state directory {}", settings.state_dir.display()))?;
     settings.state_dir = std::path::absolute(&settings.state_dir)?;

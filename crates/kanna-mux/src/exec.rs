@@ -1,9 +1,3 @@
-//! A small single-threaded executor for the core's commands, with timers.
-//! It runs only when the embedder calls in (`Core::poll`, or any call that
-//! changes the core). Wakers are thread-safe: waking from
-//! another thread queues the task and calls the embedder's wakeup, which
-//! should arrange for `Core::poll` on the core's thread.
-
 use std::cell::{Cell, RefCell};
 use std::future::Future;
 use std::pin::Pin;
@@ -14,10 +8,8 @@ use std::time::{Duration, Instant};
 
 pub(crate) type Task = Pin<Box<dyn Future<Output = ()>>>;
 
-/// Called from any thread when there is work for `Core::poll`.
 pub type Wakeup = Arc<dyn Fn() + Send + Sync>;
 
-/// Tasks ready to run. Shared with wakers, which may be on other threads.
 #[derive(Default)]
 struct Ready {
     queue: Mutex<Vec<usize>>,
@@ -33,7 +25,6 @@ impl Ready {
             queue.len() == 1
         };
         self.signal.notify_all();
-        // One wakeup per batch: the poll it causes drains the queue.
         if first {
             self.wake_embedder();
         }
@@ -73,7 +64,6 @@ impl Executor {
         *self.ready.wakeup.lock().unwrap() = wakeup;
     }
 
-    /// Adds a task; it first runs on the next `run`.
     pub(crate) fn spawn(&self, task: Task) {
         let id = match self.free.borrow_mut().pop() {
             Some(id) => {
@@ -89,8 +79,6 @@ impl Executor {
         self.ready.push(id);
     }
 
-    /// Runs ready tasks and due timers until nothing is ready. A call from
-    /// inside a task (re-entrant) returns at once; the outer run continues.
     pub(crate) fn run(&self) {
         if self.running.replace(true) {
             return;
@@ -131,7 +119,6 @@ impl Executor {
         due.into_iter().for_each(Waker::wake);
     }
 
-    /// When the next timer is due.
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.timers.borrow().iter().map(|(_, at, _)| *at).min()
     }
@@ -140,7 +127,6 @@ impl Executor {
         !self.ready.queue.lock().unwrap().is_empty()
     }
 
-    /// Blocks until a task is woken or `deadline` passes.
     pub(crate) fn wait(&self, deadline: Option<Instant>) {
         let mut queue = self.ready.queue.lock().unwrap();
         while queue.is_empty() {
@@ -157,7 +143,6 @@ impl Executor {
         }
     }
 
-    /// Drops every task and timer.
     pub(crate) fn clear(&self) {
         let tasks = std::mem::take(&mut *self.tasks.borrow_mut());
         self.free.borrow_mut().clear();
@@ -166,7 +151,6 @@ impl Executor {
     }
 }
 
-/// Finishes `duration` after it is first polled.
 pub(crate) fn sleep(executor: Rc<Executor>, duration: Duration) -> impl Future<Output = ()> {
     Sleep { executor, deadline: Instant::now() + duration, timer: None }
 }
@@ -212,7 +196,6 @@ impl Drop for Sleep {
     }
 }
 
-/// A one-shot flag a task can wait on: set by the core's thread.
 #[derive(Default)]
 pub(crate) struct Signal {
     done: Cell<bool>,

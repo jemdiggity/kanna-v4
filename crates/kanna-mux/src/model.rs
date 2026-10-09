@@ -1,7 +1,3 @@
-//! kmux's layout: windows, tabs and split trees. Sizes are fractions of the
-//! parent split and always add up to 1. Empty containers close: a tab without
-//! panes, then a window without tabs. Mirrors reference/kmux/index.html.
-
 use crate::error::KmuxError;
 use crate::fraction;
 use crate::json::{num, opt, string, trim, Map, Value};
@@ -66,8 +62,6 @@ impl Tab {
     }
 }
 
-/// Where a window is on screen, in the host's coordinates; saved with the
-/// layout so a restored window comes back in place.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Frame {
     pub x: f64,
@@ -84,7 +78,6 @@ pub struct Window {
     pub focused: Option<String>,
     pub zoomed: Option<String>,
     pub frame: Option<Frame>,
-    /// Tabs are named "Tab 1", "Tab 2", … in the order the window made them.
     pub tab_count: usize,
 }
 
@@ -102,9 +95,6 @@ impl Window {
     }
 }
 
-/// Where a pane is: indices of its window and tab, the path of child indices
-/// from the tab's root to its parent split (none if it is the root), and its
-/// index in that split.
 #[derive(Clone, Debug)]
 pub struct Location {
     pub window: usize,
@@ -117,7 +107,6 @@ pub struct Model {
     windows: Vec<Window>,
     pub key: Option<String>,
     counters: (usize, usize),
-    /// Whether a pane is wider than it is tall, for `split: auto`.
     pub pane_is_wide: Box<dyn Fn(&str) -> bool>,
 }
 
@@ -126,8 +115,6 @@ impl Default for Model {
         Model { windows: vec![], key: None, counters: (0, 0), pane_is_wide: Box::new(|_| true) }
     }
 }
-
-// MARK: Trees
 
 pub fn pane_ids(node: Option<&Node>) -> Vec<String> {
     fn collect(node: &Node, out: &mut Vec<String>) {
@@ -143,7 +130,6 @@ pub fn pane_ids(node: Option<&Node>) -> Vec<String> {
     out
 }
 
-/// The path to a pane's parent split and its index there, or (None, 0) for the root.
 fn locate_in(root: Option<&Node>, id: &str) -> Option<(Option<Vec<usize>>, usize)> {
     fn find(split: &Split, id: &str, here: &mut Vec<usize>) -> Option<(Option<Vec<usize>>, usize)> {
         for (i, kid) in split.kids.iter().enumerate() {
@@ -181,7 +167,6 @@ fn split_at<'a>(root: &'a mut Node, path: &[usize]) -> &'a mut Split {
     }
 }
 
-/// Collapses splits with one child into that child.
 pub fn normalize(node: Node) -> Node {
     match node {
         Node::Split(mut split) => {
@@ -196,7 +181,6 @@ pub(crate) fn fraction(value: &Value) -> Result<f64, KmuxError> {
     fraction::parse(value).ok_or_else(|| KmuxError::new("bad_request", format!("\"{}\" is not a fraction", describe(value))))
 }
 
-/// How Swift prints a JSON value, for messages.
 fn describe(value: &Value) -> String {
     match value {
         Value::Null => "null".into(),
@@ -282,7 +266,6 @@ impl Model {
         self.windows.iter().position(|w| w.id == id)
     }
 
-    /// A tab's window and index there.
     fn tab_index(&self, id: &str) -> Option<(usize, usize)> {
         self.windows.iter().enumerate().find_map(|(w, window)| window.tabs.iter().position(|t| t.id == id).map(|t| (w, t)))
     }
@@ -291,7 +274,6 @@ impl Model {
         self.tab_index(id).map(|(w, t)| &self.windows[w].tabs[t])
     }
 
-    /// The window a tab is in.
     pub fn window_of(&self, tab: &str) -> Option<&Window> {
         self.tab_index(tab).map(|(w, _)| &self.windows[w])
     }
@@ -327,7 +309,6 @@ impl Model {
         None
     }
 
-    /// Removes a pane from its tree; its siblings share the freed space.
     fn detach(&mut self, id: &str) {
         let Some(location) = self.locate(id) else { return };
         let window = &mut self.windows[location.window];
@@ -348,8 +329,6 @@ impl Model {
         }
     }
 
-    /// Puts `node` next to the target pane, taking `size` of the target's space.
-    /// A parent split along the same axis takes it as a sibling.
     fn insert(&mut self, node: Node, beside: &str, (w, t): (usize, usize), axis: Axis, after: bool, size: f64) {
         let tab = &mut self.windows[w].tabs[t];
         let Some((parent, index)) = locate_in(tab.root.as_ref(), beside) else { return };
@@ -373,8 +352,6 @@ impl Model {
         }
     }
 
-    /// Adds a pane to a tab: as its root, or as a new column on the right
-    /// (all columns then share the width equally).
     fn append(&mut self, id: &str, (w, t): (usize, usize)) {
         let tab = &mut self.windows[w].tabs[t];
         let pane = Node::Pane(id.into());
@@ -392,7 +369,6 @@ impl Model {
         });
     }
 
-    /// Puts pane `b` where pane `a` is, and `a` where `b` is.
     fn swap(&mut self, a: &str, b: &str) {
         let (Some(la), Some(lb)) = (self.locate(a), self.locate(b)) else { return };
         self.set_leaf(&la, b);
@@ -418,7 +394,6 @@ impl Model {
         tabs.insert(index.min(tabs.len()), tab);
     }
 
-    /// Closes empty tabs and windows and repairs focus.
     fn drop_empty(&mut self) {
         for window in &mut self.windows {
             let at = window.tabs.iter().position(|t| Some(&t.id) == window.active.as_ref()).unwrap_or(0);
@@ -469,8 +444,6 @@ impl Model {
         self.key = Some(window.id.clone());
     }
 
-    // MARK: Views for the protocol
-
     pub fn tree(&self, node: Option<&Node>, size: Option<f64>, panes: &Panes) -> Value {
         let Some(node) = node else { return Value::Null };
         let mut out = Map::new();
@@ -494,8 +467,6 @@ impl Model {
     fn tab_tree(&self, tab: &str, panes: &Panes) -> Value {
         self.tab(tab).map_or(Value::Null, |t| self.tree(t.root.as_ref(), None, panes))
     }
-
-    // MARK: Commands (ported from reference/kmux/core.js)
 
     fn focus(&mut self, args: &Value, panes: &Panes) -> Result<Map, KmuxError> {
         if let Some(reference) = string(args, "pane") {
@@ -729,8 +700,6 @@ impl Model {
         Ok(reply([("window", id.into()), ("layout", self.tab_tree(&tab, panes))]))
     }
 
-    // MARK: Persistence
-
     fn export_node(node: &Node) -> Value {
         match node {
             Node::Pane(id) => Value::Object(reply([("pane", id.clone().into())])),
@@ -906,8 +875,6 @@ impl LayoutHost for Model {
         ])
     }
 
-    /// Lenient where it can repair (dangling focus, empty tabs, sizes),
-    /// strict about anything that would make the layout ambiguous.
     fn read_state(&self, state: &Value, panes: &HashSet<String>) -> Result<SavedLayout, KmuxError> {
         let saved = state.get("counters").cloned().unwrap_or(Value::Object(Map::new()));
         let mut counters = (whole(saved.get("tab")).unwrap_or(0), whole(saved.get("window")).unwrap_or(0));

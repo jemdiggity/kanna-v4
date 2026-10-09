@@ -83,9 +83,6 @@ impl Feed {
         self.guarded(id, |screen| screen.resize(cols, rows));
     }
 
-    /// Runs `f` on a terminal's screen. The screen reads untrusted output: if
-    /// it panics anyway, only that screen is lost (it starts over, empty), not
-    /// the daemon and its other terminals.
     pub fn guarded<R>(&mut self, id: &str, f: impl FnOnce(&mut dyn Screen) -> R) -> Option<R> {
         match std::panic::catch_unwind(AssertUnwindSafe(|| f(self.screen.as_mut()))) {
             Ok(result) => Some(result),

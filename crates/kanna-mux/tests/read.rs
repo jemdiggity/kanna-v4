@@ -1,6 +1,3 @@
-//! `read`: Kanna's, not kmux's. The core checks the request and asks the
-//! pane host for the screen.
-
 mod support;
 
 use kanna_mux::json::{json, Value};
@@ -8,7 +5,6 @@ use kanna_mux::{Core, KmuxError, Pane, PaneHost, PaneState, WeakCore};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Runs every pane at once; its screens read "screen of ID (LINES)".
 #[derive(Default)]
 struct Screens {
     core: RefCell<Option<WeakCore>>,

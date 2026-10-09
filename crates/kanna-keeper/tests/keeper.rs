@@ -1,6 +1,3 @@
-//! The keeper end to end, through its client: a private state directory and
-//! keeper per test, stopped by PID when the fixture drops.
-
 use kanna_keeper::client::{Client, Exited, SpawnRequest};
 use kanna_keeper::ExitStatus;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -17,7 +14,6 @@ struct Fixture {
     keeper: Option<Child>,
 }
 
-/// A short private directory, so the socket path fits in sun_path.
 fn private_dir() -> PathBuf {
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("kk{}-{n}", std::process::id()));
@@ -35,8 +31,6 @@ impl Fixture {
         let dir = private_dir();
         let mut cmd = Command::new(BIN);
         cmd.arg("--state-dir").arg(dir.join("state"));
-        // Nothing from the terminal running the tests (it may be a Kanna or
-        // kmux pane with its own sockets).
         cmd.env_clear();
         for key in ["PATH", "USER", "LOGNAME", "TMPDIR"] {
             if let Some(v) = std::env::var_os(key) {
@@ -73,7 +67,6 @@ impl Fixture {
         self.keeper.as_ref().unwrap().id() as i32
     }
 
-    /// Whether the keeper has exited (and so was reaped).
     fn keeper_exited(&mut self) -> bool {
         self.keeper.as_mut().unwrap().try_wait().unwrap().is_some()
     }
@@ -102,7 +95,6 @@ fn alive(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
 }
 
-/// Reads the pty until `needle` shows up; returns everything read.
 #[track_caller]
 fn read_until(master: &OwnedFd, needle: &str) -> String {
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -134,8 +126,6 @@ fn next_exit(c: &mut Client) -> Exited {
     c.wait_event(Some(Duration::from_secs(5))).unwrap().expect("an exit event")
 }
 
-/// The next exit event, reading the pty meanwhile as the daemon would: on
-/// macOS a process that exits with output unread waits for it to be read.
 #[track_caller]
 fn exit_reading(c: &mut Client, master: &OwnedFd) -> (Exited, String) {
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -171,7 +161,6 @@ fn spawn_then_read_and_write_through_the_fd() {
     read_until(&pty.master, "ready");
     write(&pty.master, "hello\n");
     read_until(&pty.master, "got:hello");
-    // The size asked for is the pty's.
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
     unsafe { libc::ioctl(pty.master.as_raw_fd(), libc::TIOCGWINSZ, &mut ws) };
     assert_eq!((ws.ws_col, ws.ws_row), (100, 30));
@@ -209,10 +198,8 @@ fn exit_codes_and_signals_are_the_commands_own() {
     let e = next_exit(&mut c);
     assert_eq!(e, Exited { id: "nine".into(), pid: p9.pid, status: ExitStatus::Signal(9) });
     assert_eq!(e.status.shell_status(), 137);
-    // A missing command is 127, as in a shell.
     let missing = c.spawn(&SpawnRequest::command("missing", "/nonexistent/x")).unwrap();
     assert_eq!(exit_reading(&mut c, &missing.master).0.status, ExitStatus::Code(127));
-    // An interactive shell too: no login(1) in between to turn it into 0.
     let mut req = SpawnRequest::shell("shell");
     req.shell = Some("/bin/sh".into());
     let sh = c.spawn(&req).unwrap();
@@ -233,7 +220,6 @@ fn adopt_after_the_client_goes_returns_the_same_process() {
             .spawn(&SpawnRequest::command("t1", "sleep 0.5; echo while-away; read x; echo \"got:$x\"; sleep 30"))
             .unwrap();
         (pty.pid, pty.cmd)
-        // The client and its copy of the master go here, as when the daemon dies.
     };
     std::thread::sleep(Duration::from_millis(1000));
     assert!(alive(pid));
@@ -242,11 +228,9 @@ fn adopt_after_the_client_goes_returns_the_same_process() {
     assert_eq!(ptys.len(), 1);
     let pty = &ptys[0];
     assert_eq!((pty.id.as_str(), pty.pid, &pty.cmd, pty.exit), ("t1", pid, &cmd, None));
-    // Written while nobody was connected: it waited in the pty.
     read_until(&pty.master, "while-away");
     write(&pty.master, "back\n");
     read_until(&pty.master, "got:back");
-    // Adopting twice hands out another working copy.
     let again = c.adopt().unwrap();
     assert_eq!(again[0].pid, pid);
     c.close("t1").unwrap();
@@ -264,10 +248,7 @@ fn an_exit_while_nobody_is_connected_waits_for_an_ack() {
     wait_for("the quiet one to be reaped", || !alive(quiet));
     std::thread::sleep(Duration::from_millis(500));
     let mut c = f.client();
-    // Sent on connect.
     assert_eq!(next_exit(&mut c), Exited { id: "quiet".into(), pid: quiet, status: ExitStatus::Code(6) });
-    // The chatty one's last output is still in its pty (on macOS it can't
-    // finish exiting until that is read).
     let ptys = c.adopt().unwrap();
     assert_eq!(ptys.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["chatty", "quiet"]);
     assert_eq!(ptys[1].exit, Some(ExitStatus::Code(6)));
@@ -276,7 +257,6 @@ fn an_exit_while_nobody_is_connected_waits_for_an_ack() {
     assert!(out.contains("last-words"), "{out:?}");
     drop(ptys);
     drop(c);
-    // Not acknowledged: the next connection is told again.
     let mut c = f.client();
     let mut told = vec![next_exit(&mut c).id, next_exit(&mut c).id];
     told.sort();
@@ -287,14 +267,11 @@ fn an_exit_while_nobody_is_connected_waits_for_an_ack() {
     let mut c = f.client();
     assert_eq!(c.wait_event(Some(Duration::from_millis(300))).unwrap(), None);
     assert!(c.adopt().unwrap().is_empty());
-    // A running pty can't be acknowledged.
     c.spawn(&SpawnRequest::command("t2", "sleep 30")).unwrap();
     assert!(c.ack("t2").is_err());
     c.close("t2").unwrap();
 }
 
-/// Starts `script` (which prints `kid:PID` for a background child) and
-/// returns its pid and the child's.
 fn group(c: &mut Client, id: &str, script: &str) -> (i32, i32) {
     let pty = c.spawn(&SpawnRequest::command(id, script)).unwrap();
     let out = read_until(&pty.master, "\n");
@@ -307,7 +284,6 @@ fn close_ends_the_process_group() {
     let f = Fixture::new();
     let mut c = f.client();
     let (sh, kid) = group(&mut c, "plain", "sleep 60 & echo \"kid:$!\"; wait");
-    // These ignore SIGHUP, so they need the SIGKILL after the grace period.
     let (sh2, kid2) = group(&mut c, "stubborn", "trap '' HUP; sleep 60 & echo \"kid:$!\"; wait");
     assert!(alive(sh) && alive(kid) && alive(sh2) && alive(kid2));
     c.close("plain").unwrap();
@@ -315,7 +291,6 @@ fn close_ends_the_process_group() {
     for pid in [sh, kid, sh2, kid2] {
         wait_for(&format!("{pid} to end"), || !alive(pid));
     }
-    // Closing right after spawning works too (the reply waits for exec).
     let quick: Vec<i32> = (0..20)
         .map(|i| {
             let id = format!("quick{i}");
@@ -327,7 +302,6 @@ fn close_ends_the_process_group() {
     for pid in quick {
         wait_for(&format!("{pid} to end"), || !alive(pid));
     }
-    // Closed processes aren't reported as exits, and the ids are free.
     assert_eq!(c.wait_event(Some(Duration::from_millis(300))).unwrap(), None);
     assert!(c.adopt().unwrap().is_empty());
     assert!(c.close("plain").is_err());
@@ -347,7 +321,6 @@ fn errors_are_replies() {
     both.shell = Some("/bin/sh".into());
     assert!(c.spawn(&both).is_err());
     assert!(c.close("nope").is_err());
-    // The connection is still fine.
     assert_eq!(c.hello().unwrap().0, kanna_keeper::PROTOCOL_VERSION);
     c.close("t1").unwrap();
 }
@@ -364,12 +337,10 @@ fn private_files_and_the_peer_check() {
     let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&f.state()), 0o700);
     assert_eq!(mode(&f.socket()), 0o600);
-    // A second keeper for the same directory leaves the first alone.
     let status = Command::new(BIN).arg("--state-dir").arg(f.state()).status().unwrap();
     assert!(status.success());
     assert_eq!(f.client().hello().unwrap().1, pid);
 
-    // A keeper that expects another user refuses us.
     let uid = unsafe { libc::getuid() } + 1;
     let other = Fixture::with(&[("KANNA_KEEPER_TEST_PEER_UID", &uid.to_string())]);
     let mut c = Client::connect(&other.socket()).unwrap();
@@ -382,12 +353,10 @@ fn idle_exit_only_without_processes_or_clients() {
     let mut c = f.client();
     c.spawn(&SpawnRequest::command("t1", "sleep 30")).unwrap();
     drop(c);
-    // A live process keeps it.
     std::thread::sleep(Duration::from_millis(800));
     assert!(!f.keeper_exited());
     let mut c = f.client();
     c.close("t1").unwrap();
-    // So does a client.
     std::thread::sleep(Duration::from_millis(800));
     assert!(!f.keeper_exited());
     drop(c);
@@ -409,7 +378,6 @@ fn connect_or_start_runs_one_detached_keeper() {
     let pty = c.spawn(&SpawnRequest::command("t1", "echo detached-ok; sleep 30")).unwrap();
     read_until(&pty.master, "detached-ok");
     c.close("t1").unwrap();
-    // Stop the keeper this test started.
     unsafe { libc::kill(pid, libc::SIGTERM) };
     wait_for("the detached keeper to stop", || !alive(pid));
     let _ = std::fs::remove_dir_all(&dir);

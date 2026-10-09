@@ -1,4 +1,3 @@
-//! Shared by the tests: a fake pane host and a core wired to it.
 #![allow(dead_code)]
 
 use kanna_mux::json::Value;
@@ -7,7 +6,6 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-/// Starts panes just after asking: running, or failed for commands in `fail`.
 #[derive(Default)]
 pub struct FakeHost {
     pub core: RefCell<Option<WeakCore>>,
@@ -47,7 +45,6 @@ pub fn make_core() -> (Core, Rc<FakeHost>) {
     (core, host)
 }
 
-/// Sends a request and waits for the reply.
 pub fn send(core: &Core, request: Value) -> Value {
     core.handle_blocking(request)
 }

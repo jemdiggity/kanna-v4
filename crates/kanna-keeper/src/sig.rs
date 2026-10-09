@@ -1,5 +1,3 @@
-//! Signals delivered through a self-pipe so poll loops can handle them.
-
 use anyhow::Result;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
@@ -57,8 +55,6 @@ pub fn close_inherited(keep: &[libc::c_int]) {
     }
 }
 
-/// Routes `signals` into the returned pipe; each byte read is a signal number.
-/// One pipe per process.
 pub fn pipe(signals: &[libc::c_int]) -> Result<OwnedFd> {
     let mut fds = [-1; 2];
     if unsafe { libc::pipe(fds.as_mut_ptr()) } < 0 {
@@ -86,7 +82,6 @@ pub fn pipe(signals: &[libc::c_int]) -> Result<OwnedFd> {
     Ok(read)
 }
 
-/// Drains the pipe and returns the signals received.
 pub fn drain(fd: &OwnedFd) -> Vec<libc::c_int> {
     let mut out = Vec::new();
     let mut buf = [0u8; 64];

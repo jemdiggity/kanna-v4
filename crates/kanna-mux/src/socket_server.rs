@@ -11,20 +11,10 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-/// Answers one request. It may answer later, from any thread; the server's
-/// connection thread waits for it. The embedder passes the request to the
-/// core's thread (`Core::handle`) and sends the reply back.
 pub type Handler = Arc<dyn Fn(Value, Box<dyn FnOnce(Value) + Send>) + Send + Sync>;
 
-/// Takes a connection over after its first request, for a client that stays
-/// connected and talks its own way from then on (Kanna's app). It gets that
-/// request, the reader (which may hold lines already read) and the stream to
-/// write to, and runs on the connection's thread for as long as it likes.
 pub type Takeover = Arc<dyn Fn(Value, BufReader<UnixStream>, UnixStream) + Send + Sync>;
 
-/// The control socket: a Unix domain socket carrying newline-delimited JSON.
-/// Each connection is served on its own thread; requests on a connection are
-/// answered in order.
 pub struct SocketServer {
     pub path: String,
     handler: Handler,
@@ -53,8 +43,6 @@ impl SocketServer {
         SocketServer { path: path.into(), handler, takeover: None, limits: LIMITS, running: Mutex::new(None) }
     }
 
-    /// A connection whose first request is `cmd` goes to `takeover` instead.
-    /// Set before `start`.
     pub fn take_over(&mut self, cmd: &str, takeover: Takeover) {
         self.takeover = Some((cmd.into(), takeover));
     }
@@ -64,7 +52,6 @@ impl SocketServer {
         if running.is_some() {
             return Err(KmuxError::new("bad_request", format!("already listening on {}", self.path)));
         }
-        // SAFETY: sockaddr_un is plain data; all zeroes is a valid value.
         let address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
         if self.path.len() >= address.sun_path.len() {
             return Err(KmuxError::new("bad_request", format!("socket path is too long: {}", self.path)));
@@ -269,7 +256,6 @@ fn respond(line: &[u8], handler: &Handler) -> Option<Value> {
 #[cfg(target_vendor = "apple")]
 fn no_sigpipe(client: &UnixStream) {
     let on: libc::c_int = 1;
-    // SAFETY: a valid socket and option value.
     unsafe {
         libc::setsockopt(client.as_raw_fd(), libc::SOL_SOCKET, libc::SO_NOSIGPIPE, &on as *const _ as *const libc::c_void, std::mem::size_of::<libc::c_int>() as libc::socklen_t);
     }
@@ -278,7 +264,6 @@ fn no_sigpipe(client: &UnixStream) {
 #[cfg(not(target_vendor = "apple"))]
 fn no_sigpipe(_: &UnixStream) {}
 
-/// Writes everything, without SIGPIPE if the client has gone.
 pub fn write_all(stream: &UnixStream, data: &[u8]) -> bool {
     #[cfg(target_vendor = "apple")]
     const FLAGS: libc::c_int = 0;
@@ -286,7 +271,6 @@ pub fn write_all(stream: &UnixStream, data: &[u8]) -> bool {
     const FLAGS: libc::c_int = libc::MSG_NOSIGNAL;
     let mut offset = 0;
     while offset < data.len() {
-        // SAFETY: the pointer and length are within `data`.
         let n = unsafe { libc::send(stream.as_raw_fd(), data[offset..].as_ptr() as *const libc::c_void, data.len() - offset, FLAGS) };
         if n < 0 {
             if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
