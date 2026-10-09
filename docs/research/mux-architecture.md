@@ -38,79 +38,75 @@
 
 ## 2. Layers and processes
 
-Read each stack top to bottom, like the OSI model: each layer uses the ones below it. The outer boxes are processes. Kanna takes layers 3 and 4 from kmux and adds 1, 2 and 5 of its own.
+Read each stack top to bottom, like the OSI model: each layer uses the ones below it. Kanna takes layers 3 and 4 from kmux and adds 1, 2 and 5 of its own.
+
+**Colours:** green is Kanna's code, blue is a kmux library, purple is kmux's own app code, grey is macOS, orange is the CLIs. Outer boxes are processes.
 
 ```mermaid
 flowchart TB
-    CLI["kanna CLI, agents<br/>(their own processes)"]
-    subgraph PAPP["Kanna app process"]
-        direction TB
-        subgraph L1["1 · UI"]
-            direction LR
-            DESK["Desk and Shelf"] ~~~ REVIEW["markdown review"] ~~~ EDIT["code editor"]
-        end
-        subgraph L2["2 · Kanna"]
-            direction LR
-            TASKS["tasks"] ~~~ AGENTS["agents"] ~~~ WT["worktrees"] ~~~ HOOKS["hooks, attention"]
-        end
-        subgraph L3["3 · Mux UI — kmux library"]
-            direction LR
-            TV["terminal view<br/>(external I/O)"] ~~~ WV["web view<br/>URL, history"] ~~~ IV["iOS view<br/>device, app, agent control"] ~~~ MV["markdown view<br/>file"]
-        end
+    subgraph APP["Kanna app process"]
+        L1["1 · UI<br/>Desk and Shelf<br/>review · editor"]
+        L2["2 · Kanna<br/>tasks · agents<br/>worktrees · hooks"]
+        L3["3 · Mux UI (kmux)<br/>terminal · web<br/>iOS · markdown views"]
         L1 --> L2 --> L3
     end
-    subgraph PD["Kanna daemon process"]
-        subgraph L4["4 · CLI shape and terminals — kmux library"]
-            direction LR
-            CMD["commands<br/>terminal ones answered here,<br/>the rest passed to the app"] ~~~ TS["terminals<br/>libghostty-vt screens, cwd, exit codes"]
-        end
+    subgraph DAEMON["Kanna daemon process"]
+        L4["4 · CLI shape (kmux)<br/>commands · terminals<br/>libghostty-vt screens"]
     end
-    subgraph PK["keeper process"]
-        subgraph L5["5 · Keeper"]
-            KEEP["creates and holds the ptys"]
-        end
+    subgraph KEEPER["keeper process"]
+        L5["5 · Keeper<br/>holds the ptys"]
     end
-    subgraph L6["6 · macOS"]
-        direction LR
-        PTY["ptys → shells, agents"] ~~~ WK["WebKit"] ~~~ SIM["iOS Simulator devices<br/>(their own processes)"]
+    subgraph OS["6 · macOS"]
+        PTY["ptys<br/>shells, agents"]
+        WK["WebKit"]
+        SIM["iOS Simulator"]
     end
-    CLI -->|"socket"| L4
-    L3 <-->|"socket: terminal bytes, commands"| L4
-    L4 <-->|"socket: start a shell, pty handles back"| L5
+    L4 <-->|"socket"| CLI["kanna CLI, agents"]
+    L3 <-->|"socket"| L4
+    L4 <-->|"socket"| L5
     L5 -->|"creates"| PTY
     L4 <-->|"reads, writes"| PTY
-    WV --> WK
-    IV <-->|"screen, touches"| SIM
+    L3 --> WK
+    L3 <--> SIM
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class L1,L2,L5 kanna
+    class L3,L4 kmux
+    class PTY,WK,SIM os
+    class CLI ext
 ```
 
 kmux has the same layers without 2 and 5, in one process:
 
 ```mermaid
 flowchart TB
-    CLI["kmux CLI, agents<br/>(their own processes)"]
-    subgraph PKM["kmux app process (the only one)"]
-        direction TB
-        subgraph K1["1 · UI"]
-            direction LR
-            WIN["windows"] ~~~ TABS["tabs"] ~~~ SPLITS["splits"]
-        end
-        subgraph K3["3 · Mux UI — kmux library"]
-            direction LR
-            TV["terminal view<br/>(own pty)"] ~~~ WV["web view<br/>URL, history"] ~~~ IV["iOS view<br/>device, app, agent control"] ~~~ MV["markdown view<br/>file"]
-        end
-        subgraph K4["4 · CLI shape — kmux library"]
-            CMD["commands, answered in the app"]
-        end
+    subgraph APP["kmux app process (the only one)"]
+        K1["1 · UI<br/>windows · tabs · splits"]
+        K3["3 · Mux UI (kmux)<br/>terminal · web<br/>iOS · markdown views"]
+        K4["4 · CLI shape (kmux)<br/>commands"]
         K1 --> K3 --> K4
     end
-    subgraph K6["6 · macOS"]
-        direction LR
-        PTY["ptys → shells, agents"] ~~~ WK["WebKit"] ~~~ SIM["iOS Simulator devices<br/>(their own processes)"]
+    subgraph OS["6 · macOS"]
+        PTY["ptys<br/>shells, agents"]
+        WK["WebKit"]
+        SIM["iOS Simulator"]
     end
-    CLI -->|"socket"| K4
-    TV <-->|"reads, writes"| PTY
-    WV --> WK
-    IV <-->|"screen, touches"| SIM
+    K4 <-->|"socket"| CLI["kmux CLI, agents"]
+    K3 <-->|"reads, writes"| PTY
+    K3 --> WK
+    K3 <--> SIM
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class K1 kmuxapp
+    class K3,K4 kmux
+    class PTY,WK,SIM os
+    class CLI ext
 ```
 
 | Layer | Kanna | kmux | Kanna process |
@@ -138,10 +134,6 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    subgraph D["Kanna daemon"]
-        T1["t1 terminal<br/>pty, screen, scrollback, cwd, exit code"]
-        T2["t2 terminal"]
-    end
     subgraph A["Kanna app: layout state"]
         DESK["Desk and Shelf"]
         P1["pane → t1"]
@@ -151,8 +143,19 @@ flowchart LR
         P5["iOS pane<br/>device, app"]
         DESK --- P1 & P2 & P3 & P4 & P5
     end
+    subgraph D["Kanna daemon: terminals"]
+        T1["t1<br/>pty, screen, scrollback<br/>cwd, exit code"]
+        T2["t2<br/>pty, screen, scrollback<br/>cwd, exit code"]
+    end
     P1 -. "by ID" .-> T1
     P2 -. "by ID" .-> T2
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class DESK,P1,P2,P3,P4,P5 kanna
+    class T1,T2 kmux
 ```
 
 | | What it is | Kept and saved by | After the app restarts |
@@ -171,10 +174,18 @@ flowchart TB
     CLI["kanna CLI, agents, hooks"]
     D["Kanna daemon"]
     T["terminals<br/>answered by the daemon"]
-    A["the Kanna app<br/>panes, layout, web, iOS, markdown"]
+    A["Kanna app<br/>layout, web, iOS, markdown"]
     CLI -->|"one socket"| D
     D --> T
     D -->|"passes on"| A
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class CLI ext
+    class D,T kmux
+    class A kanna
 ```
 
 | Command | Touches | Answered by | With the app closed |
@@ -199,6 +210,14 @@ flowchart LR
     GU -->|"rebased"| GF["jemdiggity/ghostty<br/>kmux-external-io"]
     KMUX -->|"libraries"| KV["jemdiggity/kanna-v4<br/>app, daemon, keeper, CLI"]
     GF -->|"GhosttyKit"| KV
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class GU,GF os
+    class KMUX kmux
+    class KV kanna
 ```
 
 | Repo | What it holds |
@@ -288,9 +307,16 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    S1["1. kmux: libraries<br/>CLI shape, mux UI"] --> S2["2. kmux: TerminalBackend seam,<br/>GhosttyKit override"]
-    S2 --> S3["3. kanna-v4: daemon + keeper<br/>on kmux's CLI shape"]
-    S3 --> S4["4. kanna-v4: Kanna app<br/>on kmux's mux UI"]
+    S1["1 · kmux<br/>libraries:<br/>CLI shape, mux UI"] --> S2["2 · kmux<br/>TerminalBackend seam,<br/>GhosttyKit override"]
+    S2 --> S3["3 · kanna-v4<br/>daemon + keeper"]
+    S3 --> S4["4 · kanna-v4<br/>Kanna app on<br/>kmux's mux UI"]
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class S1,S2 kmux
+    class S3,S4 kanna
 ```
 
 1. **kmux:** split the code into the libraries (KmuxCore for the CLI shape, KmuxUI for the mux UI) and the app around them, with terminals separate from kmux's layout. Reference model and shared cases first.
