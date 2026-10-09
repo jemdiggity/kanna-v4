@@ -53,8 +53,6 @@ wait_for() { # wait_for SECONDS COMMAND…: until COMMAND succeeds
 }
 start_daemon() {
   need "$bin/kanna-daemon" || return 1
-  # Until the keeper exists (plan step 0.5) the daemon spawns its ptys itself;
-  # once it uses one (`--uses-keeper`), the keeper is required.
   if "$bin/kanna-daemon" --uses-keeper; then
     need "$bin/kanna-keeper" || return 1
     KANNA_KEEPER="$bin/kanna-keeper" "$bin/kanna-daemon" >>"$out/daemon.log" 2>&1 &
@@ -75,9 +73,16 @@ stop_app() { [[ -n "$app_pid" ]] && kill "$app_pid" 2>/dev/null; wait "$app_pid"
 app_attached() { [[ "$(raw '{"id":1,"cmd":"debug.app"}' | field ok)" == True ]]; }
 cleanup() {
   stop_app; stop_daemon
-  # The keeper ends by itself once its terminals do; make sure ours does.
-  [[ -f "$KANNA_STATE_DIR/keeper.pid" ]] && kill "$(cat "$KANNA_STATE_DIR/keeper.pid")" 2>/dev/null
+  stop_keeper
   rm -rf "$KANNA_STATE_DIR"
+}
+stop_keeper() {
+  local pid
+  pid="$(cat "$KANNA_STATE_DIR/keeper.pid" 2>/dev/null)" || return 0
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  [[ "$(ps -o command= -p "$pid" 2>/dev/null)" == *kanna-keeper*"--state-dir $KANNA_STATE_DIR"* ]] || return 0
+  kill "$pid" 2>/dev/null
+  wait_for 5 eval "! kill -0 $pid"
 }
 trap cleanup EXIT
 
