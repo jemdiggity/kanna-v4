@@ -38,7 +38,7 @@ impl Instance {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("home")).unwrap();
         let dir = dir.canonicalize().unwrap();
-        let env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let env: Vec<(String, String)> = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let daemon = spawn_daemon(&dir, &env);
         let instance = Instance { daemon, dir, env };
         wait_for("the daemon's socket", || UnixStream::connect(instance.socket()).is_ok());
@@ -128,7 +128,7 @@ impl Drop for Instance {
     }
 }
 
-fn spawn_daemon(dir: &Path, env: &Vec<(String, String)>) -> Child {
+fn spawn_daemon(dir: &Path, env: &[(String, String)]) -> Child {
     let log = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("daemon.log")).unwrap();
     let mut command = Command::new(DAEMON);
     command.env_clear();
