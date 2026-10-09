@@ -1,0 +1,11 @@
+{
+  "name": "kanna-skills",
+  "owner": { "name": "Jeremy Hale" },
+  "plugins": [
+    {
+      "name": "kanna-skills",
+      "source": "./",
+      "description": "Reference-driven design and spec docs: build from a living model, write brief illustrated specs."
+    }
+  ]
+}
