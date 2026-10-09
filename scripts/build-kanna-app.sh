@@ -9,8 +9,19 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [[ ! -d "$repo_root/target/ghosttykit/GhosttyKit.xcframework" ]]; then
+. "$repo_root/scripts/env.sh"
+ghosttykit="$repo_root/target/ghosttykit"
+built="$(cat "$ghosttykit/ghostty.rev" 2>/dev/null || true)"
+if [[ -n "${GHOSTTY_SOURCE_DIR:-}" || ! -d "$ghosttykit/GhosttyKit.xcframework" || "$built" != "$KANNA_GHOSTTY_COMMIT" ]]; then
   "$repo_root/scripts/build-ghosttykit.sh"
+  built="$(cat "$ghosttykit/ghostty.rev" 2>/dev/null || true)"
+fi
+if [[ "$built" != "$KANNA_GHOSTTY_COMMIT" ]]; then
+  if [[ -z "${GHOSTTY_SOURCE_DIR:-}" ]]; then
+    echo "build-kanna-app: GhosttyKit is Ghostty ${built:-unknown}, but scripts/env.sh pins $KANNA_GHOSTTY_COMMIT" >&2
+    exit 1
+  fi
+  echo "note: GhosttyKit is Ghostty $built from GHOSTTY_SOURCE_DIR, not the pinned $KANNA_GHOSTTY_COMMIT" >&2
 fi
 
 configuration="${KANNA_CONFIGURATION:-release}"

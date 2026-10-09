@@ -20,7 +20,7 @@ mkdir -p "$out"
 rm -rf "$xcframework"
 cp -R "$source_dir/macos/GhosttyKit.xcframework" "$out/"
 # Which Ghostty this is, so a stale framework is easy to spot.
-git -C "$source_dir" rev-parse HEAD > "$out/ghostty.rev" 2>/dev/null || true
+kanna_ghostty_rev "$source_dir" > "$out/ghostty.rev"
 
 # SwiftPM 6.3 skips xcframework static libraries whose names lack the "lib"
 # prefix, which leaves every ghostty_* symbol undefined at link time.
