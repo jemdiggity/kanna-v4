@@ -20,12 +20,6 @@ const SNAPSHOT: &str = "snap";
 
 const SETTINGS: &str = "settings.json";
 
-const JOURNAL: &str = "log";
-
-const SNAPSHOT_MAGIC: &[u8] = b"KANNASNAP1\n";
-
-const MAX_JOURNALS: usize = 256 << 20;
-
 const MAX_SETTINGS: u64 = 1 << 20;
 
 pub const SAVE_EVERY: Duration = Duration::from_secs(1);
@@ -88,11 +82,6 @@ impl Record {
             pid: value.get("pid").and_then(Value::as_f64)? as i64,
         })
     }
-}
-
-pub struct Screen {
-    pub snapshot: Vec<u8>,
-    pub journal: Vec<u8>,
 }
 
 pub fn pane_number(id: &str) -> Option<usize> {
@@ -200,35 +189,20 @@ impl Store {
         write_atomic(&self.dir.join(SETTINGS), text.as_bytes())
     }
 
-    pub fn snapshot(&self, id: &str) -> Option<Screen> {
+    pub fn snapshot(&self, id: &str) -> Option<Vec<u8>> {
         let path = snapshot_path(&self.dir, id);
         let size = fs::metadata(&path).ok()?.len();
-        if size as usize > MAX_SNAPSHOT + SNAPSHOT_MAGIC.len() + 8 {
+        if size as usize > MAX_SNAPSHOT {
             return None;
         }
-        let file = fs::read(path).ok()?;
-        let (generation, snapshot) = match file.strip_prefix(SNAPSHOT_MAGIC) {
-            Some(rest) if rest.len() >= 8 => (u64::from_le_bytes(rest[..8].try_into().ok()?), rest[8..].to_vec()),
-            Some(_) => return None,
-            None => (u64::MAX, file),
-        };
-        let mut journal = Vec::new();
-        for (_, path) in journals(&self.dir, id).into_iter().filter(|(g, _)| *g >= generation) {
-            let Ok(bytes) = fs::read(path) else { break };
-            if journal.len() + bytes.len() > MAX_JOURNALS {
-                break;
-            }
-            journal.extend_from_slice(&bytes);
-        }
-        Some(Screen { snapshot, journal })
+        fs::read(path).ok()
     }
 
     pub fn prune(&self, keep: &[String]) {
         let Ok(entries) = fs::read_dir(&self.dir) else { return };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let owner = name.strip_suffix(&format!(".{SNAPSHOT}")).or_else(|| journal_name(&name).map(|(id, _)| id));
-            let stale = match owner {
+            let stale = match name.strip_suffix(&format!(".{SNAPSHOT}")) {
                 Some(id) => !keep.iter().any(|k| k == id),
                 None => name.contains(".tmp-"),
             };
@@ -239,9 +213,6 @@ impl Store {
     }
 
     pub fn track(&self, id: &str, feed: Arc<Mutex<Feed>>) {
-        let next = journals(&self.dir, id).last().map_or(1, |(generation, _)| generation + 1);
-        let generation = next.max(Feed::lock(&feed).generation + 1);
-        Feed::lock(&feed).journal_to(open_journal(&self.dir, id, generation), generation);
         let _ = self.saver.send(Job::Track(id.into(), feed));
     }
 
@@ -266,43 +237,6 @@ impl Store {
 
 fn snapshot_path(dir: &Path, id: &str) -> PathBuf {
     dir.join(format!("{id}.{SNAPSHOT}"))
-}
-
-fn journal_name(name: &str) -> Option<(&str, u64)> {
-    let (rest, generation) = name.strip_suffix(&format!(".{JOURNAL}"))?.rsplit_once('.')?;
-    pane_number(rest)?;
-    Some((rest, generation.parse().ok()?))
-}
-
-fn journals(dir: &Path, id: &str) -> Vec<(u64, PathBuf)> {
-    let Ok(entries) = fs::read_dir(dir) else { return vec![] };
-    let mut found: Vec<(u64, PathBuf)> = entries
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            journal_name(&name).filter(|(owner, _)| *owner == id).map(|(_, generation)| (generation, entry.path()))
-        })
-        .collect();
-    found.sort();
-    found
-}
-
-fn open_journal(dir: &Path, id: &str, generation: u64) -> Option<fs::File> {
-    let path = dir.join(format!("{id}.{generation}.{JOURNAL}"));
-    let opened = OpenOptions::new().append(true).create(true).truncate(false).mode(0o600).custom_flags(libc::O_NOFOLLOW).open(&path);
-    match opened {
-        Ok(file) => Some(file),
-        Err(error) => {
-            eprintln!("kanna-daemon: can't keep a journal of {id}'s output ({error}); a crash may lose up to a second of its screen");
-            None
-        }
-    }
-}
-
-fn forget_journals(dir: &Path, id: &str, below: u64) {
-    for (_, path) in journals(dir, id).into_iter().filter(|(generation, _)| *generation < below) {
-        let _ = fs::remove_file(path);
-    }
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -340,11 +274,8 @@ fn save_loop(dir: &Path, jobs: mpsc::Receiver<Job>) {
                 tracked.insert(id, Tracked { feed, next: Instant::now(), failing: false, too_big: false });
             }
             Ok(Job::Forget(id)) => {
-                if let Some(terminal) = tracked.remove(&id) {
-                    Feed::lock(&terminal.feed).journal_to(None, 0);
-                }
+                tracked.remove(&id);
                 let _ = fs::remove_file(snapshot_path(dir, &id));
-                forget_journals(dir, &id, u64::MAX);
             }
             Ok(Job::Flush(done)) => flushed = Some(done),
             Ok(Job::Stop) | Err(RecvTimeoutError::Disconnected) => return,
@@ -371,14 +302,12 @@ fn save_one(dir: &Path, id: &str, terminal: &mut Tracked) {
         let snapshot = feed.save();
         if snapshot.is_ok() {
             feed.unsaved = false;
-            let generation = feed.generation + 1;
-            feed.journal_to(open_journal(dir, id, generation), generation);
         }
-        snapshot.map(|snapshot| (snapshot, feed.generation))
+        snapshot
     };
     terminal.next = Instant::now() + SAVE_EVERY;
-    let (snapshot, generation) = match snapshot {
-        Ok(saved) => saved,
+    let snapshot = match snapshot {
+        Ok(snapshot) => snapshot,
         Err(error) => {
             if !std::mem::replace(&mut terminal.failing, true) {
                 eprintln!("kanna-daemon: can't snapshot {id} for the disk yet ({error}); keeping the last one and trying again");
@@ -394,16 +323,9 @@ fn save_one(dir: &Path, id: &str, terminal: &mut Tracked) {
         return;
     }
     terminal.too_big = false;
-    let mut file = Vec::with_capacity(SNAPSHOT_MAGIC.len() + 8 + snapshot.len());
-    file.extend_from_slice(SNAPSHOT_MAGIC);
-    file.extend_from_slice(&generation.to_le_bytes());
-    file.extend_from_slice(&snapshot);
-    match write_atomic(&snapshot_path(dir, id), &file) {
-        Ok(()) => forget_journals(dir, id, generation),
-        Err(error) => {
-            eprintln!("kanna-daemon: couldn't save {id}'s screen: {error}");
-            Feed::lock(&terminal.feed).unsaved = true;
-        }
+    if let Err(error) = write_atomic(&snapshot_path(dir, id), &snapshot) {
+        eprintln!("kanna-daemon: couldn't save {id}'s screen: {error}");
+        Feed::lock(&terminal.feed).unsaved = true;
     }
 }
 
@@ -487,7 +409,7 @@ mod tests {
         Feed::lock(&feed).push(b"first");
         store.track("p1", feed.clone());
         store.flush();
-        let saved = || kanna_vt::Terminal::from_snapshot(&store.snapshot("p1").unwrap().snapshot).unwrap().text(kanna_vt::Lines::Screen);
+        let saved = || kanna_vt::Terminal::from_snapshot(&store.snapshot("p1").unwrap()).unwrap().text(kanna_vt::Lines::Screen);
         assert_eq!(saved(), "first");
         Feed::lock(&feed).push(b" second\x1b_a\x9d");
         store.flush();

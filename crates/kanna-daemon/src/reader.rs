@@ -10,12 +10,6 @@ use std::time::{Duration, Instant};
 
 const OUTBOX: usize = 1 << 20;
 
-pub const JOURNAL_LIMIT: usize = 64 << 20;
-
-const OUTPUT: u8 = 0;
-
-const RESIZE: u8 = 1;
-
 const QUIET: Duration = Duration::from_millis(50);
 
 const DRAIN_LIMIT: Duration = Duration::from_millis(500);
@@ -33,9 +27,6 @@ pub struct Feed {
     pub cols: u16,
     pub rows: u16,
     cwd: Option<String>,
-    journal: Option<File>,
-    journaled: usize,
-    pub generation: u64,
 }
 
 pub enum Taken {
@@ -50,46 +41,16 @@ impl Feed {
         Feed::with(screen, true)
     }
 
-    pub fn restore(snapshot: &[u8], journal: &[u8], settings: &Settings) -> io::Result<Arc<Mutex<Feed>>> {
+    pub fn restore(snapshot: &[u8], settings: &Settings) -> io::Result<Arc<Mutex<Feed>>> {
         let mut screen = Terminal::from_snapshot(snapshot).map_err(io::Error::other)?;
-        let replayed = replay(&mut screen, journal);
         settings.apply(&mut screen);
         screen.take_replies();
-        screen.take_changed();
-        Feed::with(screen, replayed)
+        Feed::with(screen, false)
     }
 
     fn with(screen: Terminal, unsaved: bool) -> io::Result<Arc<Mutex<Feed>>> {
         let (cols, rows) = screen.size();
-        Ok(Arc::new(Mutex::new(Feed {
-            screen,
-            outbox: Vec::new(),
-            overflowed: false,
-            posted: false,
-            unsaved,
-            cols,
-            rows,
-            cwd: None,
-            journal: None,
-            journaled: 0,
-            generation: 0,
-        })))
-    }
-
-    pub fn journal_to(&mut self, file: Option<File>, generation: u64) {
-        (self.journal, self.journaled, self.generation) = (file, 0, generation);
-    }
-
-    fn record(&mut self, kind: u8, payload: &[u8]) {
-        let Some(file) = self.journal.as_mut() else { return };
-        self.journaled += payload.len() + 5;
-        let mut record = Vec::with_capacity(payload.len() + 5);
-        record.push(kind);
-        record.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-        record.extend_from_slice(payload);
-        if self.journaled > JOURNAL_LIMIT || file.write_all(&record).is_err() {
-            self.journal = None;
-        }
+        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, unsaved, cols, rows, cwd: None })))
     }
 
     pub fn apply(&mut self, settings: &Settings) -> Vec<u8> {
@@ -108,7 +69,6 @@ impl Feed {
 
     pub fn push(&mut self, bytes: &[u8]) -> (bool, Vec<u8>) {
         self.screen.write(bytes);
-        self.record(OUTPUT, bytes);
         self.unsaved = true;
         let replies = self.screen.take_replies();
         if self.screen.take_changed().pwd {
@@ -146,11 +106,6 @@ impl Feed {
     }
 
     pub fn resize(&mut self, id: &str, cols: u16, rows: u16, width: u16, height: u16) -> Vec<u8> {
-        let mut payload = Vec::with_capacity(8);
-        for value in [cols, rows, width, height] {
-            payload.extend_from_slice(&value.to_le_bytes());
-        }
-        self.record(RESIZE, &payload);
         self.screen.set_cell_pixels(u32::from(width / cols.max(1)), u32::from(height / rows.max(1)));
         if (cols, rows) != (self.cols, self.rows) {
             (self.cols, self.rows) = (cols, rows);
@@ -165,28 +120,6 @@ impl Feed {
     pub fn text(&self, lines: Option<usize>) -> String {
         self.screen.text(lines.map_or(Lines::Screen, Lines::Last))
     }
-}
-
-fn replay(screen: &mut Terminal, mut journal: &[u8]) -> bool {
-    let mut replayed = false;
-    while journal.len() >= 5 {
-        let length = u32::from_le_bytes([journal[1], journal[2], journal[3], journal[4]]) as usize;
-        let Some(payload) = journal.get(5..5 + length) else { break };
-        match journal[0] {
-            OUTPUT => screen.write(payload),
-            RESIZE if length == 8 => {
-                let value = |i: usize| u16::from_le_bytes([payload[i], payload[i + 1]]);
-                let (cols, rows, width, height) = (value(0).max(1), value(2).max(1), value(4), value(6));
-                screen.set_cell_pixels(u32::from(width / cols), u32::from(height / rows));
-                let _ = screen.resize(cols, rows);
-            }
-            _ => break,
-        }
-        screen.take_replies();
-        replayed = true;
-        journal = &journal[5 + length..];
-    }
-    replayed
 }
 
 pub fn cwd_from_url(url: &str) -> Option<String> {

@@ -254,7 +254,6 @@ Everything a terminal pane does in kmux works in Kanna.app, with the pty in the 
 | C.12 ✓ | **Font size:** ⌘+/⌘−/⌘0 change the surface's cells and the fork asks the daemon for the new grid (`resize`), so the pty follows; scrollback survives | S12, S34 |
 | C.13 ✓ | **DEC modes and defaults after snapshot/attach:** the fork applies the config's cursor style and colours, image limits and focus state to a loaded snapshot, and times out synchronized output a snapshot left on | fork test, S33 |
 | C.14 ✓ | **Scrollback:** 10 MB, no line limit, in the daemon; `read --lines`; a widening reflow keeps the byte limit so the next snapshot restores whole (fork fix) | kanna-vt tests, S34 |
-| C.15 ✓ | **Daemon SIGKILL:** a journal of output and resizes after each snapshot, replayed on start; nothing the reader read is lost | `restart.rs` (`a_crashed_daemon_loses_nothing_of_the_screen`) |
 | C.16 ✓ | `debug.terminal` (grid, cells, title, hovered link, selection, colours, clipboard, links and decisions, bells, notifications, progress, settings, focus; clicks by point or cell; zoom; appearance) | S30–S35 |
 | C.17 ✓ | Spec §4.12 (with §4.5, §4.6 and §4.8 updated, glossary); NOTICE | — |
 
@@ -289,6 +288,7 @@ kmux isn't touched. Its terminal-wrapper hook (1f05ccb) stays, unused by Kanna o
 | Where Kanna.app's code lives | **kanna-v4/apps/kanna** | Kanna's own app; its mux UI starts from kmux's views |
 | Kanna's Ghostty | **GhosttyKit from the fork**, built by kanna-v4 | kmux stays on upstream |
 | Which fork branch | **`kanna4`, built on Kanna v3's `kanna3`** (v3's five external-I/O commits and its libghostty-vt screen accessors, then v4's four: exit display, scrollback kept when widening, surface state across snapshots, font size resizing the program) | one fork line from v3 to v4, not two that drift apart; v4 started from a copy of v3's external-I/O commits without the accessors |
+| A crashed daemon | **loses up to a second of screen**: snapshots at most once a second, no journal | a normal stop or upgrade loses nothing, and a full-screen program redraws on SIGWINCH; a journal would write every chunk of output to disk again to save that second |
 | The `kanna` CLI | kmux's `kmux-client` crate, as it is | the protocol is the same |
 | The `kanna` CLI's commands (M4) | **a port of kmux's CLI** (`crates/kmux`: its command table, help, parsing, output), checked by a test that compiles kmux's own `commands.rs` and `output.rs` | one source of truth inside kanna; kmux stays unchanged and the reference; a library would mean changing kmux, building its private files into kanna would tie kanna's build to them ([spec §4.11](../kanna-spec.md#411-the-kanna-cli)) |
 | Where `kanna` goes by default (M4) | **Kanna's own daemon** (`kanna-dev/kanna.sock`), starting Kanna.app (`dev.kanna.app.dev`) when nothing answers; never the branded `dev.kanna.kanna` | M4 is "use Kanna.app in place of kmux"; the branded copy is still reached by its terminals (they set `KANNA_SOCKET`) or with `KANNA_SOCKET=…/kanna/kanna.sock`. **For you to confirm:** until M4, plain `kanna` (no `KANNA_SOCKET`) meant the branded copy |

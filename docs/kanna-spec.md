@@ -403,16 +403,14 @@ The daemon can stop, crash or be upgraded without losing a terminal ([plan](plan
 | File | What it holds | Written |
 |---|---|---|
 | `terminals.json` | `{kanna: "terminals", version: 1, counters: {pane}, terminals: [{id, name, type, cmd, cwd, state, exitCode, pid, keeper}]}`: each terminal's pane record (`state` is `running` or `exited`, `keeper` the id the keeper knows its pty by) and the pane counter | on every change (open, close, restart, start, exit), from the daemon's main loop; an exit before the daemon acknowledges it to the keeper |
-| `<pane>.snap` | `KANNASNAP1\n`, the journal generation it was taken at (u64 LE), then the terminal's screen as a GHOSTSNP snapshot (kanna-vt), as `attach` sends it | by a saver thread, at most once a second per terminal and only after its screen changed; all of them on a clean stop |
-| `<pane>.<generation>.log` | the journal: every chunk of output and every resize since that generation's snapshot, as records `[kind u8][length u32 LE][payload]` (kind 0 output, kind 1 resize: cols, rows, width, height as u16 LE) | appended by the pty reader as it feeds the screen, under the same lock; a new generation starts with each snapshot, and older ones are deleted once the snapshot is on disk |
+| `<pane>.snap` | the terminal's screen as a GHOSTSNP snapshot (kanna-vt), as `attach` sends it | by a saver thread, at most once a second per terminal and only after its screen changed; all of them on a clean stop |
 
-- **Why a journal** rather than saving more often: a snapshot is the whole screen and scrollback (up to 10 MB), too much to write on every change; the journal is only what changed, appended as it's read. A snapshot without the header (written before the journal) loads with no journal.
 - **Snapshots** are taken under the same lock the pty reader feeds the screen with, without touching what the app is sent. If one can't be encoded (inside some unfinished sequences, as on attach), the last good file stays and the saver tries again a second later; one over 16 MiB isn't written (the screen keeps at most 10 MB of scrollback, so this shouldn't happen) and the last good one stays. A failed write is tried again a second later.
 - **Bounded:** a snapshot file is at most 16 MiB, `terminals.json` is refused past 4 MiB when read; there is one snapshot per terminal, and the keeper holds at most 256 ptys. Snapshots of terminals that are gone are deleted when they close, and at start.
 - **A file it can't trust** (bad JSON, another version, two terminals with one ID, keeper id or name) is moved aside as `terminals.json.bad`, and the daemon starts as if it had none (it still takes back every pty the keeper has, below).
 - **One daemon per folder:** the daemon holds `flock` on `daemon.lock` there while it runs; a second one waits 5 s for it, then exits 1 ("another daemon (pid …) uses …"). Its keeper is the keeper of that folder only, so no daemon ever adopts or closes another's terminals.
 
-**Stopping.** On SIGTERM, SIGINT or SIGHUP the daemon stops reading every pty (whatever is unread stays in the kernel buffer for the next daemon), writes `terminals.json`, saves every screen that changed since its last save, and exits; its terminals keep running in the keeper. A crash (SIGKILL) skips that, and loses nothing the pty reader had read: the next daemon loads each snapshot and replays the journals of its generation and later on top of it. A journal stops at 64 MiB (the next snapshot, within a second, starts a new one), and at most 256 MiB of journals is replayed; past either, what's missing is at most a second of screen, which a full-screen program redraws on SIGWINCH.
+**Stopping.** On SIGTERM, SIGINT or SIGHUP the daemon stops reading every pty (whatever is unread stays in the kernel buffer for the next daemon), writes `terminals.json`, saves every screen that changed since its last save, and exits; its terminals keep running in the keeper. A crash (SIGKILL) skips that: up to a second of screen changes before it are lost from the saved screens, and a full-screen program redraws them when it gets SIGWINCH.
 
 **Starting.** The daemon connects to the keeper (pending exits arrive as events), adopts every pty it holds, and matches them with `terminals.json` by keeper id:
 
@@ -423,7 +421,7 @@ sequenceDiagram
     participant S as shell
     participant D2 as new daemon
     participant A as Kanna app
-    Note over D1: SIGTERM: stops reading, saves terminals.json and the screens<br/>(SIGKILL: the last snapshot and the journal after it)
+    Note over D1: SIGTERM: stops reading, saves terminals.json and the screens<br/>(SIGKILL: what it saved up to a second before)
     D1--xA: link closes; the app keeps trying to reconnect
     S->>S: output waits in the pty buffer
     D2->>D2: flock daemon.lock
@@ -431,7 +429,7 @@ sequenceDiagram
     D2->>K: adopt
     K->>D2: each pty: {id, pid, cmd, cwd, exit?} + master
     D2->>D2: read terminals.json: same IDs, names, cmd, cwd; counter continues
-    D2->>D2: each screen from <pane>.snap and its journals (if the pid matches), sized to the pty (TIOCGWINSZ)
+    D2->>D2: each screen from <pane>.snap (if the pid matches), sized to the pty (TIOCGWINSZ)
     D2->>S: TIOCSWINSZ, then SIGWINCH to the pty's foreground group
     D2->>S: reads what waited in the buffer into the screen, then carries on
     D2->>K: ack exits that happened meanwhile (after saving them)
@@ -801,7 +799,6 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 | Scrollback | 10 MB, no line limit (kmux: Ghostty's `scrollback-limit`) | the limit can't be read from a config through libghostty's API, and every snapshot crosses the app link and is saved; 10 MB is Ghostty's default |
 | Titles | kept, not shown | kmux doesn't show them; the tabs can |
 | Surfaces | made when a pane is first shown, kept while it's in the layout ([4.10](#410-windows-tabs-and-splits)) | focus, mouse and keyboard modes are the surface's, and a tab switch shows a live screen |
-| A crash of the daemon | the journal ([4.8](#48-restarting-the-daemon)) | the last second of output is the part the user was looking at |
 
 **Not done:** OSC 5522 (kitty's clipboard protocol) gets only part of its replies; kitty graphics aren't in a snapshot, so images go when the app relaunches; an empty OSC 7 is ignored; a title isn't shown again after a relaunch until the program sets it.
 
@@ -1108,7 +1105,6 @@ sequenceDiagram
 | **Drop hint** | The highlight showing where a dragged pane or tab will land. |
 | **Surface** | One terminal view's Ghostty terminal in the app (GhosttyKit): it draws the screen and handles keys, mouse, selection and clipboard ([4.12](#412-terminal-behaviour)). |
 | **Snapshot** | A terminal's whole screen (grid, scrollback, modes, colours) as bytes (GHOSTSNP), sent on attach and saved on disk. |
-| **Journal** | The output and resizes a terminal had since its last saved snapshot, kept so a crashed daemon loses none ([4.8](#48-restarting-the-daemon)). |
 | **Settings (terminal)** | What the app's Ghostty config says about colours, scheme, cursor and graphemes, sent to the daemon so it can answer programs ([4.12](#412-terminal-behaviour)). |
 | **OSC** | Operating System Command: an escape sequence a program writes to set or ask for something (title, folder, colours, clipboard, links, notifications). |
 | **OSC 52** | The escape sequence a program uses to read or write the clipboard. |
