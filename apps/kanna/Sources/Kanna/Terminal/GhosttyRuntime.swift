@@ -6,8 +6,7 @@
 import AppKit
 import GhosttyKit
 
-/// The process-wide Ghostty app. Every surface's userdata is its
-/// TerminalSurfaceView, which the callbacks resolve through `live`.
+/// The process-wide Ghostty app.
 @MainActor
 final class GhosttyRuntime {
     /// Ghostty's C callbacks carry no context for the app itself.
@@ -15,8 +14,6 @@ final class GhosttyRuntime {
 
     let app: ghostty_app_t
     private let config: ghostty_config_t
-    /// Keyed by the surface userdata address, so a callback for a surface that
-    /// was already freed finds nothing instead of a dangling object.
     private var live: [UInt: TerminalSurfaceView] = [:]
     private var timer: Timer?
     var onClose: ((TerminalSurfaceView) -> Void)?
@@ -32,21 +29,21 @@ final class GhosttyRuntime {
         runtime.wakeup_cb = { _ in DispatchQueue.main.async { MainActor.assumeIsolated { GhosttyRuntime.shared?.tick() } } }
         runtime.action_cb = { _, _, _ in false }
         runtime.read_clipboard_cb = { userdata, _, state, _, _, _ in
-            let address = UInt(bitPattern: userdata)
-            return MainActor.assumeIsolated { GhosttyRuntime.shared?.readClipboard(address, state: state) ?? GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
+            let id = UInt(bitPattern: userdata)
+            return MainActor.assumeIsolated { GhosttyRuntime.shared?.readClipboard(id, state: state) ?? GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
         }
         runtime.confirm_read_clipboard_cb = { userdata, confirm, state, request in
-            let address = UInt(bitPattern: userdata)
-            MainActor.assumeIsolated { GhosttyRuntime.shared?.confirmClipboard(address, confirm, state: state, request: request) }
+            let id = UInt(bitPattern: userdata)
+            MainActor.assumeIsolated { GhosttyRuntime.shared?.confirmClipboard(id, confirm, state: state, request: request) }
         }
         runtime.write_clipboard_cb = { _, _, content, count, confirm in
             MainActor.assumeIsolated { GhosttyRuntime.writeClipboard(content: content, count: count, confirm: confirm) }
         }
         runtime.close_surface_cb = { userdata, _ in
-            let address = UInt(bitPattern: userdata)
+            let id = UInt(bitPattern: userdata)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let runtime = GhosttyRuntime.shared, let view = runtime.live[address] else { return }
+                    guard let runtime = GhosttyRuntime.shared, let view = runtime.live[id] else { return }
                     runtime.onClose?(view)
                 }
             }
@@ -64,13 +61,12 @@ final class GhosttyRuntime {
         }
     }
 
-    /// The surface config every terminal starts from: drawn by `view`, which
-    /// is also its userdata.
+    /// The surface config every terminal starts from: drawn by `view`.
     static func options(for view: TerminalSurfaceView) -> ghostty_surface_config_s {
         var options = ghostty_surface_config_new()
         options.platform_tag = GHOSTTY_PLATFORM_MACOS
         options.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(view).toOpaque()))
-        options.userdata = Unmanaged.passUnretained(view).toOpaque()
+        options.userdata = UnsafeMutableRawPointer(bitPattern: view.surfaceID)
         options.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2)
         return options
     }
@@ -79,23 +75,23 @@ final class GhosttyRuntime {
     /// routes Ghostty's callbacks for it to this runtime.
     func attach(_ view: TerminalSurfaceView, options: inout ghostty_surface_config_s) -> Bool {
         guard let surface = ghostty_surface_new(app, &options) else { return false }
-        live[view.address] = view
+        live[view.surfaceID] = view
         view.surface = surface
         return true
     }
 
     func detach(_ view: TerminalSurfaceView) {
-        live.removeValue(forKey: view.address)
+        live.removeValue(forKey: view.surfaceID)
         if let surface = view.surface { ghostty_surface_free(surface) }
         view.surface = nil
     }
 
     private func tick() { ghostty_app_tick(app) }
 
-    private func readClipboard(_ address: UInt, state: UnsafeMutableRawPointer?) -> ghostty_clipboard_read_result_e {
+    private func readClipboard(_ id: UInt, state: UnsafeMutableRawPointer?) -> ghostty_clipboard_read_result_e {
         // Only a user-initiated paste may read; OSC 52 reads arrive with no
         // input event in flight and are answered with nothing.
-        guard let view = live[address], view.isHandlingInputEvent, let surface = view.surface,
+        guard let view = live[id], view.isHandlingInputEvent, let surface = view.surface,
               let string = NSPasteboard.general.string(forType: .string) else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
         let mime = strdup("text/plain")!
         let text = strdup(string)!
@@ -108,8 +104,8 @@ final class GhosttyRuntime {
         return GHOSTTY_CLIPBOARD_READ_STARTED
     }
 
-    private func confirmClipboard(_ address: UInt, _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?, state: UnsafeMutableRawPointer?, request: ghostty_clipboard_request_e) {
-        guard let surface = live[address]?.surface else { return }
+    private func confirmClipboard(_ id: UInt, _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?, state: UnsafeMutableRawPointer?, request: ghostty_clipboard_request_e) {
+        guard let surface = live[id]?.surface else { return }
         guard request == GHOSTTY_CLIPBOARD_REQUEST_PASTE, let confirm else {
             ghostty_surface_deny_clipboard_request(surface, state)
             return

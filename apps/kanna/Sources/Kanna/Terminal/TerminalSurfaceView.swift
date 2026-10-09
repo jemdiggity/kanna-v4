@@ -16,7 +16,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// Tests render hidden windows too (KANNA_IGNORE_OCCLUSION=1), so their
     /// pixel checks don't depend on what else is on screen.
     static let ignoresOcclusion = ProcessInfo.processInfo.environment["KANNA_IGNORE_OCCLUSION"] == "1"
-    var address: UInt { UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()) }
+    private static var lastSurfaceID: UInt = 0
+    let surfaceID: UInt
+    var address: UInt { surfaceID }
     private var occlusionObserver: NSObjectProtocol?
     private var marked = NSMutableAttributedString()
     private var accumulating: [String]?
@@ -26,7 +28,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     // No backing layer of our own: Ghostty's renderer makes this view
     // layer-hosting with its IOSurface layer, as in Ghostty's app.
-    override init(frame frameRect: NSRect) { super.init(frame: frameRect) }
+    override init(frame frameRect: NSRect) {
+        Self.lastSurfaceID += 1
+        surfaceID = Self.lastSurfaceID
+        super.init(frame: frameRect)
+    }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // Focus follows the first responder rather than key-window status, so a
