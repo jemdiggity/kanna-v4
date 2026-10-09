@@ -51,6 +51,15 @@ swift test --package-path apps/kanna -c release --scratch-path target/kanna-buil
 scripts/e2e-kanna.sh              # private instances on their own sockets; never touches yours
 ```
 
+## Skills
+
+The agent skills this project uses (`.claude/skills`, `.agents/skills`) are links into `.agents/kanna-skills`, a git subtree of [jemdiggity/kanna-skills](https://github.com/jemdiggity/kanna-skills). Change them here or there, and sync:
+
+```sh
+git subtree pull --prefix=.agents/kanna-skills https://github.com/jemdiggity/kanna-skills.git main --squash
+git subtree push --prefix=.agents/kanna-skills https://github.com/jemdiggity/kanna-skills.git main
+```
+
 ## License
 
 [FSL-1.1-MIT](LICENSE): source-available; each release becomes MIT two years after it is published. kmux and Ghostty are MIT; [NOTICE](NOTICE) lists the code derived from them.
