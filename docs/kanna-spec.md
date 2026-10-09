@@ -24,6 +24,7 @@
    - 4.10 [Windows, Tabs and Splits](#410-windows-tabs-and-splits)
    - 4.11 [The kanna CLI](#411-the-kanna-cli)
    - 4.12 [Terminal Behaviour](#412-terminal-behaviour)
+   - 4.13 [Doc Markup](#413-doc-markup)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -804,6 +805,10 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 **Not done:** OSC 5522 (kitty's clipboard protocol) gets only part of its replies; kitty graphics aren't in a snapshot, so images go when the app relaunches; an empty OSC 7 is ignored; a title isn't shown again after a relaunch until the program sets it.
 
 **Checked by** `crates/kanna-vt/tests/terminal.rs` (colour answers, scheme reports, cursor defaults, title and cwd changes, snapshots after widening), `crates/kanna-daemon/tests/terminal_behaviour.rs` (colour queries from the app's theme, also after a restart; scheme reports; the shell's folder in `list`), `apps/kanna/Tests/KannaLinksTests` (every link rule), and S30–S35 of `scripts/e2e-kanna.sh`: theme and light/dark with screenshots (S30), cwd and title (S31), paste, OSC 52 and selection (S32), kitty keys, mouse and focus reports after a relaunch (S33), font size and the pty, scrollback (S34), links, bell, notifications and progress (S35).
+
+### 4.13 Doc Markup
+
+**[Proposed]** Comment on a markdown file in its pane and have the agent beside it answer and resolve the comments, as in kanna v3. Its own spec: [specs/doc-markup.md](specs/doc-markup.md), with a mockup in [mockups/doc-markup.html](mockups/doc-markup.html).
 
 ---
 
