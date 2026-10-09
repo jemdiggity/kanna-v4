@@ -5,6 +5,6 @@ edition.workspace = true
 license = "FSL-1.1-MIT"
 
 [dependencies]
-# From the kmux repo, checked out next to this one.
-kmux-client = { path = "../../../kmux/crates/kmux-client" }
+# kmux's control-socket client, vendored (vendor/kmux-client/VENDORED.md).
+kmux-client = { path = "../../vendor/kmux-client" }
 serde_json = "1"

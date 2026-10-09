@@ -4,14 +4,9 @@
 mux), tmux and cmux. See `docs/kanna-spec.md`, and `docs/roadmap.md` for what comes
 next for kanna and kmux.
 
-kanna uses the kmux control-socket client from the
-[kmux](../kmux) repo, which must be checked out next to this one:
-
-```
-work/
-  kanna-v4/   this repo
-  kmux/       the kmux app, CLI, spec and kmux-client crate
-```
+kanna talks to kmux through kmux's control-socket client, vendored from
+[kmux](https://github.com/tampopogk/kmux) into `vendor/kmux-client` (MIT).
+To update it: `scripts/vendor-kmux-client.sh [REF]`.
 
 ```sh
 cargo build --release   # target/release/kanna

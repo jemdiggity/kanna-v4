@@ -4,7 +4,7 @@
 >
 > Items marked **[Assumption]** are guesses made to fill gaps. Confirm or correct them, and see [Open Questions](#10-open-questions).
 >
-> **Related:** [kmux spec](../../kmux/docs/kmux-spec.md) (separate kmux repo, checked out next to this one), Kanna's own mux and kanna's most capable backend.
+> **Related:** [kmux spec](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md) (the separate, public kmux repo), Kanna's own mux and kanna's most capable backend.
 
 ## Table of Contents
 
@@ -98,7 +98,7 @@ flowchart TB
 | iOS Simulator panes | ✅ | ❌ | ❌ |
 | Fractional sizing | ✅ | ✅ | ✅ **[Assumption]** |
 | Named panes | ✅ | ✅ (kanna stores the name as a pane option) | **[Assumption]** |
-| Pane states | Full ([kmux lifecycle](../../kmux/docs/kmux-spec.md#43-lifecycle)) | Running / exited only | **[Assumption]** |
+| Pane states | Full ([kmux lifecycle](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md#43-lifecycle)) | Running / exited only | **[Assumption]** |
 
 `kanna mux` prints this table for the backend in use.
 
@@ -135,7 +135,7 @@ Every adapter implements the same operations. Adding a new mux means writing a n
 | `list()`, `focus()`, `close()`, `restart()` | Manage panes. |
 | `send(pane, text)`, `navigate(pane, url)` | Act on a pane's contents. |
 
-The kmux adapter maps these one-to-one onto the [kmux control protocol](../../kmux/docs/kmux-spec.md#7-control-protocol).
+The kmux adapter maps these one-to-one onto the [kmux control protocol](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md#7-control-protocol).
 
 ---
 
@@ -347,7 +347,7 @@ sequenceDiagram
 | Term | Meaning |
 |------|---------|
 | **Mux (multiplexer)** | An app that shows several separate sessions in one window. |
-| **kmux** | Kanna's own desktop mux. It can show terminal, web and iOS panes. See the [kmux spec](../../kmux/docs/kmux-spec.md). |
+| **kmux** | Kanna's own desktop mux. It can show terminal, web and iOS panes. See the [kmux spec](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md). |
 | **tmux** | A widely used terminal multiplexer that runs inside a terminal. It shows terminal panes only. |
 | **cmux** | A third-party macOS terminal app with panes, used here as a backend. |
 | **Backend** | The mux that kanna is currently controlling. |
