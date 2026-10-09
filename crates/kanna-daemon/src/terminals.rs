@@ -13,6 +13,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
+use std::panic::AssertUnwindSafe;
 use std::sync::mpsc::{self, Sender};
 
 /// How much recent output each terminal keeps for the app.
@@ -86,7 +87,7 @@ impl Terminals {
     pub fn output(&self, id: &str, serial: u64, bytes: &[u8]) -> bool {
         let mut live = self.live.borrow_mut();
         let Some(terminal) = live.get_mut(id).filter(|t| t.serial == serial) else { return false };
-        terminal.screen.feed(bytes);
+        guarded(id, terminal, |screen| screen.feed(bytes));
         terminal.replay.extend(bytes);
         let over = terminal.replay.len().saturating_sub(REPLAY);
         terminal.replay.drain(..over);
@@ -124,8 +125,8 @@ impl Terminals {
         let (cols, rows) = (cols.max(1), rows.max(1));
         if (cols, rows) != (terminal.cols, terminal.rows) {
             pty::set_size(&terminal.master, cols, rows, width, height);
-            terminal.screen.resize(cols, rows);
             (terminal.cols, terminal.rows) = (cols, rows);
+            guarded(id, terminal, |screen| screen.resize(cols, rows));
             self.sizes.borrow_mut().insert(id.into(), (cols, rows));
         }
         Some((cols, rows))
@@ -142,6 +143,20 @@ impl Terminals {
     pub fn hang_up_all(&self) {
         for (_, terminal) in self.live.borrow_mut().drain() {
             self.spawner.hang_up(terminal.pid);
+        }
+    }
+}
+
+/// Runs `f` on a terminal's screen. The screen reads untrusted output: if
+/// it panics anyway, only that screen is lost (it starts over, empty), not
+/// the daemon and its other terminals.
+fn guarded<R>(id: &str, terminal: &mut Terminal, f: impl FnOnce(&mut dyn Screen) -> R) -> Option<R> {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| f(terminal.screen.as_mut()))) {
+        Ok(result) => Some(result),
+        Err(_) => {
+            eprintln!("kanna-daemon: {id}'s screen failed; it starts over");
+            terminal.screen = Box::new(TextScreen::new(terminal.cols, terminal.rows));
+            None
         }
     }
 }
@@ -185,9 +200,9 @@ impl PaneHost for Terminals {
     }
 
     fn read(&self, pane: &Pane, lines: Option<usize>) -> Result<String, KmuxError> {
-        let live = self.live.borrow();
-        let terminal = live.get(&pane.id).ok_or_else(|| KmuxError::new("bad_request", format!("{} has no terminal", pane.label())))?;
-        Ok(terminal.screen.text(lines))
+        let mut live = self.live.borrow_mut();
+        let terminal = live.get_mut(&pane.id).ok_or_else(|| KmuxError::new("bad_request", format!("{} has no terminal", pane.label())))?;
+        guarded(&pane.id, terminal, |screen| screen.text(lines)).ok_or_else(|| KmuxError::new("bad_request", format!("{}'s screen failed and was reset", pane.label())))
     }
 }
 

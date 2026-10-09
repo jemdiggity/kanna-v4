@@ -95,6 +95,15 @@ impl Grid {
         for line in &mut self.lines {
             line.resize(cols, ' ');
         }
+        // The main screen, kept while the alternate one shows, takes the new
+        // size too.
+        if let Some((screen, row, col)) = &mut self.main {
+            for line in screen.iter_mut() {
+                line.resize(cols, ' ');
+            }
+            screen.resize(rows, vec![' '; cols]);
+            (*row, *col) = ((*row).min(rows - 1), (*col).min(cols - 1));
+        }
         self.cols = cols;
         // Shrinking keeps the cursor's row: lines above it go to scrollback.
         while self.lines.len() > rows && self.row > 0 {
@@ -124,8 +133,17 @@ impl Grid {
         }
     }
 
+    /// The scroll region, always within the screen.
+    fn region(&mut self) -> usize {
+        self.bottom = self.bottom.min(self.rows - 1);
+        if self.top > self.bottom {
+            (self.top, self.bottom) = (0, self.rows - 1);
+        }
+        self.bottom - self.top + 1
+    }
+
     fn scroll_up(&mut self, n: usize) {
-        for _ in 0..n.min(self.bottom - self.top + 1) {
+        for _ in 0..n.min(self.region()) {
             let line = self.lines.remove(self.top);
             if self.top == 0 {
                 self.keep(line);
@@ -135,13 +153,14 @@ impl Grid {
     }
 
     fn scroll_down(&mut self, n: usize) {
-        for _ in 0..n.min(self.bottom - self.top + 1) {
+        for _ in 0..n.min(self.region()) {
             self.lines.remove(self.bottom);
             self.lines.insert(self.top, self.blank());
         }
     }
 
     fn linefeed(&mut self) {
+        self.region();
         if self.row == self.bottom {
             self.scroll_up(1);
         } else if self.row + 1 < self.rows {
@@ -156,7 +175,7 @@ impl Grid {
     }
 
     fn erase(&mut self, row: usize, from: usize, to: usize) {
-        let line = &mut self.lines[row];
+        let Some(line) = self.lines.get_mut(row) else { return };
         for cell in line.iter_mut().take(to.min(self.cols)).skip(from) {
             *cell = ' ';
         }
@@ -169,6 +188,8 @@ impl Grid {
         } else if !on {
             if let Some((screen, row, col)) = self.main.take() {
                 self.lines = screen;
+                let cols = self.cols;
+                self.lines.iter_mut().for_each(|line| line.resize(cols, ' '));
                 self.lines.resize(self.rows, self.blank());
                 self.move_to(row, col);
             }
@@ -183,7 +204,10 @@ impl Perform for Grid {
             self.wrap_next = false;
             self.linefeed();
         }
-        self.lines[self.row][self.col] = c;
+        let (row, col) = (self.row.min(self.rows - 1), self.col.min(self.cols - 1));
+        if let Some(cell) = self.lines.get_mut(row).and_then(|line| line.get_mut(col)) {
+            *cell = c;
+        }
         if self.col + 1 >= self.cols {
             self.wrap_next = true;
         } else {
@@ -209,10 +233,10 @@ impl Perform for Grid {
         let (row, col) = (self.row, self.col);
         match action {
             'A' => self.move_to(row.saturating_sub(n), col),
-            'B' | 'e' => self.move_to(row + n, col),
-            'C' | 'a' => self.move_to(row, col + n),
+            'B' | 'e' => self.move_to(row.saturating_add(n), col),
+            'C' | 'a' => self.move_to(row, col.saturating_add(n)),
             'D' => self.move_to(row, col.saturating_sub(n)),
-            'E' => self.move_to(row + n, 0),
+            'E' => self.move_to(row.saturating_add(n), 0),
             'F' => self.move_to(row.saturating_sub(n), 0),
             'G' | '`' => self.move_to(row, n - 1),
             'd' => self.move_to(n - 1, col),
@@ -224,7 +248,7 @@ impl Perform for Grid {
                 }
                 1 => {
                     (0..row).for_each(|r| self.erase(r, 0, self.cols));
-                    self.erase(row, 0, col + 1);
+                    self.erase(row, 0, col.saturating_add(1));
                 }
                 2 => (0..self.rows).for_each(|r| self.erase(r, 0, self.cols)),
                 3 => self.scrollback.clear(),
@@ -232,36 +256,39 @@ impl Perform for Grid {
             },
             'K' => match values.first().copied().unwrap_or(0) {
                 0 => self.erase(row, col, self.cols),
-                1 => self.erase(row, 0, col + 1),
+                1 => self.erase(row, 0, col.saturating_add(1)),
                 2 => self.erase(row, 0, self.cols),
                 _ => {}
             },
-            'L' if (self.top..=self.bottom).contains(&row) => {
+            'L' if self.region() > 0 && (self.top..=self.bottom).contains(&row) => {
                 for _ in 0..n.min(self.bottom - row + 1) {
                     self.lines.remove(self.bottom);
                     self.lines.insert(row, self.blank());
                 }
             }
-            'M' if (self.top..=self.bottom).contains(&row) => {
+            'M' if self.region() > 0 && (self.top..=self.bottom).contains(&row) => {
                 for _ in 0..n.min(self.bottom - row + 1) {
                     self.lines.remove(row);
                     self.lines.insert(self.bottom, self.blank());
                 }
             }
             'P' => {
-                let line = &mut self.lines[row];
-                let n = n.min(line.len() - col);
-                line.drain(col..col + n);
-                line.resize(self.cols, ' ');
+                let cols = self.cols;
+                if let Some(line) = self.lines.get_mut(row).filter(|l| col < l.len()) {
+                    let n = n.min(line.len() - col);
+                    line.drain(col..col + n);
+                    line.resize(cols, ' ');
+                }
             }
             '@' => {
-                let line = &mut self.lines[row];
-                for _ in 0..n.min(self.cols - col) {
-                    line.insert(col, ' ');
+                let cols = self.cols;
+                if let Some(line) = self.lines.get_mut(row).filter(|l| col <= l.len()) {
+                    let n = n.min(cols.saturating_sub(col));
+                    line.splice(col..col, std::iter::repeat_n(' ', n));
+                    line.truncate(cols);
                 }
-                line.truncate(self.cols);
             }
-            'X' => self.erase(row, col, col + n),
+            'X' => self.erase(row, col, col.saturating_add(n)),
             'S' if !private => self.scroll_up(n),
             'T' if !private => self.scroll_down(n),
             'r' if !private => {
@@ -367,6 +394,57 @@ mod tests {
         assert_eq!(s.text(None), "full scree\nn");
         s.feed(b"\x1b[?1049l");
         assert_eq!(s.text(None), "shell");
+    }
+
+    #[test]
+    fn resizing_under_the_alternate_screen_resizes_the_main_one() {
+        let mut s = screen(10, 3, "main\r\n\x1b[?1049h");
+        s.resize(4, 2);
+        s.feed(b"\x1b[?1049l\x1b[9;9Hxy");
+        s.resize(20, 6);
+        s.feed(b"\x1b[?1049h\x1b[?1049l\x1b[20;20Hz");
+        // The wrap scrolled "main" into scrollback.
+        assert_eq!(s.text(Some(100)), "main\n   x\ny\n\n\n\n                   z");
+    }
+
+    /// Output is whatever a program writes: no bytes may panic the screen.
+    #[test]
+    fn hostile_output_never_panics() {
+        let nasty: [&[u8]; 16] = [
+            b"\x1b[99999999;99999999H", b"\x1b[0;0r", b"\x1b[65535;1r", b"\x1b[5;3r", b"\x1b[99999L", b"\x1b[99999M",
+            b"\x1b[99999P", b"\x1b[99999@", b"\x1b[99999X", b"\x1b[99999S", b"\x1b[99999T", b"\x1b[99999A\x1b[99999D",
+            b"\x1b[?1049h\x1b[?1049h\x1b[?47l\x1b[?1049l", b"\x1bM\x1bM\x1bD\x1bE\x1b8\x1bc", b"\xff\xfe\xc3\x28\xf0\x28\x8c\x28",
+            b"\x1b[;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;H",
+        ];
+        let mut s = TextScreen::new(80, 24);
+        for bytes in nasty {
+            s.feed(bytes);
+            s.feed("wide 字 and e\u{301} ".as_bytes());
+        }
+        // Random bytes, weighted towards escape sequences, with resizes.
+        let mut seed: u64 = 0x9e3779b97f4a7c15;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let alphabet = b"\x1b[]?;0123456789HJKLMPSTX@ABCDEFGdfhlrsu78Dc\r\n\x08\t\x07ab";
+        for round in 0..3000 {
+            let len = (next() % 300) as usize;
+            let bytes: Vec<u8> = (0..len)
+                .map(|_| {
+                    let r = next();
+                    if r % 4 == 0 { (r >> 8) as u8 } else { alphabet[(r >> 8) as usize % alphabet.len()] }
+                })
+                .collect();
+            s.feed(&bytes);
+            if round % 50 == 0 {
+                s.resize((next() % 300) as u16, (next() % 100) as u16);
+            }
+            let _ = s.text(None);
+            let _ = s.text(Some((next() % 50) as usize + 1));
+        }
     }
 
     #[test]
