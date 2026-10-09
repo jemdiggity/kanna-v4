@@ -1,0 +1,116 @@
+Kanna includes code derived from the following projects.
+
+================================================================================
+kmux
+https://github.com/tampopogk/kmux
+MIT License, at the commit recorded in kmux.rev unless noted otherwise
+================================================================================
+
+Derived from kmux:
+
+  crates/kanna-mux
+      A Rust port of kmux's core, apps/kmux/Sources/KmuxCore (Core.swift,
+      Core+Layout.swift, Model.swift, JSON.swift, Fraction.swift, Brand.swift,
+      Instance.swift, SocketServer.swift), and of its reference model,
+      reference/kmux/core.js and reference/kmux/index.html.
+
+  apps/kanna/Sources/Kanna/AppController.swift
+      Parts follow apps/kmux/Sources/Kmux/AppController.swift: --bg and
+      `present`, the socket and signal handling, the Edit menu, and the
+      debug commands' shapes.
+  apps/kanna/Sources/Kanna/Control/Commands.swift
+      The request envelope and error follow Core.handle and KmuxError in
+      apps/kmux/Sources/KmuxCore/Core.swift.
+  apps/kanna/Sources/Kanna/Control/JSON.swift
+      From apps/kmux/Sources/KmuxCore/JSON.swift.
+  apps/kanna/Sources/Kanna/Control/SocketServer.swift
+      From apps/kmux/Sources/KmuxCore/SocketServer.swift.
+  apps/kanna/Sources/Kanna/Snapshot.swift
+      From apps/kmux/Sources/Kmux/Snapshot.swift.
+  apps/kanna/Sources/Kanna/SyntheticKey.swift
+      From SyntheticKey in apps/kmux/Sources/Kmux/Shortcuts.swift.
+  apps/kanna/Sources/Kanna/main.swift
+      From apps/kmux/Sources/Kmux/main.swift.
+  apps/kanna/Sources/Kanna/Terminal/GhosttyRuntime.swift
+      From apps/kmux/Sources/Kmux/Terminal/GhosttyRuntime.swift, with the
+      options and attach split of kmux's spike/ghostty-external-io branch.
+  apps/kanna/Sources/Kanna/Terminal/TerminalSurfaceView.swift
+      From apps/kmux/Sources/Kmux/Terminal/TerminalSurfaceView.swift.
+  apps/kanna/Sources/Kanna/Terminal/ExternalIO.swift
+  apps/kanna/Sources/Kanna/Terminal/TerminalBackend.swift
+      From apps/kmux/Sources/Kmux/Terminal/ExternalIO.swift and
+      TerminalBackend.swift on kmux's spike/ghostty-external-io branch.
+
+  scripts/env.sh                 follows kmux's scripts/env.sh
+  scripts/build-ghosttykit.sh    follows kmux's scripts/build-ghosttykit.sh
+  scripts/build-kanna-app.sh     follows kmux's scripts/build-kmux.sh
+
+MIT License
+
+Copyright (c) 2026 Jeremy Hale
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+Ghostty
+https://github.com/ghostty-org/ghostty
+MIT License
+================================================================================
+
+Derived from Ghostty:
+
+  crates/kanna-keeper/src/ghostty_env.rs
+      Adapted from Ghostty at the commit scripts/env.sh pins
+      (KANNA_GHOSTTY_COMMIT): src/termio/Exec.zig (Subprocess.init and
+      execCommand), src/termio/shell_integration.zig, src/os/locale.zig,
+      src/os/resourcesdir.zig and src/apprt/embedded.zig (defaultTermioEnv).
+      Ported from kanna-v3's kanna3-keeper, by way of the relay keeper.
+  apps/kanna/Sources/Kanna/Terminal/TerminalSurfaceView.swift
+      Adapted from Ghostty's macOS app (Ghostty 4ec3122, via kanna v3):
+      SurfaceView_AppKit.swift, Ghostty.Input.swift and
+      NSEvent+Extension.swift.
+  apps/kanna/Sources/Kanna/Terminal/GhosttyRuntime.swift
+      Runtime callbacks follow Ghostty's macOS app (Ghostty 4ec3122, via
+      kanna v3): Ghostty.App.swift.
+
+Kanna.app links GhosttyKit and the daemon links libghostty-vt, both built
+from a fork of Ghostty: the kmux-external-io branch (upstream a806905, kmux's
+pin, plus the external-I/O patch) at the commit scripts/env.sh pins.
+
+MIT License
+
+Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

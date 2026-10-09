@@ -18,4 +18,4 @@ The first kmux build compiles GhosttyKit with Zig, which takes a while; Kanna.ap
 
 ## License
 
-[FSL-1.1-MIT](LICENSE): source-available; each release becomes MIT two years after it is published. kmux is MIT.
+[FSL-1.1-MIT](LICENSE): source-available; each release becomes MIT two years after it is published. kmux and Ghostty are MIT; [NOTICE](NOTICE) lists the code derived from them.
