@@ -4,7 +4,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(kmux_reference)");
     println!("cargo::rerun-if-env-changed=KMUX_DIR");
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let kmux = std::env::var_os("KMUX_DIR").map(PathBuf::from).unwrap_or_else(|| manifest.join("../../../kmux"));
+    let kmux = std::env::var_os("KMUX_DIR").map(PathBuf::from).unwrap_or_else(|| manifest.join("../../references/kmux"));
     let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     let mut found = true;
     for name in ["commands", "output"] {

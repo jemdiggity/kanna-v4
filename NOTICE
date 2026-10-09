@@ -3,7 +3,10 @@ Kanna includes code derived from the following projects.
 ================================================================================
 kmux
 https://github.com/tampopogk/kmux
-MIT License, at the commit recorded in kmux.rev unless noted otherwise
+MIT License, at the commit recorded in kmux.rev unless noted otherwise.
+references/kmux is kmux itself at 1f05ccb (a git subtree, under its own
+LICENSE and NOTICE), kept as the reference model's source and tests; it is
+not built into Kanna.
 ================================================================================
 
 Derived from kmux:

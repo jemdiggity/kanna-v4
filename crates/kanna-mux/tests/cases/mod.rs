@@ -8,7 +8,7 @@ pub type Send = Box<dyn FnMut(Value) -> Value>;
 
 pub fn cases_directory() -> PathBuf {
     let kmux = std::env::var_os("KMUX_DIR").map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../kmux"));
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../references/kmux"));
     kmux.join("tests/kmux-protocol/cases")
 }
 
@@ -36,7 +36,7 @@ fn listed(reply: &Value, key: &str) -> Vec<String> {
 
 pub fn run_cases(label: &str, make: &dyn Fn() -> Send) -> usize {
     let mut files: Vec<PathBuf> = std::fs::read_dir(cases_directory())
-        .unwrap_or_else(|e| panic!("kmux is the reference model for Kanna's mux core, and its protocol cases aren't at {} ({e}); clone kmux beside this repo or set KMUX_DIR", cases_directory().display()))
+        .unwrap_or_else(|e| panic!("kmux is the reference model for Kanna's mux core, and its protocol cases aren't at {} ({e}); they come from references/kmux, or KMUX_DIR", cases_directory().display()))
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "json"))
         .collect();

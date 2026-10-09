@@ -224,11 +224,11 @@ flowchart LR
     class SC kanna
 ```
 
-- `kanna-mux` runs kmux's own protocol cases (`../kmux/tests/kmux-protocol/cases`).
+- **kmux's source and tests live in `references/kmux`**, a git subtree of kmux (squashed, at 1f05ccb). `kanna-mux` and the daemon run kmux's own protocol cases from `references/kmux/tests/kmux-protocol/cases`. To follow kmux: `git subtree pull --prefix=references/kmux https://github.com/tampopogk/kmux.git main --squash`, then port what Kanna should follow until the checks pass. Nothing in `references/kmux` is edited by hand.
 - **What kmux is the reference for:** the mux core and its control protocol, the CLI, and the mux UI (windows, tabs, splits, pane views). Kanna's own layers on top (Desk and Shelf, tasks, agents) have no kmux counterpart.
-- **Building doesn't need kmux; checking does.** Kanna builds from its own sources, including its copies of kmux's socket client (`crates/kanna-client`) and mermaid bridge (`crates/kanna-merman`). The tests that compare Kanna with kmux read a kmux checkout beside the repo (or `$KMUX_DIR`): the protocol cases, and the CLI check that compiles kmux's `commands.rs` and `output.rs`. Without one they fail and say so, rather than pass without checking.
+- **Building doesn't need kmux; checking does.** Kanna builds from its own sources, including its copies of kmux's socket client (`crates/kanna-client`) and mermaid bridge (`crates/kanna-merman`). The tests that compare Kanna with kmux read `references/kmux` (or `$KMUX_DIR`, to check against another kmux): the protocol cases, and the CLI check that compiles kmux's `commands.rs` and `output.rs`. If it's missing they fail and say so, rather than pass without checking.
 - Where Kanna and kmux behave differently, Kanna is wrong unless we decided otherwise.
-- `kmux.rev` records the kmux commit Kanna matches. When kmux changes and Kanna should follow, port the change and move `kmux.rev`.
+- `kmux.rev` is only for `scripts/build-kanna.sh`, which builds the old kmux-branded Kanna.app from `../kmux` until the new app replaces it.
 - Nothing changes in kmux for Kanna's sake.
 
 ### 4.4 Languages and Platforms
@@ -594,7 +594,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    KSRC["kmux's CLI source<br/>commands.rs · output.rs<br/>(unchanged, ../kmux)"] -->|"compiled into"| REF["kmux_reference.rs<br/>(conformance test)"]
+    KSRC["kmux's CLI source<br/>commands.rs · output.rs<br/>(unchanged, references/kmux)"] -->|"compiled into"| REF["kmux_reference.rs<br/>(conformance test)"]
     TABLE["kanna's command table<br/>crates/kanna/src/commands.rs"] --> REF
     TABLE --> HELP["help · commands --json"]
     TABLE --> PARSE["arguments → request"]

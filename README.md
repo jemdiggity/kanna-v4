@@ -43,10 +43,9 @@ kanna help
 
 ## Test
 
-The tests that check Kanna against kmux, the reference model, need a kmux checkout beside this repo (or `KMUX_DIR`).
+Some tests check Kanna against kmux, the reference model, using kmux's source and tests in `references/kmux` (a git subtree).
 
 ```sh
-git clone https://github.com/tampopogk/kmux.git ../kmux   # once
 cargo test --workspace
 swift test --package-path apps/kanna -c release --scratch-path target/kanna-build
 scripts/e2e-kanna.sh              # private instances on their own sockets; never touches yours

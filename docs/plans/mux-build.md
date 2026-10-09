@@ -36,7 +36,7 @@ After M4 Kanna's own layers (Desk and Shelf, tasks, agents) are built on top; th
 
 The reference has two parts:
 
-- **kmux itself**, unchanged: how the mux and its CLI behave. `kanna-mux` runs kmux's own protocol cases (`../kmux/tests/kmux-protocol/cases`); where Kanna and kmux differ, Kanna is wrong unless we decided otherwise. `kmux.rev` records the kmux commit Kanna matches.
+- **kmux itself**, unchanged: how the mux and its CLI behave. `kanna-mux` runs kmux's own protocol cases (`references/kmux/tests/kmux-protocol/cases`, from the kmux subtree); where Kanna and kmux differ, Kanna is wrong unless we decided otherwise.
 - **Scenarios** for what kmux doesn't do (terminals that outlive the app), written first as a script (`scripts/e2e-kanna.sh`) that fails, and kept passing from then on. Each one runs against a private Kanna instance in the background, never your own.
 
 | # | Scenario | Passes in |
@@ -290,6 +290,7 @@ kmux isn't touched. Its terminal-wrapper hook (1f05ccb) stays, unused by Kanna o
 | Which fork branch | **`kanna4`, built on Kanna v3's `kanna3`** (v3's five external-I/O commits and its libghostty-vt screen accessors, then v4's four: exit display, scrollback kept when widening, surface state across snapshots, font size resizing the program) | one fork line from v3 to v4, not two that drift apart; v4 started from a copy of v3's external-I/O commits without the accessors |
 | A crashed daemon | **loses up to a second of screen**: snapshots at most once a second, no journal | a normal stop or upgrade loses nothing, and a full-screen program redraws on SIGWINCH; a journal would write every chunk of output to disk again to save that second |
 | The `kanna` CLI's client | **a copy of kmux's `kmux-client`** in `crates/kanna-client` (and of `kmux-merman` in `crates/kanna-merman`) | Kanna builds without a kmux checkout; kmux is needed only by the tests that check Kanna against it |
+| Where kmux's source and tests come from | **`references/kmux`, a squashed git subtree** | the reference travels with the repo: a clone can run every check, and the kmux commit Kanna is matched against is in Kanna's history |
 | The `kanna` CLI's commands (M4) | **a port of kmux's CLI** (`crates/kmux`: its command table, help, parsing, output), checked by a test that compiles kmux's own `commands.rs` and `output.rs` | one source of truth inside kanna; kmux stays unchanged and the reference; a library would mean changing kmux, building its private files into kanna would tie kanna's build to them ([spec §4.11](../kanna-spec.md#411-the-kanna-cli)) |
 | Where `kanna` goes by default (M4) | **Kanna's own daemon** (`kanna-dev/kanna.sock`), starting Kanna.app (`dev.kanna.app.dev`) when nothing answers; never the branded `dev.kanna.kanna` | M4 is "use Kanna.app in place of kmux"; the branded copy is still reached by its terminals (they set `KANNA_SOCKET`) or with `KANNA_SOCKET=…/kanna/kanna.sock`. **For you to confirm:** until M4, plain `kanna` (no `KANNA_SOCKET`) meant the branded copy |
 | A Kanna instance (M4) | **a folder**: `kanna-dev` (default) or `kanna-dev-NAME`, with its daemon, keeper, terminals and app layout | a daemon locks its folder and keeps its keeper and files there, so instances can't share one folder as kmux's sockets do |
@@ -305,7 +306,7 @@ The mux UI stays Swift: it's the macOS app's views. A Linux UI would be its own,
 - **One commit per step**, tests included; kmux's protocol cases and Kanna's scenarios stay green.
 - **Never touch your running Kanna or kmux.** Tests run private instances in the background, on their own sockets, stopped by PID.
 - **Worktrees** in `<repo>/.worktrees/<name>`.
-- **kmux is the reference:** nothing changes in kmux for Kanna. When kmux changes and Kanna should follow, port it and move `kmux.rev`.
+- **kmux is the reference:** nothing changes in kmux for Kanna. When kmux changes and Kanna should follow, `git subtree pull` it into `references/kmux` and port it.
 - **Linux:** `kanna-mux`, the daemon and the keeper build and test on Linux from the start.
 
 ---
@@ -323,7 +324,8 @@ The mux UI stays Swift: it's the macOS app's views. A Linux UI would be its own,
 | **LayoutLink** | The async seam in kanna-mux's core through which a command's layout steps reach whoever owns the layout: the model in-process, or Kanna's app over the app link. |
 | **LayoutOwner** | The app's side of the layout: kanna-mux's model plus the pane table and the state file, answering layout steps; Kanna.app runs it through `kanna-layout`. |
 | **TerminalBackend** | The seam in Kanna's mux UI between a terminal view and where its bytes come from (Kanna's daemon). |
-| **`kmux.rev`** | The kmux commit Kanna is matched against. |
+| **`references/kmux`** | kmux's source and tests as a git subtree: what Kanna is matched against. |
+| **`kmux.rev`** | The kmux commit the old kmux-branded Kanna.app is built from (`scripts/build-kanna.sh`). |
 | **External I/O** | The Ghostty fork's mode where a surface has no pty: output is pushed in, keystrokes come out through a callback. |
 | **libghostty-vt** | Ghostty's terminal engine as a library, with no drawing: the daemon's copy of each screen. |
 | **Snapshot** | A terminal's whole screen state, sent to the app on attach and saved to disk for daemon restarts. |
