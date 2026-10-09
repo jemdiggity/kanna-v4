@@ -21,23 +21,25 @@
 
 ```mermaid
 flowchart TB
-    KANNA["Kanna (kanna-v4)<br/>agents, Desk and Shelf, tasks"]
-    subgraph MUX["kanna-mux: Kanna's mux layer, a fork of kmux"]
-        APP["Kanna.app<br/>draws panes"]
+    subgraph TOP["Kanna layer (kanna-v4)"]
+        KANNA["kanna CLI, agent tooling<br/>later Desk and Shelf"]
+    end
+    subgraph MUX["mux layer: kanna-mux, a fork of kmux"]
+        WIN["mux window<br/>draws panes (a view)"]
         DAEMON["daemon<br/>layout, workspaces, terminal state"]
         KEEPER["keeper<br/>holds the ptys"]
     end
     SH["shells and agents"]
     KANNA -->|"mux protocol"| DAEMON
-    APP <-->|"mux protocol + terminal streams"| DAEMON
+    WIN <-->|"mux protocol + terminal streams"| DAEMON
     DAEMON <-->|"pty handles"| KEEPER
     KEEPER --- SH
 ```
 
-- **Kanna** sits on top and only speaks the mux protocol. The mux is a layer of its own.
+- **The Kanna layer** (the `kanna` CLI and agent tooling now, Desk and Shelf later) sits on top and only speaks the mux protocol. The mux is a layer of its own.
 - **The daemon** owns everything: the layout, the workspaces, and each terminal's screen.
-- **The keeper** only holds the ptys, so shells survive both an app restart and a daemon restart.
-- **The app** is only a view.
+- **The keeper** only holds the ptys, so shells survive both a window restart and a daemon restart.
+- **The mux window** is only a view. Today it ships as the app bundle named Kanna.app; in the rest of this doc "the app" means this window, not the Kanna layer.
 
 ---
 
