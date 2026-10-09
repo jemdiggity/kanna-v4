@@ -40,7 +40,7 @@ done
 unset KANNA_PANE KANNA_INSTANCE
 export KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)"
 export KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
-export KMUX_IGNORE_OCCLUSION=1 # draw even if the window is covered
+export KANNA_IGNORE_OCCLUSION=1 # draw even if the window is covered
 daemon_pid="" app_pid=""
 
 # ── the instance ──────────────────────────────────────────────────────────

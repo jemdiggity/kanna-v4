@@ -8,8 +8,7 @@ import AppKit
 import GhosttyKit
 
 /// The far end of external-I/O terminals: whatever owns each terminal and
-/// the program in it. Kanna's daemon will be one (step 0.4); until then
-/// EchoLink stands in.
+/// the program in it: Kanna's daemon (DaemonLink), or EchoLink in echo mode.
 @MainActor
 protocol TerminalLink: AnyObject {
     /// `terminal`'s surface is up; output may be pushed to it from now on.

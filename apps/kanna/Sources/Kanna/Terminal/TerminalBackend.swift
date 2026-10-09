@@ -9,7 +9,7 @@ struct Pane: Hashable, Sendable {
 }
 
 /// What runs a terminal pane behind its Ghostty surface. In Kanna the
-/// terminal lives outside the app (in the daemon, from step 0.4), so the
+/// terminal lives outside the app (in the daemon), so the
 /// surface has no pty of its own: see ExternalIOBackend.
 @MainActor
 protocol TerminalBackend: AnyObject {

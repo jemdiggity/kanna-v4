@@ -1,7 +1,7 @@
 import Foundation
 
-/// Stands in for Kanna's daemon until it exists (step 0.4): there is no
-/// program, and what the terminal types comes straight back as its output,
+/// Stands in for Kanna's daemon in echo mode (KANNA_ECHO=1, for
+/// scripts/check-kanna-app.sh): there is no program, and what the terminal types comes straight back as its output,
 /// so typing shows on screen and lines advance. It applies the grid the view
 /// asks for, as the daemon will.
 @MainActor

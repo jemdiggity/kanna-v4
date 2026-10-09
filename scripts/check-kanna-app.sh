@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks Kanna.app (scripts/build-kanna-app.sh): starts target/Kanna.app in the
-# background on a private debug socket, types "echo hi" into its terminal
-# through the real key path, and checks the stub backend echoed it, both as
+# background in echo mode (KANNA_ECHO=1: no daemon) on a private debug socket,
+# types "echo hi" into its terminal through the real key path, and checks the stub backend echoed it, both as
 # the terminal's text and as glyphs drawn in the window. Stops the app by PID.
 # Never touches another running Kanna or kmux.
 set -euo pipefail
@@ -12,6 +12,8 @@ app="$repo_root/target/Kanna.app/Contents/MacOS/Kanna"
 out="$repo_root/target/check-kanna-app"
 mkdir -p "$out"
 dir="$(mktemp -d "${TMPDIR:-/tmp}/kanna-check.XXXXXX")"
+# Echo mode: no daemon; the app's one terminal echoes, on its own debug socket.
+export KANNA_ECHO=1
 export KANNA_APP_SOCKET="$dir/app.sock"
 export KANNA_IGNORE_OCCLUSION=1 # draw even if the window is covered
 
