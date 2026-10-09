@@ -2,14 +2,15 @@
 //! processes in them outlive a daemon restart. It hands each pty master to
 //! the daemon (`SCM_RIGHTS`) and is never in the path of terminal bytes.
 //! See docs/keeper.md.
+//!
+//! [`client`] is the daemon's side of the protocol.
 
-// Wired up by the server in the next step.
-#![allow(dead_code)]
-
+pub mod client;
 mod fdpass;
 mod ghostty_env;
 pub mod paths;
 mod pty;
+pub mod server;
 mod sig;
 
 use serde_json::{json, Value};
