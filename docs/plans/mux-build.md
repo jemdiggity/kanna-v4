@@ -105,12 +105,12 @@ flowchart TB
 
 | Step | Repo | What | Done when |
 |---|---|---|---|
-| **0.1** | kanna-v4 | `scripts/e2e-kanna.sh` with scenarios S1–S8, all failing (skipped by milestone) | it runs and reports |
+| **0.1** ✓ | kanna-v4 | `scripts/e2e-kanna.sh` with scenarios S1–S8, all failing; `--through M0` runs only what's due | it runs and reports |
 | **0.2** | kmux | **`kmux-core` in Rust.** Port KmuxCore (protocol, commands, panes, kmux's layout model, state file, socket server) to a Rust crate. It passes the shared protocol cases (`tests/kmux-protocol/cases`, the same ones the Swift core and the reference model run) and builds on Linux. | cases pass on macOS and Linux |
 | **0.3** | kmux | **The kmux app on `kmux-core`.** A C interface, built as an xcframework the way merman is; the app answers through `PaneHost` and `LayoutHost` callbacks; the Swift KmuxCore is removed. | kmux's e2e passes, unchanged |
 | **0.4** | kmux | **`KmuxUI` and the seams.** Move the pane views (terminal, web, markdown, iOS), `GhosttyRuntime` and the split and tab views into a `KmuxUI` Swift library product. Make `TerminalBackend` (from the spike) public; `PtyTerminalBackend` stays kmux's. Add `KMUX_GHOSTTYKIT`, which points the GhosttyKit binary target at another build. | kmux unchanged; a test build uses another GhosttyKit |
 | **0.5** | kanna-v4 | **Kanna.app as its own app.** `apps/kanna`: a SwiftPM app depending on `../kmux`'s KmuxUI, built against the Ghostty fork. One window, one terminal pane, a stub backend that echoes. `build-kanna.sh` builds it instead of branded kmux. | Kanna.app opens and echoes typing |
-| **0.6** | kanna-v4 | **kanna-daemon** (Rust) on `kmux-core`, on Kanna's socket. Stub: it spawns the pty itself. The app's external-I/O backend attaches to it; the `kanna` CLI already speaks the protocol. | S1, S2 pass |
+| **0.6** | kanna-v4 | **kanna-daemon** (Rust) on `kmux-core`, on Kanna's socket. Stub: it spawns the pty itself. The app's external-I/O backend attaches to it. The CLI gains `kanna read PANE` (the screen as text); the daemon passes the app's `debug.*` commands (`debug.app`, `debug.type`, `debug.text`, `debug.snapshot`) through to it. | S1, S2 pass |
 | **0.7** | kanna-v4 | **The keeper.** Trim `feat/keeper` to what the architecture needs: spawn a shell on a pty, keep a copy, hand the pty over (`SCM_RIGHTS`), report exits. The daemon asks it for ptys. | S1, S2 pass through the keeper |
 
 ---
