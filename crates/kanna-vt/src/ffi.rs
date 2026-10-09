@@ -33,6 +33,8 @@ pub struct GhosttyString {
 pub const GHOSTTY_FORMATTER_FORMAT_PLAIN: i32 = 0;
 pub const GHOSTTY_TERMINAL_OPT_USERDATA: i32 = 0;
 pub const GHOSTTY_TERMINAL_OPT_WRITE_PTY: i32 = 1;
+pub const GHOSTTY_TERMINAL_OPT_SIZE: i32 = 6;
+pub const GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES: i32 = 8;
 pub const GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES: i32 = 27;
 pub const GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES: i32 = 28;
 pub const GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES: i32 = 31;
@@ -95,8 +97,46 @@ pub struct GhosttyTerminalSelectionFormatOptions {
     pub trim: bool,
     pub selection: *const GhosttySelection,
 }
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GhosttyDeviceAttributesPrimary {
+    pub conformance_level: u16,
+    pub features: [u16; 64],
+    pub num_features: usize,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GhosttyDeviceAttributesSecondary {
+    pub device_type: u16,
+    pub firmware_version: u16,
+    pub rom_cartridge: u16,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GhosttyDeviceAttributesTertiary {
+    pub unit_id: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GhosttyDeviceAttributes {
+    pub primary: GhosttyDeviceAttributesPrimary,
+    pub secondary: GhosttyDeviceAttributesSecondary,
+    pub tertiary: GhosttyDeviceAttributesTertiary,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct GhosttySizeReportSize {
+    pub rows: u16,
+    pub columns: u16,
+    pub cell_width: u32,
+    pub cell_height: u32,
+}
 pub type GhosttyTerminalWritePtyFn =
     unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, data: *const u8, len: usize);
+pub type GhosttyTerminalDeviceAttributesFn =
+    unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, out: *mut GhosttyDeviceAttributes) -> bool;
+pub type GhosttyTerminalSizeFn =
+    unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, out: *mut GhosttySizeReportSize) -> bool;
 
 extern "C" {
     pub fn ghostty_free(allocator: *const GhosttyAllocator, ptr: *mut u8, len: usize);

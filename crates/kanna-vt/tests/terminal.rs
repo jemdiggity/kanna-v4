@@ -120,6 +120,29 @@ fn queries_get_replies() {
 }
 
 #[test]
+fn device_attributes_are_ghosttys() {
+    let mut t = terminal(20, 5, "\x1b[c\x1b[>c");
+    assert_eq!(t.take_replies(), b"\x1b[?62;22;52c\x1b[>1;10;0c");
+    t.write(b"\x1b[>q");
+    assert_eq!(String::from_utf8_lossy(&t.take_replies()), "\x1bP>|libghostty\x1b\\");
+}
+
+#[test]
+fn size_reports_follow_the_grid() {
+    let mut t = terminal(20, 5, "\x1b[18t");
+    assert_eq!(t.take_replies(), b"\x1b[8;5;20t");
+    t.resize(30, 7).unwrap();
+    t.set_cell_pixels(10, 20);
+    t.write(b"\x1b[18t\x1b[14t\x1b[16t");
+    assert_eq!(t.take_replies(), b"\x1b[8;7;30t\x1b[4;140;300t\x1b[6;20;10t");
+    t.write(b"\x1b[?2048h");
+    assert_eq!(t.take_replies(), b"\x1b[48;7;30;140;300t");
+    let mut r = Terminal::from_snapshot(&t.snapshot().unwrap()).unwrap();
+    r.write(b"\x1b[18t");
+    assert_eq!(r.take_replies(), b"\x1b[8;7;30t");
+}
+
+#[test]
 fn snapshot_round_trip() {
     let mut t = Terminal::new(30, 6, 1000).unwrap();
     for i in 0..40 {
@@ -293,4 +316,13 @@ fn hostile_snapshots_never_panic() {
             let _ = r.text(Lines::Last(100));
         }
     }
+}
+
+#[test]
+fn a_resize_is_reported_in_band_when_asked() {
+    let mut t = terminal(20, 5, "\x1b[?2048h");
+    t.take_replies();
+    t.set_cell_pixels(10, 20);
+    t.resize(30, 7).unwrap();
+    assert_eq!(t.take_replies(), b"\x1b[48;7;30;140;300t");
 }

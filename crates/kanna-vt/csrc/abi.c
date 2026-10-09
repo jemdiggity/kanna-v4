@@ -14,6 +14,8 @@ static const long long kanna_vt_abi_values[] = {
     GHOSTTY_FORMATTER_FORMAT_PLAIN,
     GHOSTTY_TERMINAL_OPT_USERDATA,
     GHOSTTY_TERMINAL_OPT_WRITE_PTY,
+    GHOSTTY_TERMINAL_OPT_SIZE,
+    GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES,
     GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
     GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
     GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES,
@@ -52,6 +54,20 @@ static const long long kanna_vt_abi_values[] = {
     offsetof(GhosttyTerminalSelectionFormatOptions, unwrap),
     offsetof(GhosttyTerminalSelectionFormatOptions, trim),
     offsetof(GhosttyTerminalSelectionFormatOptions, selection),
+    sizeof(GhosttyDeviceAttributesPrimary),
+    offsetof(GhosttyDeviceAttributesPrimary, features),
+    offsetof(GhosttyDeviceAttributesPrimary, num_features),
+    sizeof(GhosttyDeviceAttributesSecondary),
+    offsetof(GhosttyDeviceAttributesSecondary, firmware_version),
+    offsetof(GhosttyDeviceAttributesSecondary, rom_cartridge),
+    sizeof(GhosttyDeviceAttributesTertiary),
+    sizeof(GhosttyDeviceAttributes),
+    offsetof(GhosttyDeviceAttributes, secondary),
+    offsetof(GhosttyDeviceAttributes, tertiary),
+    sizeof(GhosttySizeReportSize),
+    offsetof(GhosttySizeReportSize, columns),
+    offsetof(GhosttySizeReportSize, cell_width),
+    offsetof(GhosttySizeReportSize, cell_height),
 };
 
 #define SIGNATURE(name, ret, ...) static ret (*const check_##name)(__VA_ARGS__) __attribute__((used)) = name
@@ -73,6 +89,10 @@ SIGNATURE(ghostty_snapshot_decoder_decode, GhosttyResult, GhosttySnapshotDecoder
 SIGNATURE(ghostty_snapshot_decoder_free, void, GhosttySnapshotDecoder);
 static void (*const check_write_pty)(GhosttyTerminal, void *, const uint8_t *, size_t) __attribute__((used)) =
     (GhosttyTerminalWritePtyFn)0;
+static bool (*const check_device_attributes)(GhosttyTerminal, void *, GhosttyDeviceAttributes *) __attribute__((used)) =
+    (GhosttyTerminalDeviceAttributesFn)0;
+static bool (*const check_size)(GhosttyTerminal, void *, GhosttySizeReportSize *) __attribute__((used)) =
+    (GhosttyTerminalSizeFn)0;
 
 size_t kanna_vt_abi(long long *out, size_t cap) {
   size_t n = sizeof kanna_vt_abi_values / sizeof kanna_vt_abi_values[0];

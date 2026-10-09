@@ -10,7 +10,7 @@ use kanna_vt::{Lines, Terminal};
 let mut t = Terminal::new(80, 24, 10_000)?;   // cols, rows, scrollback lines
 t.write(b"\x1b[1mhello\x1b[0m\r\n");           // program output, in any pieces
 let replies = t.take_replies();               // answers to queries (CPR, DSR, ...) for the pty
-t.resize(120, 40)?;
+t.set_cell_pixels(9, 18); t.resize(120, 40)?;
 
 t.text(Lines::Screen);                        // `kanna read`: the visible screen
 t.text(Lines::Last(200));                     // `kanna read --lines 200`: counting scrollback
@@ -24,8 +24,9 @@ let back = Terminal::from_snapshot(&snap)?;   // same grid, size, scrollback, mo
 |---|---|
 | `Terminal::new(cols, rows, scrollback_lines)` | A blank terminal, its scrollback limited in lines only. Sizes below 1 become 1. Unfinished-sequence tracking is on from the first byte, so a snapshot can be taken at any point. |
 | `write(&[u8])` | Feeds the program's output. Any bytes are safe: libghostty-vt treats output as untrusted. |
-| `take_replies()` | The bytes the terminal wrote back for the program (cursor position, device status, mode and color reports). Device attributes, size reports and XTVERSION need callbacks that aren't set yet, so they get no reply. Capped at 1 MiB between drains. |
+| `take_replies()` | The bytes the terminal wrote back for the program: cursor position, device status, mode and color reports, device attributes (Ghostty's own: DA1 `CSI ? 62;22;52 c`, DA2 `CSI > 1;10;0 c`), size reports (XTWINOPS 14/16/18, and mode 2048's in-band reports, also sent on a resize) and XTVERSION (`libghostty`). No default colors are set, so OSC 10/11/12 queries get no reply and OSC 4 reports libghostty-vt's default palette, not the app's theme. Capped at 1 MiB between drains. |
 | `resize(cols, rows)` | The primary screen reflows; the alternate screen doesn't. |
+| `set_cell_pixels(width, height)` | A cell's size in pixels, for size reports. Unset, they report 0 pixels. |
 | `text(Lines::Screen)` / `text(Lines::Last(n))` | Plain text, one line per row, trailing blanks and blank bottom rows trimmed, as the daemon's M0 `read` returns it. Wrapped lines are the rows they fill. In the alternate screen, `Last(n)` sees only that screen, which has no scrollback. |
 | `snapshot()` / `from_snapshot(&[u8])` | Encodes or decodes GHOSTSNP. A snapshot carries its grid: whoever loads it gets that size. Malformed, truncated or corrupt snapshots are refused, never a crash (each record is CRC32C-checked). |
 | `set_scrollback_lines(n)` / `scrollback_lines()` | The scrollback limit in lines. libghostty-vt prunes whole pages, so it keeps about `n` lines, give or take a page. |

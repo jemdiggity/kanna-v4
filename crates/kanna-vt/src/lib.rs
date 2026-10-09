@@ -9,6 +9,8 @@ pub const MAX_UNFINISHED_SEQUENCE_BYTES: usize = 1 << 20;
 
 const MAX_PENDING_REPLY_BYTES: usize = 1 << 20;
 
+const DA1_FEATURES: [u16; 2] = [22, 52];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Error {
     pub op: &'static str,
@@ -49,7 +51,13 @@ pub enum Lines {
 
 pub struct Terminal {
     raw: NonNull<ffi::GhosttyTerminalImpl>,
-    replies: NonNull<Vec<u8>>,
+    hooks: NonNull<Hooks>,
+}
+
+#[derive(Default)]
+struct Hooks {
+    replies: Vec<u8>,
+    size: ffi::GhosttySizeReportSize,
 }
 
 unsafe impl Send for Terminal {}
@@ -104,10 +112,14 @@ impl Terminal {
 
     fn adopt(raw: ffi::GhosttyTerminal) -> Result<Terminal, Error> {
         let raw = NonNull::new(raw).ok_or(Error { op: "ghostty_terminal_new", code: ffi::GHOSTTY_INVALID_VALUE })?;
-        let replies = NonNull::from(Box::leak(Box::new(Vec::new())));
-        let terminal = Terminal { raw, replies };
-        let userdata: *mut Vec<u8> = replies.as_ptr();
-        let callback: ffi::GhosttyTerminalWritePtyFn = write_pty;
+        let hooks = NonNull::from(Box::leak(Box::new(Hooks::default())));
+        let mut terminal = Terminal { raw, hooks };
+        let (columns, rows) = terminal.size();
+        terminal.hooks().size = ffi::GhosttySizeReportSize { rows, columns, cell_width: 0, cell_height: 0 };
+        let userdata: *mut Hooks = hooks.as_ptr();
+        let write: ffi::GhosttyTerminalWritePtyFn = write_pty;
+        let attributes: ffi::GhosttyTerminalDeviceAttributesFn = device_attributes;
+        let size: ffi::GhosttyTerminalSizeFn = size_report;
         unsafe {
             check(
                 "terminal userdata",
@@ -115,10 +127,19 @@ impl Terminal {
             )?;
             check(
                 "terminal write_pty",
-                ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_WRITE_PTY, callback as *const c_void),
+                ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_WRITE_PTY, write as *const c_void),
             )?;
+            check(
+                "terminal device_attributes",
+                ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES, attributes as *const c_void),
+            )?;
+            check("terminal size", ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_SIZE, size as *const c_void))?;
         }
         Ok(terminal)
+    }
+
+    fn hooks(&mut self) -> &mut Hooks {
+        unsafe { &mut *self.hooks.as_ptr() }
     }
 
     fn set<T>(&mut self, op: &'static str, option: i32, value: &T) -> Result<(), Error> {
@@ -147,13 +168,21 @@ impl Terminal {
     }
 
     pub fn take_replies(&mut self) -> Vec<u8> {
-        std::mem::take(unsafe { &mut *self.replies.as_ptr() })
+        std::mem::take(&mut self.hooks().replies)
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), Error> {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        let size = self.hooks().size;
         check("ghostty_terminal_resize", unsafe {
-            ffi::ghostty_terminal_resize(self.raw.as_ptr(), cols.max(1), rows.max(1), 0, 0)
-        })
+            ffi::ghostty_terminal_resize(self.raw.as_ptr(), cols, rows, size.cell_width, size.cell_height)
+        })?;
+        (self.hooks().size.columns, self.hooks().size.rows) = (cols, rows);
+        Ok(())
+    }
+
+    pub fn set_cell_pixels(&mut self, width: u32, height: u32) {
+        (self.hooks().size.cell_width, self.hooks().size.cell_height) = (width, height);
     }
 
     pub fn set_scrollback_lines(&mut self, lines: usize) -> Result<(), Error> {
@@ -277,7 +306,7 @@ impl Drop for Terminal {
     fn drop(&mut self) {
         unsafe {
             ffi::ghostty_terminal_free(self.raw.as_ptr());
-            drop(Box::from_raw(self.replies.as_ptr()));
+            drop(Box::from_raw(self.hooks.as_ptr()));
         }
     }
 }
@@ -295,10 +324,40 @@ unsafe extern "C" fn write_pty(_terminal: ffi::GhosttyTerminal, userdata: *mut c
     if userdata.is_null() || data.is_null() || len == 0 {
         return;
     }
-    let replies = &mut *(userdata as *mut Vec<u8>);
+    let replies = &mut (*(userdata as *mut Hooks)).replies;
     if replies.len().saturating_add(len) <= MAX_PENDING_REPLY_BYTES {
         replies.extend_from_slice(std::slice::from_raw_parts(data, len));
     }
+}
+
+unsafe extern "C" fn device_attributes(
+    _terminal: ffi::GhosttyTerminal,
+    _userdata: *mut c_void,
+    out: *mut ffi::GhosttyDeviceAttributes,
+) -> bool {
+    if out.is_null() {
+        return false;
+    }
+    let mut features = [0u16; 64];
+    features[..DA1_FEATURES.len()].copy_from_slice(&DA1_FEATURES);
+    *out = ffi::GhosttyDeviceAttributes {
+        primary: ffi::GhosttyDeviceAttributesPrimary { conformance_level: 62, features, num_features: DA1_FEATURES.len() },
+        secondary: ffi::GhosttyDeviceAttributesSecondary { device_type: 1, firmware_version: 10, rom_cartridge: 0 },
+        tertiary: ffi::GhosttyDeviceAttributesTertiary { unit_id: 0 },
+    };
+    true
+}
+
+unsafe extern "C" fn size_report(
+    _terminal: ffi::GhosttyTerminal,
+    userdata: *mut c_void,
+    out: *mut ffi::GhosttySizeReportSize,
+) -> bool {
+    if userdata.is_null() || out.is_null() {
+        return false;
+    }
+    *out = (*(userdata as *mut Hooks)).size;
+    true
 }
 
 #[cfg(all(test, kanna_vt_abi))]
@@ -324,6 +383,8 @@ mod abi {
             ("GHOSTTY_FORMATTER_FORMAT_PLAIN", GHOSTTY_FORMATTER_FORMAT_PLAIN as i64),
             ("GHOSTTY_TERMINAL_OPT_USERDATA", GHOSTTY_TERMINAL_OPT_USERDATA as i64),
             ("GHOSTTY_TERMINAL_OPT_WRITE_PTY", GHOSTTY_TERMINAL_OPT_WRITE_PTY as i64),
+            ("GHOSTTY_TERMINAL_OPT_SIZE", GHOSTTY_TERMINAL_OPT_SIZE as i64),
+            ("GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES", GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES as i64),
             ("GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES", GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES as i64),
             ("GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES", GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES as i64),
             ("GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES", GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES as i64),
@@ -362,6 +423,20 @@ mod abi {
             ("GhosttyTerminalSelectionFormatOptions.unwrap", offset_of!(GhosttyTerminalSelectionFormatOptions, unwrap) as i64),
             ("GhosttyTerminalSelectionFormatOptions.trim", offset_of!(GhosttyTerminalSelectionFormatOptions, trim) as i64),
             ("GhosttyTerminalSelectionFormatOptions.selection", offset_of!(GhosttyTerminalSelectionFormatOptions, selection) as i64),
+            ("sizeof GhosttyDeviceAttributesPrimary", size_of::<GhosttyDeviceAttributesPrimary>() as i64),
+            ("GhosttyDeviceAttributesPrimary.features", offset_of!(GhosttyDeviceAttributesPrimary, features) as i64),
+            ("GhosttyDeviceAttributesPrimary.num_features", offset_of!(GhosttyDeviceAttributesPrimary, num_features) as i64),
+            ("sizeof GhosttyDeviceAttributesSecondary", size_of::<GhosttyDeviceAttributesSecondary>() as i64),
+            ("GhosttyDeviceAttributesSecondary.firmware_version", offset_of!(GhosttyDeviceAttributesSecondary, firmware_version) as i64),
+            ("GhosttyDeviceAttributesSecondary.rom_cartridge", offset_of!(GhosttyDeviceAttributesSecondary, rom_cartridge) as i64),
+            ("sizeof GhosttyDeviceAttributesTertiary", size_of::<GhosttyDeviceAttributesTertiary>() as i64),
+            ("sizeof GhosttyDeviceAttributes", size_of::<GhosttyDeviceAttributes>() as i64),
+            ("GhosttyDeviceAttributes.secondary", offset_of!(GhosttyDeviceAttributes, secondary) as i64),
+            ("GhosttyDeviceAttributes.tertiary", offset_of!(GhosttyDeviceAttributes, tertiary) as i64),
+            ("sizeof GhosttySizeReportSize", size_of::<GhosttySizeReportSize>() as i64),
+            ("GhosttySizeReportSize.columns", offset_of!(GhosttySizeReportSize, columns) as i64),
+            ("GhosttySizeReportSize.cell_width", offset_of!(GhosttySizeReportSize, cell_width) as i64),
+            ("GhosttySizeReportSize.cell_height", offset_of!(GhosttySizeReportSize, cell_height) as i64),
         ];
         let mut c = vec![0i64; rust.len() + 8];
         let n = unsafe { kanna_vt_abi(c.as_mut_ptr(), c.len()) };
