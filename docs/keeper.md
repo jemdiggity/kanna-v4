@@ -144,6 +144,7 @@ stateDiagram-v2
 | **Files** | `keeper.sock`, `keeper.lock`, `keeper.pid`, `keeper.log` in DIR. |
 | **Client gone** | Nothing happens: the processes and the keeper's copies stay. |
 | **Idle exit** | After 60 s with no live process, no client and nothing being closed. Unacknowledged exits don't keep it. |
+| **Signals** | It unblocks SIGCHLD, SIGTERM and SIGINT at start: the daemon that starts it blocks the signals it waits for, and children inherit that. |
 | **SIGTERM / SIGINT** | It exits without signalling anyone. Its copies close; a pty with no other copy hangs up, and its processes get SIGHUP from the kernel. |
 
 ## 8. The Client (for the Daemon)
@@ -159,6 +160,7 @@ stateDiagram-v2
 | `close(id)`, `ack(id)` | |
 | `poll_events()`, `wait_event(timeout)` -> `Exited { id, pid, status }` | `status` is `ExitStatus::Code(n)` or `Signal(s)`; `shell_status()` gives 128+s |
 | `as_raw_fd()` | for the daemon's poll loop: readable means events; then `poll_events()` |
+| `set_timeout(Some(t))` | a request with no reply within `t` fails with `TimedOut`, so a keeper that stops answering can't hang the daemon |
 
 Received masters are close-on-exec and blocking; the daemon sets what it needs.
 

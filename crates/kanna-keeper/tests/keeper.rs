@@ -409,3 +409,53 @@ fn connect_or_start_runs_one_detached_keeper() {
     wait_for("the detached keeper to stop", || !alive(pid));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+struct KilledOnDrop(Child);
+
+impl Drop for KilledOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn a_keeper_started_with_its_signals_blocked_still_stops_on_sigterm() {
+    use std::os::unix::process::CommandExt;
+    let dir = private_dir();
+    let mut cmd = Command::new(BIN);
+    cmd.arg("--state-dir").arg(dir.join("state")).stdin(Stdio::null());
+    unsafe {
+        cmd.pre_exec(|| {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            for signo in [libc::SIGTERM, libc::SIGINT, libc::SIGCHLD] {
+                libc::sigaddset(&mut set, signo);
+            }
+            libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+            Ok(())
+        });
+    }
+    let mut keeper = KilledOnDrop(cmd.spawn().unwrap());
+    let socket = dir.join("state/keeper.sock");
+    wait_for("the keeper's socket", || Client::connect(&socket).is_ok());
+    let mut c = Client::connect(&socket).unwrap();
+    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+    let pty = c.spawn(&SpawnRequest::command("t1", "exit 6")).unwrap();
+    assert_eq!(exit_reading(&mut c, &pty.master).0.status, ExitStatus::Code(6));
+    unsafe { libc::kill(keeper.0.id() as i32, libc::SIGTERM) };
+    wait_for("the keeper to stop on SIGTERM", || keeper.0.try_wait().unwrap().is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_request_to_a_keeper_that_doesnt_answer_times_out() {
+    let dir = private_dir();
+    let socket = dir.join("mute.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let mut c = Client::connect(&socket).unwrap();
+    let _held = listener.accept().unwrap();
+    c.set_timeout(Some(Duration::from_millis(200))).unwrap();
+    assert_eq!(c.hello().unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+    let _ = std::fs::remove_dir_all(&dir);
+}

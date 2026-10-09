@@ -131,6 +131,11 @@ impl Client {
         Self::connect(&socket)
     }
 
+    pub fn set_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.stream.set_read_timeout(timeout)?;
+        self.stream.set_write_timeout(timeout)
+    }
+
     /// The protocol version and the keeper's pid.
     pub fn hello(&mut self) -> io::Result<(u64, i32)> {
         let (reply, _) = self.request(json!({"op": "hello"}), |_, _| {})?;
@@ -229,6 +234,9 @@ impl Client {
                 Ok(true)
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock && !block => Ok(false),
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                Err(io::Error::new(io::ErrorKind::TimedOut, "the keeper didn't answer in time"))
+            }
             Err(e) => Err(e),
         }
     }
