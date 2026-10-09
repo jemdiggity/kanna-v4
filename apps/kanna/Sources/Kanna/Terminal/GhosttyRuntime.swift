@@ -16,7 +16,6 @@ final class GhosttyRuntime {
     private let config: ghostty_config_t
     private var live: [UInt: TerminalSurfaceView] = [:]
     private var timer: Timer?
-    var onClose: ((TerminalSurfaceView) -> Void)?
 
     init() throws {
         guard let cfg = ghostty_config_new() else { throw Self.error("ghostty_config_new failed") }
@@ -39,15 +38,6 @@ final class GhosttyRuntime {
         runtime.write_clipboard_cb = { userdata, _, content, count, confirm in
             let id = UInt(bitPattern: userdata)
             MainActor.assumeIsolated { GhosttyRuntime.shared?.writeClipboard(id, content: content, count: count, confirm: confirm) }
-        }
-        runtime.close_surface_cb = { userdata, _ in
-            let id = UInt(bitPattern: userdata)
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard let runtime = GhosttyRuntime.shared, let view = runtime.live[id] else { return }
-                    runtime.onClose?(view)
-                }
-            }
         }
         guard let value = ghostty_app_new(&runtime, cfg) else {
             ghostty_config_free(cfg)

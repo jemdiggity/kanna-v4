@@ -8,9 +8,6 @@ import QuartzCore
 /// Draws one Ghostty surface and feeds it keyboard, mouse and IME input.
 @MainActor
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
-    var onFocus: (() -> Void)?
-    /// The menu for a right-click, unless the program in the terminal takes the mouse.
-    var contextMenu: (() -> NSMenu?)?
     var surface: ghostty_surface_t? { didSet { if surface != nil { syncSurfaceGeometry(); updateVisibility() } } }
     var isHandlingInputEvent = false
     /// Tests render hidden windows too (KANNA_IGNORE_OCCLUSION=1), so their
@@ -88,7 +85,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         if let surface { ghostty_surface_set_focus(surface, true) }
-        onFocus?()
         return result
     }
 
@@ -206,20 +202,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return result.text.map { String(cString: $0) } ?? ""
     }
 
-    /// Types `text` and presses Return, for the `send` command.
-    func typeLine(_ text: String) {
-        sendText(text)
-        guard let surface else { return }
-        var key = ghostty_input_key_s()
-        key.keycode = 36 // Return
-        for action in [GHOSTTY_ACTION_PRESS, GHOSTTY_ACTION_RELEASE] {
-            key.action = action
-            _ = ghostty_surface_key(surface, key)
-        }
-    }
-
     /// Inserts `text` as committed input (Ghostty's paste path).
-    func sendText(_ text: String) {
+    private func sendText(_ text: String) {
         guard let surface else { return }
         text.withCString { ghostty_surface_text(surface, $0, UInt(text.utf8.count)) }
     }
@@ -236,9 +220,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
     override func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        if let surface, !ghostty_surface_mouse_captured(surface), let menu = contextMenu?() {
-            return NSMenu.popUpContextMenu(menu, with: event, for: self)
-        }
         mouseButton(event, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT)
     }
     override func rightMouseUp(with event: NSEvent) { mouseButton(event, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT) }
