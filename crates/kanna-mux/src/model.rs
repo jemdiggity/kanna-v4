@@ -669,7 +669,7 @@ impl Model {
                 return Err(layout_invalid(format!("sizes in a {} add up to {}, more than 1", axis.as_str(), fraction::format(given))));
             }
             if unsized_count > 0 && given >= 1.0 - 1e-9 {
-                return Err(layout_invalid(format!("no space left for the unsized_count panes in a {}", axis.as_str())));
+                return Err(layout_invalid(format!("no space left for the unsized panes in a {}", axis.as_str())));
             }
             let fill = if unsized_count > 0 { (1.0 - given) / unsized_count as f64 } else { 0.0 };
             let scale = if unsized_count > 0 { 1.0 } else { 1.0 / given };
