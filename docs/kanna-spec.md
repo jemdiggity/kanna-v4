@@ -1,6 +1,6 @@
 # kanna — Specification
 
-> **Status:** Draft v0.6 · **Last updated:** 2026-10-09
+> **Status:** Draft v0.7 · **Last updated:** 2026-10-09
 >
 > Items marked **[Assumption]** are guesses made to fill gaps. Confirm or correct them, and see [Open Questions](#11-open-questions).
 >
@@ -198,7 +198,7 @@ flowchart LR
 | **Terminal** | a pty, its screen and scrollback, cwd, exit code | the daemon | exactly as it was, still running |
 | **Layout state** | where panes are; a web pane's URL and history, a markdown pane's file, an iOS pane's device and app | the app | reopened: pages reload at their URL, files reopen, simulators never stopped |
 
-Terminal commands (`list`, `send`, `read`, `close`, `restart`) work with the app closed. Layout, web, markdown and iOS commands are passed to the app; with the app closed, kanna starts it or fails clearly.
+Terminal commands (`list`, `send`, `read`, `close`, `restart`, and `open` without a placement) work with the app closed. Layout, web, markdown and iOS commands are passed to the app; with the app closed, kanna starts it or fails clearly ([4.7](#47-the-layout)).
 
 ### 4.3 kmux Is the Reference Model
 
@@ -235,11 +235,11 @@ The daemon has to run on Linux too, so everything below the app is Rust. A Linux
 
 ### 4.5 The App Link
 
-The app is a client of the daemon, like the CLI, but it stays connected: it shows the daemon's terminals, types into them, and answers the requests only the app can (`debug.*` now; layout, web and iOS commands later). The **app link** is that one connection, on the daemon's own socket (`$KANNA_SOCKET`).
+The app is a client of the daemon, like the CLI, but it stays connected: it shows the daemon's terminals, types into them, and answers the requests only the app can (the layout and `debug.*` now; web and iOS commands later). The **app link** is that one connection, on the daemon's own socket (`$KANNA_SOCKET`).
 
 **The same wire as the control protocol.** One JSON object per line, both ways. A message with `cmd` is a request, shaped `{"id", "cmd", "args"}` as in the control protocol; with an `id` it wants a reply, `{"id", "ok": true, …}` or `{"id", "ok": false, "error": {"code", "message"}}`, and without one it's a notice that gets none. Each side numbers its own requests, and a reply goes to the side that asked. Terminal bytes are base64 in a `data` field.
 
-**Saying it's the app.** The app's first line is `{"id": 0, "cmd": "app.hello", "args": {"pid": …}}`. The daemon answers `{"id": 0, "ok": true, "daemon": {"pid": …}}` and the connection is the app link from then on. One app at a time: a second gets `ok: false` (`app_attached`) and is closed. If the daemon goes away, the app keeps trying to connect, and on reconnecting says hello and attaches its terminals again.
+**Saying it's the app.** The app's first line is `{"id": 0, "cmd": "app.hello", "args": {"pid": …}}`. The daemon answers `{"id": 0, "ok": true, "daemon": {"pid": …}, "panes": [{"id", "name", "type"}, …]}`, listing every terminal it has, and the connection is the app link from then on. One app at a time: a second gets `ok: false` (`app_attached`) and is closed. If the daemon goes away, the app keeps trying to connect, and on reconnecting says hello and attaches its terminals again.
 
 ```mermaid
 sequenceDiagram
@@ -247,8 +247,8 @@ sequenceDiagram
     participant D as Kanna daemon
     participant C as kanna CLI
     A->>D: app.hello
-    D->>A: ok
-    D->>A: layout (what to show)
+    D->>A: ok, panes p1 p2
+    Note over A: restore layout.json, drop panes that are gone, place the new ones
     A->>D: attach p1
     D->>A: snapshot p1 (the screen, GHOSTSNP)
     D->>A: grid p1 80×24
@@ -257,6 +257,10 @@ sequenceDiagram
     Note over A,D: from now on, both ways
     A->>D: input p1 (keystrokes)
     D->>A: output p1 (what the program wrote)
+    C->>D: open --split right
+    D->>A: layout {op: place, pane p3, at: right}
+    A->>D: ok {window w1, tab t1}
+    D->>C: ok, p3 in w1
     C->>D: debug.type pane s1
     D->>A: debug.type pane p1 (names resolved to IDs)
     A->>D: ok
@@ -265,8 +269,8 @@ sequenceDiagram
 
 | Message | From | What it says |
 |---|---|---|
-| `app.hello {pid}` | app | I'm the app; the reply accepts or refuses it |
-| `layout {window, tab, focused, root}` | daemon | what to show: the tree of panes, sent again whenever it changes |
+| `app.hello {pid}` | app | I'm the app; the reply accepts or refuses it and lists the daemon's terminals (`panes`) |
+| `layout {op, …, panes}` (with an `id`) | daemon | one step of a command on the layout ([4.7](#47-the-layout)); the app's reply is the step's answer |
 | `attach {pane}` / `detach {pane}` | app | I show (or no longer show) this terminal |
 | `snapshot {pane, data}` | daemon | the terminal's whole screen (grid, scrollback, modes, colors, an unfinished sequence) as a GHOSTSNP snapshot; sent on attach, before anything else for that pane |
 | `grid {pane, cols, rows}` | daemon | the terminal's size, after a snapshot or a resize |
@@ -276,11 +280,13 @@ sequenceDiagram
 | `resize {pane, cols, rows, width, height}` | app | the view now fits this many cells (and pixels) |
 | `debug.*` (with an `id`) | daemon | a request from a client, passed on; the app's reply is the client's |
 
+- **Requests from the daemon are answered in order.** The app answers `layout` on its main thread as the message arrives, before anything after it; `debug.*` may answer later.
+
 - **The daemon decides a terminal's size.** The view asks with `resize`; the daemon sets the pty's size, and the view takes the size `grid` gives it, in order with the output.
 - **Requests for the app** (`debug.app`, `debug.type`, `debug.key`, `debug.text`, `debug.snapshot`) can come from any client. The daemon turns a pane name into its ID, passes the request on and returns the app's reply. With no app attached they fail with `no_app`; if the app goes away first, with `app_gone`. If the app doesn't answer within 10 s they fail with `timeout`.
 - **Debug commands are off by default.** The app answers `debug.*` only when started with `KANNA_DEBUG=1` (the test scripts set it). `debug.snapshot` takes a plain file name and writes a new file in `$KANNA_STATE_DIR` (or `$TMPDIR`); it never overwrites one.
 - **Limits:** a resize beyond 1000 cells a side is refused; a line over 16 MiB drops the app; an app that falls 16 MiB behind on output stops getting it and starts its terminals over (snapshot, grid) once it has caught up, and one 64 MiB behind is dropped.
-- **Layout, for M0:** the daemon keeps kanna-mux's own layout model and sends the first window's active tab: `{"pane": ID, "type": …}` for a pane, `{"split": "row" | "column", "children": […]}` for a split (a row side by side, a column stacked), each child with its `size` as a fraction. The app mirrors it, keeping each pane's view as the tree changes; panes it can't show yet are placeholders. From M1 the app owns the layout ([plan](plans/mux-build.md) step 1.3) and this message goes.
+- **The layout is the app's** ([4.7](#47-the-layout)): the daemon keeps none and asks the app for every layout step. M0's `layout` notice, which mirrored a layout the daemon kept, is gone.
 - **Screens:** the daemon keeps each terminal's screen with libghostty-vt (`crates/kanna-vt`), fed from the pty: up to 10,000 lines of scrollback, and no more than 10 MB. `read` answers from it, so it works with the app closed.
 - **Queries are answered once, by the daemon.** The program's queries (cursor position, device status and attributes, modes, size reports, XTVERSION) are answered by the daemon's screen, written back to the pty as they're parsed, whether or not the app is attached. The app's surfaces parse the same output but drop their replies (the Ghostty fork's external backend), so the program never gets two. The daemon's screen has no theme colors, so OSC 10/11 color queries get no answer yet.
 - **Attaching:** the daemon takes the snapshot on its main loop under the same lock the pty reader feeds the screen and the outbox with, and empties the outbox as it does: what the snapshot has isn't sent again, and every later byte follows as `output`. The app loads the snapshot (`ghostty_surface_load_snapshot`), then applies the `grid` that follows, since a snapshot carries its own grid; both go through the same queue as output, in order. A restarted terminal is attached the same way.
@@ -324,6 +330,52 @@ flowchart LR
     class CLI ext
 ```
 
+**Layout steps.** `kanna-mux`'s core turns each command into steps on the layout and sends them through its `LayoutLink`; in-process (kmux's own shape, and `kanna-mux`'s tests) they run at once, in the daemon each is a `layout` request on the app link that the app answers with `LayoutOwner`. Every step carries the daemon's pane table (`panes: [{id, name, type}]`), so the app resolves names and labels as the daemon would. A command's steps and its changes to the panes run one command at a time (the core takes turns), so pane IDs and layout changes happen in kmux's order however slowly the app answers.
+
+| Step (`op`) | Used by | The app answers | With no app attached, the daemon answers |
+|---|---|---|---|
+| `place {pane, at}` | `open` (`at` holds only the `split`, `size`, `tab`, `window` given) | places it: `{window, tab}` | with no `at`: `{window: null, tab: null}`, the pane is opened unplaced; with one: `no_app` |
+| `location {pane}` | `open`, once the pane has started | `{window, tab}` | `{window: null, tab: null}` |
+| `command {cmd, args}` | `focus`, `zoom`, `rename-tab`, `move`, `move-tab`, `resize`, `arrange` | the command's reply, as kmux | `no_app` |
+| `panes-in {tab}` / `{window}` | `close --tab`, `close --window` | the panes there | `no_app` |
+| `remove {ids, tidy}` | `close`, `debug.restoreState` | removes them (and closes emptied tabs and windows) | nothing to do |
+| `windows` | `list`, `debug.restoreState` | kmux's `windows` | `[]` |
+| `export`, `check {state, ids}`, `install {state, ids}` | `debug.saveState`, `debug.restoreState` | as kmux | `no_app` |
+
+- **With the app attached** every layout command is the app's; `close` closes the terminals in the daemon and then has the app remove them.
+- **With the app closed**, terminals keep working: `list`, `send`, `read`, `close`, `restart`, and `open` without a placement (the pane is placed when the app next opens). Commands that need the layout fail with `no_app`: "… needs Kanna.app, and none is attached to this daemon".
+- **If the app goes away mid-step**, the step gets the no-app answer: an unplaced `open` still opens its terminal, a placed one fails.
+- **`list`** answers `panes` from the daemon and `windows` from the app; with no app, `windows` is `[]` (no last-known layout: the app's file is the only copy, and it may be stale) and each pane's window shows as `-`.
+
+**Saving.** The app saves its layout in kmux's state file format (`kmux: "state"`, `version: 1`, windows, tabs, splits, focus, zoom, the panes it places by ID, name and type) to `layout.json` in its state folder: `$KANNA_STATE_DIR`, or the daemon socket's folder. As kmux: half a second after a change and on quit, only when something changed, written atomically (a new file, then renamed) with mode 0600; `--fresh` (or `KANNA_FRESH=1`) starts without it, `KANNA_NO_STATE=1` neither reads nor writes one.
+
+**Restoring.** On launch the app reads the file (one it can't trust, or of another version, is moved aside as `layout.json.bad`). When the daemon accepts it, the hello reply lists the daemon's terminals; the app drops from the layout every pane the daemon no longer has (closing emptied splits, tabs and windows), places every terminal it doesn't know as `open` would (beside the focused pane), draws the key window's active tab, and attaches each terminal it shows. A reconnect to a restarted daemon does the same with the layout in memory. Nothing is saved until the saved layout has been installed, so an app that never reached its daemon doesn't overwrite it.
+
+```mermaid
+sequenceDiagram
+    participant A as Kanna app
+    participant D as Kanna daemon
+    participant C as kanna CLI
+    Note over A: closed
+    C->>D: open --name logs
+    D->>C: ok, p3, window null
+    C->>D: open --split right
+    D->>C: no_app
+    C->>A: start (open -a $KANNA_APP)
+    Note over A: read layout.json (p1, p2)
+    A->>D: app.hello
+    D->>A: ok, panes p1 p2 p3
+    Note over A: p1, p2 where they were; p3 placed
+    C->>D: open --split right (again)
+    D->>A: layout {op: place, pane p4, at: right}
+    A->>D: ok {window w1, tab t1}
+    D->>C: ok, p4
+```
+
+**The CLI starts the app** ([plan](plans/mux-build.md) step 1.4). When the daemon answers a command with `no_app` and `KANNA_SOCKET` isn't set, `kanna` starts Kanna.app (`open -n -a $KANNA_APP`, or by bundle ID `dev.kanna.app.dev`, never the branded kmux `dev.kanna.kanna`; with `KANNA_SOCKET` and `KANNA_STATE_DIR` passed on, in the background with `KANNA_BG=1`), retries the command every 200 ms until the app has attached (a `no_app` answer changes nothing, so the retry is safe), and gives up after 20 s with exit 6. With `KANNA_SOCKET` set (a test, a script, a terminal inside Kanna) it never starts an app: it exits 6 with the daemon's message and "KANNA_SOCKET is set, so kanna doesn't start Kanna.app for it". Until the new app replaces the branded kmux one, the daemon is reached without `KANNA_SOCKET` as `--mux kanna-dev` (or `KANNA_MUX=kanna-dev`): the daemon's default socket, `kanna-dev/kanna.sock` in the app support folder; if nothing answers there kanna exits 3 (it doesn't start daemons).
+
+**Conformance.** kmux's 31 protocol cases pass three ways: against `kanna-mux` with the model in-process; with the model behind `LayoutOwner`, every step sent as JSON and answered on a later turn (`crates/kanna-mux/tests/protocol_cases.rs`); and through a running daemon, keeper and app link, with a test app answering through `LayoutOwner` (`crates/kanna-daemon/tests/protocol_cases.rs`: the 24 cases that use only terminals; the rest need web, markdown or iOS panes, M3). The app's own glue is checked by S5 and S9 of `scripts/e2e-kanna.sh` and by `crates/kanna-layout/tests`.
+
 ---
 
 ## 5. Mux Backends
@@ -345,7 +397,7 @@ flowchart LR
 
 kanna picks the first match in this order:
 
-1. The `--mux kanna|kmux|tmux|cmux` flag. `kanna` is Kanna.app; `kmux` is a kmux the user runs.
+1. The `--mux kanna|kanna-dev|kmux|tmux|cmux` flag. `kanna` is Kanna.app; `kanna-dev` is Kanna's daemon, which the new Kanna.app attaches to, while the two are being built ([4.7](#47-the-layout)); `kmux` is a kmux the user runs.
 2. The `$KANNA_MUX` environment variable.
 3. **Auto-detect:** if kanna is running inside tmux (`$TMUX` is set), it uses tmux. If it's running inside cmux, it uses cmux. **[Not built yet]**
 4. Otherwise Kanna.app, which kanna starts if it isn't already running. Inside a Kanna.app terminal, kanna talks to that instance (`$KANNA_SOCKET`).
@@ -554,6 +606,7 @@ sequenceDiagram
 | 3 | The mux isn't running and couldn't be started |
 | 4 | Pane not found |
 | 5 | Not supported by this backend |
+| 6 | The command needs Kanna.app, which isn't attached and wasn't started (`KANNA_SOCKET` is set, or it didn't start or attach within 20 s) |
 
 | Situation | Behaviour |
 |-----------|-----------|
@@ -563,6 +616,7 @@ sequenceDiagram
 | Pane too small after rounding (tmux) | The size is raised to the backend's minimum and a warning is printed. |
 | Two panes given the same name | The second `open` exits 1. |
 | `KANNA_SOCKET` is set and nothing answers there | Exits 3. kanna never starts an app for a socket it was pointed at. |
+| A layout command (`open --split`, `focus`, `arrange`…) and Kanna.app isn't attached to the daemon | kanna starts Kanna.app and retries; with `KANNA_SOCKET` set, exits 6 (`no_app`) ([4.7](#47-the-layout)). |
 
 ---
 

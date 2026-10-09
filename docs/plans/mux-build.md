@@ -48,6 +48,7 @@ The reference has two parts:
 | S6 | kill the daemon; it comes back; shells have the same PIDs; output written meanwhile isn't lost | M2 |
 | S7 | `exit 3` in a terminal; `kanna list` shows exit code 3 | M2 |
 | S8 | web, markdown and iOS panes open, are restored after a relaunch, and answer `web.*`, `navigate`, iOS commands | M3 |
+| S9 | with the app closed, `kanna open --split right` starts the app and the split lands; with `KANNA_SOCKET` set it exits 6 and starts nothing | M1 |
 
 
 ---
@@ -123,8 +124,10 @@ flowchart TB
 |---|---|---|---|
 | **1.1** ✓ | kanna-v4 | The daemon keeps a libghostty-vt screen per terminal (its C API, from Rust), fed from the pty. `kanna read` answers from it. Built: `kanna-vt` screens in the daemon (10,000 lines, 10 MB), replacing the vte one; the daemon answers queries (now including DA and size reports) and the app's surfaces drop theirs. | S3 passes |
 | **1.2** ✓ | kanna-v4 | On attach the daemon sends the screen as a snapshot; the app loads it (`load_snapshot` in the Ghostty fork), then live output. Built: `snapshot` then `grid` on the app link ([spec §4.5](../kanna-spec.md#45-the-app-link)), taken in step with the outbox; a snapshot that fails mid-sequence is retried after more output; the replay buffer is gone. | S4 passes |
-| **1.3** | kanna-v4 | The app saves its layout (`kanna-mux`'s state file format, in Kanna's folder), panes pointing at terminals by ID; reopens it on launch. | S5 passes |
-| **1.4** | kanna-v4 | The CLI starts the app when a layout command needs it, or fails clearly. | `kanna open --split` with the app closed works |
+| **1.3** ✓ | kanna-v4 | The app saves its layout (`kanna-mux`'s state file format, in Kanna's folder), panes pointing at terminals by ID; reopens it on launch. Built ([spec §4.7](../kanna-spec.md#47-the-layout)): the app owns the layout through `kanna-mux`'s one model, linked as `crates/kanna-layout`; the daemon's core reaches it through an async `LayoutLink`, each step a `layout` request on the app link; with no app, terminals open unplaced and layout commands fail with `no_app`; the app saves `layout.json` (kmux's rules) and on attach drops gone panes and places new ones. kmux's cases pass in-process, through `LayoutOwner`, and through the daemon and app link. | S5 passes |
+| **1.4** ✓ | kanna-v4 | The CLI starts the app when a layout command needs it, or fails clearly. Built: on `no_app` the CLI starts `$KANNA_APP` (or `dev.kanna.app.dev`, never the branded kmux) and retries; with `KANNA_SOCKET` set it exits 6; `--mux kanna-dev` reaches the daemon without it. | `kanna open --split` with the app closed works (S9) |
+
+**M1 is complete:** S3, S4 and S5 pass (with S1, S7 and S9), three runs in a row.
 
 ---
 
@@ -195,7 +198,9 @@ The mux UI stays Swift: it's the macOS app's views. A Linux UI would be its own,
 | **Stub** | A stand-in that behaves just enough to connect (an echoing backend, a daemon that spawns its own pty). |
 | **Reference model** | What Kanna is checked against: kmux, unchanged, for the mux and its CLI; plus the scenarios. |
 | **kanna-mux** | Kanna's mux core as a Rust crate: the CLI shape (layer 4), ported from kmux's core and checked with kmux's protocol cases. |
-| **LayoutHost** | The seam in kanna-mux through which layout commands reach whatever owns the layout (Kanna's app). |
+| **LayoutHost** | The layout model's interface in kanna-mux (kmux's model implements it). |
+| **LayoutLink** | The async seam in kanna-mux's core through which a command's layout steps reach whoever owns the layout: the model in-process, or Kanna's app over the app link. |
+| **LayoutOwner** | The app's side of the layout: kanna-mux's model plus the pane table and the state file, answering layout steps; Kanna.app runs it through `kanna-layout`. |
 | **TerminalBackend** | The seam in Kanna's mux UI between a terminal view and where its bytes come from (Kanna's daemon). |
 | **`kmux.rev`** | The kmux commit Kanna is matched against. |
 | **External I/O** | The Ghostty fork's mode where a surface has no pty: output is pushed in, keystrokes come out through a callback. |
