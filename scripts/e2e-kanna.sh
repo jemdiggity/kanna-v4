@@ -220,6 +220,11 @@ S8() {
   check is doc path "$dir/s8.md" || return 1
   check wait_for 5 page_shows web "S8 WEB" || return 1
   check wait_for 5 doc_shows doc "S8 TEXT" || return 1
+  stop_daemon; start_daemon || return 1
+  check wait_for 10 app_attached || return 1
+  check is web state running || return 1
+  check test "$(layout)" == "$before" || return 1
+  check page_shows web "S8 WEB" || return 1
   local udid
   udid="$(xcrun simctl list devices booted 2>/dev/null | sed -n 's/^ *iPhone.*(\([0-9A-F-]\{36\}\)) (Booted).*/\1/p' | head -1)"
   if [[ -z "$udid" ]]; then
