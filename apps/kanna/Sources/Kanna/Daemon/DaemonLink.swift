@@ -14,11 +14,13 @@ final class DaemonLink: TerminalLink {
     var onStop: ((String) -> Void)?
     var onPane: ((JSON) -> Void)?
     private var requests = 0
+    private let starter: DaemonStarter?
 
     var socketPath: String { connection.path }
 
-    init(socketPath: String, commands: Commands) {
+    init(socketPath: String, commands: Commands, starter: DaemonStarter? = nil) {
         self.commands = commands
+        self.starter = starter
         connection = DaemonConnection(
             path: socketPath,
             hello: { [weak self] in
@@ -26,7 +28,8 @@ final class DaemonLink: TerminalLink {
             },
             connected: { [weak self] in self?.connected() },
             received: { [weak self] message, delivery in self?.received(message, delivery) },
-            disconnected: { [weak self] in self?.disconnected() })
+            disconnected: { [weak self] in self?.disconnected() },
+            unreachable: { starter?.unreachable() })
     }
 
     func start() { connection.start() }
@@ -37,6 +40,7 @@ final class DaemonLink: TerminalLink {
     }
 
     private func connected() {
+        starter?.connected()
         for pane in terminals.keys.sorted() {
             send("attach", ["pane": .string(pane)])
             if case .object(let size)? = sizes[pane] { send("resize", size) }

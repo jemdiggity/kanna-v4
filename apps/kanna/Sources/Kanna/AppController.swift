@@ -16,6 +16,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
     private var layout: LayoutView!
     private var focused: String?
+    private var wantsFirstTerminal = ProcessInfo.processInfo.environment["KANNA_NO_INITIAL_WINDOW"] == nil
     private var appLayout: AppLayout?
     private var saveTimer: Timer?
     private let contents = Contents()
@@ -72,7 +73,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             }
         } else {
             if Self.isAppSocket(Self.daemonSocketPath) { fatal("kanna: \(Self.daemonSocketPath) belongs to Kanna.app; use another KANNA_SOCKET") }
-            let daemon = DaemonLink(socketPath: Self.daemonSocketPath, commands: commands)
+            let daemon = DaemonLink(socketPath: Self.daemonSocketPath, commands: commands, starter: DaemonStarter(socketPath: Self.daemonSocketPath))
             appLayout = AppLayout(statePath: Self.statePath, fresh: Self.fresh)
             daemon.onAttach = { [weak self] in self?.attached($0) }
             daemon.onLayout = { [weak self] in self?.layoutRequest($0) ?? ["ok": false, "error": ["code": "app_gone", "message": "Kanna.app is closing"]] }
@@ -152,6 +153,25 @@ final class AppController: NSObject, NSApplicationDelegate {
             }
         }
         layoutChanged()
+        if wantsFirstTerminal {
+            wantsFirstTerminal = false
+            openTerminalIfEmpty()
+        }
+    }
+
+    private var isEmpty: Bool {
+        guard let appLayout, case .array(let panes)? = appLayout.call(["call": "export"])["panes"] else { return false }
+        return panes.isEmpty
+    }
+
+    private func openTerminalIfEmpty() {
+        guard isEmpty, daemon?.attached == true else { return }
+        daemon?.request("open", ["type": "term"])
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        openTerminalIfEmpty()
+        return true
     }
 
     private func helloPanes() -> JSON {
@@ -364,7 +384,36 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         viewItem.submenu = view
         main.addItem(viewItem)
+        let shellItem = NSMenuItem()
+        let shell = NSMenu(title: "Shell")
+        for (title, action, key, modifiers) in [
+            ("Split Right", #selector(splitRight), "d", NSEvent.ModifierFlags.command), ("Split Down", #selector(splitDown), "d", [.command, .shift]),
+            ("Close Pane", #selector(closePane), "w", .command),
+        ] {
+            let item = shell.addItem(withTitle: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.target = self
+        }
+        shellItem.submenu = shell
+        main.insertItem(shellItem, at: 1)
         NSApp.mainMenu = main
+    }
+
+    @objc private func splitRight() { split("right") }
+    @objc private func splitDown() { split("down") }
+
+    private func split(_ direction: String) {
+        guard daemon?.attached == true else { return }
+        if isEmpty {
+            daemon?.request("open", ["type": "term"])
+            return
+        }
+        daemon?.request("open", ["type": "term", "split": .string(direction)])
+    }
+
+    @objc private func closePane() {
+        guard let focused, daemon?.attached == true else { return }
+        daemon?.request("close", ["pane": .string(focused)])
     }
 
     private func fatal(_ message: String) -> Never {

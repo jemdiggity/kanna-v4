@@ -17,7 +17,7 @@ if [[ "$built" != "$KANNA_GHOSTTY_COMMIT" ]]; then
   echo "note: GhosttyKit is Ghostty $built from GHOSTTY_SOURCE_DIR, not the pinned $KANNA_GHOSTTY_COMMIT" >&2
 fi
 
-(cd "$repo_root" && cargo build --release -p kanna-layout)
+(cd "$repo_root" && cargo build --release -p kanna-layout -p kanna-daemon -p kanna-keeper)
 "$repo_root/scripts/build-merman.sh"
 
 configuration="${KANNA_CONFIGURATION:-release}"
@@ -28,8 +28,9 @@ product_dir="$("${build[@]}" --show-bin-path)"
 
 app="$repo_root/target/Kanna.app"
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
 cp "$product_dir/Kanna" "$app/Contents/MacOS/Kanna"
+cp "$repo_root/target/release/kanna-daemon" "$repo_root/target/release/kanna-keeper" "$app/Contents/Helpers/"
 cp "$repo_root/assets/Kanna.icns" "$app/Contents/Resources/Kanna.icns"
 cp "$repo_root/LICENSE" "$app/Contents/Resources/"
 

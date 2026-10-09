@@ -12,6 +12,7 @@ final class DaemonConnection: @unchecked Sendable {
     private let connected: @MainActor @Sendable () -> Void
     private let received: @MainActor @Sendable (JSON, Delivery) -> Void
     private let disconnected: @MainActor @Sendable () -> Void
+    private let unreachable: @Sendable () -> Void
     private let writes = DispatchQueue(label: "kanna.daemon.write")
     private let lock = NSCondition()
     private var fd: Int32 = -1
@@ -25,12 +26,14 @@ final class DaemonConnection: @unchecked Sendable {
     private static let refusedDelayLimit: TimeInterval = 30
 
     init(path: String, hello: @escaping @MainActor @Sendable () -> JSON, connected: @escaping @MainActor @Sendable () -> Void,
-         received: @escaping @MainActor @Sendable (JSON, Delivery) -> Void, disconnected: @escaping @MainActor @Sendable () -> Void) {
+         received: @escaping @MainActor @Sendable (JSON, Delivery) -> Void, disconnected: @escaping @MainActor @Sendable () -> Void,
+         unreachable: @escaping @Sendable () -> Void = {}) {
         self.path = path
         self.hello = hello
         self.connected = connected
         self.received = received
         self.disconnected = disconnected
+        self.unreachable = unreachable
     }
 
     func start() {
@@ -78,6 +81,7 @@ final class DaemonConnection: @unchecked Sendable {
     private func run() {
         while !lock.withLock({ stopped }) {
             guard let socket = Self.connect(path) else {
+                unreachable()
                 Thread.sleep(forTimeInterval: 0.2)
                 continue
             }

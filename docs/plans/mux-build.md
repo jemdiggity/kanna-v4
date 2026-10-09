@@ -49,6 +49,7 @@ The reference has two parts:
 | S7 | `exit 3` in a terminal; `kanna list` shows exit code 3 | M2 |
 | S8 | web, markdown and iOS panes open, are restored after a relaunch, and answer `navigate` and kmux's `debug.web`, `debug.md`, `debug.ios` (kmux has no `web.*`) | M3 |
 | S9 | with the app closed, `kanna open --split right` starts the app and the split lands; with `KANNA_SOCKET` set it exits 6 and starts nothing | M1 |
+| S10 | with no daemon running, launching the app starts one from its bundle and opens a terminal; killing that daemon gets a new one, and quitting the app leaves it running | M3 |
 
 
 ---
@@ -149,6 +150,7 @@ flowchart TB
 |---|---|---|---|
 | **3.1** ✓ | kanna-v4 | The app gets web, markdown and iOS views, ported from kmux's; their state (URL and history, file, device and app) is layout state. Built ([spec §4.9](../kanna-spec.md#49-web-markdown-and-ios-panes)): `WebPaneView`, `KannaMarkdown` and `KannaDiagram` (mermaid through merman, built from kmux's `crates/kmux-merman` by `scripts/build-merman.sh`), `IosPaneView` and `SimBridge`, copied from kmux without comments or its pane menu; `Contents` starts them as kmux's `ContentHost` does. The records (url, history on/off, path and zoom, app and device) are in the app's `layout.json`; after a relaunch pages reload, files reopen, iOS panes reattach without relaunching a running app. | they open and come back after a relaunch |
 | **3.2** ✓ | kanna-v4 | The daemon passes non-terminal commands (`web.*`, `navigate`, iOS, pixel snapshots) to the app and returns the answer. Built: the app lends its panes to the daemon's core on hello (pane tables carry records), so `open`, `navigate`, `close`, `restart` and `list` run kmux's core unchanged; the daemon shows them with `start`/`stop`, the app reports with `update`; `debug.web`, `debug.md`, `debug.ios` (kmux's; kmux has no `web.*`) and `debug.snapshot` are passed to the app. With the app closed, `list` shows terminals only and the rest is `no_app`. kmux's 31 cases pass through the daemon. | S8 passes |
+| **3.3** ✓ | kanna-v4 | The app starts its own daemon and opens a first terminal. Built ([spec §4.5](../kanna-spec.md#45-the-app-link)): the daemon and keeper ship in `Kanna.app/Contents/Helpers`; the app starts the daemon when nothing answers at launch, or 2 s after losing one, detached so it outlives the app; an empty layout after the first attach gets a terminal; Shell menu: Split Right ⌘D, Split Down ⇧⌘D, Close Pane ⌘W. | S10 passes |
 
 **M3 is complete:** S8 passes (with S1, S3–S7 and S9), three runs in a row; kmux's 31 protocol cases pass in-process, through `LayoutOwner` and through the daemon and app link. S2's pixel check needs an unlocked screen.
 

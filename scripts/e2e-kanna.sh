@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S9) is one behaviour of the finished system; the plan
+Each scenario (S1–S10) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M3 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]) only+=("$1") ;;
+    S[1-9]|S10) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -49,6 +49,7 @@ new_state_dir() {
 new_state_dir
 export KANNA_IGNORE_OCCLUSION=1
 export KANNA_DEBUG=1
+export KANNA_NO_INITIAL_WINDOW=1
 daemon_pid="" app_pid=""
 
 need() { [[ -x "$1" ]] || { echo "not built: ${1#$repo_root/}"; return 1; }; }
@@ -84,8 +85,17 @@ stop_app() {
 app_attached() { [[ "$(raw '{"id":1,"cmd":"debug.app"}' | field ok)" == True ]]; }
 cleanup() {
   stop_app; stop_daemon
+  stop_started_daemon
   stop_keeper
   rm -rf "$KANNA_STATE_DIR"
+}
+stop_started_daemon() {
+  local pid
+  pid="$(cat "$KANNA_STATE_DIR/daemon.pid" 2>/dev/null)" || return 0
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  [[ "$(ps -o command= -p "$pid" 2>/dev/null)" == *Kanna.app/Contents/Helpers/kanna-daemon* ]] || return 0
+  kill "$pid" 2>/dev/null
+  wait_for 5 eval "! kill -0 $pid"
 }
 stop_keeper() {
   local pid
@@ -256,10 +266,25 @@ S9() {
   check test "$(dev list --json | field windows.0.tabs.0.layout)" == '{"children": [{"pane": "left", "size": "1/2"}, {"pane": "right", "size": "1/2"}], "split": "row"}'
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8) echo M3 ;; esac
+S10() {
+  env -u KANNA_NO_INITIAL_WINDOW "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not start a daemon and attach to it"; return 1; }
+  local first
+  first="$(cat "$KANNA_STATE_DIR/daemon.pid")"
+  check grep -q "Kanna.app/Contents/Helpers/kanna-daemon" <(ps -o command= -p "$first") || return 1
+  wait_for 5 eval '[[ "$(kanna list --json | field panes.0.type)" == term ]]' || { echo "the app did not open a first terminal"; return 1; }
+  kill "$first"
+  wait_for 15 eval '[[ "$(cat "$KANNA_STATE_DIR/daemon.pid" 2>/dev/null)" != "$first" ]] && app_attached' || { echo "the app did not start a new daemon"; return 1; }
+  check test "$(kanna list --json | field panes.0.type)" == term || return 1
+  stop_app
+  check kill -0 "$(cat "$KANNA_STATE_DIR/daemon.pid")" || return 1
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
