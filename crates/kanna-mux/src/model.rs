@@ -201,11 +201,48 @@ fn describe(value: &Value) -> String {
     match value {
         Value::Null => "null".into(),
         Value::Bool(b) => format!("bool({b})"),
-        Value::Number(n) => format!("number({:?})", n.as_f64().unwrap_or(0.0)),
-        Value::String(s) => format!("string({s:?})"),
-        Value::Array(items) => format!("array([{}])", items.iter().map(describe).collect::<Vec<_>>().join(", ")),
-        Value::Object(_) => format!("object({})", crate::json::encode(value)),
+        Value::Number(n) => format!("number({})", swift_double(n.as_f64().unwrap_or(0.0))),
+        Value::String(s) => format!("string({})", swift_quoted(s)),
+        Value::Array(items) => format!("array([{}])", items.iter().map(|item| format!("KmuxCore.JSON.{}", describe(item))).collect::<Vec<_>>().join(", ")),
+        Value::Object(fields) if fields.is_empty() => "object([:])".into(),
+        Value::Object(fields) => format!(
+            "object([{}])",
+            fields.iter().map(|(key, item)| format!("{}: KmuxCore.JSON.{}", swift_quoted(key), describe(item))).collect::<Vec<_>>().join(", ")
+        ),
     }
+}
+
+fn swift_double(value: f64) -> String {
+    let size = value.abs();
+    if !value.is_finite() || size == 0.0 || (size >= 1e-4 && size <= 9007199254740992.0) {
+        return format!("{value:?}");
+    }
+    let text = format!("{value:e}");
+    let (mantissa, exponent) = text.split_once('e').unwrap_or((&text, "0"));
+    let (sign, digits) = match exponent.strip_prefix('-') {
+        Some(digits) => ('-', digits),
+        None => ('+', exponent),
+    };
+    format!("{mantissa}e{sign}{digits:0>2}")
+}
+
+fn swift_quoted(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\'' => out.push_str("\\'"),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\0' => out.push_str("\\0"),
+            c if c.is_ascii_control() => out.push_str(&format!("\\u{{{:X}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn not_found(message: String) -> KmuxError {
@@ -994,5 +1031,31 @@ impl LayoutHost for Model {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn values_are_described_as_swift_prints_them() {
+        assert_eq!(describe(&json!(null)), "null");
+        assert_eq!(describe(&json!(true)), "bool(true)");
+        assert_eq!(describe(&json!(100)), "number(100.0)");
+        assert_eq!(describe(&json!(-1e20)), "number(-1e+20)");
+        assert_eq!(describe(&json!(-0.00001)), "number(-1e-05)");
+        assert_eq!(describe(&json!(9.5e15)), "number(9.5e+15)");
+        assert_eq!(describe(&json!(9007199254740992.0)), "number(9007199254740992.0)");
+        assert_eq!(describe(&json!(1.25e-7)), "number(1.25e-07)");
+        assert_eq!(describe(&json!(0.0001)), "number(0.0001)");
+        assert_eq!(describe(&json!("a'b\u{1b}é\u{7f}\t\0\\\"")), "string(\"a\\'b\\u{1B}é\\u{7F}\\t\\0\\\\\\\"\")");
+        assert_eq!(describe(&json!([])), "array([])");
+        assert_eq!(describe(&json!({})), "object([:])");
+        assert_eq!(
+            describe(&json!([[null], { "k": "v" }, 1, false])),
+            "array([KmuxCore.JSON.array([KmuxCore.JSON.null]), KmuxCore.JSON.object([\"k\": KmuxCore.JSON.string(\"v\")]), KmuxCore.JSON.number(1.0), KmuxCore.JSON.bool(false)])"
+        );
     }
 }
