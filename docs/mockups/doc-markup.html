@@ -9,7 +9,7 @@
   --chrome: #26282c; --tabbar: #1e1f22; --bar: #202226; --term: #292c33; --doc: #17181c; --panel: #1c1d22;
   --line: #2c2e34; --text: #e6e6e6; --dim: #8b8f98; --soft: #c9ccd3; --accent: #3478f6;
   --tint: rgba(52, 120, 246, 0.18); --tint-on: rgba(52, 120, 246, 0.34);
-  --ok: #4cb782; --warn: #d9a441; --bad: #e5675e; --page: #111214;
+  --ok: #4cb782; --warn: #d9a441; --page: #111214;
   --mono: "SF Mono", ui-monospace, Menlo, monospace; --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
 }
 * { box-sizing: border-box; }
@@ -19,6 +19,7 @@ body.picture main { padding: 0; max-width: none; }
 body.picture .intro { display: none; }
 h1 { font-size: 15px; margin: 0 0 4px; }
 .intro p { color: var(--dim); margin: 0 0 14px; max-width: 900px; }
+.intro kbd { font: 11.5px var(--mono); border: 1px solid #3a3d44; border-radius: 4px; padding: 0 4px; color: var(--soft); }
 .controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 button { font: 12px var(--sans); color: var(--text); background: #2a2c31; border: 1px solid #3a3d44; border-radius: 5px; padding: 4px 9px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -30,45 +31,41 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; }
 .lights { display: flex; gap: 7px; margin-right: 10px; }
 .lights i { width: 12px; height: 12px; border-radius: 50%; background: #4a4c52; display: block; }
 .wtabs { height: 32px; background: var(--tabbar); display: flex; padding-left: 14px; border-bottom: 1px solid #000; }
-.wtab { padding: 0 14px; display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; border-bottom: 2px solid var(--accent); }
+.wtab { padding: 0 14px; display: flex; align-items: center; color: var(--text); font-weight: 600; border-bottom: 2px solid var(--accent); }
 .body { height: 620px; display: flex; }
 body.picture .body { height: calc(100vh - 67px); }
 .divider { width: 1px; background: #000; flex: none; }
 
 .term { flex: 0 0 38%; min-width: 0; background: var(--term); font: 12px/1.55 var(--mono); padding: 10px 12px; white-space: pre-wrap; overflow: hidden; color: #d7dae0; }
-.term .c { color: #7fb4ca; } .term .p { color: #e5c07b; } .term .g { color: var(--dim); } .term .a { color: #d18ae6; }
+.term .c { color: #7fb4ca; } .term .p { color: #e5c07b; } .term .g { color: var(--dim); } .term .a { color: #d18ae6; } .term .ok { color: var(--ok); }
 .term .box { border: 1px solid #555a64; border-radius: 6px; padding: 4px 8px; margin-top: 8px; }
 
-.doc { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--doc); }
+.doc { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--doc); outline: none; }
+.doc:focus .toolbar { box-shadow: inset 0 -1px 0 var(--accent); }
 .toolbar { height: 34px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--bar); border-bottom: 1px solid #000; font-size: 12px; }
 .toolbar .path { font: 11.5px var(--mono); color: var(--soft); }
-.toolbar .saved { color: var(--dim); }
 .toolbar .spacer { flex: 1; }
 .toolbar .chip { border: 1px solid #3a3d44; border-radius: 5px; padding: 2px 8px; color: var(--soft); white-space: nowrap; }
 .toolbar .chip.on { border-color: var(--accent); color: var(--text); }
+.toolbar .watch { color: var(--ok); }
+.toolbar .watch.off { color: var(--warn); }
 .split { flex: 1; display: flex; min-height: 0; }
 
-.editor { flex: 1; min-width: 0; overflow: auto; padding: 26px 34px 80px; position: relative; }
+.editor { flex: 1; min-width: 0; overflow: auto; padding: 26px 34px 200px; position: relative; }
 .editor .measure { max-width: 640px; }
 .editor h2 { font-size: 24px; margin: 0 0 12px; }
-.editor h2 .md, .editor h3 .md { color: #4b4f58; font-weight: 400; }
 .editor h3 { font-size: 16px; margin: 20px 0 8px; }
 .editor p, .editor li { color: var(--soft); }
 .editor p { margin: 0 0 10px; }
 .editor ul { padding-left: 20px; margin: 0 0 10px; }
 .editor code { font: 12px var(--mono); background: #23252b; padding: 1px 5px; border-radius: 4px; }
-.editor .caretline { outline: 1px dashed #2f323a; outline-offset: 3px; }
-.editor .caretline .md { color: #6c7079; }
-.editor .slash { color: var(--accent); font-family: var(--mono); font-size: 12.5px; }
-.editor .hint { color: var(--dim); font-size: 11.5px; margin-left: 8px; }
+.modeline { position: fixed; font: 11px var(--mono); color: var(--accent); }
 mark { background: var(--tint); color: inherit; border-bottom: 1.5px solid var(--accent); cursor: pointer; }
 mark.on { background: var(--tint-on); }
 mark.flash { animation: flash .9s; }
 @keyframes flash { 0%,100% { background: var(--tint); } 40% { background: rgba(52,120,246,.6); } }
-.selbar { position: absolute; background: #2b2d32; border: 1px solid #000; border-radius: 6px; padding: 3px; display: none; box-shadow: 0 6px 18px rgba(0,0,0,.5); }
-.selbar button { border: 0; background: transparent; }
-.selbar button:hover { background: var(--accent); }
 .composer { margin: 8px 0 14px; background: #202228; border: 1px solid var(--accent); border-radius: 8px; padding: 8px; }
+.composer .q { color: var(--dim); border-left: 2px solid var(--accent); padding-left: 7px; font-size: 12px; margin-bottom: 4px; }
 .composer textarea { width: 100%; min-height: 54px; resize: vertical; background: transparent; color: var(--text); border: 0; outline: none; font: 13px var(--sans); }
 .composer .row { display: flex; justify-content: flex-end; gap: 6px; color: var(--dim); font-size: 11.5px; align-items: center; }
 
@@ -78,31 +75,31 @@ mark.flash { animation: flash .9s; }
 .card { background: #23252b; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .card.on { border-color: var(--accent); }
 .card .head { display: flex; justify-content: space-between; color: var(--dim); font: 11px var(--mono); margin-bottom: 4px; }
+.card .head .res { cursor: pointer; }
 .card .quote { color: var(--dim); border-left: 2px solid var(--accent); padding-left: 7px; margin: 2px 0 6px; font-size: 12px; cursor: pointer; }
 .card .msg { margin: 4px 0; font-size: 12.5px; color: var(--soft); }
 .card .msg b { color: var(--text); font-weight: 600; }
 .card .msg b.agent { color: #d18ae6; }
 .state { display: inline-block; font-size: 11px; border-radius: 10px; padding: 0 7px; border: 1px solid; margin: 2px 0 6px; }
-.state.queued { color: var(--dim); }
-.state.held { color: var(--warn); }
-.state.delivered { color: var(--ok); }
+.state.new { color: var(--dim); }
+.state.seen { color: var(--ok); }
 .state.replied { color: #d18ae6; }
-.state.failed { color: var(--bad); }
 .card .reply { display: flex; gap: 6px; margin-top: 6px; }
 .card .reply input { flex: 1; min-width: 0; background: #1b1c21; border: 1px solid var(--line); border-radius: 5px; color: var(--text); padding: 3px 6px; font: 12px var(--sans); }
 .card .reply button { padding: 2px 7px; }
-.card.resolved { opacity: .55; }
+.nowatch { border: 1px dashed var(--warn); border-radius: 8px; padding: 8px 10px; color: var(--soft); font-size: 12px; }
+.nowatch button { margin-top: 6px; }
 </style>
 </head>
 <body>
 <main>
   <div class="intro">
-    <h1>Doc markup — comment on a markdown file, and the agent beside it answers</h1>
-    <p>The doc pane edits the file in place (markers show only on the caret's line). Select text and press ⌘↵ or Comment, write, and post. The comment waits until the agent is idle and you have no unsent text in its prompt, then arrives; the agent replies and resolves with <code style="font-family:var(--mono)">kanna doc</code>. Try the buttons to move the story along.</p>
+    <h1>Doc markup: comment on a markdown file, and the agent beside it answers</h1>
+    <p>The markdown pane is a preview. Select text and press ⌘↵, or ⌘-click a word, to comment. The agent watches the doc (<code style="font-family:var(--mono)">kanna doc watch</code>), so each comment reaches it as an event: nothing is typed into its terminal. Click the doc, then move with <kbd>j</kbd> <kbd>k</kbd> <kbd>⌃e</kbd> <kbd>⌃y</kbd> <kbd>⌃d</kbd> <kbd>⌃u</kbd> <kbd>⌃f</kbd> <kbd>⌃b</kbd> <kbd>gg</kbd> <kbd>G</kbd> <kbd>{</kbd> <kbd>}</kbd>.</p>
     <div class="controls">
-      <button id="draft">Type a draft into the agent's prompt</button>
-      <button id="send">Send the draft</button>
+      <button id="pickup">Agent picks up c2</button>
       <button id="agentReply">Agent replies and resolves c2</button>
+      <button id="stopWatch">Agent stops / starts watching</button>
       <button id="toggle">Hide / show threads</button>
       <button id="reset">Reset</button>
     </div>
@@ -113,16 +110,16 @@ mark.flash { animation: flash .9s; }
     <div class="body">
       <div class="term" id="term"></div>
       <div class="divider"></div>
-      <div class="doc">
+      <div class="doc" id="doc" tabindex="0">
         <div class="toolbar">
-          <span class="path">docs/specs/tab-container.md</span><span class="saved" id="saved">Saved</span>
+          <span class="path">docs/specs/tab-container.md</span>
           <span class="spacer"></span>
-          <span class="chip">Agent: p1 claude ▾</span>
+          <span class="watch" id="watch"></span>
           <span class="chip" id="commentBtn">Comment ⌘↵</span>
           <span class="chip on" id="threadsBtn">Threads 2</span>
         </div>
         <div class="split">
-          <div class="editor" id="editor"><div class="measure" id="measure"></div><div class="selbar" id="selbar"><button id="selComment">Comment ⌘↵</button></div></div>
+          <div class="editor" id="editor"><div class="measure" id="measure"></div></div>
           <div class="threads" id="threads"></div>
         </div>
       </div>
@@ -131,39 +128,43 @@ mark.flash { animation: flash .9s; }
 </main>
 <script>
 const initial = () => ({
-  draft: "",
-  busy: false,
+  watching: true,
   showThreads: true,
   active: "c2",
   composer: null,
+  pending: "",
   threads: [
-    { id: "c1", line: 12, quote: "Panes only", state: "open", messages: [
+    { id: "c1", line: 12, quote: "Panes only", state: "open", status: "replied", messages: [
       { who: "you", text: "Should splits be allowed later?" },
-      { who: "agent", text: "Added it to the open questions." }], delivery: "replied" },
-    { id: "c2", line: 18, quote: "the strip scrolls, keeping the active tab in view", state: "open", messages: [
-      { who: "you", text: "Also say what ⌃Tab does when the strip has scrolled." }], delivery: "queued" },
+      { who: "agent", text: "Added it to the open questions." }] },
+    { id: "c2", line: 18, quote: "the strip scrolls, keeping the active tab in view", state: "open", status: "new", messages: [
+      { who: "you", text: "Also say what ⌃Tab does when the strip has scrolled." }] },
   ],
 });
 let s = initial();
 const doc = [
   ["h2", "Tab Container"],
   ["p", "A tab container is a slot in a split that holds several panes as tabs and shows one at a time."],
+  ["h3", "1. The idea"],
+  ["p", "Today a window tab holds a tree of splits, and every leaf is a pane. A container is a new kind of leaf: it holds a list of panes and shows the active one."],
+  ["p", "The panes inside stay ordinary panes, with their own IDs, names and processes, so every pane command still works on them. The container is only layout, like a split."],
   ["h3", "2. Rules"],
   ["ul", ["<span data-q=\"Panes only\">Panes only</span>: a container holds panes, not splits or other containers.", "One active: one pane is shown; the others keep running.", "Lifetime: it stays with one tab and goes away with its last."]],
   ["h3", "3. Using it"],
   ["ul", ["Too many tabs: <span data-q=\"the strip scrolls, keeping the active tab in view\">the strip scrolls, keeping the active tab in view</span>.", "Click a tab to show it; middle-click or × to close it.", "Keys: ⌃Tab / ⌃⇧Tab for the next and previous tab; ⌘W closes the active one."]],
-  ["slash", "/agent tighten section 3 before I review it again"],
+  ["h3", "4. CLI"],
+  ["p", "<code>kanna open --in docs FILE</code> opens a pane as a tab of the container named docs, making it if needed."],
+  ["p", "<code>kanna move PANE --in docs</code> moves an existing pane into it."],
 ];
 
 function render() {
   const m = document.getElementById("measure");
   m.innerHTML = "";
   doc.forEach(([kind, content]) => {
-    if (kind === "h2") m.insertAdjacentHTML("beforeend", `<h2><span class="md"># </span>${content}</h2>`);
-    else if (kind === "h3") m.insertAdjacentHTML("beforeend", `<h3><span class="md">## </span>${content}</h3>`);
+    if (kind === "h2") m.insertAdjacentHTML("beforeend", `<h2>${content}</h2>`);
+    else if (kind === "h3") m.insertAdjacentHTML("beforeend", `<h3>${content}</h3>`);
     else if (kind === "p") m.insertAdjacentHTML("beforeend", `<p>${content}</p>`);
     else if (kind === "ul") m.insertAdjacentHTML("beforeend", `<ul>${content.map(li => `<li>${li}</li>`).join("")}</ul>`);
-    else if (kind === "slash") m.insertAdjacentHTML("beforeend", `<p class="caretline"><span class="slash">${content}</span><span class="hint">↵ sends to the agent as a message</span></p>`);
   });
   m.querySelectorAll("span[data-q]").forEach(span => {
     const t = s.threads.find(t => t.quote === span.dataset.q && t.state === "open");
@@ -172,62 +173,63 @@ function render() {
     mark.textContent = span.textContent;
     mark.dataset.t = t.id;
     if (t.id === s.active) mark.classList.add("on");
-    mark.onclick = () => { s.active = t.id; render(); };
+    mark.onclick = e => { if (e.metaKey) return; s.active = t.id; render(); };
     span.replaceWith(mark);
   });
   if (s.composer) {
     const box = document.createElement("div");
     box.className = "composer";
-    box.innerHTML = `<textarea placeholder="Comment on “${s.composer.quote}”"></textarea><div class="row"><span>⌘↵ posts · Esc cancels</span><button class="primary" id="post">Post</button></div>`;
-    const anchor = m.querySelector("mark.pending") || m.lastElementChild;
-    (s.composer.after || anchor).after(box);
+    box.innerHTML = `<div class="q">${s.composer.quote}</div><textarea placeholder="Comment"></textarea><div class="row"><span>⌘↵ posts · Esc cancels</span><button class="primary" id="post">Post</button></div>`;
+    const blocks = [...m.querySelectorAll("p, li, h2, h3")];
+    const target = blocks.find(b => b.textContent === s.composer.block) || blocks[blocks.length - 1];
+    (target.closest("ul") || target).after(box);
     const ta = box.querySelector("textarea");
     ta.focus();
     ta.onkeydown = e => {
+      e.stopPropagation();
       if (e.key === "Enter" && e.metaKey) post(ta.value);
-      if (e.key === "Escape") { s.composer = null; render(); }
+      if (e.key === "Escape") { s.composer = null; render(); document.getElementById("doc").focus(); }
     };
     box.querySelector("#post").onclick = () => post(ta.value);
   }
   renderThreads();
   renderTerm();
+  const w = document.getElementById("watch");
+  w.textContent = s.watching ? "● p1 claude is watching" : "○ no agent watching";
+  w.classList.toggle("off", !s.watching);
   document.getElementById("threads").classList.toggle("hidden", !s.showThreads);
   document.getElementById("threadsBtn").classList.toggle("on", s.showThreads);
   document.getElementById("threadsBtn").textContent = `Threads ${s.threads.filter(t => t.state === "open").length}`;
 }
 
 function chip(t) {
-  const map = {
-    queued: ["queued", "queued"],
-    held: ["held", s.draft ? "held · you have a draft in p1" : "held · agent busy"],
-    delivered: ["delivered", "delivered ✓"],
-    replied: ["replied", "agent replied"],
-    failed: ["failed", "failed · Retry"],
-  };
-  const [cls, label] = map[t.delivery];
-  return `<span class="state ${cls}">${label}</span>`;
+  const label = { new: "new", seen: "seen by p1", replied: "agent replied" }[t.status];
+  return `<span class="state ${t.status}">${label}</span>`;
 }
 
 function renderThreads() {
   const panel = document.getElementById("threads");
   const resolved = s.threads.filter(t => t.state === "resolved").length;
   panel.innerHTML = `<div class="top"><span>Threads</span><span>${resolved ? `Show resolved (${resolved})` : ""}</span></div>`;
+  if (!s.watching) {
+    const n = s.threads.filter(t => t.state === "open" && t.status === "new").length;
+    panel.insertAdjacentHTML("beforeend", `<div class="nowatch">No agent is watching this doc.${n ? ` ${n} new comment${n > 1 ? "s" : ""} waiting.` : ""}<br><button id="sendTo">Send to p1</button></div>`);
+    panel.querySelector("#sendTo").onclick = sendTo;
+  }
   s.threads.filter(t => t.state === "open").forEach(t => {
     const card = document.createElement("div");
     card.className = "card" + (t.id === s.active ? " on" : "");
-    card.innerHTML = `<div class="head"><span>${t.id} · line ${t.line}</span><span>Resolve</span></div>
+    card.innerHTML = `<div class="head"><span>${t.id} · line ${t.line}</span><span class="res">Resolve</span></div>
       <div class="quote">${t.quote}</div>
       ${t.messages.map(m => `<div class="msg"><b class="${m.who}">${m.who}</b> ${m.text}</div>`).join("")}
-      ${chip(t)}${t.delivery === "held" && s.draft ? ` <button class="anyway">Deliver anyway</button>` : ""}
+      ${chip(t)}
       <div class="reply"><input placeholder="Reply"><button>⌘↵</button></div>`;
     card.querySelector(".quote").onclick = () => {
       s.active = t.id; render();
       const mk = document.querySelector(`mark[data-t="${t.id}"]`);
       if (mk) { mk.scrollIntoView({ block: "center" }); mk.classList.add("flash"); }
     };
-    card.querySelector(".head span:last-child").onclick = () => { t.state = "resolved"; render(); };
-    const anyway = card.querySelector(".anyway");
-    if (anyway) anyway.onclick = () => { s.draft = ""; deliver(); };
+    card.querySelector(".res").onclick = () => { t.state = "resolved"; render(); };
     panel.appendChild(card);
   });
 }
@@ -236,70 +238,112 @@ function renderTerm() {
   const lines = [
     `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> claude`,
     ``,
-    `<span class="a">●</span> Updated docs/specs/tab-container.md (c1)`,
+    `<span class="a">●</span> Monitor(kanna doc watch docs/specs/tab-container.md)`,
+    `  <span class="g">⎿  watching for comments</span>`,
+    ``,
+    `<span class="a">●</span> <span class="ok">c1</span> docs/specs/tab-container.md:12`,
+    `  <span class="g">"Panes only": Should splits be allowed later?</span>`,
+    `<span class="a">●</span> Updated docs/specs/tab-container.md`,
     `  kanna doc reply c1 "Added it to the open questions."`,
-    `  kanna doc resolve c1`,
   ];
-  s.threads.filter(t => t.delivery === "delivered" || (t.delivery === "replied" && t.id !== "c1")).forEach(t => {
-    lines.push(``, `<span class="g">[kanna comment ${t.id} · docs/specs/tab-container.md:${t.line}]</span>`, `<span class="g">&gt; ${t.quote}</span>`, `<span class="g">you: ${t.messages[0].text}</span>`, `<span class="g">Reply: kanna doc reply ${t.id} "…"   Resolve: kanna doc resolve ${t.id}</span>`);
-    if (t.delivery === "replied") lines.push(``, `<span class="a">●</span> ${t.messages[t.messages.length - 1].text}`, `  kanna doc reply ${t.id} "…" && kanna doc resolve ${t.id}`);
+  s.threads.filter(t => t.id !== "c1" && t.status !== "new").forEach(t => {
+    lines.push(``, `<span class="a">●</span> <span class="ok">${t.id}</span> docs/specs/tab-container.md:${t.line}`, `  <span class="g">"${t.quote}": ${t.messages[0].text}</span>`);
+    if (t.status === "replied") lines.push(`<span class="a">●</span> Updated docs/specs/tab-container.md`, `  kanna doc reply ${t.id} "${t.messages[t.messages.length - 1].text}"`, `  kanna doc resolve ${t.id}`);
   });
-  lines.push(`<div class="box"><span class="p">&gt;</span> ${s.draft || "<span class=\"g\">Try \"fix the open questions\"</span>"}</div>`);
-  lines.push(`<span class="g">${s.busy ? "✻ Working…" : "? for shortcuts"}</span>`);
+  if (!s.watching) lines.push(``, `<span class="g">  ⎿  Monitor stopped</span>`);
+  lines.push(`<div class="box"><span class="p">&gt;</span> ${s.pending || "<span class=\"g\">Try \"fix the open questions\"</span>"}</div>`);
+  lines.push(`<span class="g">? for shortcuts</span>`);
   document.getElementById("term").innerHTML = lines.join("\n");
 }
 
 function post(text) {
   if (!text.trim()) return;
   const id = "c" + (s.threads.length + 1);
-  s.threads.push({ id, line: s.composer.line, quote: s.composer.quote, state: "open", messages: [{ who: "you", text }], delivery: s.draft ? "held" : "queued" });
+  s.threads.push({ id, line: s.composer.line, quote: s.composer.quote, state: "open", status: "new", messages: [{ who: "you", text }] });
   s.active = id;
   s.composer = null;
   render();
-  if (!s.draft) setTimeout(deliver, 900);
+  document.getElementById("doc").focus();
+  if (s.watching) setTimeout(() => { const t = s.threads.find(t => t.id === id); if (t && t.status === "new") { t.status = "seen"; render(); } }, 900);
 }
 
-function deliver() {
-  s.threads.forEach(t => { if (t.delivery === "queued" || (t.delivery === "held" && !s.draft)) t.delivery = "delivered"; });
+function sendTo() {
+  const fresh = s.threads.filter(t => t.state === "open" && t.status === "new");
+  if (!fresh.length) return;
+  s.pending = `Answer comments ${fresh.map(t => t.id).join(", ")} on docs/specs/tab-container.md (kanna doc show)`;
+  fresh.forEach(t => t.status = "seen");
   render();
 }
 
-function openComposer() {
+function openComposer(text, block) {
+  if (!text) return;
+  s.composer = { quote: text.length > 60 ? text.slice(0, 57) + "…" : text, line: 20, block };
+  render();
+}
+
+function selectionComment() {
   const sel = window.getSelection();
   const text = sel.toString().trim();
-  if (!text) return;
+  if (!text || !document.getElementById("measure").contains(sel.anchorNode)) return;
   const block = sel.anchorNode.parentElement.closest("p, li, h2, h3");
-  s.composer = { quote: text.length > 60 ? text.slice(0, 57) + "…" : text, line: 20, after: null };
-  document.getElementById("selbar").style.display = "none";
-  render();
-  const box = document.querySelector(".composer");
-  if (block && box) { const target = [...document.querySelectorAll("#measure p, #measure li, #measure h2, #measure h3")].find(e => e.textContent === block.textContent); if (target) (target.closest("ul") || target).after(box); }
-  box && box.querySelector("textarea").focus();
+  openComposer(text, block && block.textContent);
 }
 
-document.getElementById("editor").addEventListener("mouseup", () => {
-  const sel = window.getSelection();
-  const bar = document.getElementById("selbar");
-  if (!sel.toString().trim() || !document.getElementById("measure").contains(sel.anchorNode)) { bar.style.display = "none"; return; }
-  const r = sel.getRangeAt(0).getBoundingClientRect();
-  const host = document.getElementById("editor").getBoundingClientRect();
-  bar.style.display = "block";
-  bar.style.left = (r.left - host.left + document.getElementById("editor").scrollLeft) + "px";
-  bar.style.top = (r.top - host.top + document.getElementById("editor").scrollTop - 36) + "px";
+document.getElementById("measure").addEventListener("click", e => {
+  if (!e.metaKey) return;
+  e.preventDefault();
+  const r = document.caretRangeFromPoint(e.clientX, e.clientY);
+  if (!r || r.startContainer.nodeType !== 3) return;
+  const t = r.startContainer.textContent;
+  let a = r.startOffset, b = r.startOffset;
+  while (a > 0 && /[\w’'-]/.test(t[a - 1])) a--;
+  while (b < t.length && /[\w’'-]/.test(t[b])) b++;
+  if (a === b) return;
+  const block = r.startContainer.parentElement.closest("p, li, h2, h3");
+  openComposer(t.slice(a, b), block && block.textContent);
 });
-document.getElementById("selComment").onmousedown = e => { e.preventDefault(); openComposer(); };
-document.getElementById("commentBtn").onclick = openComposer;
-document.addEventListener("keydown", e => { if (e.metaKey && e.key === "Enter" && !s.composer) openComposer(); });
-document.getElementById("draft").onclick = () => { s.draft = "also check the CLI table"; s.threads.forEach(t => { if (t.delivery === "queued") t.delivery = "held"; }); render(); };
-document.getElementById("send").onclick = () => { s.draft = ""; s.busy = true; render(); setTimeout(() => { s.busy = false; deliver(); }, 1200); };
+
+let pendingG = false;
+const modeline = document.createElement("div");
+modeline.className = "modeline";
+document.body.appendChild(modeline);
+function flashMode(text) {
+  const r = document.getElementById("editor").getBoundingClientRect();
+  modeline.style.left = (r.left + 12) + "px"; modeline.style.top = (r.bottom - 22) + "px";
+  modeline.textContent = text; clearTimeout(flashMode.t); flashMode.t = setTimeout(() => modeline.textContent = "", 900);
+}
+document.getElementById("doc").addEventListener("keydown", e => {
+  if (s.composer) return;
+  const ed = document.getElementById("editor");
+  const line = 22, half = ed.clientHeight / 2, page = ed.clientHeight - 40;
+  const by = dy => ed.scrollBy({ top: dy, behavior: "smooth" });
+  const blocks = () => [...document.querySelectorAll("#measure p, #measure ul, #measure h2, #measure h3")];
+  if (e.metaKey && e.key === "Enter") { e.preventDefault(); selectionComment(); return; }
+  if (e.metaKey || e.altKey) return;
+  const k = (e.ctrlKey ? "C-" : "") + e.key;
+  const moves = {
+    "j": () => by(line), "k": () => by(-line), "C-e": () => by(line), "C-y": () => by(-line),
+    "C-d": () => by(half), "C-u": () => by(-half), "C-f": () => by(page), "C-b": () => by(-page),
+    "G": () => ed.scrollTo({ top: ed.scrollHeight, behavior: "smooth" }),
+    "}": () => { const n = blocks().find(b => b.offsetTop > ed.scrollTop + 30); if (n) ed.scrollTo({ top: n.offsetTop - 20, behavior: "smooth" }); },
+    "{": () => { const p = blocks().filter(b => b.offsetTop < ed.scrollTop - 10).pop(); ed.scrollTo({ top: p ? p.offsetTop - 20 : 0, behavior: "smooth" }); },
+  };
+  if (k === "g") { e.preventDefault(); if (pendingG) { ed.scrollTo({ top: 0, behavior: "smooth" }); pendingG = false; flashMode("gg"); } else { pendingG = true; flashMode("g"); } return; }
+  pendingG = false;
+  if (moves[k]) { e.preventDefault(); moves[k](); flashMode(k.replace("C-", "⌃")); }
+});
+document.getElementById("doc").addEventListener("mousedown", e => { if (!e.target.closest("textarea, input")) document.getElementById("doc").focus({ preventScroll: true }); });
+document.getElementById("commentBtn").onclick = selectionComment;
+document.getElementById("pickup").onclick = () => { const t = s.threads.find(t => t.id === "c2"); if (t && t.status === "new") { t.status = "seen"; render(); } };
 document.getElementById("agentReply").onclick = () => {
   const t = s.threads.find(t => t.id === "c2");
-  if (!t) return;
-  t.delivery = "replied";
+  if (!t || t.state !== "open") return;
+  t.status = "replied";
   t.messages.push({ who: "agent", text: "Added: ⌃Tab scrolls the next tab into view." });
   render();
   setTimeout(() => { t.state = "resolved"; render(); }, 1400);
 };
+document.getElementById("stopWatch").onclick = () => { s.watching = !s.watching; render(); };
 document.getElementById("toggle").onclick = () => { s.showThreads = !s.showThreads; render(); };
 document.getElementById("reset").onclick = () => { s = initial(); render(); };
 if (location.hash === "#picture") document.body.classList.add("picture");
