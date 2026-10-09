@@ -206,9 +206,13 @@ impl App {
 }
 
 pub fn call(socket: &Path, cmd: &str, args: Value) -> Value {
+    request(socket, json!({"id": 1, "cmd": cmd, "args": args}))
+}
+
+pub fn request(socket: &Path, request: Value) -> Value {
     let mut stream = UnixStream::connect(socket).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
-    let mut line = json!({"id": 1, "cmd": cmd, "args": args}).to_string();
+    let mut line = request.to_string();
     line.push('\n');
     stream.write_all(line.as_bytes()).unwrap();
     let mut reply = String::new();
