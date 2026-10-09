@@ -591,3 +591,39 @@ fn a_connection_made_while_the_keeper_goes_idle_is_served() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn cpu_seconds(pid: i32) -> f64 {
+    let out = Command::new("ps").args(["-o", "time=", "-p", &pid.to_string()]).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.trim().split(':').rev().zip([1.0, 60.0, 3600.0]).map(|(f, scale)| f.parse::<f64>().unwrap() * scale).sum()
+}
+
+#[test]
+fn out_of_descriptors_the_keeper_waits_instead_of_spinning() {
+    use std::os::unix::process::CommandExt;
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    unsafe {
+        cmd.pre_exec(|| {
+            let limit = libc::rlimit { rlim_cur: 16, rlim_max: 16 };
+            libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+            Ok(())
+        });
+    }
+    let keeper = KilledOnDrop(cmd.spawn().unwrap());
+    let socket = state.join("keeper.sock");
+    wait_for("the keeper's socket", || Client::connect(&socket).is_ok());
+    let clients: Vec<_> = (0..14).map(|_| Client::connect(&socket).unwrap()).collect();
+    std::thread::sleep(Duration::from_millis(300));
+    let pid = keeper.0.id() as i32;
+    let before = cpu_seconds(pid);
+    std::thread::sleep(Duration::from_secs(1));
+    let used = cpu_seconds(pid) - before;
+    drop(clients);
+    let mut c = Client::connect(&socket).unwrap();
+    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+    assert!(c.hello().is_ok());
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(used < 0.3, "the keeper used {used} s of CPU in 1 s");
+}

@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 
 /// Connections at once; more are refused.
 const MAX_CONNS: usize = 16;
+const ACCEPT_PAUSE: Duration = Duration::from_millis(100);
 /// Longest request line.
 const MAX_LINE: usize = 1 << 20;
 /// Unsent replies and events per connection before it is dropped.
@@ -151,6 +152,7 @@ struct Keeper {
     kills: Vec<(Instant, Vec<i32>)>,
     settings: Settings,
     idle_since: Instant,
+    accept_paused_until: Option<Instant>,
     peer_uid: libc::uid_t,
     stop: bool,
 }
@@ -207,6 +209,7 @@ pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
         kills: Vec::new(),
         settings,
         idle_since: Instant::now(),
+        accept_paused_until: None,
         peer_uid: expected_uid(),
         stop: false,
     };
@@ -238,10 +241,11 @@ fn pollfd(fd: libc::c_int, events: libc::c_short) -> libc::pollfd {
 impl Keeper {
     fn run(&mut self) -> Result<()> {
         while !self.stop {
-            let mut fds = vec![
-                pollfd(self.sigs.as_raw_fd(), libc::POLLIN),
-                pollfd(self.listener.as_raw_fd(), libc::POLLIN),
-            ];
+            if self.accept_paused_until.is_some_and(|until| Instant::now() >= until) {
+                self.accept_paused_until = None;
+            }
+            let listening = if self.accept_paused_until.is_none() { self.listener.as_raw_fd() } else { -1 };
+            let mut fds = vec![pollfd(self.sigs.as_raw_fd(), libc::POLLIN), pollfd(listening, libc::POLLIN)];
             for c in &self.conns {
                 let events = if c.out.is_empty() { libc::POLLIN } else { libc::POLLIN | libc::POLLOUT };
                 fds.push(pollfd(c.stream.as_raw_fd(), events));
@@ -286,6 +290,9 @@ impl Keeper {
         let mut wait = Duration::from_secs(1);
         if let Some(at) = self.kills.iter().map(|(at, _)| *at).min() {
             wait = wait.min(at.saturating_duration_since(now));
+        }
+        if let Some(until) = self.accept_paused_until {
+            wait = wait.min(until.saturating_duration_since(now));
         }
         if self.idle() {
             wait = wait.min((self.idle_since + self.settings.idle).saturating_duration_since(now));
@@ -365,6 +372,11 @@ impl Keeper {
                     self.conns.push(conn);
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) if matches!(e.raw_os_error(), Some(libc::EMFILE | libc::ENFILE | libc::ENOBUFS | libc::ENOMEM)) => {
+                    eprintln!("kanna-keeper: can't accept a connection: {e}");
+                    self.accept_paused_until = Some(Instant::now() + ACCEPT_PAUSE);
+                    break;
+                }
                 Err(_) => break,
             }
         }
