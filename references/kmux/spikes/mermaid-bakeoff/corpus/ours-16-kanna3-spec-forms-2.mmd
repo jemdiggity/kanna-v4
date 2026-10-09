@@ -1,0 +1,11 @@
+flowchart LR
+  proto["Prototype (HTML mockup)"] --> mark["Firmness map: per element and per dimension"]
+  proto --> explore["Agent explores the prototype"]
+  explore --> flow["Flow model: screens, states, transitions, visible results"]
+  mark --> spec["Spec Build receives: prototype + firmness + flow model"]
+  flow --> spec
+  spec --> build["Build"]
+  build --> product["Built product"]
+  product --> explore2["Agent explores the product the same way"]
+  explore2 --> compare["Compare flows and firm regions; differences are review items"]
+  flow --> compare

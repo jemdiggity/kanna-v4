@@ -1,0 +1,70 @@
+[
+  {
+    "name": "web panes need a url, which gets a scheme",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "web" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "web", "name": "site", "url": "localhost:3000" } },
+        "expect": { "pane": { "type": "web", "url": "http://localhost:3000", "state": "running" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "url": "https://example.com/" } },
+        "expect": { "pane": { "url": "https://example.com/", "state": "running" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } }
+    ]
+  },
+  {
+    "name": "send types into terminals only; navigate is for web panes only",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "sh" } } },
+      { "send": { "cmd": "open", "args": { "type": "web", "name": "site", "url": "example.com" } } },
+      { "send": { "cmd": "send", "args": { "pane": "sh", "text": "echo hi" } }, "expect": { "ok": true } },
+      { "send": { "cmd": "send", "args": { "pane": "site", "text": "echo hi" } }, "expect": { "ok": false, "error": { "code": "wrong_type" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "sh", "url": "example.com" } }, "expect": { "ok": false, "error": { "code": "wrong_type" } } },
+      { "send": { "cmd": "send", "args": { "pane": "nope", "text": "x" } }, "expect": { "ok": false, "error": { "code": "not_found" } } }
+    ]
+  },
+  {
+    "name": "web history is off unless asked for; with it, navigate goes back and forward",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "web", "name": "plain", "url": "a.test" } }, "expect": { "pane": { "history": false } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "plain", "url": "b.test" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "plain", "back": true } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "history": true } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "web", "name": "site", "url": "a.test", "history": true } }, "expect": { "pane": { "history": true } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "back": true } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "url": "b.test" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "url": "c.test" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "back": true } }, "expect": { "pane": { "url": "http://b.test" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "back": true } }, "expect": { "pane": { "url": "http://a.test" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "forward": true } }, "expect": { "pane": { "url": "http://b.test" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "url": "d.test" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "forward": true } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "site", "back": true } }, "expect": { "pane": { "url": "http://b.test" } } }
+    ]
+  },
+  {
+    "name": "markdown panes show a file; links to other files open in the same pane",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "md" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "path": "docs/spec.md" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "md", "name": "doc", "path": "docs/spec.md" } }, "expect": { "pane": { "type": "md", "path": "docs/spec.md", "state": "running" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "path": "../README.md" } }, "expect": { "pane": { "path": "README.md", "state": "running" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "path": "docs/spec.md" } }, "expect": { "pane": { "path": "docs/spec.md" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "url": "example.com" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "send", "args": { "pane": "doc", "text": "x" } }, "expect": { "ok": false, "error": { "code": "wrong_type" } } }
+    ]
+  },
+  {
+    "name": "markdown panes always keep back/forward history of the files they showed",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "md", "name": "doc", "path": "docs/spec.md" } }, "expect": { "pane": { "path": "docs/spec.md" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "back": true } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "path": "../README.md" } }, "expect": { "pane": { "path": "README.md" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "back": true } }, "expect": { "pane": { "path": "docs/spec.md", "state": "running" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "forward": true } }, "expect": { "pane": { "path": "README.md" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "forward": true } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "back": true } }, "expect": { "pane": { "path": "docs/spec.md" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "path": "spec.md" } }, "expect": { "pane": { "path": "docs/spec.md" } } },
+      { "send": { "cmd": "navigate", "args": { "pane": "doc", "forward": true } }, "expect": { "pane": { "path": "README.md" } } },
+      { "send": { "cmd": "open", "args": { "type": "md", "path": "docs/spec.md", "history": true } }, "expect": { "ok": false, "error": { "code": "bad_request" } } }
+    ]
+  }
+]

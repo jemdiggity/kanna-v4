@@ -1,0 +1,7 @@
+flowchart LR
+  ink["Ink on the mockup (PencilKit)"] --> ground["Grounding: hit-test strokes against the page's elements"]
+  ink --> shot["Screenshot with the ink"]
+  ground --> msg["Message to the agent: image + touched elements + handwriting text"]
+  shot --> msg
+  msg --> agent["Agent edits the mockup"]
+  agent --> thread["Reply in the mark's thread; mark resolves"]

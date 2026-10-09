@@ -1,0 +1,22 @@
+flowchart LR
+  subgraph soft["Soft: what and why"]
+    walk["Like this, but (recording)"]
+    note["Release note first"]
+    pre["Pre-mortem, red-team reading"]
+    evidence["From evidence"]
+  end
+  subgraph firm["Firmer: cases and pictures"]
+    examples["Example table, counter-examples"]
+    story["Storyboard, canvas"]
+    proto["Question prototypes, Wizard-of-Oz"]
+    current["Edited current behaviour"]
+  end
+  subgraph hard["Checkable: Build can verify"]
+    harness["Red harness, old code as oracle"]
+    machine["State machine, signatures and stubs"]
+    metric["Target and harness, experiment"]
+  end
+  soft --> firm --> hard
+  hard -->|Send| build[Build]
+  review["Spec Review: guesses live in whatever is still soft"] -.-> soft
+  review -.-> firm

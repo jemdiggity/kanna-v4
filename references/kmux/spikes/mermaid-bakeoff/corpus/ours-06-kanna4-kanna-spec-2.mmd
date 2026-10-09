@@ -1,0 +1,11 @@
+flowchart TB
+    subgraph kanna["kanna"]
+        P["Parse command<br/>& layout expression"] --> R["Neutral request"]
+        R --> SEL{"Which backend?"}
+        SEL --> AK["kmux adapter"]
+        SEL --> AT["tmux adapter"]
+        SEL --> AC["cmux adapter"]
+    end
+    AK -->|"JSON over socket"| KMUX["kmux"]
+    AT -->|"tmux commands"| TMUX["tmux server"]
+    AC -->|"cmux CLI / socket"| CMUX["cmux"]

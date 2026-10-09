@@ -1,0 +1,4 @@
+flowchart LR
+  child --> PTY --> reader["kanna3d reader"] --> ring["ring append"] --> fanout["fan-out"] --> socket["Unix socket"] --> client
+  ring -. behind .-> parse["Ghostty parse"] --> detection
+  keys --> input["client"] --> inputSocket["Unix socket"] --> daemon["kanna3d"] --> write["write(master)"]

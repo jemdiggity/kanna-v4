@@ -1,0 +1,9 @@
+    flowchart LR
+      walk["stage → stage → …<br/>(one per step)"]
+      walk -->|release| rel["merge queue + Digest 'PR ready'"]
+      walk -->|done| fin["done (finding) + 'Finding' event"]
+      walk -->|stuck| stuck["Digest pick 'Build stopped at X':<br/>Recall or Abandon"]
+      stuck -->|Abandon| ab["done (abandoned)"]
+      stuck -->|Recall| back
+      walk -->|Recall| back["cancelled; task back on the Desk"]
+    

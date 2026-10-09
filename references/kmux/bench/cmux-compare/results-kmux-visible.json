@@ -1,0 +1,339 @@
+{
+  "hidden": false,
+  "when": "2026-10-09 12:38",
+  "machine": {
+    "cpu": "Apple M5",
+    "memGB": 16,
+    "macos": "26.2"
+  },
+  "options": {
+    "apps": "kmux",
+    "runs": 3,
+    "panes": 10,
+    "idle": 30,
+    "cat_mb": 20,
+    "visible": true,
+    "allow_cmux_front": false,
+    "out": "/var/folders/5k/d89785bd6yn3rc3mfm7g3wy40000gp/T//kmux-visible.json"
+  },
+  "apps": {
+    "kmux": {
+      "bundleMB": 27.5,
+      "version": "0.1.0",
+      "summary": {
+        "runs": 3,
+        "startupFirstCommandMs": 730.8,
+        "startupSocketMs": 181.6,
+        "memStartAppMB": 38.3,
+        "memStartHelpersMB": 0.0,
+        "helperCount": 0,
+        "helpers": [],
+        "memPanesAppMB": 206.8,
+        "memPanesHelpersMB": 0.0,
+        "perPaneMB": 16.9,
+        "openReturnedP50Ms": 17.9,
+        "openCommandP50Ms": 477.1,
+        "openCommandP95Ms": 510.5,
+        "idleCpuAppPct": 0.3,
+        "idleCpuHelpersPct": 0.0,
+        "catShellMs": 228.3,
+        "catWallMs": 230.3,
+        "sendEchoP50Ms": 0.3,
+        "sendEchoP95Ms": 0.7
+      },
+      "runs": [
+        {
+          "startup": {
+            "socketMs": 160.3,
+            "firstCommandMs": 724.1
+          },
+          "memStart": {
+            "appMB": 38.7,
+            "helpersMB": 0.0,
+            "shellsMB": 4.3,
+            "helpers": [],
+            "helperCount": 0,
+            "shellCount": 2
+          },
+          "open": {
+            "returnedMs": [
+              34.9,
+              12.9,
+              14.1,
+              10.0,
+              19.7,
+              16.9,
+              18.8,
+              20.2,
+              18.5,
+              20.1
+            ],
+            "commandOutputMs": [
+              509.1,
+              479.2,
+              478.4,
+              481.3,
+              481.7,
+              478.0,
+              488.8,
+              473.3,
+              478.3,
+              477.5
+            ]
+          },
+          "memPanes": {
+            "appMB": 207.0,
+            "helpersMB": 0.0,
+            "shellsMB": 47.0,
+            "helpers": [],
+            "helperCount": 0,
+            "shellCount": 22
+          },
+          "perPaneMB": 16.8,
+          "idleCpuPct": {
+            "app": 0.32,
+            "helpersAndShells": 0.0
+          },
+          "cat": {
+            "shellMs": [
+              214.5,
+              211.9,
+              229.5
+            ],
+            "wallMs": [
+              217.4,
+              213.7,
+              232.3
+            ]
+          },
+          "sendEchoMs": [
+            1.4,
+            0.9,
+            0.7,
+            0.5,
+            0.5,
+            0.8,
+            0.5,
+            0.4,
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.4,
+            0.4,
+            0.4,
+            0.4,
+            0.4,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.2,
+            0.3,
+            0.4
+          ]
+        },
+        {
+          "startup": {
+            "socketMs": 190.9,
+            "firstCommandMs": 738.6
+          },
+          "memStart": {
+            "appMB": 38.3,
+            "helpersMB": 0.0,
+            "shellsMB": 4.3,
+            "helpers": [],
+            "helperCount": 0,
+            "shellCount": 2
+          },
+          "open": {
+            "returnedMs": [
+              47.9,
+              13.0,
+              13.7,
+              15.6,
+              15.1,
+              17.0,
+              17.5,
+              18.5,
+              18.7,
+              22.3
+            ],
+            "commandOutputMs": [
+              514.4,
+              473.9,
+              477.7,
+              473.1,
+              474.2,
+              469.7,
+              469.4,
+              475.2,
+              475.5,
+              477.7
+            ]
+          },
+          "memPanes": {
+            "appMB": 206.8,
+            "helpersMB": 0.0,
+            "shellsMB": 47.0,
+            "helpers": [],
+            "helperCount": 0,
+            "shellCount": 22
+          },
+          "perPaneMB": 16.9,
+          "idleCpuPct": {
+            "app": 0.24,
+            "helpersAndShells": 0.0
+          },
+          "cat": {
+            "shellMs": [
+              229.1,
+              213.6,
+              236.6
+            ],
+            "wallMs": [
+              232.2,
+              215.7,
+              239.6
+            ]
+          },
+          "sendEchoMs": [
+            0.6,
+            0.3,
+            0.3,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.3,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.4,
+            0.4,
+            0.3,
+            0.4,
+            0.4
+          ]
+        },
+        {
+          "startup": {
+            "socketMs": 181.6,
+            "firstCommandMs": 730.8
+          },
+          "memStart": {
+            "appMB": 38.2,
+            "helpersMB": 0.0,
+            "shellsMB": 4.3,
+            "helpers": [],
+            "helperCount": 0,
+            "shellCount": 2
+          },
+          "open": {
+            "returnedMs": [
+              44.4,
+              13.9,
+              8.6,
+              14.8,
+              16.1,
+              16.8,
+              20.7,
+              18.4,
+              18.9,
+              21.4
+            ],
+            "commandOutputMs": [
+              510.5,
+              471.3,
+              473.9,
+              470.2,
+              473.9,
+              477.3,
+              497.8,
+              475.1,
+              476.9,
+              474.2
+            ]
+          },
+          "memPanes": {
+            "appMB": 206.7,
+            "helpersMB": 0.0,
+            "shellsMB": 47.1,
+            "helpers": [],
+            "helperCount": 0,
+            "shellCount": 22
+          },
+          "perPaneMB": 16.9,
+          "idleCpuPct": {
+            "app": 0.31,
+            "helpersAndShells": 0.0
+          },
+          "cat": {
+            "shellMs": [
+              228.3,
+              231.9,
+              220.9
+            ],
+            "wallMs": [
+              230.3,
+              234.8,
+              222.7
+            ]
+          },
+          "sendEchoMs": [
+            0.8,
+            0.4,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.4,
+            0.4,
+            0.3,
+            0.3,
+            0.3,
+            0.4,
+            0.4,
+            0.4,
+            0.4,
+            0.3,
+            0.3,
+            0.3,
+            0.3,
+            0.3
+          ]
+        }
+      ]
+    }
+  }
+}

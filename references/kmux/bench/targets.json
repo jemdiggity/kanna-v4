@@ -1,0 +1,6 @@
+{
+  "_about": "Targets for kmux-bench (docs/kmux-spec.md §8.3). Each is a ceiling; the benchmark fails if a result is above it.",
+  "startFirstOutputP95Ms": 150,
+  "typingP95Ms": 5,
+  "memoryPerTermPaneMB": 15
+}

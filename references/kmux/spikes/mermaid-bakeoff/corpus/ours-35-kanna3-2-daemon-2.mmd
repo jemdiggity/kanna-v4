@@ -1,0 +1,19 @@
+sequenceDiagram
+  actor Person
+  participant Host as macOS host
+  participant Work as kanna3-workd
+  participant Mux as kanna3d
+  participant Agent as The agent
+  Person->>Host: pull task
+  Host->>Work: work.task.pull
+  Work->>Work: park prior task + set Desk task, one revision
+  Work-->>Host: mutation reply, setup busy
+  Work->>Mux: ensure desk window
+  Work->>Work: ensure worktrees, move folder, register spec doc
+  Work->>Mux: ensure and attach task layout, doc.open
+  Work->>Mux: spawn agent before split, ratio 0.30
+  Mux->>Agent: interactive login shell + adapter prompt file
+  Work->>Work: doc.agent binds target
+  Work->>Mux: gated kickoff message
+  Work->>Mux: activate layout, finish setup
+  Work-->>Host: events and task state

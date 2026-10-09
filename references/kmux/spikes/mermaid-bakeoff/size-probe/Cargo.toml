@@ -1,0 +1,23 @@
+# Measures what merman adds to an app: a program that lays out one diagram.
+# cargo +1.95 build --release --features slim   (or full, or neither for the empty baseline)
+[package]
+name = "size-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+merman = { version = "=0.8.0", default-features = false, optional = true }
+serde_json = "1"
+
+[features]
+slim = ["merman/diagram-flowchart", "merman/diagram-sequence", "merman/diagram-state", "merman/svg"]
+full = ["merman/default"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

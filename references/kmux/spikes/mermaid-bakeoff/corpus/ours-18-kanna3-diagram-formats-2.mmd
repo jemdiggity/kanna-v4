@@ -1,0 +1,6 @@
+flowchart LR
+  daemon["kanna3d"] --> edge["kanna-server<br/>network edge: auth, pairing, policy"] --> quic["QUIC connection"]
+  quic --> lan["LAN: direct"]
+  quic --> wan["WAN: direct, NAT hole-punched"]
+  quic --> relay["fallback: nearest regional relay"]
+  edge -->|"terminal frames pass through, not re-encoded"| client["remote client: snapshot @N, then bytes from N; resume by offset"]

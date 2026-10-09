@@ -1,0 +1,8 @@
+flowchart TD
+    A["kanna command"] --> B{"--mux flag?"}
+    B -- yes --> Z["Use it"]
+    B -- no --> C{"KANNA_MUX set?"}
+    C -- yes --> Z
+    C -- no --> D{"Inside tmux / cmux?"}
+    D -- yes --> E["Use that mux"]
+    D -- no --> F["Use kmux"]

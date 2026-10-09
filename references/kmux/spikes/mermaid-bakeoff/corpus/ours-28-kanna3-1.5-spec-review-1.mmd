@@ -1,0 +1,7 @@
+flowchart LR
+  request["Re-run / CLI / Send with changed spec"] --> gate["6b delivery: idle empty composer"]
+  gate --> agent[Desk agent reads spec]
+  agent --> comments[Anchored guess threads]
+  comments --> answer[Person replies]
+  answer --> edit[Agent updates spec and resolves]
+  edit --> ready[Readiness]

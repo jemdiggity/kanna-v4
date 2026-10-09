@@ -1,0 +1,28 @@
+flowchart TB
+  bar["Kanna bar · 44 pt · traffic lights · Desk / Line / Setup · Digest / person"]
+  hint["Explainer · 28 pt · template / pipeline / next step"]
+  subgraph content[Selected task layout]
+    direction LR
+    subgraph left["Agent pane · ratio 0.30"]
+      direction TB
+      header[Native agent header]
+      events["Native events · latest three"]
+      terminal["Agent terminal · Ghostty"]
+      header --- events --- terminal
+    end
+    subgraph right[Right pane]
+      direction LR
+      subgraph document[Spec doc view]
+        direction TB
+        tabs[Layer tabs]
+        editor["Slice 6b editor + author chips + guesses"]
+        artifacts["Surface tabs: spec / mockup.html"]
+        tabs --- editor --- artifacts
+      end
+      panel["320 pt panel: Spec Review / Comments"]
+      editor --- panel
+    end
+    terminal --- editor
+  end
+  shelf["Shelf · 34 pt · parked tasks"]
+  bar --- hint --- content --- shelf

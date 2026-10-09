@@ -1,0 +1,21 @@
+flowchart LR
+  host["macOS host: WorkStore + ModelStore"]
+  cli["kanna CLI / agent calls"]
+  work["kanna3-workd: work + docs + queue + orchestration"]
+  pure["kanna3-work: pure transitions"]
+  doc["kanna3-doc: merge + anchors + threads"]
+  disk["work.json + config + task files"]
+  mux["kanna3d: layouts + terminals + delivery gate"]
+  keeper["kanna3-keeper: pseudo-terminal ownership"]
+  agent["Agent process + spec edits"]
+  host <-->|work.sock| work
+  host <-->|control and terminal streams| mux
+  cli <-->|work.sock| work
+  work --> pure
+  pure --> doc
+  work <-->|read / watch / atomic writes| disk
+  work <-->|kanna3-client| mux
+  mux <-->|file descriptors| keeper
+  keeper --> agent
+  agent -->|edit spec.md| disk
+  agent -->|kanna doc / work| cli

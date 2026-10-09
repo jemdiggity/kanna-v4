@@ -1,0 +1,10 @@
+flowchart LR
+  template[Template] --> pipeline[Named pipeline file]
+  pipeline --> validate[Parse and validate]
+  validate --> typical["All-pass typical path"]
+  validate --> worst["Worst sessions / checks / humans"]
+  typical --> strips["Phase strips + plan rows"]
+  worst --> bounds[Exact session and checkpoint bounds]
+  pipeline --> simulate["After Send: flow walk + scripted verdicts"]
+  simulate --> human[Real Digest checkpoint]
+  human --> simulate

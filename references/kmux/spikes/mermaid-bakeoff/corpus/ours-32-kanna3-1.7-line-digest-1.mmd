@@ -1,0 +1,12 @@
+flowchart LR
+  stages["Simulated Build stage"] -->|human| approve["Digest: Approve / Reject + note"]
+  approve -->|pass / fail + feedback| stages
+  stages -->|release| ready["Digest: PR ready · simulated · view"]
+  ready --> queue[Merge queue]
+  queue --> staging["Staging · simulated soak"]
+  staging --> promote["Digest: promote"]
+  promote --> prod["Prod / done · released"]
+  stages -->|stuck| pick["Digest: Recall / Abandon"]
+  pick -->|Recall| desk[Desk]
+  pick -->|Abandon| abandoned["done · abandoned"]
+  stages -->|done terminal| finding["done · finding; no Release"]

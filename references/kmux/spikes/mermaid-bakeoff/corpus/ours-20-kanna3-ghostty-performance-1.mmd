@@ -1,0 +1,22 @@
+flowchart TD
+    app[Shell or agent] --> pty[PTY held by kanna3-keeper]
+    pty --> read[kanna3d read_pty: up to 8192 bytes]
+    read --> ring[Replay ring and per-client output queues]
+    read --> parser[Byte-budgeted parser command queue]
+    parser --> track[Kanna escape-sequence tracker]
+    track --> vt[libghostty-vt terminal state]
+    vt --> replies[PTY replies]
+    replies --> pty
+    vt --> detect[Screen formatting and agent detection]
+    vt --> snap[Native snapshot and persistence]
+    ring --> socket[Framed local socket stream]
+    socket --> worker[Swift reader and attachment worker]
+    worker --> main[One main-queue callback per output frame]
+    main --> replica[Replica queue and offset-ordered grid changes]
+    replica --> ffi[Copy into Ghostty external-output mailbox]
+    ffi --> io[Ghostty IO thread: parse under terminal lock]
+    snap -. attach or resync .-> replica
+    io --> state[Viewport snapshot under terminal lock]
+    state --> cpu[Renderer: styles, dirty rows, cached shaping]
+    cpu --> gpu[Metal cell buffers and glyph textures]
+    gpu --> pixels[IOSurface / Core Animation presentation]

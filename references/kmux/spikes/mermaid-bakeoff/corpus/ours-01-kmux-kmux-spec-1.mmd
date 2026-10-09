@@ -1,0 +1,7 @@
+flowchart LR
+    H["Mouse, keyboard, menus"] --> CORE["kmux core<br/>windows · tabs · layout · panes"]
+    C["kanna / scripts / agents"] -->|"control protocol"| CORE
+    CORE --> T["term panes (Ghostty)"]
+    CORE --> W["web panes"]
+    CORE --> M["md panes"]
+    CORE --> I["ios panes (Simulator)"]
