@@ -17,11 +17,16 @@ const QUIET: Duration = Duration::from_millis(50);
 
 const DRAIN_LIMIT: Duration = Duration::from_millis(500);
 
+const DRAIN: u8 = 1;
+
+const STOP: u8 = 2;
+
 pub struct Feed {
     screen: Terminal,
     outbox: Vec<u8>,
     overflowed: bool,
     posted: bool,
+    pub unsaved: bool,
     pub cols: u16,
     pub rows: u16,
 }
@@ -33,17 +38,29 @@ pub enum Taken {
 
 impl Feed {
     pub fn new(cols: u16, rows: u16) -> io::Result<Arc<Mutex<Feed>>> {
-        let mut screen = Terminal::new(cols, rows, SCROLLBACK_LINES).map_err(io::Error::other)?;
+        let screen = Terminal::new(cols, rows, SCROLLBACK_LINES).map_err(io::Error::other)?;
+        Feed::with(screen, true)
+    }
+
+    pub fn restore(snapshot: &[u8]) -> io::Result<Arc<Mutex<Feed>>> {
+        let mut screen = Terminal::from_snapshot(snapshot).map_err(io::Error::other)?;
+        screen.set_scrollback_lines(SCROLLBACK_LINES).map_err(io::Error::other)?;
+        Feed::with(screen, false)
+    }
+
+    fn with(mut screen: Terminal, unsaved: bool) -> io::Result<Arc<Mutex<Feed>>> {
         screen.set_scrollback_bytes(Some(SCROLLBACK_BYTES)).map_err(io::Error::other)?;
-        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, cols, rows })))
+        let (cols, rows) = screen.size();
+        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, unsaved, cols, rows })))
     }
 
     pub fn lock(feed: &Mutex<Feed>) -> MutexGuard<'_, Feed> {
         feed.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn push(&mut self, bytes: &[u8]) -> (bool, Vec<u8>) {
+    pub fn push(&mut self, bytes: &[u8]) -> (bool, Vec<u8>) {
         self.screen.write(bytes);
+        self.unsaved = true;
         let replies = self.screen.take_replies();
         if self.overflowed || self.outbox.len() + bytes.len() > OUTBOX {
             self.outbox = Vec::new();
@@ -70,10 +87,15 @@ impl Feed {
         Ok(snapshot)
     }
 
+    pub fn save(&self) -> Result<Vec<u8>, kanna_vt::Error> {
+        self.screen.snapshot()
+    }
+
     pub fn resize(&mut self, id: &str, cols: u16, rows: u16, width: u16, height: u16) -> Vec<u8> {
         self.screen.set_cell_pixels(u32::from(width / cols.max(1)), u32::from(height / rows.max(1)));
         if (cols, rows) != (self.cols, self.rows) {
             (self.cols, self.rows) = (cols, rows);
+            self.unsaved = true;
             if let Err(error) = self.screen.resize(cols, rows) {
                 eprintln!("kanna-daemon: couldn't make {id}'s screen {cols}×{rows}: {error}");
             }
@@ -88,20 +110,31 @@ impl Feed {
 
 pub struct Reader {
     wake: File,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Reader {
     pub fn start(id: &str, serial: u64, master: OwnedFd, feed: Arc<Mutex<Feed>>, replies: Sender<Vec<u8>>, events: Sender<Event>) -> io::Result<Reader> {
         let (asleep, wake) = pipe()?;
         let pane = id.to_string();
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name(format!("kanna.read.{id}"))
             .spawn(move || read(Pty { pane, serial, master: File::from(master), wake: File::from(asleep), feed, replies, events }))?;
-        Ok(Reader { wake: File::from(wake) })
+        Ok(Reader { wake: File::from(wake), thread: Some(thread) })
     }
 
     pub fn drain(&self) {
-        let _ = (&self.wake).write(&[1]);
+        let _ = (&self.wake).write(&[DRAIN]);
+    }
+
+    pub fn stop(&self) {
+        let _ = (&self.wake).write(&[STOP]);
+    }
+
+    pub fn join(&mut self) {
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -138,7 +171,9 @@ fn read(mut pty: Pty) {
             return;
         }
         if fds[1].revents != 0 {
-            match pty.wake.read(&mut [0u8; 64]) {
+            let mut asked = [0u8; 64];
+            match pty.wake.read(&mut asked) {
+                Ok(n @ 1..) if asked[..n].contains(&STOP) => return,
                 Ok(1..) => {
                     draining.get_or_insert_with(|| Instant::now() + DRAIN_LIMIT);
                 }
