@@ -4,6 +4,8 @@
 
 A **tab container** is a slot in a split that holds several panes as tabs and shows one at a time. Example: your markdown docs share the right half of the window as tabs, beside a terminal.
 
+![A tab container, docs, beside a terminal](tab-container.png)
+
 ## Contents
 
 1. [The idea](#1-the-idea)
@@ -43,7 +45,7 @@ The panes inside stay ordinary panes, with their own IDs, names and processes, s
 
 ## 3. Using it
 
-- **The strip:** a thin row of tabs at the top of the slot, darker than the window's tab bar. Each tab shows the pane's icon and title, with × to close; after the tabs come + and the container's name. Too many tabs shrink, then scroll.
+- **Too many tabs:** the strip scrolls, keeping the active tab in view.
 - **Click** a tab to show it; **middle-click** or **×** to close it; **+** for a new terminal, file or URL here.
 - **Drag** a tab along the strip to reorder; onto a split edge to take it out; onto another strip to move it. Drop any pane on a strip to add it.
 - **Keys:** ⌃Tab / ⌃⇧Tab for the next and previous tab; ⌘W closes the active one.

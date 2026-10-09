@@ -94,6 +94,10 @@ aside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .controls { display: flex; flex-wrap: wrap; gap: 6px; }
 button { font: 12px var(--sans); color: var(--text); background: #2a2c31; border: 1px solid #3a3d44; border-radius: 5px; padding: 4px 9px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
+body.picture main { display: block; padding: 0; max-width: none; }
+body.picture h1, body.picture .lede, body.picture aside { display: none; }
+body.picture .window { border-radius: 0; border: 0; box-shadow: none; }
+body.picture .body { height: calc(100vh - 67px); }
 </style>
 </head>
 <body>
@@ -297,6 +301,7 @@ document.getElementById("dropDemo").onclick = () => {
 };
 document.getElementById("openCli").onclick = () => { if (state.container) addTab("roadmap.md"); };
 document.getElementById("reset").onclick = () => { state = initial(); menuOpen = false; render(); };
+if (location.hash === "#picture") document.body.classList.add("picture");
 render();
 </script>
 </body>
