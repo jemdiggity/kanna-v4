@@ -13,19 +13,32 @@ use std::sync::{mpsc, Arc, Mutex};
 /// core's thread (`Core::handle`) and sends the reply back.
 pub type Handler = Arc<dyn Fn(Value, Box<dyn FnOnce(Value) + Send>) + Send + Sync>;
 
+/// Takes a connection over after its first request, for a client that stays
+/// connected and talks its own way from then on (Kanna's app). It gets that
+/// request, the reader (which may hold lines already read) and the stream to
+/// write to, and runs on the connection's thread for as long as it likes.
+pub type Takeover = Arc<dyn Fn(Value, BufReader<UnixStream>, UnixStream) + Send + Sync>;
+
 /// The control socket: a Unix domain socket carrying newline-delimited JSON.
 /// Each connection is served on its own thread; requests on a connection are
 /// answered in order.
 pub struct SocketServer {
     pub path: String,
     handler: Handler,
+    takeover: Option<(String, Takeover)>,
     stopped: Arc<AtomicBool>,
     running: Mutex<bool>,
 }
 
 impl SocketServer {
     pub fn new(path: &str, handler: Handler) -> SocketServer {
-        SocketServer { path: path.into(), handler, stopped: Arc::new(AtomicBool::new(false)), running: Mutex::new(false) }
+        SocketServer { path: path.into(), handler, takeover: None, stopped: Arc::new(AtomicBool::new(false)), running: Mutex::new(false) }
+    }
+
+    /// A connection whose first request is `cmd` goes to `takeover` instead.
+    /// Set before `start`.
+    pub fn take_over(&mut self, cmd: &str, takeover: Takeover) {
+        self.takeover = Some((cmd.into(), takeover));
     }
 
     pub fn start(&self) -> Result<(), KmuxError> {
@@ -46,6 +59,7 @@ impl SocketServer {
         *self.running.lock().unwrap() = true;
 
         let handler = self.handler.clone();
+        let takeover = self.takeover.clone();
         let stopped = self.stopped.clone();
         std::thread::Builder::new()
             .name("kmux.socket".into())
@@ -56,8 +70,8 @@ impl SocketServer {
                     }
                     let Ok(client) = client else { continue };
                     no_sigpipe(&client);
-                    let handler = handler.clone();
-                    std::thread::spawn(move || serve(client, handler));
+                    let (handler, takeover) = (handler.clone(), takeover.clone());
+                    std::thread::spawn(move || serve(client, handler, takeover));
                 }
             })
             .map_err(|e| self.posix_error("thread", &e))?;
@@ -90,10 +104,11 @@ impl Drop for SocketServer {
     }
 }
 
-fn serve(client: UnixStream, handler: Handler) {
+fn serve(client: UnixStream, handler: Handler, takeover: Option<(String, Takeover)>) {
     let Ok(writer) = client.try_clone() else { return };
     let mut reader = BufReader::with_capacity(65536, client);
     let mut line = Vec::new();
+    let mut first = true;
     loop {
         line.clear();
         match reader.read_until(b'\n', &mut line) {
@@ -107,6 +122,12 @@ fn serve(client: UnixStream, handler: Handler) {
         line.pop();
         if line.iter().all(|b| *b == b' ' || *b == b'\r') {
             continue;
+        }
+        if let Some((cmd, takeover)) = takeover.as_ref().filter(|_| std::mem::take(&mut first)) {
+            let request = serde_json::from_slice::<Value>(&line).ok();
+            if let Some(request) = request.filter(|r| r.get("cmd").and_then(Value::as_str) == Some(cmd)) {
+                return takeover(request, reader, writer);
+            }
         }
         let Some(reply) = respond(&line, &handler) else { return };
         let mut out = encode(&reply).into_bytes();
@@ -141,7 +162,7 @@ fn no_sigpipe(client: &UnixStream) {
 fn no_sigpipe(_: &UnixStream) {}
 
 /// Writes everything, without SIGPIPE if the client has gone.
-fn write_all(stream: &UnixStream, data: &[u8]) -> bool {
+pub fn write_all(stream: &UnixStream, data: &[u8]) -> bool {
     #[cfg(target_vendor = "apple")]
     const FLAGS: libc::c_int = 0;
     #[cfg(not(target_vendor = "apple"))]

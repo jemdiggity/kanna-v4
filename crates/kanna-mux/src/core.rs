@@ -28,6 +28,13 @@ pub trait PaneHost {
     fn stop(&self, pane: &Pane);
     /// Types `text` into a running terminal pane and presses Return.
     fn send(&self, pane: &Pane, text: &str);
+    /// A terminal pane's screen as text, one line per row; with `lines`, the
+    /// last `lines` lines, counting scrollback. Hosts whose terminals keep no
+    /// screen the core can read (kmux's) don't answer it.
+    fn read(&self, pane: &Pane, lines: Option<usize>) -> Result<String, KmuxError> {
+        let _ = lines;
+        Err(KmuxError::new("unsupported", format!("{} can't be read here", pane.label())))
+    }
 }
 
 /// A command the embedder adds, such as `debug.snapshot`. It answers through
@@ -35,7 +42,7 @@ pub trait PaneHost {
 pub type CommandHandler = Rc<dyn Fn(Value, Responder)>;
 
 /// Commands this core handles itself; the layout host adds its own.
-pub const CORE_COMMANDS: [&str; 7] = ["capabilities", "open", "list", "close", "restart", "send", "navigate"];
+pub const CORE_COMMANDS: [&str; 8] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read"];
 
 /// Commands for tests that the core handles but `capabilities` doesn't list.
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
@@ -368,6 +375,7 @@ impl CoreHandle {
             "close" => self.close(&args),
             "restart" => self.restart(&args).await,
             "send" => self.send(&args),
+            "read" => self.read(&args),
             "navigate" => self.navigate(&args).await,
             // Persistence, for tests: the state kmux would save, and restoring one
             // as a launch would (without `state`, the last one saved).
@@ -623,6 +631,24 @@ impl CoreHandle {
             host.send(&pane, string(args, "text").unwrap_or(""));
         }
         Ok(Map::new())
+    }
+
+    /// Kanna's: kmux has no `read` yet. `{pane, lines?}` → `{text}`.
+    fn read(&self, args: &Value) -> Result<Map, KmuxError> {
+        let pane = self.need_pane(string(args, "pane"))?;
+        if pane.kind != PaneType::Term {
+            return Err(KmuxError::new("wrong_type", format!("{} is a {} pane; read only works on term panes", pane.label(), pane.kind.as_str())));
+        }
+        let lines = match args.get("lines") {
+            None | Some(Value::Null) => None,
+            Some(value) => match value.as_f64() {
+                Some(n) if n >= 1.0 && n.fract() == 0.0 => Some(n as usize),
+                _ => return Err(bad_request("lines must be a whole number above 0")),
+            },
+        };
+        let host = self.host().ok_or_else(|| KmuxError::new("unsupported", "nothing runs terminals here"))?;
+        let text = host.read(&pane, lines)?;
+        Ok(reply([("text", text.into())]))
     }
 
     async fn navigate(&self, args: &Value) -> Result<Map, KmuxError> {

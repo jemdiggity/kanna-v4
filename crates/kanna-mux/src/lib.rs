@@ -26,6 +26,6 @@ pub use instance::{Instance, DEFAULT_NAME};
 pub use layout::{LayoutHost, Placement, Scope, SplitSide};
 pub use model::Model;
 pub use pane::{History, Pane, PaneState, PaneType, Panes};
-pub use socket_server::{Handler, SocketServer};
+pub use socket_server::{write_all, Handler, SocketServer, Takeover};
 pub use state::STATE_VERSION;
 pub use state_file::{Contents, StateFile};
