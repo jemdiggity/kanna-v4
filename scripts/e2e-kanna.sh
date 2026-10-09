@@ -498,6 +498,44 @@ S12() {
   check test "$(kanna list --json | field panes)" == "[]"
 }
 
+S13() {
+  start_daemon && start_app || return 1
+  kanna open --name da >/dev/null && kanna open --name db --split right >/dev/null || return 1
+  drag '{"pane":"da","to":{"pane":"db","x":0.5,"y":0.95}}'
+  check test "$(win w1 tabs.0.layout)" == '{"children": [{"pane": "db", "size": "1/2"}, {"pane": "da", "size": "1/2"}], "split": "column"}' || { echo "$last_drag"; return 1; }
+  drag '{"pane":"da","to":{"pane":"db","x":0.5,"y":0.5}}'
+  check test "$(win w1 tabs.0.layout)" == '{"children": [{"pane": "da", "size": "1/2"}, {"pane": "db", "size": "1/2"}], "split": "column"}' || return 1
+  drag '{"pane":"db","to":{"pane":"da","x":0.02,"y":0.5}}'
+  check test "$(win w1 tabs.0.layout)" == '{"children": [{"pane": "db", "size": "1/2"}, {"pane": "da", "size": "1/2"}], "split": "row"}' || return 1
+  drag '{"pane":"da","to":{"plus":"w1"}}'
+  check test "$(win w1 tabs.1.layout)" == '{"pane": "da"}' || { echo "$(win w1 tabs) $last_drag"; return 1; }
+  local first second
+  first="$(win w1 tabs.0.id)" second="$(win w1 tabs.1.id)"
+  drag "{\"pane\":\"da\",\"to\":{\"tab\":\"$first\"}}"
+  check test "$(win w1 tabs | count)" == 1 || return 1
+  check test "$(win w1 tabs.0.layout)" == '{"children": [{"pane": "db", "size": "1/2"}, {"pane": "da", "size": "1/2"}], "split": "row"}' || return 1
+  kanna open --name dc --tab >/dev/null || return 1
+  first="$(win w1 tabs.0.id)" second="$(win w1 tabs.1.id)"
+  drag "{\"tab\":\"$second\",\"to\":{\"tab\":\"$first\"}}"
+  check test "$(win w1 tabs.0.id)" == "$second" || { echo "$(win w1 tabs) $last_drag"; return 1; }
+  drag "{\"tab\":\"$second\",\"to\":{\"outside\":true}}"
+  check test "$(state | field windows | count)" == 2 || { echo "$last_drag"; return 1; }
+  drag '{"pane":"dc","to":{"outside":true}}'
+  check test "$(state | field windows | count)" == 2 || return 1
+  drag '{"pane":"da","to":{"outside":true}}'
+  check test "$(state | field windows | count)" == 3 || return 1
+  local menu
+  menu="$(raw '{"id":1,"cmd":"debug.click","args":{"pane":"db","button":1}}')"
+  for item in "Split Right" "Close Pane" "Move Pane to New Window" "Restart"; do
+    [[ "$menu" == *"\"$item\""* ]] || { echo "the pane menu has no \"$item\": $menu"; return 1; }
+  done
+  sleep 1
+  local w
+  for w in $(state | python3 -c 'import json, sys; print(" ".join(w["id"] for w in json.load(sys.stdin)["windows"]))'); do
+    check drawn "$(snap "$w" "s13-$w")" 1 || return 1
+  done
+}
+
 due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S20|S21|S22) echo M4 ;; esac
 }
