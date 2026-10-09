@@ -32,7 +32,7 @@ final class ExternalTerminal {
     var surface: ghostty_surface_t? { view?.surface }
 
     /// Output and grid changes not yet taken by Ghostty's mailbox, in stream order.
-    private enum Pending { case output(Data), grid(UInt16, UInt16) }
+    private enum Pending { case output(Data, (() -> Void)?), grid(UInt16, UInt16), exited(Int32) }
     private var pending: [Pending] = []
     private var retrying = false
 
@@ -42,9 +42,12 @@ final class ExternalTerminal {
     }
 
     /// Bytes the program wrote, to parse and draw.
-    func output(_ bytes: Data) {
-        guard !bytes.isEmpty else { return }
-        enqueue(.output(bytes))
+    func output(_ bytes: Data, taken: (() -> Void)? = nil) {
+        guard !bytes.isEmpty else {
+            taken?()
+            return
+        }
+        enqueue(.output(bytes, taken))
     }
 
     /// The terminal's size in cells, applied in order with output.
@@ -57,9 +60,7 @@ final class ExternalTerminal {
     }
 
     /// The program exited with `status`; the pane shows it (show_child_exited).
-    func exited(status: Int32) {
-        if let surface { ghostty_surface_set_process_exited(surface, status) }
-    }
+    func exited(status: Int32) { enqueue(.exited(status)) }
 
     private func enqueue(_ item: Pending) {
         pending.append(item)
@@ -69,15 +70,23 @@ final class ExternalTerminal {
     /// Hands queued items to Ghostty until its mailbox is full, then retries
     /// shortly after; nothing overtakes what is still queued.
     private func drain() {
-        guard let surface else { return pending.removeAll() }
+        guard let surface else { return discard() }
         while let item = pending.first {
             let taken = switch item {
-            case .output(let bytes): bytes.withUnsafeBytes { ghostty_surface_process_output(surface, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) }
+            case .output(let bytes, _): bytes.withUnsafeBytes { ghostty_surface_process_output(surface, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) }
             case .grid(let cols, let rows): ghostty_surface_set_grid_size(surface, cols, rows)
+            case .exited(let status): { ghostty_surface_set_process_exited(surface, status); return true }()
             }
             guard taken else { return retryLater() }
             pending.removeFirst()
+            if case .output(_, let done?) = item { done() }
         }
+    }
+
+    fileprivate func discard() {
+        let dropped = pending
+        pending.removeAll()
+        for case .output(_, let done?) in dropped { done() }
     }
 
     private func retryLater() {
@@ -108,8 +117,6 @@ final class ExternalIOBackend: TerminalBackend {
         Self.shared = self
     }
 
-    func terminal(_ view: TerminalSurfaceView) -> ExternalTerminal? { terminals[view.address] }
-
     func start(_ view: TerminalSurfaceView, pane: Pane) -> Bool {
         var options = GhosttyRuntime.options(for: view)
         options.io_mode = GHOSTTY_IO_MODE_EXTERNAL
@@ -137,7 +144,10 @@ final class ExternalIOBackend: TerminalBackend {
     }
 
     func stop(_ view: TerminalSurfaceView) {
-        if let terminal = terminals.removeValue(forKey: view.address) { link.closed(terminal) }
+        if let terminal = terminals.removeValue(forKey: view.address) {
+            link.closed(terminal)
+            terminal.discard()
+        }
         runtime.detach(view)
     }
 

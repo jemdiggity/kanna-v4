@@ -22,8 +22,9 @@ final class DaemonLink: TerminalLink {
         self.commands = commands
         connection = DaemonConnection(
             path: socketPath,
+            hello: ["id": 0, "cmd": "app.hello", "args": ["pid": .number(Double(ProcessInfo.processInfo.processIdentifier))]],
             connected: { [weak self] in self?.connected() },
-            received: { [weak self] in self?.received($0) },
+            received: { [weak self] message, delivery in self?.received(message, delivery) },
             disconnected: { [weak self] in self?.disconnected() })
     }
 
@@ -37,7 +38,6 @@ final class DaemonLink: TerminalLink {
     // MARK: The connection
 
     private func connected() {
-        connection.send(["id": 0, "cmd": "app.hello", "args": ["pid": .number(Double(ProcessInfo.processInfo.processIdentifier))]])
         // After a reconnect: the terminals shown, again.
         for pane in terminals.keys.sorted() {
             send("attach", ["pane": .string(pane)])
@@ -50,17 +50,26 @@ final class DaemonLink: TerminalLink {
         attached = false
     }
 
-    private func received(_ message: JSON) {
+    private func received(_ message: JSON, _ delivery: DaemonConnection.Delivery) {
+        let connection = connection!
+        var consumed = true
+        defer { if consumed { connection.consumed(delivery) } }
         // The answer to app.hello, the only request the app makes.
         if let ok = message["ok"]?.bool {
+            guard message["id"]?.number == 0 else { return }
             attached = ok
-            if !ok { FileHandle.standardError.write(Data("kanna: the daemon refused this app: \(message["error"]?["message"]?.string ?? "")\n".utf8)) }
+            if ok {
+                connection.accepted()
+            } else {
+                connection.refused()
+                FileHandle.standardError.write(Data("kanna: the daemon refused this app: \(message["error"]?["message"]?.string ?? "")\n".utf8))
+            }
             return
         }
         guard let cmd = message["cmd"]?.string else { return }
         // A request for the app (debug.*): answered as the control protocol would.
         if message["id"] != nil {
-            Task { [commands, connection] in connection?.send(await commands.handle(message)) }
+            Task { [commands] in connection.send(await commands.handle(message), generation: delivery.generation) }
             return
         }
         let args = message["args"] ?? [:]
@@ -68,11 +77,16 @@ final class DaemonLink: TerminalLink {
         switch cmd {
         case "layout": onLayout?(args)
         case "output":
-            if let data = args["data"]?.string.flatMap({ Data(base64Encoded: $0) }) { terminal?.output(data) }
+            if let terminal, let data = args["data"]?.string.flatMap({ Data(base64Encoded: $0) }) {
+                consumed = false
+                terminal.output(data) { connection.consumed(delivery) }
+            }
         case "grid":
-            if let cols = args["cols"]?.number, let rows = args["rows"]?.number { terminal?.setGrid(cols: UInt16(cols), rows: UInt16(rows)) }
+            if let cols = args["cols"]?.number.flatMap({ UInt16(exactly: $0) }), let rows = args["rows"]?.number.flatMap({ UInt16(exactly: $0) }) {
+                terminal?.setGrid(cols: cols, rows: rows)
+            }
         case "exited":
-            if let code = args["code"]?.number { terminal?.exited(status: Int32(code)) }
+            if let code = args["code"]?.number.flatMap({ Int32(exactly: $0) }) { terminal?.exited(status: code) }
         default: FileHandle.standardError.write(Data("kanna: unknown message from the daemon: \(cmd)\n".utf8))
         }
     }
