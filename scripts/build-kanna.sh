@@ -18,8 +18,12 @@ kmux="$(cd "$kmux" && pwd)"
 pinned="$(cat "$repo_root/kmux.rev")"
 actual="$(git -C "$kmux" rev-parse HEAD)"
 if [[ "$actual" != "$pinned" ]]; then
-  echo "note: $kmux is at ${actual:0:10}, kmux.rev says ${pinned:0:10}" >&2
-  echo "      (git -C \"$kmux\" checkout $pinned, or update kmux.rev once this build works)" >&2
+  if [[ "${KANNA_ALLOW_KMUX_DRIFT:-}" != 1 ]]; then
+    echo "build-kanna: $kmux is at ${actual:0:10}, kmux.rev says ${pinned:0:10}" >&2
+    echo "      (git -C \"$kmux\" checkout $pinned, or KANNA_ALLOW_KMUX_DRIFT=1 and update kmux.rev once this build works)" >&2
+    exit 1
+  fi
+  echo "note: $kmux is at ${actual:0:10}, kmux.rev says ${pinned:0:10} (KANNA_ALLOW_KMUX_DRIFT=1)" >&2
 fi
 
 KMUX_BRAND=kanna KMUX_BRAND_NAME=Kanna KMUX_BUNDLE_ID=dev.kanna.kanna KMUX_ICON="$repo_root/assets/Kanna.icns" \
