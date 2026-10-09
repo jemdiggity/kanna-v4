@@ -176,11 +176,11 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 |---|---|---|
 | Idle exit | 60 s | `KANNA_KEEPER_IDLE_MS` |
 | Grace before SIGKILL | 1 s | `KANNA_KEEPER_CLOSE_GRACE_MS` |
-| Ptys held | 256 | `KANNA_KEEPER_MAX_PTYS` |
+| Ptys held, counting closed processes not yet gone | 256 | `KANNA_KEEPER_MAX_PTYS` |
 | Connections | 16 | — |
 | Out of descriptors when accepting | stops polling the socket for 100 ms (Linux leaves the connection queued, so the socket stays readable; macOS drops it) | — |
 | Request line | 1 MiB | — |
-| Unsent replies per connection | 8 MiB, then it's dropped | — |
+| Unsent replies per connection | 8 MiB, or 2 × the pty limit + 16 descriptors, then it's dropped | — |
 
 ## 10. Known Limitations
 

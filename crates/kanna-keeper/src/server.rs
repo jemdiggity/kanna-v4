@@ -104,6 +104,8 @@ struct Conn {
     inbuf: Vec<u8>,
     out: VecDeque<Out>,
     out_bytes: usize,
+    out_fds: usize,
+    max_out_fds: usize,
     dead: bool,
 }
 
@@ -112,7 +114,8 @@ impl Conn {
         let mut bytes = serde_json::to_vec(&value).unwrap_or_default();
         bytes.push(b'\n');
         self.out_bytes += bytes.len();
-        if self.out_bytes > MAX_OUT {
+        self.out_fds += fds.len();
+        if self.out_bytes > MAX_OUT || self.out_fds > self.max_out_fds {
             eprintln!("kanna-keeper: dropped a client that isn't reading");
             self.dead = true;
             return;
@@ -126,6 +129,7 @@ impl Conn {
             match fdpass::send(self.stream.as_raw_fd(), &out.bytes[out.sent..], &fds, true) {
                 Ok(n) => {
                     out.sent += n;
+                    self.out_fds -= out.fds.len();
                     out.fds.clear();
                     if out.sent == out.bytes.len() {
                         self.out_bytes -= out.bytes.len();
@@ -364,7 +368,15 @@ impl Keeper {
                         continue;
                     }
                     let _ = stream.set_nonblocking(true);
-                    let mut conn = Conn { stream, inbuf: Vec::new(), out: VecDeque::new(), out_bytes: 0, dead: false };
+                    let mut conn = Conn {
+                        stream,
+                        inbuf: Vec::new(),
+                        out: VecDeque::new(),
+                        out_bytes: 0,
+                        out_fds: 0,
+                        max_out_fds: 2 * self.settings.max_ptys + 16,
+                        dead: false,
+                    };
                     // Exits nobody has acknowledged yet.
                     for (id, p) in &self.ptys {
                         if let Some(exit) = p.exit {
@@ -461,7 +473,7 @@ impl Keeper {
         if self.ptys.contains_key(id) {
             return Err(format!("pty {id:?} exists"));
         }
-        if self.ptys.len() >= self.settings.max_ptys {
+        if self.ptys.len() + self.closed.len() >= self.settings.max_ptys {
             return Err(format!("too many ptys ({})", self.settings.max_ptys));
         }
         let what = match (req["command"].as_str(), req["shell"].as_str()) {

@@ -663,3 +663,48 @@ fn adopt_hands_back_every_pty_even_near_the_descriptor_limit() {
     let adopted: Vec<String> = adopted.unwrap().into_iter().map(|p| p.id).collect();
     assert_eq!(adopted, ids);
 }
+
+#[test]
+fn closed_processes_still_alive_count_against_the_pty_limit() {
+    let f = Fixture::with(&[("KANNA_KEEPER_MAX_PTYS", "2"), ("KANNA_KEEPER_CLOSE_GRACE_MS", "3000")]);
+    let mut c = f.client();
+    let (sh, _) = group(&mut c, "stubborn", "trap '' HUP; sleep 60 & echo \"kid:$!\"; wait");
+    c.close("stubborn").unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(alive(sh));
+    c.spawn(&SpawnRequest::command("a", "sleep 60")).unwrap();
+    let refused = c.spawn(&SpawnRequest::command("b", "sleep 60")).unwrap_err();
+    assert!(refused.to_string().contains("too many"), "{refused}");
+    c.close("a").unwrap();
+}
+
+#[test]
+fn a_client_that_queues_too_many_descriptors_is_dropped() {
+    use std::io::{Read, Write};
+    let f = Fixture::with(&[("KANNA_KEEPER_MAX_PTYS", "4")]);
+    let mut c = f.client();
+    for i in 0..4 {
+        c.spawn(&SpawnRequest::command(&format!("s{i}"), "sleep 60")).unwrap();
+    }
+    let mut raw = std::os::unix::net::UnixStream::connect(f.socket()).unwrap();
+    for _ in 0..400 {
+        if raw.write_all(b"{\"op\":\"adopt\"}\n").is_err() {
+            break;
+        }
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let _ = raw.set_read_timeout(Some(Duration::from_secs(3)));
+    let mut buf = [0u8; 65536];
+    loop {
+        match raw.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => break,
+            Err(e) => panic!("still connected: {e}"),
+        }
+    }
+    assert_eq!(c.hello().unwrap().0, kanna_keeper::PROTOCOL_VERSION);
+    for i in 0..4 {
+        c.close(&format!("s{i}")).unwrap();
+    }
+}
