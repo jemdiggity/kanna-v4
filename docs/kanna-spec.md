@@ -24,6 +24,7 @@
    - 4.10 [Windows, Tabs and Splits](#410-windows-tabs-and-splits)
    - 4.11 [The kanna CLI](#411-the-kanna-cli)
    - 4.12 [Terminal Behaviour](#412-terminal-behaviour)
+   - 4.13 [Tab Containers](#413-tab-containers)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -803,7 +804,75 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 **Not done:** OSC 5522 (kitty's clipboard protocol) gets only part of its replies; kitty graphics aren't in a snapshot, so images go when the app relaunches; an empty OSC 7 is ignored; a title isn't shown again after a relaunch until the program sets it.
 
-**Checked by** `crates/kanna-vt/tests/terminal.rs` (colour answers, scheme reports, cursor defaults, title and cwd changes, snapshots after widening), `crates/kanna-daemon/tests/terminal_behaviour.rs` (colour queries from the app's theme, also after a restart; scheme reports; the shell's folder in `list`), `crates/kanna-daemon/tests/restart.rs` (output just before a SIGKILL survives), `apps/kanna/Tests/KannaLinksTests` (every link rule), and S30–S35 of `scripts/e2e-kanna.sh`: theme and light/dark with screenshots (S30), cwd and title (S31), paste, OSC 52 and selection (S32), kitty keys, mouse and focus reports after a relaunch (S33), font size and the pty, scrollback (S34), links, bell, notifications and progress (S35).
+**Checked by** `crates/kanna-vt/tests/terminal.rs` (colour answers, scheme reports, cursor defaults, title and cwd changes, snapshots after widening), `crates/kanna-daemon/tests/terminal_behaviour.rs` (colour queries from the app's theme, also after a restart; scheme reports; the shell's folder in `list`), `apps/kanna/Tests/KannaLinksTests` (every link rule), and S30–S35 of `scripts/e2e-kanna.sh`: theme and light/dark with screenshots (S30), cwd and title (S31), paste, OSC 52 and selection (S32), kitty keys, mouse and focus reports after a relaunch (S33), font size and the pty, scrollback (S34), links, bell, notifications and progress (S35).
+
+
+### 4.13 Tab Containers
+
+**[Proposed]** A **tab container** is a slot in a split that holds several panes and shows one at a time, with a strip of tabs along its top. A set of markdown docs beside a terminal is the case it's for: the docs share one half of the window, and you switch between them without giving each its own split or window tab. The reference for how it looks and behaves is the mockup, [`docs/mockups/tab-container.html`](mockups/tab-container.html) (open it in a web pane: `kanna open web file://$PWD/docs/mockups/tab-container.html`).
+
+**What it is, in one picture.** A window tab's layout is a tree of splits whose leaves are panes. A container is a new kind of leaf: it takes a pane's place in the tree, and holds an ordered list of panes, one of them active.
+
+```mermaid
+flowchart TB
+    T["window tab t1"] --> S["split: row"]
+    S --> P1["pane p1<br/>terminal"]
+    S --> C["container c1 'docs'<br/>active: p3"]
+    C --> P2["p2 · kanna-spec.md"]
+    C --> P3["p3 · mux-build.md"]
+    C --> P4["p4 · keeper.md"]
+    C --> P5["p5 · localhost:3000"]
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    class C kanna
+    class T,S,P1,P2,P3,P4,P5 kmux
+```
+
+**Design: a layout node, not a pane type.** The panes in a container stay ordinary panes, with their own IDs, names, types and processes, and every command that takes a pane still works on them (`send`, `read`, `navigate`, `restart`, `close`, `focus`). The container itself is layout, like a split: it has no process, no state and nothing on the daemon's side, so it lives in the app's layout model ([4.7](#47-the-layout)) and is saved in `layout.json`. Why not a pane type that contains panes: a pane is something that runs (a terminal, a page, a document, an app); a pane holding panes would need every pane command to ask "which one?", and nesting would make the daemon's pane table a tree. As a layout node the daemon doesn't change at all, and kmux's protocol cases are untouched.
+
+**Rules of the model:**
+
+| Rule | Why |
+|---|---|
+| A container holds panes only: no splits and no containers inside it. | Tabs of tabs and splits inside a tab strip are hard to read and harder to drag; a split beside the container does the same job. |
+| It has an ID (`c1`, `c2`, …, never reused, like `p`, `t` and `w`) and an optional name. Commands that take a container accept either, or any pane inside it. | Scripts can address it the way they address panes; "the container that holds `spec`" is often the natural handle. |
+| Exactly one of its panes is active; it's the one drawn, and the one focused when the container is focused. | One visible pane per slot, as in a window tab. |
+| A container with one pane stays a container. Closing or moving out its last pane removes it, and the split closes up as it does for a pane. | It was made on purpose; a tab strip that vanished at one tab would make the next `--in` create a new one with a new ID. |
+| Panes that aren't active keep running, as panes in a window tab that isn't showing do. | A hidden terminal keeps its process and screen; the daemon doesn't know or care what's showing. |
+| Zoom applies to the container as a whole: the strip stays, and its tabs still switch. | Zooming one doc in a set of docs should still let you flip between them. |
+| A container is part of one window tab; moving it to another tab or window moves it with all its panes. | The same as a pane, so `move` and drags need no new rules. |
+
+**The tab strip** (see the mockup):
+
+- **Look:** 30 pt high at the top of the container's slot, darker than the window's tab bar, so the two never look alike. Each tab shows the pane's type icon and title (a markdown pane's file name, a web page's title, a terminal's title or command, an iOS app's name) and × on hover and on the active tab. The active tab has the content's background and a 2 pt accent line along its top (grey when the container isn't focused). After the tabs: + and the container's name.
+- **Overflow:** tabs shrink to a minimum width with their titles truncated (the full title on hover), then the strip scrolls sideways, and the active tab is always scrolled into view.
+- **Clicks:** a click selects the tab and focuses its pane; a middle click or × closes the pane; + offers New Terminal, Open File… and Open URL…, each opened as a tab here.
+- **Drags:** a tab dragged along the strip reorders; dragged out onto a split edge (the drop hints of [4.10](#410-windows-tabs-and-splits)) it leaves the container; dropped on another container's strip it moves there. Any pane dragged by its ⋯ grip, or a window tab, dropped on a strip joins that container (the hint reads "add to tabs").
+- **Keys:** ⌃Tab and ⌃⇧Tab select the next and previous tab of the focused container (the window's tabs keep ⇧⌘] and ⇧⌘[); ⌘W closes the active tab's pane (Close Pane); Ghostty keybinds aren't consumed by these unless the user binds them.
+- **Markdown links:** a plain click on a link to another markdown file navigates in place, as today; ⌘-click opens it as a new tab right after the current one. That's the doc-reading flow the container is for.
+- **Pane menu:** right-clicking a pane offers *Add to Tabs ▸* (the containers in its window tab, and *New Tab Container*), and *Take Out of Tabs* for a pane in one.
+
+**The CLI** (Kanna's additions, outside kmux's command set):
+
+| Command | Does |
+|---|---|
+| `kanna open … --in new [--name NAME]` | Opens the pane as the first tab of a new container, placed by `--split`, `--tab` or `--window` as a pane would be. With `--in`, `--name` names the container, not the pane. |
+| `kanna open … --in C` | Opens the pane as a new tab, after the active one, in container `C` (an ID, a name, or a pane inside it). If `C` is a pane that isn't in a container, a container is made around it first, in its place. |
+| `kanna move PANE --in C` | Moves an existing pane into container `C` (same rules). `move PANE --to OTHER --side …`, `--tab` and `--window` take it out. |
+| `kanna focus C` | Focuses the container's active pane; `focus PANE` on a pane in a container also selects its tab. |
+| `kanna close C` | Closes the container and every pane in it, as closing a window tab does. |
+| `kanna list` | Writes a container in a layout as `NAME[p2 p3* p4]` (`c1[…]` without a name), `*` marking the active tab, and adds a table of containers: ID, name, number of tabs, active pane. |
+| `kanna arrange` | Accepts container nodes in the tree. |
+
+**The protocol.** In layouts (`list --json`, `arrange`) a container is `{"container": "c1", "name": "docs", "active": "p3", "tabs": [{"pane": "p2"}, …], "size": "1/2"}`, a sibling of `{"pane": …}` and `{"split": …}`. `open` and `move` take `in` (a container or pane reference, or `"new"`). `capabilities` lists `containers` among its features, so a client can tell a mux that has them. Commands with `in` need the layout, so with the app closed they get `no_app` (exit 6 with `KANNA_SOCKET` set), as any placement does ([4.7](#47-the-layout)); the panes in containers keep running either way.
+
+**How it's built** (when it is): the container is a node in `kanna-mux`'s layout model (the `LayoutOwner` the app runs), with `in` handled in `open`'s and `move`'s layout steps, so the daemon only forwards them as it forwards every placement today. The app draws the strip from the model's `view` and sends its clicks and drags as layout-only actions ([4.10](#410-windows-tabs-and-splits)). kmux has no containers, so this is outside the part of Kanna that kmux is the reference for ([4.3](#43-kmux-is-the-reference-model)): kmux's protocol cases must keep passing unchanged, a layout without containers must look exactly as it does in kmux, and `--mux kmux` answers `--in` with "not supported" (exit 5). Its own reference is the mockup, and an e2e scenario that drives the strip with the debug commands and checks `list` and screenshots against it.
+
+**Open questions:**
+
+1. Should a container be able to hold a split (a terminal under a doc, as one tab)? Proposed: no, for now (see the rules).
+2. Should panes opened from a markdown pane (⌘-click) inherit nothing else, or also the container's zoom?
+3. Is ⌃Tab right, given some terminal programs use it? Alternatives: ⌥⌘] / ⌥⌘[.
 
 ---
 
@@ -1096,6 +1165,8 @@ sequenceDiagram
 | **Backend** | The mux that kanna is currently controlling. |
 | **Adapter** | The part of kanna that translates its commands for one specific backend. |
 | **Pane** | One rectangular area in a mux showing one thing. |
+| **Tab container** | A slot in a split that holds several panes as tabs and shows one at a time ([4.13](#413-tab-containers)). Its ID starts with `c`. |
+| **Tab strip** | The row of tabs along the top of a tab container. |
 | **Split** | Dividing a space into panes side by side or stacked. |
 | **Layout expression** | kanna's short notation for arranging panes, e.g. `a:2/3 \| (b / c)`. |
 | **Layout tree** | The parsed form of a layout expression that kanna passes to adapters. |

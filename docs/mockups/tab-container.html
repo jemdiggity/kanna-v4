@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tab Container Mockup</title>
+<style>
+:root {
+  --chrome: #26282c;
+  --tabbar: #1e1f22;
+  --strip: #202226;
+  --term: #292c33;
+  --md: #17181c;
+  --line: #3a3d44;
+  --text: #e6e6e6;
+  --dim: #8b8f98;
+  --accent: #3478f6;
+  --hint: rgba(52, 120, 246, 0.28);
+  --page: #111214;
+  --panel: #1a1b1f;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 var(--sans); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; padding: 20px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 1280px) { main { grid-template-columns: 1fr; padding: 16px; } aside { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); } }
+h1 { font-size: 15px; margin: 0 0 4px; }
+.lede { color: var(--dim); margin: 0 0 14px; }
+
+.window { border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: 0 20px 50px rgba(0,0,0,.5); background: var(--chrome); }
+.titlebar { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--dim); font-weight: 600; }
+.lights { display: flex; gap: 7px; margin-right: 10px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: #4a4c52; display: block; }
+.wtabs { height: 32px; background: var(--tabbar); display: flex; align-items: stretch; padding-left: 14px; border-bottom: 1px solid #000; }
+.wtab { padding: 0 14px; display: flex; align-items: center; gap: 10px; color: var(--dim); font-weight: 600; border-bottom: 2px solid transparent; }
+.wtab.on { color: var(--text); border-bottom-color: var(--accent); }
+.wtab .x { font-weight: 400; opacity: .6; }
+.wtabs .plus { padding: 0 12px; display: flex; align-items: center; color: var(--dim); font-size: 16px; }
+
+.body { height: 560px; display: flex; }
+.slot { position: relative; min-width: 0; flex: 1 1 0; display: flex; flex-direction: column; }
+main > section { min-width: 0; }
+.slot.focused::after { content: ""; position: absolute; inset: 0; border: 2px solid var(--accent); pointer-events: none; }
+.divider { width: 1px; background: #000; flex: none; }
+
+.term { flex: 1; background: var(--term); font: 12.5px/1.55 var(--mono); padding: 10px 12px; white-space: pre; overflow: hidden; color: #d7dae0; }
+.term .p { color: #e5c07b; }
+.term .c { color: #7fb4ca; }
+
+.strip { height: 30px; flex: none; background: var(--strip); display: flex; align-items: stretch; border-bottom: 1px solid #000; position: relative; }
+.ctabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.ctab { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; flex: 0 1 170px; min-width: 104px; color: var(--dim); border-right: 1px solid #000; cursor: default; user-select: none; font-size: 12px; position: relative; }
+.ctab .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.ctab .icon { font-size: 11px; opacity: .8; }
+.ctab .x { opacity: 0; font-size: 12px; padding: 0 2px; border-radius: 3px; }
+.ctab:hover .x, .ctab.on .x { opacity: .7; }
+.ctab .x:hover { background: #3a3d44; opacity: 1; }
+.ctab.on { color: var(--text); background: var(--md); }
+.ctab.on::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); }
+.slot:not(.focused) .ctab.on::before { background: #5b5f68; }
+.ctab.dragging { opacity: .4; }
+.strip .add { width: 30px; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 15px; cursor: default; }
+.strip .add:hover { color: var(--text); }
+.strip .name { display: flex; align-items: center; padding: 0 10px; color: #6c7079; font: 11px var(--mono); border-left: 1px solid #000; }
+.strip.drop::after { content: "add to tabs"; position: absolute; inset: 0; background: var(--hint); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; }
+
+.menu { position: absolute; top: 30px; right: 40px; background: #2b2d32; border: 1px solid #000; border-radius: 6px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.5); z-index: 5; min-width: 190px; }
+.menu div { padding: 4px 10px; border-radius: 4px; display: flex; justify-content: space-between; gap: 20px; }
+.menu div:hover { background: var(--accent); }
+.menu kbd { font: inherit; color: var(--dim); }
+.menu div:hover kbd { color: var(--text); }
+
+.md { flex: 1; background: var(--md); overflow: auto; padding: 26px 40px; }
+.md h2 { font-size: 26px; margin: 0 0 14px; }
+.md h3 { font-size: 16px; margin: 20px 0 8px; }
+.md p { color: #c9ccd3; max-width: 640px; margin: 0 0 10px; }
+.md a { color: #79a6ff; text-decoration: none; border-bottom: 1px dotted #79a6ff; cursor: pointer; }
+.md code { font: 12px var(--mono); background: #23252b; padding: 1px 5px; border-radius: 4px; }
+.md .diagram { display: flex; gap: 26px; align-items: center; margin: 18px 0; }
+.md .box { border: 1.5px solid #c9ccd3; padding: 12px 24px; }
+.md .arrow { color: #c9ccd3; }
+.web { flex: 1; background: #f5f5f7; color: #222; padding: 30px; font-size: 14px; }
+
+.empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--dim); }
+
+aside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid #26282e; border-radius: 8px; padding: 12px 14px; }
+.card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 8px; }
+.card pre { margin: 0; font: 11.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; color: #cfd3da; }
+.card ul { margin: 0; padding-left: 18px; color: #c9ccd3; }
+.card li { margin-bottom: 4px; }
+.card kbd { font: 11px var(--mono); background: #2a2c31; border: 1px solid #3a3d44; border-radius: 3px; padding: 0 4px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; }
+button { font: 12px var(--sans); color: var(--text); background: #2a2c31; border: 1px solid #3a3d44; border-radius: 5px; padding: 4px 9px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <h1>Tab container — a pane slot that holds panes as tabs</h1>
+    <p class="lede">The right half of this window is one tab container, <code style="font-family:var(--mono)">docs</code> (c1), holding four panes. Click its tabs, close them, reorder them by dragging, ⌘-click a link in a document, or press ⌃Tab. The panel on the right shows what <code style="font-family:var(--mono)">kanna list</code> would print.</p>
+    <div class="window" id="window">
+      <div class="titlebar"><span class="lights"><i></i><i></i><i></i></span><span id="title">Tab 1 — w1</span></div>
+      <div class="wtabs">
+        <div class="wtab on">Tab 1 <span class="x">×</span></div>
+        <div class="wtab">Tab 2 <span class="x">×</span></div>
+        <div class="plus">+</div>
+      </div>
+      <div class="body" id="body"></div>
+    </div>
+  </section>
+  <aside>
+    <div class="card">
+      <h2>Try</h2>
+      <div class="controls">
+        <button id="focusTerm">Focus the terminal</button>
+        <button id="dropDemo">Drag a pane onto the strip</button>
+        <button id="openCli">kanna open md … --in docs</button>
+        <button id="reset">Reset</button>
+      </div>
+    </div>
+    <div class="card"><h2>kanna list</h2><pre id="list"></pre></div>
+    <div class="card"><h2>Layout node (list --json)</h2><pre id="json"></pre></div>
+    <div class="card">
+      <h2>Keys and gestures</h2>
+      <ul>
+        <li>Click a tab: focus that pane. Middle-click or <kbd>×</kbd>: close it.</li>
+        <li><kbd>⌃Tab</kbd> / <kbd>⌃⇧Tab</kbd>: next / previous tab in the focused container.</li>
+        <li><kbd>⌘W</kbd>: close the active tab's pane; the container closes with its last one.</li>
+        <li><kbd>+</kbd>: a new terminal, file or URL as a tab here.</li>
+        <li>⌘-click a <em>.md</em> link: open it as a new tab beside this one. A plain click navigates in place, as today.</li>
+        <li>Drag a tab along the strip to reorder; out onto a split edge to take it out; onto another container's strip to move it there.</li>
+      </ul>
+    </div>
+  </aside>
+</main>
+<script>
+const docs = {
+  "kanna-spec.md": { kind: "md", body: () => `<h2>Kanna</h2><p>Kanna is a terminal multiplexer for macOS whose terminals outlive the app. See <a data-doc="mux-build.md">the build plan</a> and <a data-doc="keeper.md">the keeper</a>.</p><div class="diagram"><div class="box">App</div><span class="arrow">──▶</span><div class="box">Daemon</div><span class="arrow">──▶</span><div class="box">Keeper</div></div><h3>4.13 Tab Containers</h3><p>A tab container is a slot in a split that holds several panes and shows one at a time, with a strip of tabs along its top.</p>` },
+  "mux-build.md": { kind: "md", body: () => `<h2>Building Kanna's Own Mux</h2><p>Milestones M0–M4: a walking skeleton, an app that can quit, a daemon that can restart, web, markdown and iOS panes, and kmux parity.</p><p>Next: <a data-doc="roadmap.md">the roadmap</a>.</p>` },
+  "keeper.md": { kind: "md", body: () => `<h2>The Keeper</h2><p>The keeper holds every pty, so programs keep running while the daemon restarts. It hands a pty's master to the daemon with <code>SCM_RIGHTS</code>.</p>` },
+  "roadmap.md": { kind: "md", body: () => `<h2>Roadmap</h2><p>Desk and Shelf, tasks, agents — built on top of the mux.</p>` },
+  "localhost:3000": { kind: "web", body: () => `<h2 style="margin-top:0">Dev server</h2><p>A web pane can be a tab too.</p>` },
+  "zsh": { kind: "term", body: () => `<span class="c">~/work/kanna-v4</span>\n<span class="p">❯</span> ` },
+};
+const initial = () => ({
+  focused: "c1",
+  next: 6,
+  container: { id: "c1", name: "docs", active: "p3", tabs: [
+    { id: "p2", title: "kanna-spec.md" },
+    { id: "p3", title: "mux-build.md" },
+    { id: "p4", title: "keeper.md" },
+    { id: "p5", title: "localhost:3000" },
+  ] },
+});
+let state = initial();
+let menuOpen = false;
+let dropHint = false;
+
+const icon = t => ({ md: "▤", web: "◍", term: "›_" })[docs[t].kind];
+const active = () => state.container && state.container.tabs.find(t => t.id === state.container.active);
+
+function render() {
+  const body = document.getElementById("body");
+  body.innerHTML = "";
+  const left = el("div", "slot" + (state.focused === "p1" ? " focused" : ""));
+  const term = el("div", "term");
+  term.innerHTML = `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> kanna open md docs/kanna-spec.md --split right --in new --name docs\n<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> kanna open md docs/plans/mux-build.md --in docs\n<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> kanna open md docs/keeper.md --in docs\n<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> kanna open web localhost:3000 --in docs\n<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> `;
+  left.appendChild(term);
+  left.onmousedown = () => { state.focused = "p1"; menuOpen = false; render(); };
+  body.appendChild(left);
+  document.getElementById("title").textContent = (state.focused === "p1" ? "zsh" : active() ? active().title : "Tab 1") + " — w1";
+  if (state.container) {
+    body.appendChild(el("div", "divider"));
+    body.appendChild(renderContainer());
+  }
+  renderList();
+}
+
+function renderContainer() {
+  const c = state.container;
+  const slot = el("div", "slot" + (state.focused === "c1" ? " focused" : ""));
+  const strip = el("div", "strip" + (dropHint ? " drop" : ""));
+  const tabs = el("div", "ctabs");
+  c.tabs.forEach((t, i) => {
+    const tab = el("div", "ctab" + (t.id === c.active ? " on" : ""));
+    tab.draggable = true;
+    tab.innerHTML = `<span class="icon">${icon(t.title)}</span><span class="label">${t.title}</span><span class="x">×</span>`;
+    tab.onmousedown = e => {
+      if (e.button === 1) { e.preventDefault(); closeTab(t.id); return; }
+      if (e.target.classList.contains("x")) return;
+      c.active = t.id; state.focused = "c1"; menuOpen = false; render();
+    };
+    tab.querySelector(".x").onclick = e => { e.stopPropagation(); closeTab(t.id); };
+    tab.ondragstart = e => { e.dataTransfer.setData("text/plain", String(i)); tab.classList.add("dragging"); };
+    tab.ondragend = () => tab.classList.remove("dragging");
+    tab.ondragover = e => e.preventDefault();
+    tab.ondrop = e => {
+      e.preventDefault();
+      const from = Number(e.dataTransfer.getData("text/plain"));
+      const [moved] = c.tabs.splice(from, 1);
+      c.tabs.splice(i, 0, moved);
+      render();
+    };
+    tabs.appendChild(tab);
+  });
+  strip.appendChild(tabs);
+  const add = el("div", "add");
+  add.textContent = "+";
+  add.onclick = () => { menuOpen = !menuOpen; render(); };
+  strip.appendChild(add);
+  const name = el("div", "name");
+  name.textContent = `${c.name} · ${c.id}`;
+  strip.appendChild(name);
+  slot.appendChild(strip);
+  if (menuOpen) {
+    const menu = el("div", "menu");
+    [["New Terminal", "⌘T"], ["Open File…", "⌘O"], ["Open URL…", "⌘L"]].forEach(([label, key]) => {
+      const item = el("div");
+      item.innerHTML = `<span>${label}</span><kbd>${key}</kbd>`;
+      item.onclick = () => { menuOpen = false; addTab(label === "New Terminal" ? "zsh" : label === "Open URL…" ? "localhost:3000" : "roadmap.md"); };
+      menu.appendChild(item);
+    });
+    slot.appendChild(menu);
+  }
+  const t = active();
+  const kind = docs[t.title].kind;
+  const content = el("div", kind === "md" ? "md" : kind === "web" ? "web" : "term");
+  content.innerHTML = docs[t.title].body();
+  content.querySelectorAll("a[data-doc]").forEach(a => {
+    a.title = "⌘-click: open as a new tab here";
+    a.onclick = e => {
+      const doc = a.dataset.doc;
+      if (e.metaKey) addTab(doc, true);
+      else { t.title = doc; render(); }
+    };
+  });
+  slot.appendChild(content);
+  slot.onmousedown = e => { if (!e.target.closest(".strip")) { state.focused = "c1"; if (!e.target.closest(".menu")) menuOpen = false; render(); } };
+  return slot;
+}
+
+function addTab(title, besideActive) {
+  const c = state.container;
+  const tab = { id: "p" + state.next++, title };
+  const at = besideActive ? c.tabs.findIndex(t => t.id === c.active) + 1 : c.tabs.length;
+  c.tabs.splice(at, 0, tab);
+  c.active = tab.id;
+  state.focused = "c1";
+  render();
+}
+
+function closeTab(id) {
+  const c = state.container;
+  const i = c.tabs.findIndex(t => t.id === id);
+  c.tabs.splice(i, 1);
+  if (!c.tabs.length) { state.container = null; state.focused = "p1"; }
+  else if (c.active === id) c.active = c.tabs[Math.min(i, c.tabs.length - 1)].id;
+  render();
+}
+
+function renderList() {
+  const c = state.container;
+  const mark = id => (c && id === c.active ? "*" : "");
+  const layout = c ? `p1:1/2 | ${c.name}[${c.tabs.map(t => short(t) + mark(t.id)).join(" ")}]:1/2` : "p1";
+  const focused = state.focused === "p1" ? "p1" : active().id;
+  const rows = [["p1", "-", "term", "running", "(shell)"]].concat(c ? c.tabs.map(t => [t.id, "-", docs[t.title].kind, "running", t.title]) : []);
+  document.getElementById("list").textContent =
+    `*w1  focused: ${focused}\n  *t1 "Tab 1"  ${layout}\n   t2 "Tab 2"  p6\n\nPANE  NAME  TYPE  STATE    COMMAND\n` +
+    rows.map(r => `${r[0].padEnd(6)}${r[1].padEnd(6)}${r[2].padEnd(6)}${r[3].padEnd(9)}${r[4]}`).join("\n") +
+    (c ? `\n\nCONTAINER  NAME  TABS  ACTIVE\n${c.id.padEnd(11)}${c.name.padEnd(6)}${String(c.tabs.length).padEnd(6)}${c.active}` : "");
+  document.getElementById("json").textContent = c
+    ? JSON.stringify({ split: "row", children: [{ pane: "p1", size: "1/2" }, { container: c.id, name: c.name, size: "1/2", active: c.active, tabs: c.tabs.map(t => ({ pane: t.id })) }] }, null, 1)
+    : JSON.stringify({ pane: "p1" }, null, 1);
+}
+const short = t => t.id;
+
+function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
+
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey && e.key === "Tab" && state.container && state.focused === "c1") {
+    e.preventDefault();
+    const c = state.container;
+    const i = c.tabs.findIndex(t => t.id === c.active);
+    c.active = c.tabs[(i + (e.shiftKey ? -1 : 1) + c.tabs.length) % c.tabs.length].id;
+    render();
+  }
+  if (e.metaKey && e.key === "w" && state.container && state.focused === "c1") { e.preventDefault(); closeTab(state.container.active); }
+});
+document.getElementById("focusTerm").onclick = () => { state.focused = "p1"; render(); };
+document.getElementById("dropDemo").onclick = () => {
+  if (!state.container) return;
+  dropHint = true; render();
+  setTimeout(() => { dropHint = false; addTab("zsh"); }, 1100);
+};
+document.getElementById("openCli").onclick = () => { if (state.container) addTab("roadmap.md"); };
+document.getElementById("reset").onclick = () => { state = initial(); menuOpen = false; render(); };
+render();
+</script>
+</body>
+</html>
