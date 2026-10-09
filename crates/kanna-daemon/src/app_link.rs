@@ -20,8 +20,6 @@ pub const HELLO: &str = "app.hello";
 
 const MAX_LINE: u64 = 16 << 20;
 
-const RESET: &[u8] = b"\x1bc";
-
 const QUEUE_BEHIND: usize = 16 << 20;
 
 const QUEUE_CAUGHT_UP: usize = 1 << 20;
@@ -114,6 +112,7 @@ pub struct AppLink {
     timeout: Duration,
     next_id: Cell<u64>,
     attached: RefCell<HashSet<String>>,
+    unsent: RefCell<HashSet<String>>,
     shown: RefCell<Option<Value>>,
 }
 
@@ -127,6 +126,7 @@ impl AppLink {
             timeout,
             next_id: Cell::new(0),
             attached: RefCell::default(),
+            unsent: RefCell::default(),
             shown: RefCell::new(None),
         }
     }
@@ -200,6 +200,7 @@ impl AppLink {
         eprintln!("kanna-daemon: the app went away");
         self.app.borrow_mut().take();
         self.attached.borrow_mut().clear();
+        self.unsent.borrow_mut().clear();
         self.shown.borrow_mut().take();
         let pending: Vec<Responder> = self.pending.borrow_mut().drain().map(|(_, (_, r))| r).collect();
         for responder in pending {
@@ -230,6 +231,7 @@ impl AppLink {
             "attach" => self.attach(&pane),
             "detach" => {
                 self.attached.borrow_mut().remove(&pane);
+                self.unsent.borrow_mut().remove(&pane);
             }
             "input" => {
                 if let Some(bytes) = string(&args, "data").and_then(|d| BASE64.decode(d).ok()) {
@@ -247,38 +249,55 @@ impl AppLink {
     }
 
     fn attach(&self, pane: &str) {
-        let Some((cols, rows, replay, exit_code)) = self.terminals.attach(pane) else {
+        let Some(attach) = self.terminals.attach(pane) else {
             return self.notify("exited", json!({ "pane": pane, "code": Value::Null }));
         };
         self.attached.borrow_mut().insert(pane.into());
-        self.output(pane, RESET);
-        self.notify("grid", json!({ "pane": pane, "cols": cols, "rows": rows }));
-        for chunk in replay.chunks(65536) {
-            self.output(pane, chunk);
+        let snapshot = match attach.snapshot {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                if self.unsent.borrow_mut().insert(pane.into()) {
+                    eprintln!("kanna-daemon: can't snapshot {pane} yet ({error}); trying again after its next output");
+                }
+                return;
+            }
+        };
+        self.unsent.borrow_mut().remove(pane);
+        if self.shows(pane) {
+            self.notify("snapshot", json!({ "pane": pane, "data": BASE64.encode(&snapshot) }));
+            self.notify("grid", json!({ "pane": pane, "cols": attach.cols, "rows": attach.rows }));
         }
-        if let Some(code) = exit_code {
+        if let Some(code) = attach.exit_code {
             self.exited(pane, code);
         }
     }
 
     pub fn output(&self, pane: &str, bytes: &[u8]) {
-        if self.shows(pane) {
-            self.notify("output", json!({ "pane": pane, "data": BASE64.encode(bytes) }));
+        if !self.shows(pane) {
+            return;
         }
+        if self.unsent.borrow().contains(pane) {
+            return self.attach(pane);
+        }
+        self.notify("output", json!({ "pane": pane, "data": BASE64.encode(bytes) }));
     }
 
     pub fn exited(&self, pane: &str, code: i32) {
-        if self.shows(pane) {
-            self.notify("exited", json!({ "pane": pane, "code": code }));
+        if !self.shows(pane) {
+            return;
         }
+        if self.unsent.borrow().contains(pane) {
+            self.attach(pane);
+            if !self.unsent.borrow().contains(pane) {
+                return;
+            }
+        }
+        self.notify("exited", json!({ "pane": pane, "code": code }));
     }
 
     pub fn started(&self, pane: &str) {
         if self.shows(pane) {
-            self.output(pane, RESET);
-            if let Some((cols, rows)) = self.terminals.size(pane) {
-                self.notify("grid", json!({ "pane": pane, "cols": cols, "rows": rows }));
-            }
+            self.attach(pane);
         }
     }
 

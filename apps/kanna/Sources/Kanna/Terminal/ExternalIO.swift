@@ -15,9 +15,11 @@ final class ExternalTerminal {
     fileprivate weak var view: TerminalSurfaceView?
     var surface: ghostty_surface_t? { view?.surface }
 
-    private enum Pending { case output(Data, (() -> Void)?), grid(UInt16, UInt16), exited(Int32) }
+    private enum Pending { case output(Data, (() -> Void)?), snapshot(Data, (() -> Void)?), grid(UInt16, UInt16), exited(Int32) }
     private var pending: [Pending] = []
     private var retrying = false
+    private var refusals = 0
+    private static let refusalLimit = 250
 
     fileprivate init(pane: Pane, view: TerminalSurfaceView) {
         self.pane = pane
@@ -34,10 +36,7 @@ final class ExternalTerminal {
 
     func setGrid(cols: UInt16, rows: UInt16) { enqueue(.grid(cols, rows)) }
 
-    func loadSnapshot(_ bytes: Data) -> Bool {
-        guard let surface else { return false }
-        return bytes.withUnsafeBytes { ghostty_surface_load_snapshot(surface, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) }
-    }
+    func loadSnapshot(_ bytes: Data, taken: (() -> Void)? = nil) { enqueue(.snapshot(bytes, taken)) }
 
     func exited(status: Int32) { enqueue(.exited(status)) }
 
@@ -51,19 +50,37 @@ final class ExternalTerminal {
         while let item = pending.first {
             let taken = switch item {
             case .output(let bytes, _): bytes.withUnsafeBytes { ghostty_surface_process_output(surface, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) }
+            case .snapshot(let bytes, _): bytes.withUnsafeBytes { ghostty_surface_load_snapshot(surface, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) }
             case .grid(let cols, let rows): ghostty_surface_set_grid_size(surface, cols, rows)
             case .exited(let status): { ghostty_surface_set_process_exited(surface, status); return true }()
             }
-            guard taken else { return retryLater() }
+            guard taken || givesUp(item) else { return retryLater() }
+            refusals = 0
             pending.removeFirst()
-            if case .output(_, let done?) = item { done() }
+            switch item {
+            case .output(_, let done?), .snapshot(_, let done?): done()
+            default: break
+            }
         }
+    }
+
+    private func givesUp(_ item: Pending) -> Bool {
+        guard case .snapshot = item else { return false }
+        refusals += 1
+        guard refusals >= Self.refusalLimit else { return false }
+        FileHandle.standardError.write(Data("kanna: \(pane.id)'s screen from the daemon was refused \(refusals) times; going on without it\n".utf8))
+        return true
     }
 
     fileprivate func discard() {
         let dropped = pending
         pending.removeAll()
-        for case .output(_, let done?) in dropped { done() }
+        for item in dropped {
+            switch item {
+            case .output(_, let done?), .snapshot(_, let done?): done()
+            default: break
+            }
+        }
     }
 
     private func retryLater() {

@@ -13,6 +13,13 @@ use std::sync::{Arc, Mutex};
 
 pub type OnStart = Box<dyn Fn(&str)>;
 
+pub struct Attach {
+    pub cols: u16,
+    pub rows: u16,
+    pub snapshot: Result<Vec<u8>, kanna_vt::Error>,
+    pub exit_code: Option<i32>,
+}
+
 const COLS: u16 = 80;
 const ROWS: u16 = 24;
 
@@ -131,26 +138,21 @@ impl Terminals {
         if (cols, rows, (width, height)) != (feed.cols, feed.rows, terminal.pixels) {
             pty::set_size(&terminal.master, cols, rows, width, height);
             terminal.pixels = (width, height);
-        }
-        if (cols, rows) != (feed.cols, feed.rows) {
-            feed.resize(id, cols, rows);
             self.sizes.borrow_mut().insert(id.into(), (cols, rows));
+            let replies = feed.resize(id, cols, rows, width, height);
+            if !replies.is_empty() && terminal.exit_code.is_none() {
+                let _ = terminal.input.send(replies);
+            }
         }
         Some((cols, rows))
     }
 
-    pub fn attach(&self, id: &str) -> Option<(u16, u16, Vec<u8>, Option<i32>)> {
+    pub fn attach(&self, id: &str) -> Option<Attach> {
         let live = self.live.borrow();
         let t = live.get(id)?;
         let mut feed = Feed::lock(&t.feed);
-        let replay = feed.snapshot();
-        Some((feed.cols, feed.rows, replay, t.exit_code.filter(|_| t.exit_reported)))
-    }
-
-    pub fn size(&self, id: &str) -> Option<(u16, u16)> {
-        let live = self.live.borrow();
-        let feed = Feed::lock(&live.get(id)?.feed);
-        Some((feed.cols, feed.rows))
+        let snapshot = feed.snapshot();
+        Some(Attach { cols: feed.cols, rows: feed.rows, snapshot, exit_code: t.exit_code.filter(|_| t.exit_reported) })
     }
 
     pub fn close_all(&self) {
@@ -201,18 +203,18 @@ impl PaneHost for Terminals {
     fn read(&self, pane: &Pane, lines: Option<usize>) -> Result<String, KmuxError> {
         let live = self.live.borrow();
         let terminal = live.get(&pane.id).ok_or_else(|| KmuxError::new("bad_request", format!("{} has no terminal", pane.label())))?;
-        let text = Feed::lock(&terminal.feed).guarded(&pane.id, |screen| screen.text(lines));
-        text.ok_or_else(|| KmuxError::new("bad_request", format!("{}'s screen failed and was reset", pane.label())))
+        let text = Feed::lock(&terminal.feed).text(lines);
+        Ok(text)
     }
 }
 
 impl Terminals {
     fn run(&self, id: &str, serial: u64, spawned: Spawned, spec: &Spec) -> std::io::Result<Terminal> {
         let Spawned { pid, master } = spawned;
-        let feed = Feed::new(spec.cols, spec.rows);
-        let reader = Reader::start(id, serial, master.try_clone()?, feed.clone(), self.events.clone())?;
-        let mut writer = File::from(master.try_clone()?);
+        let feed = Feed::new(spec.cols, spec.rows)?;
         let (input, inputs) = mpsc::channel::<Vec<u8>>();
+        let reader = Reader::start(id, serial, master.try_clone()?, feed.clone(), input.clone(), self.events.clone())?;
+        let mut writer = File::from(master.try_clone()?);
         std::thread::Builder::new().name(format!("kanna.write.{id}")).spawn(move || {
             for bytes in inputs {
                 if writer.write_all(&bytes).is_err() {

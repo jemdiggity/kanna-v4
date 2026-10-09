@@ -1,15 +1,15 @@
-use crate::screen::{Screen, TextScreen};
 use crate::Event;
-use std::collections::VecDeque;
+use kanna_vt::{Lines, Terminal};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::panic::AssertUnwindSafe;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-pub const REPLAY: usize = 1 << 20;
+pub const SCROLLBACK_LINES: usize = 10_000;
+
+pub const SCROLLBACK_BYTES: usize = 10_000_000;
 
 const OUTBOX: usize = 1 << 20;
 
@@ -18,8 +18,7 @@ const QUIET: Duration = Duration::from_millis(50);
 const DRAIN_LIMIT: Duration = Duration::from_millis(500);
 
 pub struct Feed {
-    screen: Box<dyn Screen + Send>,
-    replay: VecDeque<u8>,
+    screen: Terminal,
     outbox: Vec<u8>,
     overflowed: bool,
     posted: bool,
@@ -33,34 +32,26 @@ pub enum Taken {
 }
 
 impl Feed {
-    pub fn new(cols: u16, rows: u16) -> Arc<Mutex<Feed>> {
-        Arc::new(Mutex::new(Feed {
-            screen: Box::new(TextScreen::new(cols, rows)),
-            replay: VecDeque::new(),
-            outbox: Vec::new(),
-            overflowed: false,
-            posted: false,
-            cols,
-            rows,
-        }))
+    pub fn new(cols: u16, rows: u16) -> io::Result<Arc<Mutex<Feed>>> {
+        let mut screen = Terminal::new(cols, rows, SCROLLBACK_LINES).map_err(io::Error::other)?;
+        screen.set_scrollback_bytes(Some(SCROLLBACK_BYTES)).map_err(io::Error::other)?;
+        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, cols, rows })))
     }
 
     pub fn lock(feed: &Mutex<Feed>) -> MutexGuard<'_, Feed> {
         feed.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn push(&mut self, id: &str, bytes: &[u8]) -> bool {
-        self.guarded(id, |screen| screen.feed(bytes));
-        self.replay.extend(bytes);
-        let over = self.replay.len().saturating_sub(REPLAY);
-        self.replay.drain(..over);
+    fn push(&mut self, bytes: &[u8]) -> (bool, Vec<u8>) {
+        self.screen.write(bytes);
+        let replies = self.screen.take_replies();
         if self.overflowed || self.outbox.len() + bytes.len() > OUTBOX {
             self.outbox = Vec::new();
             self.overflowed = true;
         } else {
             self.outbox.extend_from_slice(bytes);
         }
-        !std::mem::replace(&mut self.posted, true)
+        (!std::mem::replace(&mut self.posted, true), replies)
     }
 
     pub fn take(&mut self) -> Option<Taken> {
@@ -72,26 +63,26 @@ impl Feed {
         (!bytes.is_empty()).then_some(Taken::Bytes(bytes))
     }
 
-    pub fn snapshot(&mut self) -> Vec<u8> {
+    pub fn snapshot(&mut self) -> Result<Vec<u8>, kanna_vt::Error> {
+        let snapshot = self.screen.snapshot()?;
         self.outbox = Vec::new();
         self.overflowed = false;
-        self.replay.iter().copied().collect()
+        Ok(snapshot)
     }
 
-    pub fn resize(&mut self, id: &str, cols: u16, rows: u16) {
-        (self.cols, self.rows) = (cols, rows);
-        self.guarded(id, |screen| screen.resize(cols, rows));
-    }
-
-    pub fn guarded<R>(&mut self, id: &str, f: impl FnOnce(&mut dyn Screen) -> R) -> Option<R> {
-        match std::panic::catch_unwind(AssertUnwindSafe(|| f(self.screen.as_mut()))) {
-            Ok(result) => Some(result),
-            Err(_) => {
-                eprintln!("kanna-daemon: {id}'s screen failed; it starts over");
-                self.screen = Box::new(TextScreen::new(self.cols, self.rows));
-                None
+    pub fn resize(&mut self, id: &str, cols: u16, rows: u16, width: u16, height: u16) -> Vec<u8> {
+        self.screen.set_cell_pixels(u32::from(width / cols.max(1)), u32::from(height / rows.max(1)));
+        if (cols, rows) != (self.cols, self.rows) {
+            (self.cols, self.rows) = (cols, rows);
+            if let Err(error) = self.screen.resize(cols, rows) {
+                eprintln!("kanna-daemon: couldn't make {id}'s screen {cols}×{rows}: {error}");
             }
         }
+        self.screen.take_replies()
+    }
+
+    pub fn text(&self, lines: Option<usize>) -> String {
+        self.screen.text(lines.map_or(Lines::Screen, Lines::Last))
     }
 }
 
@@ -100,12 +91,12 @@ pub struct Reader {
 }
 
 impl Reader {
-    pub fn start(id: &str, serial: u64, master: OwnedFd, feed: Arc<Mutex<Feed>>, events: Sender<Event>) -> io::Result<Reader> {
+    pub fn start(id: &str, serial: u64, master: OwnedFd, feed: Arc<Mutex<Feed>>, replies: Sender<Vec<u8>>, events: Sender<Event>) -> io::Result<Reader> {
         let (asleep, wake) = pipe()?;
         let pane = id.to_string();
         std::thread::Builder::new()
             .name(format!("kanna.read.{id}"))
-            .spawn(move || read(Pty { pane, serial, master: File::from(master), wake: File::from(asleep), feed, events }))?;
+            .spawn(move || read(Pty { pane, serial, master: File::from(master), wake: File::from(asleep), feed, replies, events }))?;
         Ok(Reader { wake: File::from(wake) })
     }
 
@@ -120,6 +111,7 @@ struct Pty {
     master: File,
     wake: File,
     feed: Arc<Mutex<Feed>>,
+    replies: Sender<Vec<u8>>,
     events: Sender<Event>,
 }
 
@@ -173,7 +165,10 @@ fn read(mut pty: Pty) {
                 return;
             }
         };
-        let post = Feed::lock(&pty.feed).push(&pty.pane, &buffer[..n]);
+        let (post, replies) = Feed::lock(&pty.feed).push(&buffer[..n]);
+        if !replies.is_empty() {
+            let _ = pty.replies.send(replies);
+        }
         if post && pty.events.send(Event::Output { pane: pty.pane.clone(), serial: pty.serial }).is_err() {
             return;
         }
@@ -191,4 +186,59 @@ fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
     }
     unsafe { libc::fcntl(write.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) };
     Ok((read, write))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn feed(cols: u16, rows: u16, output: &str) -> Arc<Mutex<Feed>> {
+        let feed = Feed::new(cols, rows).unwrap();
+        Feed::lock(&feed).push(output.as_bytes());
+        feed
+    }
+
+    #[test]
+    fn read_trims_blanks_and_counts_scrollback() {
+        let f = feed(20, 5, "$ echo hi\r\nhi\r\n\x1b[1;32m$\x1b[0m ");
+        assert_eq!(Feed::lock(&f).text(None), "$ echo hi\nhi\n$");
+        let f = feed(10, 3, "1\r\n2\r\n3\r\n4\r\n5");
+        let f = Feed::lock(&f);
+        assert_eq!(f.text(None), "3\n4\n5");
+        assert_eq!(f.text(Some(4)), "2\n3\n4\n5");
+        assert_eq!(f.text(Some(100)), "1\n2\n3\n4\n5");
+    }
+
+    #[test]
+    fn queries_are_answered() {
+        let f = Feed::new(20, 5).unwrap();
+        let (posted, replies) = Feed::lock(&f).push(b"\x1b[2;3H\x1b[6n");
+        assert!(posted);
+        assert_eq!(replies, b"\x1b[2;3R");
+    }
+
+    #[test]
+    fn a_snapshot_replaces_the_outbox_unless_it_fails() {
+        let f = feed(20, 5, "before");
+        let mut f = Feed::lock(&f);
+        f.push(b"\x1b_a\x9d");
+        assert!(f.snapshot().is_err());
+        assert!(matches!(f.take(), Some(Taken::Bytes(bytes)) if bytes == b"before\x1b_a\x9d"));
+        f.push(b"\x1b\\after");
+        let snapshot = f.snapshot().unwrap();
+        assert!(f.take().is_none());
+        assert_eq!(Terminal::from_snapshot(&snapshot).unwrap().text(Lines::Screen), "beforeafter");
+    }
+
+    #[test]
+    fn a_full_scrollback_stays_within_its_byte_limit() {
+        let f = Feed::new(1000, 50).unwrap();
+        let mut f = Feed::lock(&f);
+        let line: String = (0..998u32).map(|c| char::from_u32(0x4e00 + c % 2000).unwrap()).collect();
+        for i in 0..3000 {
+            f.push(format!("\x1b[38;5;{}m\x1b[48;2;{i};1;2m{line}\x1b[0m\r\n", i % 256).as_bytes());
+        }
+        let snapshot = f.snapshot().unwrap();
+        assert!(snapshot.len() < SCROLLBACK_BYTES, "{} bytes", snapshot.len());
+    }
 }

@@ -1,6 +1,9 @@
 mod common;
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use common::{data, is, wait_for, App, Instance};
+use kanna_vt::{Lines, Terminal};
 use serde_json::json;
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -15,7 +18,7 @@ fn a_flood_is_held_back_at_the_pty() {
 
     let mut app = instance.app();
     app.tell("attach", json!({"pane": pane}));
-    app.until("the view to start", |m| is(m, "output", &pane) && data(m) == b"\x1bc");
+    app.until("the view to start", |m| is(m, "snapshot", &pane));
     let deadline = Instant::now() + Duration::from_secs(60);
     while !instance.log().contains("the app is") {
         assert!(Instant::now() < deadline, "the app never fell behind");
@@ -26,7 +29,7 @@ fn a_flood_is_held_back_at_the_pty() {
     let stalled = instance.rss_mb();
     assert!(stalled < 150, "with a stalled app the daemon grew to {stalled} MB");
 
-    app.until("the view to start over", |m| is(m, "output", &pane) && data(m).starts_with(b"\x1bc"));
+    app.until("the view to start over", |m| is(m, "snapshot", &pane));
     app.until("more output", |m| is(m, "output", &pane));
 
     let asked = Instant::now();
@@ -53,18 +56,98 @@ fn a_resize_beyond_reason_is_refused() {
 }
 
 #[test]
-fn an_attach_starts_the_view_over() {
+fn an_attach_sends_the_screen_then_its_grid() {
     let instance = Instance::start();
-    let pane = instance.open("hello", Some("printf hello; exec cat"));
+    let pane = instance.open("hello", Some("printf 'first\\n\\033[1;31mhello\\033[0m'; exec cat"));
     wait_for("the output", || instance.screen(&pane).contains("hello"));
     for _ in 0..2 {
         let mut app = instance.app();
         app.tell("attach", json!({"pane": pane}));
-        let first = app.until("the replay", |m| is(m, "output", &pane));
-        assert_eq!(data(&first), b"\x1bc", "{first}");
-        let replay = app.until("the replay", |m| is(m, "output", &pane));
-        assert_eq!(data(&replay), b"hello");
+        let first = app.until("the snapshot", |m| m["args"]["pane"] == pane.as_str());
+        assert_eq!(first["cmd"], "snapshot", "{first}");
+        let replica = Terminal::from_snapshot(&data(&first)).unwrap();
+        assert!(replica.text(Lines::Screen).starts_with("first\nhello"), "{}", replica.text(Lines::Screen));
+        let grid = app.until("the grid", |m| m["args"]["pane"] == pane.as_str());
+        assert_eq!(grid["cmd"], "grid", "{grid}");
+        assert_eq!((grid["args"]["cols"].as_u64(), grid["args"]["rows"].as_u64()), (Some(80), Some(24)));
+        app.tell("input", json!({"pane": pane, "data": BASE64.encode("typed\r")}));
+        let echoed = app.until("the echo", |m| is(m, "output", &pane));
+        assert!(String::from_utf8_lossy(&data(&echoed)).contains("typed"), "{echoed}");
     }
+}
+
+#[test]
+fn a_replica_misses_nothing_and_repeats_nothing() {
+    let instance = Instance::start();
+    let pane = instance.open("count", Some("sleep 0.2; seq 1 200000; printf 'DONE\\n'; exec cat"));
+    let mut app = instance.app();
+    app.tell("attach", json!({"pane": pane}));
+    let snapshot = app.until("the snapshot", |m| is(m, "snapshot", &pane));
+    let mut replica = Terminal::from_snapshot(&data(&snapshot)).unwrap();
+    let mut done = replica.text(Lines::Screen).contains("DONE");
+    while !done {
+        let message = app.until("more", |m| m["args"]["pane"] == pane.as_str());
+        match message["cmd"].as_str() {
+            Some("output") => replica.write(&data(&message)),
+            Some("grid") => {
+                let side = |k: &str| message["args"][k].as_u64().unwrap() as u16;
+                replica.resize(side("cols"), side("rows")).unwrap();
+            }
+            other => panic!("unexpected {other:?}: {message}"),
+        }
+        done = replica.text(Lines::Screen).contains("DONE");
+    }
+    let daemon = instance.call("read", json!({"pane": pane, "lines": 2000}))["text"].as_str().unwrap().to_string();
+    assert_eq!(replica.text(Lines::Last(2000)), daemon);
+    assert!(daemon.ends_with("199999\n200000\nDONE"), "{}", &daemon[daemon.len() - 40..]);
+}
+
+#[test]
+fn a_snapshot_mid_sequence_waits_for_more_output() {
+    let instance = Instance::start();
+    let pane = instance.open("apc", Some("printf 'before\\n\\033_a\\235'; read line; printf '\\033\\\\after\\n'; exec cat"));
+    wait_for("the output", || instance.screen(&pane).contains("before"));
+    std::thread::sleep(Duration::from_millis(200));
+    let mut app = instance.app();
+    app.tell("attach", json!({"pane": pane}));
+    app.stream.set_read_timeout(Some(Duration::from_millis(700))).unwrap();
+    while let Some(message) = app.next() {
+        assert!(!is(&message, "snapshot", &pane) && !is(&message, "output", &pane), "sent mid-APC: {message}");
+    }
+    app.stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    instance.call("send", json!({"pane": pane, "text": "go"}));
+    let snapshot = app.until("the snapshot", |m| m["args"]["pane"] == pane.as_str());
+    assert_eq!(snapshot["cmd"], "snapshot", "{snapshot}");
+    let replica = Terminal::from_snapshot(&data(&snapshot)).unwrap();
+    assert!(replica.text(Lines::Screen).contains("after"), "{}", replica.text(Lines::Screen));
+}
+
+#[test]
+fn the_daemon_answers_queries_with_no_app() {
+    let instance = Instance::start();
+    let probe = r#"python3 -c 'import os,tty; tty.setraw(0); os.write(1,b"\033[3;5H\033[6n\033[c\033[18t"); r=b""
+while not r.endswith(b"t"): r+=os.read(0,64)
+os.write(1,b"\r\ngot "+r.replace(b"\033",b"^")+b"\r\n")'; exec cat"#;
+    let pane = instance.open("queries", Some(probe));
+    wait_for("the replies", || instance.screen(&pane).contains("got "));
+    let screen = instance.screen(&pane);
+    assert!(screen.contains("got ^[3;5R^[?62;22;52c^[8;24;80t"), "{screen}");
+}
+
+#[test]
+fn a_resize_reaches_programs_that_asked_for_in_band_reports() {
+    let instance = Instance::start();
+    let probe = r#"python3 -c 'import os,tty; tty.setraw(0); os.write(1,b"\033[?2048hready"); r=b""
+while r.count(b"t") < 2: r+=os.read(0,64)
+os.write(1,b"\r\ngot "+r.replace(b"\033",b"^")+b"\r\n")'; exec cat"#;
+    let pane = instance.open("inband", Some(probe));
+    wait_for("the probe", || instance.screen(&pane).contains("ready"));
+    let mut app = instance.app();
+    app.tell("attach", json!({"pane": pane}));
+    app.tell("resize", json!({"pane": pane, "cols": 100, "rows": 30, "width": 1000, "height": 600}));
+    wait_for("the report", || instance.screen(&pane).contains("got "));
+    let screen = instance.screen(&pane);
+    assert!(screen.contains("got ^[48;24;80;0;0t^[48;30;100;600;1000t"), "{screen}");
 }
 
 #[test]

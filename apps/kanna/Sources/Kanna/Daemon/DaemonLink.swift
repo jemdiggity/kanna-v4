@@ -69,6 +69,11 @@ final class DaemonLink: TerminalLink {
                 consumed = false
                 terminal.output(data) { connection.consumed(delivery) }
             }
+        case "snapshot":
+            if let terminal, let data = args["data"]?.string.flatMap({ Data(base64Encoded: $0) }) {
+                consumed = false
+                terminal.loadSnapshot(data) { connection.consumed(delivery) }
+            }
         case "grid":
             if let cols = args["cols"]?.number.flatMap({ UInt16(exactly: $0) }), let rows = args["rows"]?.number.flatMap({ UInt16(exactly: $0) }) {
                 terminal?.setGrid(cols: cols, rows: rows)

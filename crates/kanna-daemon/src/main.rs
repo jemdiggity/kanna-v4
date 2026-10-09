@@ -2,7 +2,6 @@ mod app_link;
 mod keeper;
 mod pty;
 mod reader;
-mod screen;
 mod terminals;
 
 use app_link::{AppLink, Outbox, APP_COMMANDS, HELLO};
