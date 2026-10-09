@@ -7,6 +7,7 @@ typedef struct KannaLayout KannaLayout;
 
 KannaLayout *kanna_layout_open(const char *state_path, bool fresh, char **problem);
 char *kanna_layout_call(KannaLayout *layout, const char *request);
+char *kanna_layout_fraction(double value);
 void kanna_layout_free_string(char *string);
 void kanna_layout_close(KannaLayout *layout);
 

@@ -1,4 +1,4 @@
-use kanna_layout::{kanna_layout_call, kanna_layout_close, kanna_layout_free_string, kanna_layout_open};
+use kanna_layout::{kanna_layout_call, kanna_layout_close, kanna_layout_fraction, kanna_layout_free_string, kanna_layout_open};
 use serde_json::{json, Value};
 use std::ffi::{CStr, CString};
 use std::ptr::null_mut;
@@ -39,4 +39,13 @@ fn the_app_places_saves_and_reopens_its_layout_through_the_c_interface() {
     assert_eq!(call(layout, json!({ "call": "nope" }))["error"]["code"], "bad_request");
     kanna_layout_close(layout);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn fractions_are_shown_as_kmux_shows_them() {
+    for (value, text) in [(0.25, "1/4"), (2.0 / 3.0, "2/3"), (0.5, "1/2")] {
+        let reply = kanna_layout_fraction(value);
+        assert_eq!(unsafe { CStr::from_ptr(reply) }.to_str().unwrap(), text);
+        kanna_layout_free_string(reply);
+    }
 }

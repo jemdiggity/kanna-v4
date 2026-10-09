@@ -63,6 +63,7 @@ impl LayoutOwner {
             }),
             "focused" => Ok(changed(self.model.set_focused(string(request, "pane").unwrap_or("")))),
             "divider" => self.divider(request),
+            "resolve" => self.panes.need(string(request, "pane")).map(|pane| [("id".to_string(), Value::String(pane.id.clone()))].into_iter().collect()),
             "frame" => self.frame(request),
             "shapes" => self.shapes(request),
             "save" => self.save().map(|saved| [("saved".to_string(), Value::Bool(saved))].into_iter().collect()),
@@ -196,7 +197,7 @@ impl LayoutOwner {
                     (None, None) => Value::Null,
                 };
                 let frame = window.frame.map_or(Value::Null, |f| json!({ "x": f.x, "y": f.y, "w": f.w, "h": f.h }));
-                let tabs: Vec<Value> = window.tabs.iter().map(|t| json!({ "id": t.id, "title": t.title })).collect();
+                let tabs: Vec<Value> = window.tabs.iter().map(|t| json!({ "id": t.id, "title": t.title, "panes": crate::model::pane_ids(t.root.as_ref()) })).collect();
                 json!({
                     "id": window.id,
                     "frame": frame,
@@ -348,7 +349,7 @@ mod tests {
         let view = again.view();
         assert_eq!(
             Value::Object(view),
-            json!({ "key": "w1", "windows": [{ "id": "w1", "frame": null, "tabs": [{ "id": "t1", "title": "Tab 1" }], "tab": "t1", "title": "Tab 1",
+            json!({ "key": "w1", "windows": [{ "id": "w1", "frame": null, "tabs": [{ "id": "t1", "title": "Tab 1", "panes": ["p1", "p3", "p4"] }], "tab": "t1", "title": "Tab 1",
                 "focused": "p4", "zoomed": null, "root": { "split": "row", "children": [
                 { "pane": "p1", "type": "term", "size": 0.75 },
                 { "pane": "p3", "type": "term", "size": 0.125 },

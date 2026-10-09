@@ -4,22 +4,24 @@ import KannaMarkdown
 
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate {
-    private var runtime: GhosttyRuntime!
+    var runtime: GhosttyRuntime!
     private var terminals: ExternalIOBackend!
-    private let commands = Commands()
-    private var daemon: DaemonLink?
+    let commands = Commands()
+    var daemon: DaemonLink?
     private var server: SocketServer?
     private var signalSources: [DispatchSourceSignal] = []
-    private let background = CommandLine.arguments.contains("--bg") || ProcessInfo.processInfo.environment["KANNA_BG"] == "1"
+    let background = CommandLine.arguments.contains("--bg") || ProcessInfo.processInfo.environment["KANNA_BG"] == "1"
     private let echo = ProcessInfo.processInfo.environment["KANNA_ECHO"] == "1"
-    private let debugCommands = ProcessInfo.processInfo.environment["KANNA_DEBUG"] == "1"
-    private var window: NSWindow!
-    private var layout: LayoutView!
-    private var focused: String?
+    let debugCommands = ProcessInfo.processInfo.environment["KANNA_DEBUG"] == "1"
     private var wantsFirstTerminal = ProcessInfo.processInfo.environment["KANNA_NO_INITIAL_WINDOW"] == nil
-    private var appLayout: AppLayout?
+    var appLayout: AppLayout?
     private var saveTimer: Timer?
-    private let contents = Contents()
+    let contents = Contents()
+    var panes: PaneViews!
+    var controllers: [String: WindowController] = [:]
+    private(set) var state: JSON = ["key": nil, "windows": []]
+    var paneMenu: NSMenu?
+    var testingDrag = false
 
     static var daemonSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_SOCKET"], !path.isEmpty { return path }
@@ -59,7 +61,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         } catch {
             fatal("kanna: \(error.localizedDescription)")
         }
-        installCommands()
         if echo {
             terminals = ExternalIOBackend(runtime: runtime, link: EchoLink())
             let server = SocketServer(path: Self.echoSocketPath) { [weak self] request in await self?.commands.handle(request) ?? nil }
@@ -74,19 +75,40 @@ final class AppController: NSObject, NSApplicationDelegate {
         } else {
             if Self.isAppSocket(Self.daemonSocketPath) { fatal("kanna: \(Self.daemonSocketPath) belongs to Kanna.app; use another KANNA_SOCKET") }
             let daemon = DaemonLink(socketPath: Self.daemonSocketPath, commands: commands, starter: DaemonStarter(socketPath: Self.daemonSocketPath))
-            appLayout = AppLayout(statePath: Self.statePath, fresh: Self.fresh)
+            let layout = AppLayout(statePath: Self.statePath, fresh: Self.fresh)
+            layout.shapes = { [weak self] in self?.shapes() ?? [:] }
+            appLayout = layout
             daemon.onAttach = { [weak self] in self?.attached($0) }
             daemon.onLayout = { [weak self] in self?.layoutRequest($0) ?? ["ok": false, "error": ["code": "app_gone", "message": "Kanna.app is closing"]] }
             daemon.helloPanes = { [weak self] in self?.helloPanes() ?? [] }
             daemon.onStart = { [weak self] pane in self?.startContent(pane) }
             daemon.onStop = { [weak self] pane in self?.contents.stop(pane) }
             daemon.onPane = { [weak self] pane in self?.learn(pane) }
-            contents.onUpdate = { [weak daemon] pane, fields in daemon?.update(pane, fields) }
+            daemon.onExited = { [weak self] pane, code in self?.panes.exited(pane, code: code) }
+            daemon.onSnapshot = { [weak self] pane in self?.panes.restarted(pane) }
+            contents.onUpdate = { [weak self, weak daemon] pane, fields in
+                if fields["state"] != nil { self?.panes.report(pane, state: fields["state"]?.string, error: fields["error"]?.string) }
+                daemon?.update(pane, fields)
+            }
             contents.onRequest = { [weak daemon] cmd, args in daemon?.request(cmd, args) }
-            contents.onFocus = { [weak self] pane in self?.userFocused(pane) }
             terminals = ExternalIOBackend(runtime: runtime, link: daemon)
             self.daemon = daemon
         }
+        panes = PaneViews(contents: contents, terminals: terminals)
+        panes.onFocus = { [weak self] pane in self?.userFocused(pane) }
+        panes.onDrag = { [weak self] pane in self?.dragPane(pane) }
+        panes.contextMenu = { [weak self] in self?.paneMenu?.copy() as? NSMenu }
+        contents.onFocus = { [weak self] pane in self?.userFocused(pane) }
+        contents.contextMenu = { [weak self] in self?.paneMenu?.copy() as? NSMenu }
+        runtime.onAction = { [weak self] view, action in
+            guard let self, let id = panes.id(of: view) else { return false }
+            return ghosttyAction(id, action)
+        }
+        runtime.onClose = { [weak self] view in
+            guard let self, let id = panes.id(of: view) else { return }
+            closePane(id)
+        }
+        installCommands()
         for signal in [SIGTERM, SIGINT, SIGHUP] {
             Darwin.signal(signal, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: signal, queue: .main)
@@ -96,47 +118,27 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         installMenu()
         if !background { NSApp.activate() }
-        openWindow()
-        if echo { mirror(["root": ["pane": "p1", "type": "term"], "focused": "p1"]) }
+        if echo {
+            render(["key": "w1", "windows": [["id": "w1", "tabs": [["id": "t1", "title": "Tab 1", "panes": ["p1"]]], "tab": "t1", "title": "Tab 1",
+                                               "focused": "p1", "root": ["pane": "p1", "type": "term"]]]])
+        }
         daemon?.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         saveTimer?.invalidate()
+        for id in controllers.keys { recordFrame(id) }
         appLayout?.save()
-        for case let terminal as TerminalSurfaceView in layout?.panes.values.map({ $0 }) ?? [] { terminals.stop(terminal) }
+        panes?.stopAll()
         daemon?.stop()
         server?.stop()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    private func openWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 600), styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                          backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.tabbingMode = .disallowed
-        window.title = "Kanna"
-        layout = LayoutView(frame: NSRect(origin: .zero, size: window.contentLayoutRect.size))
-        layout.autoresizingMask = [.width, .height]
-        layout.make = { [weak self] id, type in
-            guard type == "term" else { return self?.contents.slot(id) ?? PlaceholderView(pane: id, type: type) }
-            let view = TerminalSurfaceView(frame: .zero)
-            view.focused = { self?.userFocused(id) }
-            return view
-        }
-        layout.added = { [weak self] id, view in
-            guard let self, let terminal = view as? TerminalSurfaceView else { return }
-            if !self.terminals.start(terminal, pane: Pane(id: id)) {
-                FileHandle.standardError.write(Data("kanna: the terminal surface for \(id) could not be created\n".utf8))
-            }
-        }
-        layout.removed = { [weak self] _, view in
-            if let terminal = view as? TerminalSurfaceView { self?.terminals.stop(terminal) }
-        }
-        window.contentView = layout
-        window.center()
-        present(window)
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        openTerminalIfEmpty()
+        return true
     }
 
     private func attached(_ panes: JSON) {
@@ -159,19 +161,58 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    private var isEmpty: Bool {
-        guard let appLayout, case .array(let panes)? = appLayout.call(["call": "export"])["panes"] else { return false }
-        return panes.isEmpty
+    var windows: [JSON] {
+        guard case .array(let list)? = state["windows"] else { return [] }
+        return list
     }
 
-    private func openTerminalIfEmpty() {
-        guard isEmpty, daemon?.attached == true else { return }
+    func window(_ id: String?) -> JSON? { windows.first { $0["id"]?.string == id } }
+    var keyWindow: JSON? { window(state["key"]?.string) ?? windows.last }
+    var focusedPane: String? { keyWindow?["focused"]?.string }
+
+    func windowOf(tab: String) -> JSON? {
+        windows.first { window in
+            guard case .array(let tabs)? = window["tabs"] else { return false }
+            return tabs.contains { $0["id"]?.string == tab }
+        }
+    }
+
+    func windowOf(pane: String) -> JSON? {
+        windows.first { window in
+            guard case .array(let tabs)? = window["tabs"] else { return false }
+            return tabs.contains { tab in
+                guard case .array(let ids)? = tab["panes"] else { return false }
+                return ids.contains(.string(pane))
+            }
+        }
+    }
+
+    func tabOf(pane: String) -> String? {
+        for window in windows {
+            guard case .array(let tabs)? = window["tabs"] else { continue }
+            if let tab = tabs.first(where: { tab in
+                guard case .array(let ids)? = tab["panes"] else { return false }
+                return ids.contains(.string(pane))
+            }) { return tab["id"]?.string }
+        }
+        return nil
+    }
+
+    private var placed: Set<String> {
+        var ids = Set<String>()
+        for window in windows {
+            guard case .array(let tabs)? = window["tabs"] else { continue }
+            for tab in tabs {
+                guard case .array(let list)? = tab["panes"] else { continue }
+                ids.formUnion(list.compactMap(\.string))
+            }
+        }
+        return ids
+    }
+
+    func openTerminalIfEmpty() {
+        guard windows.isEmpty, daemon?.attached == true else { return }
         daemon?.request("open", ["type": "term"])
-    }
-
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        openTerminalIfEmpty()
-        return true
     }
 
     private func helloPanes() -> JSON {
@@ -185,6 +226,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     private func startContent(_ pane: JSON) {
         learn(pane)
+        if let id = pane["id"]?.string { panes.restarted(id) }
         contents.start(pane)
         layoutChanged()
     }
@@ -194,12 +236,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         scheduleSave()
     }
 
-    private func pruneContents() {
-        guard let appLayout, case .array(let panes)? = appLayout.call(["call": "export"])["panes"] else { return }
-        let known = Set(panes.compactMap { $0["id"]?.string })
-        for id in contents.ids where !known.contains(id) { contents.forget(id) }
-    }
-
     private func layoutRequest(_ request: JSON) -> JSON {
         guard let appLayout else { return ["ok": false, "error": ["code": "no_layout", "message": "this app keeps no layout"]] }
         let reply = appLayout.serve(request)
@@ -207,37 +243,131 @@ final class AppController: NSObject, NSApplicationDelegate {
         return reply
     }
 
+    @discardableResult
+    func layoutCommand(_ cmd: String, _ args: [String: JSON]) -> JSON {
+        guard let appLayout else { return ["ok": false, "error": ["code": "no_layout", "message": "this app keeps no layout"]] }
+        let reply = appLayout.command(cmd, args)
+        if reply["ok"]?.bool != true {
+            FileHandle.standardError.write(Data("kanna: \(cmd): \(reply["error"]?["message"]?.string ?? "failed")\n".utf8))
+        }
+        layoutChanged()
+        return reply
+    }
+
+    func request(_ cmd: String, _ args: [String: JSON], reply: ((JSON) -> Void)? = nil) {
+        guard let daemon else { return }
+        daemon.request(cmd, args) { answer in
+            if answer["ok"]?.bool != true {
+                FileHandle.standardError.write(Data("kanna: \(cmd): \(answer["error"]?["message"]?.string ?? "failed")\n".utf8))
+            }
+            reply?(answer)
+        }
+    }
+
     private func userFocused(_ pane: String) {
-        guard let appLayout, pane != focused else { return }
-        focused = pane
-        _ = appLayout.serve(["op": "command", "cmd": "focus", "args": ["pane": .string(pane)]])
+        guard let appLayout, appLayout.focused(pane) else { return }
+        refresh()
         scheduleSave()
     }
 
-    private func layoutChanged() {
+    func layoutChanged() {
+        guard appLayout != nil else { return }
+        refresh()
+        let known = placed
+        for id in contents.ids where !known.contains(id) { contents.forget(id) }
+        scheduleSave()
+    }
+
+    func refresh() {
         guard let appLayout else { return }
-        mirror(appLayout.view)
-        pruneContents()
-        scheduleSave()
+        render(appLayout.view)
     }
 
-    private func scheduleSave() {
+    private func render(_ view: JSON) {
+        state = view
+        let ids = Set(windows.compactMap { $0["id"]?.string })
+        for (id, controller) in controllers where !ids.contains(id) {
+            controller.window.orderOut(nil)
+            controllers[id] = nil
+        }
+        panes.keep(placed)
+        for window in windows {
+            guard let id = window["id"]?.string else { continue }
+            (controllers[id] ?? makeController(id, window)).render(window, panes)
+        }
+        if let key = state["key"]?.string, let controller = controllers[key], !controller.window.isKeyWindow {
+            present(controller.window)
+        }
+    }
+
+    private func makeController(_ id: String, _ initial: JSON) -> WindowController {
+        let previous = controllers.values.map(\.window).max { $0.orderedIndex > $1.orderedIndex }
+        let controller = WindowController(id: id, cascadeFrom: previous)
+        if let saved = initial["frame"], let x = saved["x"]?.number, let y = saved["y"]?.number, let w = saved["w"]?.number, let h = saved["h"]?.number {
+            let frame = NSRect(x: x, y: y, width: w, height: h)
+            if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) { controller.window.setFrame(frame, display: false) }
+        }
+        controller.onFrameChange = { [weak self] in
+            self?.recordFrame(id)
+            self?.scheduleSave()
+        }
+        controller.relayout = { [weak self, weak controller] in
+            guard let self, let controller, let window = window(id) else { return }
+            controller.render(window, panes)
+        }
+        controller.onDivider = { [weak self] divider, share in
+            guard let self, let appLayout else { return }
+            _ = appLayout.divider(tab: divider.tab, path: divider.path, index: divider.index, share: share)
+            refresh()
+            scheduleSave()
+        }
+        controller.tabBar.onSelect = { [weak self] tab in self?.layoutCommand("focus", ["tab": .string(tab)]) }
+        controller.tabBar.onClose = { [weak self] tab in self?.closeTab(tab) }
+        controller.tabBar.onNew = { [weak self] in self?.newTab(in: id) }
+        controller.tabBar.onDrag = { [weak self] tab in self?.dragTab(tab) }
+        controller.tabBar.onMoveToNewWindow = { [weak self] tab in self?.layoutCommand("move-tab", ["tab": .string(tab), "window": "new"]) }
+        controller.tabBar.onEditEnded = { [weak self, weak controller] in
+            guard let self, let controller, let window = window(id) else { return }
+            controller.render(window, panes)
+        }
+        controller.tabBar.onRename = { [weak self] tab, title in self?.layoutCommand("rename-tab", ["tab": .string(tab), "title": .string(title)]) }
+        controller.onCloseRequest = { [weak self] in self?.request("close", ["window": .string(id)]) }
+        controller.onBecomeKey = { [weak self, weak controller] in
+            guard let self, let controller, let appLayout else { return }
+            if controller.window.isKeyWindow, state["key"]?.string != id {
+                _ = appLayout.command("focus", ["window": .string(id)])
+                state = appLayout.view
+                scheduleSave()
+            }
+            if let window = window(id) { controller.render(window, panes) }
+        }
+        controllers[id] = controller
+        recordFrame(id)
+        present(controller.window)
+        return controller
+    }
+
+    func recordFrame(_ id: String) {
+        guard let appLayout, let controller = controllers[id] else { return }
+        _ = appLayout.frame(id, controller.window.frame)
+    }
+
+    private func shapes() -> [String: JSON] {
+        var shapes: [String: JSON] = [:]
+        for view in panes.all where view.superview != nil && view.bounds.height > 0 {
+            shapes[view.id] = .bool(view.bounds.width >= view.bounds.height)
+        }
+        return shapes
+    }
+
+    func scheduleSave() {
         guard appLayout != nil, saveTimer?.isValid != true else { return }
         saveTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.appLayout?.save() }
         }
     }
 
-    private func mirror(_ args: JSON) {
-        layout.show(args["root"] ?? .null)
-        let focus = args["focused"]?.string
-        if focus != focused, let focus, let view = (layout.panes[focus] as? TerminalSurfaceView).map({ $0 as NSView }) ?? contents.keyView(focus) {
-            window.makeFirstResponder(view)
-        }
-        focused = focus
-    }
-
-    private func present(_ window: NSWindow) {
+    func present(_ window: NSWindow) {
         if NSApp.isActive || !background {
             return window.makeKeyAndOrderFront(nil)
         }
@@ -252,171 +382,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func installCommands() {
-        guard debugCommands else { return }
-        commands["debug.app"] = { [weak self] _ in
-            var reply: [String: JSON] = [
-                "app": "kanna", "pid": .number(Double(ProcessInfo.processInfo.processIdentifier)),
-                "bundle": .string(Bundle.main.bundleIdentifier ?? ""), "panes": .array(self?.layout?.order.map { .string($0) } ?? []),
-            ]
-            if let daemon = self?.daemon {
-                reply["daemon"] = .string(daemon.socketPath)
-                reply["attached"] = .bool(daemon.attached)
-            } else {
-                reply["socket"] = .string(Self.echoSocketPath)
-            }
-            return reply
-        }
-        commands["debug.type"] = { [weak self] args in
-            guard let self else { return [:] }
-            let view = try self.terminal(args["pane"]?.string)
-            guard let text = args["text"]?.string, let window = view.window else { throw KannaError("bad_request", "debug.type needs text") }
-            if window.firstResponder !== view { window.makeFirstResponder(view) }
-            let events = SyntheticKey.typing(text, window: window)
-            for event in events { window.sendEvent(event) }
-            return ["keys": .number(Double(events.count / 2))]
-        }
-        commands["debug.key"] = { [weak self] args in
-            guard let self else { return [:] }
-            let view = try self.terminal(args["pane"]?.string)
-            guard let name = args["key"]?.string else { throw KannaError("bad_request", "debug.key needs a key") }
-            guard let event = SyntheticKey.event(name, window: view.window) else { throw KannaError("bad_request", "unknown key \"\(name)\"") }
-            if view.window?.firstResponder !== view { view.window?.makeFirstResponder(view) }
-            view.window?.sendEvent(event)
-            return ["characters": .string(event.characters ?? ""), "charactersIgnoringModifiers": .string(event.charactersIgnoringModifiers ?? "")]
-        }
-        commands["debug.text"] = { [weak self] args in
-            guard let self else { return [:] }
-            return ["text": .string(try self.terminal(args["pane"]?.string).viewportText())]
-        }
-        commands["debug.snapshot"] = { [weak self] args in
-            guard let self, let window = self.window, let layout = self.layout else { throw KannaError("not_found", "no window") }
-            window.displayIfNeeded()
-            let panes = layout.order.compactMap { id in layout.panes[id].map { (id: id, view: $0) } }
-            return try Snapshot.run(window, id: "w1", panes: panes, path: args["path"]?.string, marker: args["marker"]?.string)
-        }
-        commands["debug.web"] = { [weak self] args in
-            guard let self, let id = args["pane"]?.string, let web = self.contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
-            let text = try? await web.webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
-            return ["url": web.webView.url.map { .string($0.absoluteString) } ?? .null, "text": .string(text ?? "")]
-        }
-        commands["debug.md"] = { [weak self] args in
-            guard let self, let id = args["pane"]?.string, let markdown = self.contents.markdown(id) else { throw KannaError("wrong_type", "not a running md pane") }
-            if let y = args["scroll"]?.number { markdown.scroll(toY: CGFloat(y)) }
-            let diagrams: [JSON] = markdown.drawnDiagrams.map { ["type": .string($0.type), "labels": .array($0.labels.map { .string($0) })] }
-            return ["text": .string(markdown.text), "zoom": .number(Double(markdown.zoom)), "diagrams": .array(diagrams),
-                    "render_ms": .number(markdown.renderMs), "parse_ms": .number(markdown.parseMs), "scroll": .number(Double(markdown.scrollTop)),
-                    "layout_width": .number(Double(markdown.layoutWidth))]
-        }
-        commands["debug.ios"] = { [weak self] args in
-            guard let self, let id = args["pane"]?.string, let screen = self.contents.ios(id)?.screen else { throw KannaError("wrong_type", "not a running ios pane") }
-            if let x = args["x"]?.number, let y = args["y"]?.number {
-                screen.touch(.leftMouseDown, at: CGPoint(x: x, y: y))
-                try await Task.sleep(for: .milliseconds(80))
-                screen.touch(.leftMouseUp, at: CGPoint(x: x, y: y))
-            }
-            if args["home"]?.bool == true { screen.pressHome() }
-            return ["width": .number(screen.pixelSize.width), "height": .number(screen.pixelSize.height)]
-        }
-    }
-
-    @objc func openURL() {
-        guard let focused else { return }
-        contents.web(focused)?.editURL()
-    }
-
-    @objc func goBack() { history(back: true) }
-    @objc func goForward() { history(back: false) }
-    private func history(back: Bool) {
-        guard let focused, contents.web(focused) != nil || contents.markdown(focused) != nil else { return }
-        daemon?.request("navigate", ["pane": .string(focused), back ? "back" : "forward": true])
-    }
-
-    @objc func zoomIn() { contents.markdown(focused ?? "")?.zoom(by: 1) }
-    @objc func zoomOut() { contents.markdown(focused ?? "")?.zoom(by: -1) }
-    @objc func actualSize() { contents.markdown(focused ?? "")?.zoom(by: 0) }
-    @objc func pressHome() { contents.ios(focused ?? "")?.screen?.pressHome() }
-
-    func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        let pane = focused ?? ""
-        switch item.action {
-        case #selector(openURL): return contents.web(pane) != nil
-        case #selector(goBack), #selector(goForward): return contents.web(pane) != nil || contents.markdown(pane) != nil
-        case #selector(zoomIn), #selector(zoomOut), #selector(actualSize): return contents.markdown(pane) != nil
-        case #selector(pressHome): return contents.ios(pane)?.screen != nil
-        default: return true
-        }
-    }
-
-    private func terminal(_ id: String?) throws -> TerminalSurfaceView {
-        let id = id ?? focused.flatMap { layout.panes[$0] is TerminalSurfaceView ? $0 : nil } ?? layout.order.first { layout.panes[$0] is TerminalSurfaceView }
-        guard let id, let view = layout.panes[id] else { throw KannaError("not_found", "no pane \"\(id ?? "")\" in this window") }
-        guard let terminal = view as? TerminalSurfaceView else { throw KannaError("wrong_type", "\(id) is not a terminal") }
-        guard terminal.surface != nil else { throw KannaError("not_found", "\(id)'s terminal is not running") }
-        return terminal
-    }
-
-    private func installMenu() {
-        let main = NSMenu()
-        let appItem = NSMenuItem()
-        let appMenu = NSMenu(title: "Kanna")
-        appMenu.addItem(withTitle: "Quit Kanna", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        appItem.submenu = appMenu
-        main.addItem(appItem)
-        let editItem = NSMenuItem()
-        let edit = NSMenu(title: "Edit")
-        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "Select All", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
-        editItem.submenu = edit
-        main.addItem(editItem)
-        let viewItem = NSMenuItem()
-        let view = NSMenu(title: "View")
-        for (title, action, key, modifiers) in [
-            ("Open URL…", #selector(openURL), "l", NSEvent.ModifierFlags.command), ("Back", #selector(goBack), "[", .command),
-            ("Forward", #selector(goForward), "]", .command), ("Zoom In", #selector(zoomIn), "+", .command),
-            ("Zoom Out", #selector(zoomOut), "-", .command), ("Actual Size", #selector(actualSize), "0", .command),
-            ("Home", #selector(pressHome), "h", [.command, .shift]),
-        ] {
-            let item = view.addItem(withTitle: title, action: action, keyEquivalent: key)
-            item.keyEquivalentModifierMask = modifiers
-            item.target = self
-        }
-        viewItem.submenu = view
-        main.addItem(viewItem)
-        let shellItem = NSMenuItem()
-        let shell = NSMenu(title: "Shell")
-        for (title, action, key, modifiers) in [
-            ("Split Right", #selector(splitRight), "d", NSEvent.ModifierFlags.command), ("Split Down", #selector(splitDown), "d", [.command, .shift]),
-            ("Close Pane", #selector(closePane), "w", .command),
-        ] {
-            let item = shell.addItem(withTitle: title, action: action, keyEquivalent: key)
-            item.keyEquivalentModifierMask = modifiers
-            item.target = self
-        }
-        shellItem.submenu = shell
-        main.insertItem(shellItem, at: 1)
-        NSApp.mainMenu = main
-    }
-
-    @objc private func splitRight() { split("right") }
-    @objc private func splitDown() { split("down") }
-
-    private func split(_ direction: String) {
-        guard daemon?.attached == true else { return }
-        if isEmpty {
-            daemon?.request("open", ["type": "term"])
-            return
-        }
-        daemon?.request("open", ["type": "term", "split": .string(direction)])
-    }
-
-    @objc private func closePane() {
-        guard let focused, daemon?.attached == true else { return }
-        daemon?.request("close", ["pane": .string(focused)])
-    }
-
-    private func fatal(_ message: String) -> Never {
+    func fatal(_ message: String) -> Never {
         FileHandle.standardError.write(Data((message + "\n").utf8))
         exit(1)
     }

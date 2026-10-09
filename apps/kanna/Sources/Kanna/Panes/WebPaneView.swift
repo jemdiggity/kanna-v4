@@ -135,10 +135,17 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
 
 final class FocusReportingWebView: WKWebView {
     var onFocus: (() -> Void)?
+    var contextMenu: (() -> NSMenu?)?
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         window?.makeFirstResponder(self)
+        guard let extra = contextMenu?() else { return }
+        menu.addItem(.separator())
+        for item in extra.items {
+            extra.removeItem(item)
+            menu.addItem(item)
+        }
     }
 
     override func becomeFirstResponder() -> Bool {

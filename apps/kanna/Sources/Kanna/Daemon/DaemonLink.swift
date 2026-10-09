@@ -13,7 +13,10 @@ final class DaemonLink: TerminalLink {
     var onStart: ((JSON) -> Void)?
     var onStop: ((String) -> Void)?
     var onPane: ((JSON) -> Void)?
+    var onExited: ((String, Int32) -> Void)?
+    var onSnapshot: ((String) -> Void)?
     private var requests = 0
+    private var replies: [Int: (JSON) -> Void] = [:]
     private let starter: DaemonStarter?
 
     var socketPath: String { connection.path }
@@ -48,6 +51,9 @@ final class DaemonLink: TerminalLink {
     }
 
     private func disconnected() {
+        let waiting = replies
+        replies.removeAll()
+        for reply in waiting.values { reply(["ok": false, "error": ["code": "no_daemon", "message": "lost the daemon"]]) }
         if attached { FileHandle.standardError.write(Data("kanna: lost the daemon at \(socketPath)\n".utf8)) }
         attached = false
     }
@@ -58,6 +64,7 @@ final class DaemonLink: TerminalLink {
         defer { if consumed { connection.consumed(delivery) } }
         if let ok = message["ok"]?.bool {
             guard message["id"]?.number == 0 else {
+                if let id = message["id"]?.number.map(Int.init), let reply = replies.removeValue(forKey: id) { return reply(message) }
                 if !ok { FileHandle.standardError.write(Data("kanna: the daemon refused a request: \(message["error"]?["message"]?.string ?? "")\n".utf8)) }
                 return
             }
@@ -100,6 +107,7 @@ final class DaemonLink: TerminalLink {
                 terminal.output(data) { connection.consumed(delivery) }
             }
         case "snapshot":
+            if let pane = args["pane"]?.string { onSnapshot?(pane) }
             if let terminal, let data = args["data"]?.string.flatMap({ Data(base64Encoded: $0) }) {
                 consumed = false
                 terminal.loadSnapshot(data) { connection.consumed(delivery) }
@@ -109,7 +117,10 @@ final class DaemonLink: TerminalLink {
                 terminal?.setGrid(cols: cols, rows: rows)
             }
         case "exited":
-            if let code = args["code"]?.number.flatMap({ Int32(exactly: $0) }) { terminal?.exited(status: code) }
+            if let code = args["code"]?.number.flatMap({ Int32(exactly: $0) }) {
+                terminal?.exited(status: code)
+                if let pane = args["pane"]?.string { onExited?(pane, code) }
+            }
         default: FileHandle.standardError.write(Data("kanna: unknown message from the daemon: \(cmd)\n".utf8))
         }
     }
@@ -121,9 +132,13 @@ final class DaemonLink: TerminalLink {
         send("update", args)
     }
 
-    func request(_ cmd: String, _ args: [String: JSON]) {
-        guard attached else { return }
+    func request(_ cmd: String, _ args: [String: JSON], reply: ((JSON) -> Void)? = nil) {
+        guard attached else {
+            reply?(["ok": false, "error": ["code": "no_daemon", "message": "Kanna.app is not attached to its daemon"]])
+            return
+        }
         requests += 1
+        if let reply { replies[requests] = reply }
         connection.send(["id": .number(Double(requests)), "cmd": .string(cmd), "args": .object(args)])
     }
 

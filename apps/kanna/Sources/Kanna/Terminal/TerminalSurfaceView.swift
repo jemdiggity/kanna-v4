@@ -7,6 +7,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     var surface: ghostty_surface_t? { didSet { if surface != nil { syncSurfaceGeometry(); updateVisibility() } } }
     var isHandlingInputEvent = false
     var focused: (() -> Void)?
+    var contextMenu: (() -> NSMenu?)?
     static let ignoresOcclusion = ProcessInfo.processInfo.environment["KANNA_IGNORE_OCCLUSION"] == "1"
     private static var lastSurfaceID: UInt = 0
     let surfaceID: UInt
@@ -188,6 +189,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
     override func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        if let surface, !ghostty_surface_mouse_captured(surface), let menu = contextMenu?() {
+            return NSMenu.popUpContextMenu(menu, with: event, for: self)
+        }
         mouseButton(event, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT)
     }
     override func rightMouseUp(with event: NSEvent) { mouseButton(event, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT) }

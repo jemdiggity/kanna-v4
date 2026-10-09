@@ -35,6 +35,11 @@ pub extern "C" fn kanna_layout_call(layout: *mut KannaLayout, request: *const c_
 }
 
 #[no_mangle]
+pub extern "C" fn kanna_layout_fraction(value: f64) -> *mut c_char {
+    give(kanna_mux::fraction::format(value))
+}
+
+#[no_mangle]
 pub extern "C" fn kanna_layout_free_string(string: *mut c_char) {
     if !string.is_null() {
         drop(unsafe { CString::from_raw(string) });

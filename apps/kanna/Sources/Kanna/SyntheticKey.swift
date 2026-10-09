@@ -5,12 +5,12 @@ enum SyntheticKey {
     private static let codes: [String: CGKeyCode] = [
         "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13, "e": 14,
         "r": 15, "y": 16, "t": 17, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
-        "]": 30, "[": 33, "=": 24, "-": 27, "0": 29, "`": 50, "return": 36, "escape": 53, "space": 49,
+        "]": 30, "[": 33, "=": 24, "-": 27, "0": 29, "`": 50, "return": 36, "escape": 53, "space": 49, "tab": 48, "delete": 51,
     ]
 
     static func event(_ name: String, window: NSWindow?) -> NSEvent? {
         var parts = name.lowercased().split(separator: "+").map(String.init)
-        guard let key = parts.popLast(), let code = codes[key == "enter" ? "return" : key] else { return nil }
+        guard let key = parts.popLast(), let code = codes[key == "enter" ? "return" : key] ?? (key.count == 1 ? keys[Character(key)].flatMap({ $0.shift ? nil : $0.code }) : nil) else { return nil }
         var flags: CGEventFlags = []
         for part in parts {
             switch part {

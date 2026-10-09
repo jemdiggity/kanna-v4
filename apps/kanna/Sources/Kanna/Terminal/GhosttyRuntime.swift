@@ -9,6 +9,8 @@ final class GhosttyRuntime {
     private let config: ghostty_config_t
     private var live: [UInt: TerminalSurfaceView] = [:]
     private var timer: Timer?
+    var onAction: ((TerminalSurfaceView, ghostty_action_s) -> Bool)?
+    var onClose: ((TerminalSurfaceView) -> Void)?
 
     init() throws {
         guard let cfg = ghostty_config_new() else { throw Self.error("ghostty_config_new failed") }
@@ -19,7 +21,24 @@ final class GhosttyRuntime {
         var runtime = ghostty_runtime_config_s()
         runtime.supports_selection_clipboard = true
         runtime.wakeup_cb = { _ in DispatchQueue.main.async { MainActor.assumeIsolated { GhosttyRuntime.shared?.tick() } } }
-        runtime.action_cb = { _, _, _ in false }
+        runtime.action_cb = { _, target, action in
+            guard Thread.isMainThread, target.tag == GHOSTTY_TARGET_SURFACE,
+                  let userdata = target.target.surface.flatMap({ ghostty_surface_userdata($0) }) else { return false }
+            let id = UInt(bitPattern: userdata)
+            return MainActor.assumeIsolated {
+                guard let runtime = GhosttyRuntime.shared, let view = runtime.live[id] else { return false }
+                return runtime.onAction?(view, action) ?? false
+            }
+        }
+        runtime.close_surface_cb = { userdata, _ in
+            let id = UInt(bitPattern: userdata)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let runtime = GhosttyRuntime.shared, let view = runtime.live[id] else { return }
+                    runtime.onClose?(view)
+                }
+            }
+        }
         runtime.read_clipboard_cb = { userdata, _, state, _, _, _ in
             let id = UInt(bitPattern: userdata)
             return MainActor.assumeIsolated { GhosttyRuntime.shared?.readClipboard(id, state: state) ?? GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
@@ -65,6 +84,10 @@ final class GhosttyRuntime {
         live.removeValue(forKey: view.surfaceID)
         if let surface = view.surface { ghostty_surface_free(surface) }
         view.surface = nil
+    }
+
+    func trigger(for action: String) -> ghostty_input_trigger_s {
+        ghostty_config_trigger(config, action, UInt(action.utf8.count))
     }
 
     private func tick() { ghostty_app_tick(app) }

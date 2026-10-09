@@ -30,6 +30,7 @@ final class Contents {
     var onUpdate: ((String, [String: JSON]) -> Void)?
     var onRequest: ((String, [String: JSON]) -> Void)?
     var onFocus: ((String) -> Void)?
+    var contextMenu: (() -> NSMenu?)?
     private var markdownSpots: [String: [String: (y: CGFloat, zoom: CGFloat)]] = [:]
     private var markdownZoom: [String: CGFloat] = [:]
 
@@ -76,18 +77,21 @@ final class Contents {
                     self?.onUpdate?(id, ["zoom": .number(Double(markdown.zoom))])
                 }
                 markdown.onFocus = { [weak self] in self?.onFocus?(id) }
+                markdown.contextMenu = { [weak self] in self?.contextMenu?() }
                 markdown.onOpenMarkdown = { [weak self] target in self?.onRequest?("navigate", ["pane": .string(id), "path": .string(target)]) }
                 content = markdown
             }
         case "web":
             let web = WebPaneView(url: pane["url"]?.string ?? "about:blank")
             web.onFocus = { [weak self] in self?.onFocus?(id) }
+            web.webView.contextMenu = { [weak self] in self?.contextMenu?() }
             web.onNavigate = { [weak self] url in self?.onRequest?("navigate", ["pane": .string(id), "url": .string(url)]) }
             web.onURLChange = { [weak self] url in self?.onUpdate?(id, ["url": .string(url)]) }
             content = web
         case "ios":
             let ios = IosPaneView()
             ios.onFocus = { [weak self] in self?.onFocus?(id) }
+            ios.contextMenu = { [weak self] in self?.contextMenu?() }
             slot(id).content = ios
             startSimulator(id, app: pane["app"]?.string ?? "", device: pane["device"]?.string, restoring: restoring, in: ios)
             return

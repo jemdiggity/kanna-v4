@@ -115,6 +115,7 @@ final class IosPaneView: NSView {
     private let spinner = NSProgressIndicator()
     private(set) var screen: KSimScreen?
     var onFocus: (() -> Void)?
+    var contextMenu: (() -> NSMenu?)?
 
     static let background = NSColor(red: 0x12 / 255, green: 0x14 / 255, blue: 0x1a / 255, alpha: 1)
     private static let labelHeight: CGFloat = 22
@@ -228,4 +229,6 @@ final class IosPaneView: NSView {
         touching = false
         screen?.touch(.leftMouseUp, at: at)
     }
+
+    override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() }
 }
