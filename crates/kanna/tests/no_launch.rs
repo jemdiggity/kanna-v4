@@ -125,16 +125,19 @@ fn with_kanna_socket_set_a_command_that_needs_the_app_fails_with_6_and_starts_no
     assert!(stderr.contains("[no_app]") && stderr.contains("KANNA_SOCKET is set, so kanna doesn't start Kanna.app"), "{stderr}");
     assert!(started.elapsed() < Duration::from_secs(5));
     let sent: Vec<String> = requests.try_iter().filter_map(|r| r["cmd"].as_str().map(String::from)).collect();
-    assert_eq!(sent, ["capabilities", "open"]);
+    assert_eq!(sent, ["open"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn the_dev_daemon_not_running_is_unreachable_and_starts_nothing() {
+fn with_nothing_running_kanna_starts_the_app_and_says_so_when_it_cant() {
     let dir = folder("dev");
-    let output = kanna(&dir, &["--mux", "kanna-dev", "list"]).env_remove("KANNA_SOCKET").env("HOME", &dir).output().unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(3), "{stderr}");
-    assert!(stderr.contains("Kanna's daemon isn't running") && stderr.contains("kanna-dev/kanna.sock"), "{stderr}");
+    for args in [&["list"][..], &["--mux", "kanna-dev", "list"], &["--instance", "work", "list"]] {
+        let output = kanna(&dir, args).env_remove("KANNA_SOCKET").env("HOME", &dir).output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(3), "{args:?}: {stderr}");
+        let folder = if args[0] == "--instance" { "kanna-dev-work/kanna.sock" } else { "kanna-dev/kanna.sock" };
+        assert!(stderr.contains("Kanna.app couldn't be started") && stderr.contains(folder), "{args:?}: {stderr}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

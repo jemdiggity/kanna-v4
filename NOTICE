@@ -67,6 +67,14 @@ Derived from kmux:
       follow ContentHost in apps/kmux/Sources/Kmux/ContentHost.swift; the
       debug.web, debug.md and debug.ios commands in AppController.swift
       and its View menu follow apps/kmux/Sources/Kmux/AppController.swift.
+  crates/kanna/src/commands.rs, crates/kanna/src/output.rs and
+  crates/kanna/src/lib.rs
+      A port of kmux's CLI, crates/kmux/src/commands.rs, output.rs and
+      main.rs (the command table, parsing, help, `commands --json`,
+      `instances`, `raw`, errors and output), branded kanna, with Kanna's
+      additions (read, --mux, --, exit 6, Kanna's instances).
+      crates/kanna/tests/kmux_reference.rs compiles kmux's commands.rs
+      and output.rs, unchanged, to check the port against them.
   scripts/build-merman.sh
       Follows kmux's scripts/build-merman.sh and builds kmux's
       crates/kmux-merman (kmux's C bridge to merman) from the kmux
