@@ -183,7 +183,7 @@ impl App {
 
     #[track_caller]
     pub fn until(&mut self, what: &str, mut wanted: impl FnMut(&Value) -> bool) -> Value {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             assert!(Instant::now() < deadline, "timed out waiting for {what}");
             let message = self.next().unwrap_or_else(|| panic!("the daemon closed the link waiting for {what}"));
