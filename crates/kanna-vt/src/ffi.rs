@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, dead_code)]
+#![allow(non_camel_case_types)]
 
 use std::ffi::c_void;
 
@@ -46,11 +46,9 @@ pub const GHOSTTY_TERMINAL_DATA_PWD: i32 = 13;
 pub const GHOSTTY_TERMINAL_DATA_TOTAL_ROWS: i32 = 14;
 pub const GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS: i32 = 15;
 pub const GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES: i32 = 35;
-pub const GHOSTTY_TERMINAL_SCREEN_PRIMARY: i32 = 0;
 pub const GHOSTTY_TERMINAL_SCREEN_ALTERNATE: i32 = 1;
 pub const GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES: i32 = 0;
 pub const GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION: i32 = 1;
-pub const GHOSTTY_POINT_TAG_ACTIVE: i32 = 0;
 pub const GHOSTTY_POINT_TAG_SCREEN: i32 = 2;
 #[repr(C)]
 #[derive(Clone, Copy)]
