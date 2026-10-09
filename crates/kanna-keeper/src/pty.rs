@@ -112,10 +112,15 @@ pub fn argv(what: &What, env: &Env) -> Vec<OsString> {
     }
 }
 
+fn keeper_only(key: &OsStr) -> bool {
+    let key = key.as_bytes();
+    key == b"KANNA_STATE_DIR" || key == b"KANNA_KEEPER" || key.starts_with(b"KANNA_KEEPER_")
+}
+
 /// The keeper's own environment, with what login(1) would have set filled
 /// in from passwd where it is missing.
 pub fn base_env() -> Env {
-    let mut env: Env = std::env::vars_os().collect();
+    let mut env: Env = std::env::vars_os().filter(|(key, _)| !keeper_only(key)).collect();
     if let Some(pw) = passwd() {
         for (key, value) in [("HOME", pw.home), ("USER", pw.name.clone()), ("LOGNAME", pw.name), ("SHELL", pw.shell)] {
             if !value.is_empty() && env.get(OsStr::new(key)).is_none_or(|v| v.is_empty()) {

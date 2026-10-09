@@ -754,3 +754,17 @@ fn spawned_processes_start_with_default_signal_dispositions() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_keepers_own_settings_stay_out_of_spawned_environments() {
+    let f = Fixture::with(&[("KANNA_KEEPER_MAX_PTYS", "9"), ("KANNA_STATE_DIR", "/elsewhere"), ("KANNA_KEEPER", "/k")]);
+    let mut c = f.client();
+    let mut req = SpawnRequest::command(
+        "env",
+        "echo \"[${KANNA_KEEPER_CLOSE_GRACE_MS-unset}][${KANNA_KEEPER_MAX_PTYS-unset}][${KANNA_STATE_DIR-unset}][${KANNA_KEEPER-unset}][${KANNA_KEEPER_ASKED-unset}]\"; sleep 30",
+    );
+    req.env.insert("KANNA_KEEPER_ASKED".into(), Some("yes".into()));
+    let pty = c.spawn(&req).unwrap();
+    read_until(&pty.master, "[unset][unset][unset][unset][yes]");
+    c.close("env").unwrap();
+}
