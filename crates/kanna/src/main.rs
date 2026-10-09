@@ -1,6 +1,6 @@
 //! kanna: drives a mux from the command line (docs/kanna-spec.md).
 
-use kmux_client::{exit, fail, Args, Brand, Failure, Kmux};
+use kmux_client::{exit, fail, Args, Brand, Failure, Kmux, Target};
 use serde_json::{json, Map, Value};
 use std::process::ExitCode;
 
@@ -47,7 +47,7 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             _ => KANNA,
         },
     };
-    let connect = || Kmux::connect_for(brand);
+    let connect = || connect(brand, std::env::var_os("KANNA_SOCKET").is_some_and(|v| !v.is_empty()));
     let command = args.positional().ok_or_else(|| fail(exit::USAGE, USAGE))?;
     let print = |reply: &Value, human: String| {
         if json_output {
@@ -121,6 +121,23 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
         other => return Err(fail(exit::USAGE, format!("unknown command \"{other}\"\n{USAGE}"))),
     }
     Ok(())
+}
+
+fn connect(brand: Brand, kanna_socket_set: bool) -> Result<Kmux, Failure> {
+    let target = Target::from_env_for(brand);
+    if may_start_app(kanna_socket_set) {
+        return Kmux::connect_to(&target).map_err(Failure::from);
+    }
+    Kmux::try_connect(&target).ok_or_else(|| {
+        fail(
+            exit::UNREACHABLE,
+            format!("nothing answers on {} (KANNA_SOCKET is set, so kanna doesn't start an app for it)", target.socket.display()),
+        )
+    })
+}
+
+fn may_start_app(kanna_socket_set: bool) -> bool {
+    !kanna_socket_set
 }
 
 /// The backend `--mux NAME` picks: Kanna.app, or a kmux the user runs.
@@ -255,6 +272,12 @@ mod tests {
 
     fn args(list: &[&str]) -> Args {
         Args::new(list.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn a_set_kanna_socket_never_starts_an_app() {
+        assert!(!may_start_app(true));
+        assert!(may_start_app(false));
     }
 
     #[test]
