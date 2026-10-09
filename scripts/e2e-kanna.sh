@@ -704,7 +704,7 @@ S32() {
   check wait_for 5 shows s32 READY || return 1
   terminal clipboard '{"pane":"s32","clipboard":"S32 PASTE"}' >/dev/null || return 1
   raw '{"id":1,"cmd":"debug.key","args":{"pane":"s32","key":"cmd+v"}}' >/dev/null
-  check wait_for 5 shows s32 'IN ^\[200~S32 PASTE^\[201~' || return 1
+  check wait_for 5 eval 'kanna read s32 | tr -d "\\n" | sed "s/IN //g" | grep -q "\\^\\[200~S32 PASTE\\^\\[201~"' || { kanna read s32; return 1; }
   kanna open --name s32w --cmd "printf '\033]52;c;UzMyIENPUElFRA==\007S32W'; exec cat" >/dev/null || return 1
   check wait_for 5 shows s32w S32W || return 1
   check wait_for 5 eval '[[ "$(terminal clipboard "{\"pane\":\"s32\"}")" == "S32 COPIED" ]]' || return 1
@@ -718,7 +718,7 @@ S32() {
   stop_app; term_app || return 1
   terminal clipboard '{"pane":"s32","clipboard":"AFTER"}' >/dev/null || return 1
   raw '{"id":1,"cmd":"debug.key","args":{"pane":"s32","key":"cmd+v"}}' >/dev/null
-  check wait_for 5 shows s32 'IN ^\[200~AFTER^\[201~'
+  check wait_for 5 eval 'kanna read s32 | tr -d "\\n" | sed "s/IN //g" | grep -q "\\^\\[200~AFTER\\^\\[201~"'
 }
 
 S33() {

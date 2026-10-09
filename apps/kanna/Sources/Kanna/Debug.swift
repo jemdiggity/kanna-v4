@@ -120,11 +120,25 @@ extension AppController {
         guard let window else { throw KannaError("not_found", "no window") }
         guard let event = SyntheticKey.event(name, window: window) else { throw KannaError("bad_request", "unknown key \"\(name)\"") }
         if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty, window.performKeyEquivalent(with: event)
-            || NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+            || Self.performResponderItem(event, in: window) || NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             return ["characters": .string(event.characters ?? ""), "charactersIgnoringModifiers": .string(event.charactersIgnoringModifiers ?? ""), "menu": true]
         }
         window.sendEvent(event)
         return ["characters": .string(event.characters ?? ""), "charactersIgnoringModifiers": .string(event.charactersIgnoringModifiers ?? "")]
+    }
+
+    private static func performResponderItem(_ event: NSEvent, in window: NSWindow) -> Bool {
+        func find(_ menu: NSMenu?) -> NSMenuItem? {
+            for item in menu?.items ?? [] {
+                if let found = find(item.submenu) { return found }
+                let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+                if item.target == nil, item.action != nil, !item.keyEquivalent.isEmpty, item.keyEquivalent == event.charactersIgnoringModifiers,
+                   item.keyEquivalentModifierMask.intersection([.command, .control, .option, .shift]) == modifiers { return item }
+            }
+            return nil
+        }
+        guard let item = find(NSApp.mainMenu), let action = item.action, let responder = window.firstResponder else { return false }
+        return responder.tryToPerform(action, with: item)
     }
 
     private func click(_ args: JSON) throws -> [String: JSON] {
