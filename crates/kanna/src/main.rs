@@ -1,6 +1,7 @@
 //! kanna: drives a mux from the command line (docs/kanna-spec.md).
 
-use kmux_client::{exit, fail, Args, Brand, Failure, Kmux, Target};
+use kmux_client::{exit, fail, Args, Brand, Error, Failure, Kmux, Target};
+use std::collections::VecDeque;
 use serde_json::{json, Map, Value};
 use std::process::ExitCode;
 
@@ -38,7 +39,7 @@ fn main() -> ExitCode {
 }
 
 fn run(args: Vec<String>) -> Result<(), Failure> {
-    let mut args = Args::new(args);
+    let mut args = Argv::new(args);
     let json_output = args.flag("--json");
     let brand = match args.option("--mux")? {
         Some(mux) => backend(&mux, "")?,
@@ -47,7 +48,7 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             _ => KANNA,
         },
     };
-    let connect = || connect(brand, std::env::var_os("KANNA_SOCKET").is_some_and(|v| !v.is_empty()));
+    let connect = || connect(brand, pinned_socket(brand, |name| std::env::var(name).ok()));
     let command = args.positional().ok_or_else(|| fail(exit::USAGE, USAGE))?;
     let print = |reply: &Value, human: String| {
         if json_output {
@@ -62,32 +63,32 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             let request = open_request(&mut args)?;
             let kind = request["type"].as_str().unwrap_or_default().to_string();
             let mut mux = connect()?;
-            let capabilities = mux.call("capabilities", json!({}))?;
+            let capabilities = call(&mut mux, "capabilities", json!({}))?;
             let supported = capabilities["paneTypes"].as_array().is_some_and(|types| types.contains(&json!(kind)));
             if !supported {
                 return Err(fail(exit::UNSUPPORTED, format!("{} can't show {kind} panes yet", brand.name)));
             }
-            let reply = mux.call("open", Value::Object(request))?;
+            let reply = call(&mut mux, "open", Value::Object(request))?;
             let pane = &reply["pane"];
             let label = pane["name"].as_str().or(pane["id"].as_str()).unwrap_or_default().to_string();
             print(&reply, label);
         }
         "navigate" => {
             let request = navigate_request(&mut args)?;
-            let reply = connect()?.call("navigate", Value::Object(request))?;
+            let reply = call(&mut connect()?, "navigate", Value::Object(request))?;
             print(&reply, String::new());
         }
         "focus" | "restart" | "close" => {
             let pane = args.positional().ok_or_else(|| fail(exit::USAGE, format!("{command} needs a pane")))?;
             finish(&args)?;
-            let reply = connect()?.call(&command, json!({ "pane": pane }))?;
+            let reply = call(&mut connect()?, &command, json!({ "pane": pane }))?;
             print(&reply, String::new());
         }
         "send" => {
             let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "send needs a pane and text"))?;
             let text = args.positional().ok_or_else(|| fail(exit::USAGE, "send needs text"))?;
             finish(&args)?;
-            let reply = connect()?.call("send", json!({ "pane": pane, "text": text }))?;
+            let reply = call(&mut connect()?, "send", json!({ "pane": pane, "text": text }))?;
             print(&reply, String::new());
         }
         "read" => {
@@ -101,17 +102,17 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             if let Some(lines) = lines {
                 request["lines"] = json!(lines);
             }
-            let reply = connect()?.call("read", request)?;
+            let reply = call(&mut connect()?, "read", request)?;
             print(&reply, reply["text"].as_str().unwrap_or_default().to_string());
         }
         "list" => {
             finish(&args)?;
-            let reply = connect()?.call("list", json!({}))?;
+            let reply = call(&mut connect()?, "list", json!({}))?;
             print(&reply, format_list(&reply));
         }
         "mux" => {
             finish(&args)?;
-            let reply = connect()?.call("capabilities", json!({}))?;
+            let reply = call(&mut connect()?, "capabilities", json!({}))?;
             let list = |key: &str| {
                 reply[key].as_array().map(|v| v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default()
             };
@@ -123,21 +124,57 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
     Ok(())
 }
 
-fn connect(brand: Brand, kanna_socket_set: bool) -> Result<Kmux, Failure> {
+fn connect(brand: Brand, pinned: Option<String>) -> Result<Kmux, Failure> {
     let target = Target::from_env_for(brand);
-    if may_start_app(kanna_socket_set) {
+    let Some(variable) = pinned else {
         return Kmux::connect_to(&target).map_err(Failure::from);
-    }
+    };
     Kmux::try_connect(&target).ok_or_else(|| {
-        fail(
-            exit::UNREACHABLE,
-            format!("nothing answers on {} (KANNA_SOCKET is set, so kanna doesn't start an app for it)", target.socket.display()),
-        )
+        fail(exit::UNREACHABLE, format!("nothing answers on {} ({variable} is set, so kanna doesn't start an app for it)", target.socket.display()))
     })
 }
 
-fn may_start_app(kanna_socket_set: bool) -> bool {
-    !kanna_socket_set
+fn pinned_socket(brand: Brand, env: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let variable = brand.variable("SOCKET");
+    env(&variable).is_some_and(|value| !value.is_empty()).then_some(variable)
+}
+
+fn call(mux: &mut Kmux, cmd: &str, args: Value) -> Result<Value, Failure> {
+    mux.call(cmd, args).map_err(|error| match error {
+        Error::Mux { code, message } if code == "unsupported" => fail(exit::UNSUPPORTED, format!("{message} [{code}]")),
+        error => Failure::from(error),
+    })
+}
+
+struct Argv {
+    options: Args,
+    rest: VecDeque<String>,
+}
+
+impl Argv {
+    fn new(mut words: Vec<String>) -> Argv {
+        let rest = match words.iter().position(|word| word == "--") {
+            Some(i) => words.split_off(i).into_iter().skip(1).collect(),
+            None => VecDeque::new(),
+        };
+        Argv { options: Args::new(words), rest }
+    }
+
+    fn flag(&mut self, name: &str) -> bool {
+        self.options.flag(name)
+    }
+
+    fn option(&mut self, name: &str) -> Result<Option<String>, Failure> {
+        self.options.option(name)
+    }
+
+    fn positional(&mut self) -> Option<String> {
+        self.options.positional().or_else(|| self.rest.pop_front())
+    }
+
+    fn first(&self) -> Option<&str> {
+        self.options.first().or(self.rest.front().map(String::as_str))
+    }
 }
 
 /// The backend `--mux NAME` picks: Kanna.app, or a kmux the user runs.
@@ -150,7 +187,7 @@ fn backend(mux: &str, from: &str) -> Result<Brand, Failure> {
 }
 
 /// `open TYPE …` as a kmux `open` request.
-fn open_request(args: &mut Args) -> Result<Map<String, Value>, Failure> {
+fn open_request(args: &mut Argv) -> Result<Map<String, Value>, Failure> {
     let mut request = Map::new();
     for (flag, key) in [
         ("--cmd", "cmd"), ("--cwd", "cwd"), ("--name", "name"), ("--split", "split"), ("--size", "size"),
@@ -177,7 +214,8 @@ fn open_request(args: &mut Args) -> Result<Map<String, Value>, Failure> {
             request.insert("path".into(), json!(absolute(&file)));
         }
         "ios" if !request.contains_key("app") => return Err(fail(exit::USAGE, "open ios needs --app APP (a .app or a bundle ID)")),
-        _ => {}
+        "term" | "ios" => {}
+        other => return Err(fail(exit::USAGE, format!("unknown pane type \"{other}\" (term, web, md or ios)"))),
     }
     if let Some(cwd) = request.get("cwd").and_then(Value::as_str).map(absolute) {
         request.insert("cwd".into(), json!(cwd));
@@ -188,7 +226,7 @@ fn open_request(args: &mut Args) -> Result<Map<String, Value>, Failure> {
 }
 
 /// `navigate PANE URL|FILE|--back|--forward`: a `.md` target is a file for a markdown pane.
-fn navigate_request(args: &mut Args) -> Result<Map<String, Value>, Failure> {
+fn navigate_request(args: &mut Argv) -> Result<Map<String, Value>, Failure> {
     let back = args.flag("--back");
     let forward = args.flag("--forward");
     let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "navigate needs a pane"))?;
@@ -259,7 +297,7 @@ fn layout_has(node: &Value, pane: &Value) -> bool {
     node["children"].as_array().is_some_and(|kids| kids.iter().any(|kid| layout_has(kid, pane)))
 }
 
-fn finish(args: &Args) -> Result<(), Failure> {
+fn finish(args: &Argv) -> Result<(), Failure> {
     match args.first() {
         None => Ok(()),
         Some(extra) => Err(fail(exit::USAGE, format!("unexpected argument \"{extra}\""))),
@@ -270,14 +308,38 @@ fn finish(args: &Args) -> Result<(), Failure> {
 mod tests {
     use super::*;
 
-    fn args(list: &[&str]) -> Args {
-        Args::new(list.iter().map(|s| s.to_string()).collect())
+    fn args(list: &[&str]) -> Argv {
+        Argv::new(list.iter().map(|s| s.to_string()).collect())
     }
 
     #[test]
-    fn a_set_kanna_socket_never_starts_an_app() {
-        assert!(!may_start_app(true));
-        assert!(may_start_app(false));
+    fn the_backends_own_socket_variable_pins_it() {
+        let env = |set: &'static str| move |name: &str| (name == set).then(|| "/tmp/x.sock".to_string());
+        assert_eq!(pinned_socket(KANNA, env("KANNA_SOCKET")).as_deref(), Some("KANNA_SOCKET"));
+        assert_eq!(pinned_socket(KANNA, env("KMUX_SOCKET")), None);
+        assert_eq!(pinned_socket(Brand::KMUX, env("KMUX_SOCKET")).as_deref(), Some("KMUX_SOCKET"));
+        assert_eq!(pinned_socket(Brand::KMUX, env("KANNA_SOCKET")), None);
+        assert_eq!(pinned_socket(KANNA, |_| Some(String::new())), None);
+    }
+
+    #[test]
+    fn a_double_dash_ends_options() {
+        let mut argv = args(&["--json", "send", "p1", "--", "--json", "--mux"]);
+        assert!(argv.flag("--json"));
+        assert!(!argv.flag("--json"));
+        assert_eq!(argv.option("--mux").unwrap(), None);
+        assert_eq!(argv.positional().as_deref(), Some("send"));
+        assert_eq!(argv.positional().as_deref(), Some("p1"));
+        assert_eq!(argv.first(), Some("--json"));
+        assert_eq!(argv.positional().as_deref(), Some("--json"));
+        assert_eq!(argv.positional().as_deref(), Some("--mux"));
+        assert_eq!(argv.positional(), None);
+    }
+
+    #[test]
+    fn open_refuses_unknown_types() {
+        let failure = open_request(&mut args(&["foo"])).unwrap_err();
+        assert_eq!(failure.code, exit::USAGE);
     }
 
     #[test]
