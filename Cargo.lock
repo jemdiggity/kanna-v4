@@ -39,6 +39,7 @@ name = "kanna-daemon"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "kanna-keeper",
  "kanna-mux",
  "libc",
  "serde_json",

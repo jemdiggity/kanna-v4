@@ -14,6 +14,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 use std::panic::AssertUnwindSafe;
+use std::rc::Rc;
 use std::sync::mpsc::{self, Sender};
 
 /// How much recent output each terminal keeps for the app.
@@ -42,7 +43,7 @@ struct Terminal {
 
 pub struct Terminals {
     pub core: RefCell<Option<WeakCore>>,
-    spawner: Box<dyn Spawner>,
+    spawner: Rc<dyn Spawner>,
     events: Sender<Event>,
     /// Every terminal's environment gets these (`KANNA_SOCKET`).
     env: Vec<(String, String)>,
@@ -55,7 +56,7 @@ pub struct Terminals {
 }
 
 impl Terminals {
-    pub fn new(spawner: Box<dyn Spawner>, events: Sender<Event>, env: Vec<(String, String)>) -> Terminals {
+    pub fn new(spawner: Rc<dyn Spawner>, events: Sender<Event>, env: Vec<(String, String)>) -> Terminals {
         Terminals { core: RefCell::new(None), spawner, events, env, live: RefCell::default(), serial: Cell::new(0), sizes: RefCell::default(), on_start: RefCell::new(None) }
     }
 
@@ -65,20 +66,22 @@ impl Terminals {
         core.later(move || reporter.update(&id, state, exit_code, error));
     }
 
-    /// What a pane runs: its command through the user's shell, else the shell
-    /// itself, as a login shell.
+    fn report_running(&self, id: &str, pid: i32) {
+        let Some(core) = self.core.borrow().as_ref().and_then(WeakCore::upgrade) else { return };
+        let (id, reporter) = (id.to_string(), core.clone());
+        core.later(move || {
+            reporter.set_pid(&id, Some(pid as i64));
+            reporter.update(&id, PaneState::Running, None, None);
+        });
+    }
+
     fn spec(&self, pane: &Pane) -> Spec {
-        let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/sh".into());
-        let name = shell.rsplit('/').next().unwrap_or("sh").to_string();
-        let (args, arg0) = match pane.command.as_deref().filter(|c| !c.is_empty()) {
-            Some(command) => (vec!["-l".into(), "-c".into(), command.into()], None),
-            None => (vec![], Some(format!("-{name}"))),
-        };
-        let mut env = self.env.clone();
-        env.extend([("KANNA_PANE".into(), pane.id.clone()), ("TERM".into(), "xterm-256color".into()), ("COLORTERM".into(), "truecolor".into())]);
-        let cwd = pane.cwd.clone().or_else(|| std::env::var("HOME").ok());
+        let mut env: Vec<(String, Option<String>)> = self.env.iter().map(|(k, v)| (k.clone(), Some(v.clone()))).collect();
+        env.push(("KANNA_PANE".into(), Some(pane.id.clone())));
+        env.push(("KANNA_INSTANCE".into(), None));
         let (cols, rows) = self.sizes.borrow().get(&pane.id).copied().unwrap_or((COLS, ROWS));
-        Spec { program: shell, args, arg0, cwd, env, unset: vec!["KANNA_INSTANCE".into()], cols, rows }
+        let command = pane.command.clone().filter(|c| !c.is_empty());
+        Spec { id: pane.id.clone(), command, cwd: pane.cwd.clone(), env, cols, rows }
     }
 
     // MARK: Events from the reader and wait threads
@@ -94,9 +97,8 @@ impl Terminals {
         true
     }
 
-    /// A program ended. Returns whether it's the pane's current one.
-    pub fn exited(&self, id: &str, serial: u64, code: i32) -> bool {
-        let current = match self.live.borrow_mut().get_mut(id).filter(|t| t.serial == serial) {
+    pub fn exited(&self, id: &str, pid: i32, code: i32) -> bool {
+        let current = match self.live.borrow_mut().get_mut(id).filter(|t| t.pid == pid && t.exit_code.is_none()) {
             Some(terminal) => {
                 terminal.exit_code = Some(code);
                 true
@@ -106,6 +108,7 @@ impl Terminals {
         if current {
             self.report(id, PaneState::Exited, Some(code as i64), None);
         }
+        self.spawner.acknowledge_exit(id);
         current
     }
 
@@ -140,9 +143,10 @@ impl Terminals {
         Some((t.cols, t.rows, t.replay.iter().copied().collect(), t.exit_code))
     }
 
-    pub fn hang_up_all(&self) {
-        for (_, terminal) in self.live.borrow_mut().drain() {
-            self.spawner.hang_up(terminal.pid);
+    pub fn close_all(&self) {
+        let ids: Vec<String> = self.live.borrow_mut().drain().filter(|(_, t)| t.exit_code.is_none()).map(|(id, _)| id).collect();
+        for id in ids {
+            self.spawner.close(&id);
         }
     }
 }
@@ -166,27 +170,28 @@ impl PaneHost for Terminals {
         let serial = self.serial.get() + 1;
         self.serial.set(serial);
         let spec = self.spec(pane);
-        let (id, events) = (pane.id.clone(), self.events.clone());
-        let exited = Box::new(move |code| {
-            let _ = events.send(Event::Exited { pane: id, serial, code });
-        });
-        let started = self.spawner.spawn(&spec, exited).and_then(|spawned| self.run(&pane.id, serial, spawned, &spec));
+        let started = self.spawner.spawn(&spec).and_then(|spawned| self.run(&pane.id, serial, spawned, &spec));
         match started {
             Ok(terminal) => {
+                let pid = terminal.pid;
                 self.live.borrow_mut().insert(pane.id.clone(), terminal);
                 if let Some(on_start) = self.on_start.borrow().as_ref() {
                     on_start(&pane.id);
                 }
-                self.report(&pane.id, PaneState::Running, None, None);
+                self.report_running(&pane.id, pid);
             }
-            Err(error) => self.report(&pane.id, PaneState::Failed, None, Some(format!("could not start {}: {error}", spec.program))),
+            Err(error) => {
+                let what = spec.command.as_deref().unwrap_or("the shell");
+                self.report(&pane.id, PaneState::Failed, None, Some(format!("could not start {what}: {error}")))
+            }
         }
     }
 
     fn stop(&self, pane: &Pane) {
         // Dropping it closes the pty and ends its writer thread.
-        if let Some(terminal) = self.live.borrow_mut().remove(&pane.id) {
-            self.spawner.hang_up(terminal.pid);
+        let removed = self.live.borrow_mut().remove(&pane.id);
+        if removed.is_some_and(|terminal| terminal.exit_code.is_none()) {
+            self.spawner.close(&pane.id);
         }
         // A closed pane never comes back; a restarted one starts at once.
         let restarting = self.core.borrow().as_ref().and_then(WeakCore::upgrade).is_some_and(|core| core.pane(&pane.id).is_some());

@@ -2,11 +2,9 @@
 //! Kanna's socket. The CLI and the app are its clients; the app keeps a
 //! long-lived link (app_link.rs). Everything kanna-mux touches runs on the
 //! main thread; socket, pty and signal threads post events to it.
-//!
-//! For now (plan step 0.4) it spawns each terminal on a pty itself; the
-//! keeper takes that over in step 0.5.
 
 mod app_link;
+mod keeper;
 mod pty;
 mod screen;
 mod terminals;
@@ -27,10 +25,11 @@ const USAGE: &str = "usage: kanna-daemon [--uses-keeper]
 Serves Kanna's terminals and kmux's control protocol on $KANNA_SOCKET
 (default: the development socket, kanna-dev/kanna.sock in the app support
 folder; never Kanna.app's own kanna/kanna.sock). Keeps its files in
-$KANNA_STATE_DIR (default: that socket's folder).
+$KANNA_STATE_DIR (default: that socket's folder). Gets its ptys from the
+keeper of that folder, starting $KANNA_KEEPER (default: the kanna-keeper
+beside this binary) if none runs.
 
-  --uses-keeper   exits 0 if this daemon gets its ptys from a keeper
-                  (KANNA_KEEPER), 1 if it spawns them itself (for now)";
+  --uses-keeper   exits 0: this daemon gets its ptys from a keeper";
 
 /// What the main thread acts on.
 pub enum Event {
@@ -39,7 +38,9 @@ pub enum Event {
     /// The core has work to do.
     Wake,
     Output { pane: String, serial: u64, bytes: Vec<u8> },
-    Exited { pane: String, serial: u64, code: i32 },
+    KeeperReadable,
+    KeeperExits,
+    KeeperLost(String),
     AppHello { conn: u64, hello: Value, out: Sender<Vec<u8>>, stream: UnixStream },
     AppMessage { conn: u64, message: Value },
     AppGone { conn: u64 },
@@ -50,7 +51,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         None => {}
-        Some("--uses-keeper") => std::process::exit(1),
+        Some("--uses-keeper") => std::process::exit(0),
         Some("-h" | "--help") => return println!("{USAGE}"),
         Some(other) => {
             eprintln!("kanna-daemon: unknown argument {other}\n{USAGE}");
@@ -110,8 +111,39 @@ fn run() -> Result<(), String> {
         let _ = wake.send(Event::Wake);
     })));
 
+    let mut server = SocketServer::new(
+        &socket_path,
+        Arc::new({
+            let requests = events.clone();
+            move |request, reply| {
+                let _ = requests.send(Event::Request(request, reply));
+            }
+        }),
+    );
+    server.take_over(HELLO, app_link::takeover(events.clone()));
+    server.start().map_err(|e| e.message)?;
+
+    let keeper_bin = keeper::binary();
+    let keeper = match keeper::Keeper::connect(&state_dir, &keeper_bin, events.clone()) {
+        Ok(keeper) => Rc::new(keeper),
+        Err(error) => {
+            server.stop();
+            return Err(format!("can't reach the keeper ({}): {error}", keeper_bin.display()));
+        }
+    };
+    match keeper.close_leftovers() {
+        Ok(0) => {}
+        Ok(n) => eprintln!("kanna-daemon: closed {n} terminal(s) an earlier daemon left in the keeper"),
+        Err(error) => eprintln!("kanna-daemon: couldn't close what an earlier daemon left in the keeper: {error}"),
+    }
+    if let Err(error) = keeper.watch() {
+        server.stop();
+        return Err(format!("can't watch the keeper: {error}"));
+    }
+    eprintln!("kanna-daemon: using the keeper of {} (pid {})", state_dir.display(), keeper.pid());
+
     let env = vec![("KANNA_SOCKET".to_string(), socket_path.clone())];
-    let terminals = Rc::new(Terminals::new(Box::new(pty::LocalSpawner), events.clone(), env));
+    let terminals = Rc::new(Terminals::new(keeper.clone(), events.clone(), env));
     *terminals.core.borrow_mut() = Some(core.weak());
     core.set_host(Some(terminals.clone()));
 
@@ -140,15 +172,6 @@ fn run() -> Result<(), String> {
         );
     }
 
-    let requests = events.clone();
-    let mut server = SocketServer::new(
-        &socket_path,
-        Arc::new(move |request, reply| {
-            let _ = requests.send(Event::Request(request, reply));
-        }),
-    );
-    server.take_over(HELLO, app_link::takeover(events.clone()));
-    server.start().map_err(|e| e.message)?;
     let pid_file = state_dir.join("daemon.pid");
     let _ = std::fs::write(&pid_file, format!("{}\n", std::process::id()));
     eprintln!("kanna-daemon: listening on {socket_path} (pid {})", std::process::id());
@@ -167,6 +190,7 @@ fn run() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     drop(events);
 
+    let mut failure = None;
     loop {
         let deadline = core.poll();
         let event = match deadline {
@@ -186,10 +210,29 @@ fn run() -> Result<(), String> {
                     app.output(&pane, &bytes);
                 }
             }
-            Event::Exited { pane, serial, code } => {
-                if terminals.exited(&pane, serial, code) {
-                    app.exited(&pane, code);
+            Event::KeeperReadable | Event::KeeperExits => {
+                let exits = keeper.take_exits();
+                if matches!(event, Event::KeeperReadable) {
+                    keeper.resume_watch();
                 }
+                match exits {
+                    Ok(exits) => {
+                        for exit in exits {
+                            let code = exit.status.shell_status();
+                            if terminals.exited(&exit.id, exit.pid, code) {
+                                app.exited(&exit.id, code);
+                            }
+                        }
+                    }
+                    Err(reason) => {
+                        failure = Some(reason);
+                        break;
+                    }
+                }
+            }
+            Event::KeeperLost(reason) => {
+                failure = Some(reason);
+                break;
             }
             Event::AppHello { conn, hello, out, stream } => app.hello(conn, hello, out, stream),
             Event::AppMessage { conn, message } => app.message(conn, message),
@@ -203,9 +246,12 @@ fn run() -> Result<(), String> {
 
     server.stop();
     app.close();
-    terminals.hang_up_all();
+    terminals.close_all();
     let _ = std::fs::remove_file(&pid_file);
-    Ok(())
+    match failure {
+        Some(reason) => Err(format!("{reason}; stopping")),
+        None => Ok(()),
+    }
 }
 
 fn signal_set(signals: &[libc::c_int]) -> libc::sigset_t {
