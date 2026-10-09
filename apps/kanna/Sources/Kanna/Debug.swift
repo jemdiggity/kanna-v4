@@ -39,7 +39,14 @@ extension AppController {
         commands["debug.pinch"] = { [weak self] args in try await self?.pinch(args) ?? [:] }
         commands["debug.text"] = { [weak self] args in
             guard let self else { return [:] }
-            return ["text": .string(try terminal(args["pane"]?.string).viewportText())]
+            let view = try terminal(args["pane"]?.string)
+            var reply: [String: JSON] = ["text": .string(view.viewportText())]
+            if let surface = view.surface {
+                let size = ghostty_surface_size(surface)
+                reply["columns"] = .number(Double(size.columns))
+                reply["rows"] = .number(Double(size.rows))
+            }
+            return reply
         }
         commands["debug.snapshot"] = { [weak self] args in
             guard let self else { return [:] }

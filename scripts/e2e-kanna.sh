@@ -443,6 +443,61 @@ S22() {
   check test "$(inst instances)" == "No Kanna instances are running. Any command starts one, e.g. kanna open (default) or kanna --instance work open."
 }
 
+S12() {
+  start_daemon && start_app || return 1
+  kanna open --name da >/dev/null && kanna open --name db --split right >/dev/null || return 1
+  drag '{"divider":"da","at":0.26}'
+  check test "$(win w1 tabs.0.layout)" == '{"children": [{"pane": "da", "size": "1/4"}, {"pane": "db", "size": "3/4"}], "split": "row"}' || { echo "$last_drag"; return 1; }
+  drag '{"divider":"da","at":0.6}'
+  check test "$(win w1 tabs.0.layout)" == '{"children": [{"pane": "da", "size": "3/5"}, {"pane": "db", "size": "2/5"}], "split": "row"}' || return 1
+  drag '{"divider":"da","at":0.01}'
+  local share
+  share="$(win w1 tabs.0.layout.children.0.size)"
+  check python3 -c 'import sys; s = float(sys.argv[1].rstrip("%")); assert 5 < s < 12, s' "$share" || return 1
+  drag '{"divider":"da","at":0.25}'
+  kanna open --name wide >/dev/null || return 1
+  check test "$(win w1 tabs.0.layout)" == '{"children": [{"pane": "da", "size": "1/4"}, {"pane": "db", "size": "3/8"}, {"pane": "wide", "size": "3/8"}], "split": "row"}' || return 1
+  kanna focus da >/dev/null && kanna open --name tall >/dev/null || return 1
+  check test "$(win w1 tabs.0.layout)" == '{"children": [{"children": [{"pane": "da", "size": "1/2"}, {"pane": "tall", "size": "1/2"}], "size": "1/4", "split": "column"}, {"pane": "db", "size": "3/8"}, {"pane": "wide", "size": "3/8"}], "split": "row"}' || return 1
+  key cmd+alt+right; check test "$(win w1 focused)" == db || return 1
+  key cmd+alt+left; check test "$(win w1 focused)" == tall || return 1
+  local before after
+  size() { raw "{\"id\":1,\"cmd\":\"debug.text\",\"args\":{\"pane\":\"$1\"}}" | field columns; }
+  before="$(size db)"
+  kanna focus db >/dev/null
+  key cmd+=; key cmd+shift+=
+  after="$(size db)"
+  check test "${after:-0}" -lt "${before:-0}" -a "${after:-0}" -gt 0 || { echo "columns $before → $after"; return 1; }
+  key cmd+0
+  check test "$(size db)" == "$before" || return 1
+  sleep 1
+  check drawn "$(snap w1 s12-resized)" 4 || return 1
+  local tab="$(win w1 tabs.0.id)"
+  drag "{\"pane\":\"wide\",\"to\":{\"outside\":true}}"
+  check test "$(state | field windows | count)" == 2 || { echo "$last_drag"; return 1; }
+  sleep 1
+  local frames
+  frames() { python3 -c 'import json, sys; print(json.dumps(sorted([w["id"], w["frame"]] for w in json.load(open(sys.argv[1]))["windows"])))' "$KANNA_STATE_DIR/layout.json"; }
+  frames="$(frames)"
+  check python3 -c 'import json, sys; f = json.loads(sys.argv[1]); assert len(f) == 2 and f[0][1] != f[1][1], f' "$frames" || return 1
+  stop_app; start_app || return 1
+  sleep 1
+  stop_app
+  check test "$(frames | field 0)" == "$(field 0 <<<"$frames")" || return 1
+  frames="$(frames)"
+  start_app || return 1
+  sleep 1
+  stop_app
+  check test "$(frames)" == "$frames" || return 1
+  start_app || return 1
+  kanna close wide >/dev/null || return 1
+  check test "$(state | field windows | count)" == 1 || return 1
+  key cmd+shift+w
+  check test "$(state | field windows | count)" == 0 || return 1
+  check app_attached || return 1
+  check test "$(kanna list --json | field panes)" == "[]"
+}
+
 due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S20|S21|S22) echo M4 ;; esac
 }
