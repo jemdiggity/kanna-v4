@@ -258,6 +258,16 @@ impl CoreHandle {
         self.0.exec.run();
     }
 
+    pub fn install_panes(&self, panes: Vec<Pane>, counter: usize) {
+        {
+            let mut s = self.state();
+            let mut all: Vec<Pane> = s.panes.iter().cloned().collect();
+            all.extend(panes.into_iter().filter(|p| s.panes.get(&p.id).is_none()));
+            s.panes.install(all, counter);
+        }
+        self.changed();
+    }
+
     pub fn set_pid(&self, id: &str, pid: Option<i64>) {
         if let Some(pane) = self.state().panes.get_mut(id) {
             pane.pid = pid;
