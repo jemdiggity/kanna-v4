@@ -1,10 +1,6 @@
 import Darwin
 import Foundation
 
-/// The app's connection to Kanna's daemon: one Unix socket carrying JSON
-/// lines both ways (docs/kanna-spec.md §4.5). It connects when the daemon is
-/// there and again whenever it comes back; what it reads is handed to the
-/// main actor in order.
 final class DaemonConnection: @unchecked Sendable {
     struct Delivery: Sendable {
         let generation: Int
@@ -13,7 +9,6 @@ final class DaemonConnection: @unchecked Sendable {
 
     let path: String
     private let hello: Data
-    /// Called on the main actor: connected, each message, disconnected.
     private let connected: @MainActor @Sendable () -> Void
     private let received: @MainActor @Sendable (JSON, Delivery) -> Void
     private let disconnected: @MainActor @Sendable () -> Void
@@ -54,7 +49,6 @@ final class DaemonConnection: @unchecked Sendable {
         }
     }
 
-    /// Sends one message; dropped if the daemon isn't there.
     func send(_ message: JSON) { send(message, generation: nil) }
 
     func send(_ message: JSON, generation: Int?) {

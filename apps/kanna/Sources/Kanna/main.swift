@@ -1,4 +1,3 @@
-// From kmux apps/kmux/Sources/Kmux/main.swift (at kmux.rev).
 import AppKit
 import GhosttyKit
 

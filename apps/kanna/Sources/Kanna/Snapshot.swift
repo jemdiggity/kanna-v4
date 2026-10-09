@@ -1,26 +1,17 @@
-// From kmux apps/kmux/Sources/Kmux/Snapshot.swift (at kmux.rev). Trimmed for Kanna: it
-// captures a plain window and pane views (no WindowController or PaneView).
 import AppKit
 import GhosttyKit
 
-/// `debug.snapshot`: captures a window as the window server composited it and
-/// reports, per pane, the share of pixels that differ from the pane's
-/// background. Checks that panes are actually drawn, not just present.
 @MainActor
 enum Snapshot {
     private typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
 
-    /// CGWindowListCreateImage is obsoleted in the macOS 15 SDK but still
-    /// exported, and an app may capture its own windows without the screen
-    /// recording permission that ScreenCaptureKit requires.
     private static let createImage: CreateImage? = {
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         return unsafeBitCast(symbol, to: CreateImage.self)
     }()
 
     static func run(_ window: NSWindow, id: String, panes: [(id: String, view: NSView)], path: String?, marker: String?) throws -> [String: JSON] {
-        // kCGWindowListOptionIncludingWindow; boundsIgnoreFraming | bestResolution.
-        guard let image = createImage?(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0 | 1 << 3)?.takeRetainedValue(),
+        guard let image = createImage?(.null, CGWindowListOption.optionIncludingWindow.rawValue, UInt32(window.windowNumber), CGWindowImageOption([.boundsIgnoreFraming, .bestResolution]).rawValue)?.takeRetainedValue(),
               let data = image.dataProvider?.data else {
             throw KannaError("bad_request", "window capture unavailable")
         }
@@ -78,22 +69,17 @@ enum Snapshot {
     }
 }
 
-/// Finds `marker` in the terminal's text and counts the marker's cells that
-/// hold glyph pixels. A cell needs a few pixels clearly unlike the
-/// background, so stale or uninitialised frames fail.
 @MainActor
 private func markerCheck(_ marker: String, _ terminal: TerminalSurfaceView, _ surface: ghostty_surface_t, rect: CGRect, scale: CGFloat,
                          reader: Pixels, background: RGB) -> JSON {
     let size = ghostty_surface_size(surface)
-    // "*" checks the first word of the first line on screen, for panes whose
-    // output isn't known in advance (a new shell).
     let text = terminal.viewportText()
     let marker = marker != "*" ? marker : text.split(separator: "\n").lazy.compactMap { $0.split(separator: " ").first.map(String.init) }.first ?? ""
     guard !marker.isEmpty, let (row, column) = locate(marker, in: text, columns: Int(size.columns)) else { return ["found": false] }
     let backing = terminal.window?.backingScaleFactor ?? 2
     let cell = CGSize(width: CGFloat(size.cell_width_px) * scale / backing, height: CGFloat(size.cell_height_px) * scale / backing)
-    // Ghostty's default window padding is 2 points.
-    let pad = 2 * scale
+    let ghosttyDefaultWindowPaddingPoints: CGFloat = 2
+    let pad = ghosttyDefaultWindowPaddingPoints * scale
     var glyphs = 0, inked = 0
     for (offset, character) in marker.enumerated() where !character.isWhitespace {
         glyphs += 1
@@ -106,7 +92,6 @@ private func markerCheck(_ marker: String, _ terminal: TerminalSurfaceView, _ su
     return ["found": true, "text": .string(marker), "row": .number(Double(row)), "column": .number(Double(column)), "glyphs": .number(Double(glyphs)), "inked": .number(Double(inked))]
 }
 
-/// Screen row and column of `marker`; read text joins soft-wrapped rows.
 private func locate(_ marker: String, in text: String, columns: Int) -> (Int, Int)? {
     let columns = max(1, columns)
     var row = 0

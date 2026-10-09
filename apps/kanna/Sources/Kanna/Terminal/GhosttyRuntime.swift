@@ -1,15 +1,8 @@
-// From kmux apps/kmux/Sources/Kmux/Terminal/GhosttyRuntime.swift (kmux.rev, with the
-// spike/ghostty-external-io split of options and attach). Trimmed for Kanna:
-// no pty attach (Kanna's terminals live in the daemon) and no mux actions or
-// menu shortcuts yet.
-// Runtime callbacks follow Ghostty macOS Ghostty.App.swift (MIT; Ghostty 4ec3122), via kanna v3.
 import AppKit
 import GhosttyKit
 
-/// The process-wide Ghostty app.
 @MainActor
 final class GhosttyRuntime {
-    /// Ghostty's C callbacks carry no context for the app itself.
     nonisolated(unsafe) static var shared: GhosttyRuntime?
 
     let app: ghostty_app_t
@@ -52,7 +45,6 @@ final class GhosttyRuntime {
         }
     }
 
-    /// The surface config every terminal starts from: drawn by `view`.
     static func options(for view: TerminalSurfaceView) -> ghostty_surface_config_s {
         var options = ghostty_surface_config_new()
         options.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -62,8 +54,6 @@ final class GhosttyRuntime {
         return options
     }
 
-    /// Creates `view`'s surface from `options` (see `options(for:)`) and
-    /// routes Ghostty's callbacks for it to this runtime.
     func attach(_ view: TerminalSurfaceView, options: inout ghostty_surface_config_s) -> Bool {
         guard let surface = ghostty_surface_new(app, &options) else { return false }
         live[view.surfaceID] = view
@@ -80,8 +70,6 @@ final class GhosttyRuntime {
     private func tick() { ghostty_app_tick(app) }
 
     private func readClipboard(_ id: UInt, state: UnsafeMutableRawPointer?) -> ghostty_clipboard_read_result_e {
-        // Only a user-initiated paste may read; OSC 52 reads arrive with no
-        // input event in flight and are answered with nothing.
         guard let view = live[id], view.isHandlingInputEvent, let surface = view.surface,
               let string = NSPasteboard.general.string(forType: .string) else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
         let mime = strdup("text/plain")!

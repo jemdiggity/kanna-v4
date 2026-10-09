@@ -1,10 +1,6 @@
-// From kmux apps/kmux/Sources/KmuxCore/SocketServer.swift (at kmux.rev); its error is KannaError.
 import Darwin
 import Foundation
 
-/// The control socket: a Unix domain socket carrying newline-delimited JSON.
-/// Each connection is served on its own thread; requests on a connection are
-/// answered in order, and every request is handled on the main actor.
 final class SocketServer: @unchecked Sendable {
     typealias Handler = @MainActor @Sendable (JSON) async -> JSON
 

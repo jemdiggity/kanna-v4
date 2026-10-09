@@ -1,10 +1,5 @@
-// From kmux apps/kmux/Sources/Kmux/Shortcuts.swift (SyntheticKey, at kmux.rev), with
-// `typing` added for debug.type: text as the key presses a US keyboard makes.
 import AppKit
 
-/// Key presses for `debug.key`, built from a virtual key code the way the
-/// system builds hardware events, so AppKit derives the characters from the
-/// current keyboard layout (hand-built NSEvents match menus differently).
 @MainActor
 enum SyntheticKey {
     private static let codes: [String: CGKeyCode] = [
@@ -13,7 +8,6 @@ enum SyntheticKey {
         "]": 30, "[": 33, "=": 24, "-": 27, "0": 29, "`": 50, "return": 36, "escape": 53, "space": 49,
     ]
 
-    /// Parses "cmd+shift+[" style names into a key-down event for `window`.
     static func event(_ name: String, window: NSWindow?) -> NSEvent? {
         var parts = name.lowercased().split(separator: "+").map(String.init)
         guard let key = parts.popLast(), let code = codes[key == "enter" ? "return" : key] else { return nil }
@@ -30,13 +24,11 @@ enum SyntheticKey {
         guard let cgEvent = CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState), virtualKey: code, keyDown: true) else { return nil }
         cgEvent.flags = flags
         guard let event = NSEvent(cgEvent: cgEvent) else { return nil }
-        // Address the event to the key window, as the window server would.
         return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: event.modifierFlags, timestamp: event.timestamp,
                                 windowNumber: window?.windowNumber ?? 0, context: nil, characters: event.characters ?? "",
                                 charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "", isARepeat: false, keyCode: event.keyCode)
     }
 
-    /// US ANSI key codes for the characters a key makes unshifted, then shifted.
     private static let layout: [(CGKeyCode, Character, Character)] = [
         (0, "a", "A"), (1, "s", "S"), (2, "d", "D"), (3, "f", "F"), (4, "h", "H"), (5, "g", "G"), (6, "z", "Z"), (7, "x", "X"),
         (8, "c", "C"), (9, "v", "V"), (11, "b", "B"), (12, "q", "Q"), (13, "w", "W"), (14, "e", "E"), (15, "r", "R"),
@@ -55,9 +47,6 @@ enum SyntheticKey {
         return keys
     }()
 
-    /// Key down and up events for `window` that type `text` as a US keyboard
-    /// would: Return for a newline, Tab for a tab. Other characters (beyond
-    /// the layout) arrive as text on a key with no code of its own.
     static func typing(_ text: String, window: NSWindow) -> [NSEvent] {
         let time = ProcessInfo.processInfo.systemUptime
         return text.flatMap { character -> [NSEvent] in

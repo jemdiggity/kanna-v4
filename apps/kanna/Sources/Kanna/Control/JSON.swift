@@ -1,4 +1,3 @@
-// From kmux apps/kmux/Sources/KmuxCore/JSON.swift (at kmux.rev), unchanged but for access levels.
 import Foundation
 
 enum JSON: Sendable, Equatable {

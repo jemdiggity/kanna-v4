@@ -17,6 +17,7 @@
    - 4.3 [kmux Is the Reference Model](#43-kmux-is-the-reference-model)
    - 4.4 [Languages and Platforms](#44-languages-and-platforms)
    - 4.5 [The App Link](#45-the-app-link)
+   - 4.6 [The App's Terminal Views](#46-the-apps-terminal-views)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -278,6 +279,13 @@ sequenceDiagram
 - **Limits:** a resize beyond 1000 cells a side is refused; a line over 16 MiB drops the app; an app that falls 16 MiB behind on output stops getting it and starts its terminals over (reset, grid, replay) once it has caught up, and one 64 MiB behind is dropped.
 - **Layout, for M0:** the daemon keeps kanna-mux's own layout model and sends the first window's active tab: `{"pane": ID, "type": …}` for a pane, `{"split": "row" | "column", "children": […]}` for a split (a row side by side, a column stacked), each child with its `size` as a fraction. The app mirrors it, keeping each pane's view as the tree changes; panes it can't show yet are placeholders. From M1 the app owns the layout ([plan](plans/mux-build.md) step 1.3) and this message goes.
 - **Replay, for M0:** a terminal's last megabyte of output, replayed into a fresh view. From M1 the daemon sends a snapshot of the screen instead (step 1.2).
+
+### 4.6 The App's Terminal Views
+
+- **Typed text goes out as key events.** Committed text is sent as the key event's text, as Ghostty's app does; `ghostty_surface_text` is the paste path and would wrap every keystroke in bracketed-paste markers. A lone control character is reported without Control, function-key private-use characters aren't text, and text starting with a control character or DEL is dropped so the encoder works from the key code (Shift+Return reaches kitty-keyboard programs as `CSI 13;2u`).
+- **Clipboard reads need a paste.** Only a user-initiated paste reads the clipboard; an OSC 52 read, which arrives with no input event in flight, is answered with nothing.
+- **Focus follows the first responder**, not key-window status, so a pane keeps its focused cursor across reparenting. `ghostty_surface_set_occlusion` takes visibility: false stops the renderer updating at all, so `KANNA_IGNORE_OCCLUSION=1` (the test scripts) keeps hidden windows drawing.
+- **`debug.snapshot` captures with `CGWindowListCreateImage`**, looked up at run time: it is obsoleted in the macOS 15 SDK but still exported, and an app may capture its own windows without the screen-recording permission ScreenCaptureKit needs.
 
 ---
 

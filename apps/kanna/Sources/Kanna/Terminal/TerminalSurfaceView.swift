@@ -1,17 +1,11 @@
-// From kmux apps/kmux/Sources/Kmux/Terminal/TerminalSurfaceView.swift (at kmux.rev); Kanna's
-// tests set KANNA_IGNORE_OCCLUSION where kmux's set KMUX_IGNORE_OCCLUSION.
-// Adapted from Ghostty macOS SurfaceView_AppKit.swift, Ghostty.Input.swift, and NSEvent+Extension.swift (MIT; Ghostty 4ec3122), via kanna v3.
 import AppKit
 import GhosttyKit
 import QuartzCore
 
-/// Draws one Ghostty surface and feeds it keyboard, mouse and IME input.
 @MainActor
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     var surface: ghostty_surface_t? { didSet { if surface != nil { syncSurfaceGeometry(); updateVisibility() } } }
     var isHandlingInputEvent = false
-    /// Tests render hidden windows too (KANNA_IGNORE_OCCLUSION=1), so their
-    /// pixel checks don't depend on what else is on screen.
     static let ignoresOcclusion = ProcessInfo.processInfo.environment["KANNA_IGNORE_OCCLUSION"] == "1"
     private static var lastSurfaceID: UInt = 0
     let surfaceID: UInt
@@ -23,8 +17,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override var acceptsFirstResponder: Bool { true }
 
-    // No backing layer of our own: Ghostty's renderer makes this view
-    // layer-hosting with its IOSurface layer, as in Ghostty's app.
     override init(frame frameRect: NSRect) {
         Self.lastSurfaceID += 1
         surfaceID = Self.lastSurfaceID
@@ -32,8 +24,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    // Focus follows the first responder rather than key-window status, so a
-    // pane keeps its focused cursor across reparenting.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
@@ -59,16 +49,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         syncSurfaceGeometry()
     }
 
-    /// ghostty_surface_set_occlusion takes *visibility*: false stops the
-    /// renderer from updating at all.
     private func updateVisibility() {
         guard let surface else { return }
         let visible = window.map { Self.ignoresOcclusion || $0.occlusionState.contains(.visible) } ?? false
         ghostty_surface_set_occlusion(surface, visible)
     }
 
-    /// Content scale and pixel size, also for views created at a zero frame
-    /// and laid out or reparented later.
     private func syncSurfaceGeometry() {
         guard let surface, bounds.width > 0, bounds.height > 0 else { return }
         let backing = convertToBacking(bounds)
@@ -93,10 +79,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return result
     }
 
-    // MARK: Edit menu
-
-    // As in Ghostty's app: the Edit menu's items run Ghostty's actions, so a
-    // terminal copies and pastes as its config says (e.g. bracketed paste).
     @objc func copy(_ sender: Any?) { perform("copy_to_clipboard") }
     @objc func paste(_ sender: Any?) { perform("paste_from_clipboard") }
     @objc override func selectAll(_ sender: Any?) { perform("select_all") }
@@ -113,8 +95,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard let surface else { return false }
         return item.action == #selector(copy(_:)) ? ghostty_surface_has_selection(surface) : true
     }
-
-    // MARK: Keyboard
 
     override func keyDown(with event: NSEvent) {
         guard let surface else {
@@ -137,9 +117,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             suppressedKeyUps.insert(event.keyCode)
             return
         }
-        // Committed text goes out as the key event's text, as Ghostty's app
-        // does. ghostty_surface_text is the paste path and would wrap every
-        // keystroke in bracketed-paste markers.
         if let texts = accumulating, !texts.isEmpty {
             for text in texts { sendKeyPress(event, mods: mods, text: text) }
             return
@@ -169,9 +146,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         _ = Self.filteredText(text)?.withCString { input.text = $0; return ghostty_surface_key(surface, input) } ?? ghostty_surface_key(surface, input)
     }
 
-    /// Mirrors Ghostty's NSEvent.ghosttyCharacters: a lone control character
-    /// is reported without Control, and function-key private-use characters
-    /// are not text.
     private static func keyEventText(_ event: NSEvent) -> String? {
         guard let characters = event.characters else { return nil }
         if characters.count == 1, let scalar = characters.unicodeScalars.first {
@@ -181,15 +155,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return characters
     }
 
-    /// Mirrors Ghostty's String.keyEventText: text starting with an ASCII
-    /// control character or DEL is dropped so the encoder works from the key
-    /// code (Shift+Return reaches kitty-keyboard programs as CSI 13;2u).
     private static func filteredText(_ text: String?) -> String? {
         guard let text, let scalar = text.unicodeScalars.first else { return nil }
         return scalar.value < 0x20 || scalar.value == 0x7F ? nil : text
     }
 
-    /// The text on screen, one line per row (soft-wrapped rows joined).
     func viewportText() -> String {
         guard let surface else { return "" }
         let selection = ghostty_selection_s(
@@ -201,13 +171,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return result.text.map { String(cString: $0) } ?? ""
     }
 
-    /// Inserts `text` as committed input (Ghostty's paste path).
     private func sendText(_ text: String) {
         guard let surface else { return }
         text.withCString { ghostty_surface_text(surface, $0, UInt(text.utf8.count)) }
     }
-
-    // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
@@ -304,8 +271,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if phase.contains(.cancelled) { return 5 }
         return 0
     }
-
-    // MARK: NSTextInputClient
 
     func characterIndex(for point: NSPoint) -> Int { NSNotFound }
     func hasMarkedText() -> Bool { marked.length > 0 }

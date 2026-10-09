@@ -1,19 +1,12 @@
 import Foundation
 
-/// Kanna's terminals live in the daemon: this link attaches each terminal
-/// view to its terminal there, and carries the rest of the app link
-/// (docs/kanna-spec.md §4.5): the layout to mirror, and requests for the app.
 @MainActor
 final class DaemonLink: TerminalLink {
     private var connection: DaemonConnection!
     private let commands: Commands
-    /// The terminals shown, by pane ID.
     private var terminals: [String: ExternalTerminal] = [:]
-    /// The size each view last asked for, to ask again after a reconnect.
     private var sizes: [String: JSON] = [:]
-    /// The daemon accepted this app (`app.hello`).
     private(set) var attached = false
-    /// The layout to mirror, as the daemon sends it.
     var onLayout: ((JSON) -> Void)?
 
     var socketPath: String { connection.path }
@@ -35,10 +28,7 @@ final class DaemonLink: TerminalLink {
         connection.send(["cmd": .string(cmd), "args": .object(args)])
     }
 
-    // MARK: The connection
-
     private func connected() {
-        // After a reconnect: the terminals shown, again.
         for pane in terminals.keys.sorted() {
             send("attach", ["pane": .string(pane)])
             if case .object(let size)? = sizes[pane] { send("resize", size) }
@@ -54,7 +44,6 @@ final class DaemonLink: TerminalLink {
         let connection = connection!
         var consumed = true
         defer { if consumed { connection.consumed(delivery) } }
-        // The answer to app.hello, the only request the app makes.
         if let ok = message["ok"]?.bool {
             guard message["id"]?.number == 0 else { return }
             attached = ok
@@ -67,7 +56,6 @@ final class DaemonLink: TerminalLink {
             return
         }
         guard let cmd = message["cmd"]?.string else { return }
-        // A request for the app (debug.*): answered as the control protocol would.
         if message["id"] != nil {
             Task { [commands] in connection.send(await commands.handle(message), generation: delivery.generation) }
             return
@@ -90,8 +78,6 @@ final class DaemonLink: TerminalLink {
         default: FileHandle.standardError.write(Data("kanna: unknown message from the daemon: \(cmd)\n".utf8))
         }
     }
-
-    // MARK: TerminalLink
 
     func opened(_ terminal: ExternalTerminal) {
         terminals[terminal.pane.id] = terminal

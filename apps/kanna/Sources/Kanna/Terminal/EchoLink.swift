@@ -1,9 +1,5 @@
 import Foundation
 
-/// Stands in for Kanna's daemon in echo mode (KANNA_ECHO=1, for
-/// scripts/check-kanna-app.sh): there is no program, and what the terminal types comes straight back as its output,
-/// so typing shows on screen and lines advance. It applies the grid the view
-/// asks for, as the daemon will.
 @MainActor
 final class EchoLink: TerminalLink {
     func opened(_ terminal: ExternalTerminal) {}
@@ -12,8 +8,8 @@ final class EchoLink: TerminalLink {
         var echoed = Data(capacity: bytes.count)
         for byte in bytes {
             switch byte {
-            case 0x0D: echoed.append(contentsOf: [0x0D, 0x0A]) // Return: a new line, as a tty's echo would
-            case 0x7F: echoed.append(contentsOf: [0x08, 0x20, 0x08]) // Delete: rub out the last character
+            case 0x0D: echoed.append(contentsOf: [0x0D, 0x0A])
+            case 0x7F: echoed.append(contentsOf: [0x08, 0x20, 0x08])
             default: echoed.append(byte)
             }
         }

@@ -1,13 +1,6 @@
-// Parts follow kmux apps/kmux/Sources/Kmux/AppController.swift (at kmux.rev): --bg and
-// `present`, the socket and signal handling, the Edit menu, and the debug
-// commands' shapes. Kanna's app is otherwise its own.
 import AppKit
 import GhosttyKit
 
-/// One window showing the panes of Kanna's daemon (its first window's
-/// active tab, for M0), drawn by Ghostty in external-I/O mode. The daemon
-/// passes `debug.*` requests to it. With `KANNA_ECHO=1` it runs alone
-/// instead: one terminal that echoes typing, and a private debug socket.
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate {
     private var runtime: GhosttyRuntime!
@@ -16,7 +9,6 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var daemon: DaemonLink?
     private var server: SocketServer?
     private var signalSources: [DispatchSourceSignal] = []
-    /// Started with `--bg` (or `KANNA_BG=1`), e.g. by tests: don't take over the screen.
     private let background = CommandLine.arguments.contains("--bg") || ProcessInfo.processInfo.environment["KANNA_BG"] == "1"
     private let echo = ProcessInfo.processInfo.environment["KANNA_ECHO"] == "1"
     private let debugCommands = ProcessInfo.processInfo.environment["KANNA_DEBUG"] == "1"
@@ -24,9 +16,6 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var layout: LayoutView!
     private var focused: String?
 
-    /// The daemon's socket: `$KANNA_SOCKET`, else the development daemon's,
-    /// `kanna-dev/kanna.sock` in Application Support (never `kanna/kanna.sock`,
-    /// the Kanna.app you use).
     static var daemonSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_SOCKET"], !path.isEmpty { return path }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -42,8 +31,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         (path as NSString).standardizingPath.lowercased() == (appSocketPath as NSString).standardizingPath.lowercased()
     }
 
-    /// Echo mode's debug socket: `$KANNA_APP_SOCKET`, else `kanna-app.sock`
-    /// beside the development daemon's.
     static var echoSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_APP_SOCKET"], !path.isEmpty { return path }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -75,7 +62,6 @@ final class AppController: NSObject, NSApplicationDelegate {
             terminals = ExternalIOBackend(runtime: runtime, link: daemon)
             self.daemon = daemon
         }
-        // Quit cleanly (removing the socket) when killed, not only on ⌘Q.
         for signal in [SIGTERM, SIGINT, SIGHUP] {
             Darwin.signal(signal, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: signal, queue: .main)
@@ -121,7 +107,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         present(window)
     }
 
-    /// Shows the layout the daemon sent: `root`, the tree, and `focused`.
     private func mirror(_ args: JSON) {
         layout.show(args["root"] ?? .null)
         let focus = args["focused"]?.string
@@ -131,9 +116,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         focused = focus
     }
 
-    /// Brings a window forward, except in a `--bg` Kanna that isn't the app in
-    /// use: there the window goes just behind the front window of the app
-    /// that is, so tests driving Kanna don't interrupt the user.
     private func present(_ window: NSWindow) {
         if NSApp.isActive || !background {
             return window.makeKeyAndOrderFront(nil)
@@ -149,11 +131,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: Debug commands
-
     private func installCommands() {
         guard debugCommands else { return }
-        // The app is up: who it is, what it's attached to, what it shows.
         commands["debug.app"] = { [weak self] _ in
             var reply: [String: JSON] = [
                 "app": "kanna", "pid": .number(Double(ProcessInfo.processInfo.processIdentifier)),
@@ -167,8 +146,6 @@ final class AppController: NSObject, NSApplicationDelegate {
             }
             return reply
         }
-        // Types `text` into a pane (focusing it) as key presses, through
-        // AppKit's event path and the terminal's own key and text input handling.
         commands["debug.type"] = { [weak self] args in
             guard let self else { return [:] }
             let view = try self.terminal(args["pane"]?.string)
@@ -178,7 +155,6 @@ final class AppController: NSObject, NSApplicationDelegate {
             for event in events { window.sendEvent(event) }
             return ["keys": .number(Double(events.count / 2))]
         }
-        // `key`: one key press with modifiers, e.g. "ctrl+c", as kmux's debug.key.
         commands["debug.key"] = { [weak self] args in
             guard let self else { return [:] }
             let view = try self.terminal(args["pane"]?.string)
@@ -188,13 +164,10 @@ final class AppController: NSObject, NSApplicationDelegate {
             view.window?.sendEvent(event)
             return ["characters": .string(event.characters ?? ""), "charactersIgnoringModifiers": .string(event.charactersIgnoringModifiers ?? "")]
         }
-        // The terminal's screen as the app draws it, one line per row.
         commands["debug.text"] = { [weak self] args in
             guard let self else { return [:] }
             return ["text": .string(try self.terminal(args["pane"]?.string).viewportText())]
         }
-        // The window as composited, with per-pane ink and an optional marker
-        // check (see Snapshot); `path` also saves it as a PNG.
         commands["debug.snapshot"] = { [weak self] args in
             guard let self, let window = self.window, let layout = self.layout else { throw KannaError("not_found", "no window") }
             window.displayIfNeeded()
@@ -203,7 +176,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A pane's terminal view: by ID, else the focused one, else the first.
     private func terminal(_ id: String?) throws -> TerminalSurfaceView {
         let id = id ?? focused.flatMap { layout.panes[$0] is TerminalSurfaceView ? $0 : nil } ?? layout.order.first { layout.panes[$0] is TerminalSurfaceView }
         guard let id, let view = layout.panes[id] else { throw KannaError("not_found", "no pane \"\(id ?? "")\" in this window") }
@@ -212,8 +184,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         return terminal
     }
 
-    // MARK: Menu
-
     private func installMenu() {
         let main = NSMenu()
         let appItem = NSMenuItem()
@@ -221,7 +191,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "Quit Kanna", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
-        // Sent to whatever has focus: the terminal runs Ghostty's copy and paste.
         let editItem = NSMenuItem()
         let edit = NSMenu(title: "Edit")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")

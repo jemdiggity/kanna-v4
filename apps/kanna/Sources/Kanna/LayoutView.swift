@@ -1,26 +1,14 @@
 import AppKit
 
-/// The panes of one tab, arranged as a split tree. For M0 the tree is the
-/// daemon's (its first window's active tab), mirrored as it changes:
-/// `{pane, type}` for a pane, `{split: row|column, children}` for a split,
-/// each child with its `size`. Pane views are kept across changes, so a
-/// terminal isn't recreated when the panes around it move. The app owns the
-/// layout from M1 (plan step 1.3).
 @MainActor
 final class LayoutView: NSView {
-    /// The pane views shown, by pane ID.
     private(set) var panes: [String: NSView] = [:]
-    /// Pane IDs in the order the tree shows them.
     private(set) var order: [String] = []
     private var root: JSON = .null
-    /// Makes the view for a new pane, of a type (`term`, `web`, …).
     var make: (_ pane: String, _ type: String) -> NSView = { _, _ in NSView() }
-    /// A new pane's view is in place, at its size.
     var added: (_ pane: String, _ view: NSView) -> Void = { _, _ in }
-    /// A pane's view is about to go.
     var removed: (_ pane: String, _ view: NSView) -> Void = { _, _ in }
 
-    /// Space between panes, showing the background.
     private let gap: CGFloat = 1
 
     override init(frame: NSRect) {
@@ -64,8 +52,6 @@ final class LayoutView: NSView {
         if case .array(let children)? = node["children"] { children.forEach { collect($0, into: &types) } }
     }
 
-    /// Lays a node out in `rect`: a row's children left to right, a column's
-    /// top to bottom, each taking its share.
     private func place(_ node: JSON, in rect: NSRect) {
         if let id = node["pane"]?.string {
             panes[id]?.frame = rect.integral
@@ -86,7 +72,6 @@ final class LayoutView: NSView {
     }
 }
 
-/// Stands in for panes the app can't show yet (web, markdown, iOS: M3).
 @MainActor
 final class PlaceholderView: NSView {
     init(pane: String, type: String) {

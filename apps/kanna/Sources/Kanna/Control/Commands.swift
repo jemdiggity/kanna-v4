@@ -1,5 +1,3 @@
-// The request envelope and error follow kmux's Core.handle and KmuxError
-// (apps/kmux/Sources/KmuxCore/Core.swift at kmux.rev), so replies look alike.
 import Foundation
 
 struct KannaError: Error, Equatable {
@@ -12,9 +10,6 @@ struct KannaError: Error, Equatable {
     }
 }
 
-/// The app's control commands, by name. A request is
-/// `{"id": …, "cmd": "debug.text", "args": {…}}`; the reply carries the
-/// command's fields plus `id` and `ok`, or `ok: false` and an `error`.
 @MainActor
 final class Commands {
     typealias Command = @MainActor (JSON) async throws -> [String: JSON]
