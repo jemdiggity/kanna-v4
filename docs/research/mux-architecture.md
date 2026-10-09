@@ -1,6 +1,6 @@
 # Kanna's mux: architecture
 
-> 2026-10-09. Proposed. kmux stays an app and also ships libraries. Kanna builds its daemon, keeper and desktop app from two of kmux's layers, the **CLI shape** and the **mux UI**, and its terminals live in its daemon so they survive the app quitting, the way kanna-v3 did.
+> 2026-10-09. Proposed. kmux stays as it is: an app, and Kanna's **reference model** for the mux and its CLI. Kanna builds its own mux layers, the **CLI shape** (layer 4) and the **mux UI** (layer 3), to behave like kmux's and checked against it, and its terminals live in its daemon so they survive the app quitting, the way kanna-v3 did.
 
 ## Contents
 
@@ -22,16 +22,16 @@
 
 | | kmux | Kanna |
 |---|---|---|
-| What it is | an app, plus libraries | a desktop app, a daemon, a keeper and a CLI |
+| What it is | an app; Kanna's reference model | a desktop app, a daemon, a keeper and a CLI |
 | Processes | one: the app | three: the app, the daemon, the keeper |
 | Terminals live in | the app (Ghostty's own ptys) | the daemon (ptys held by the keeper) |
 | After a restart | the layout comes back, terminals are new | the layout comes back, terminals are exactly as they were |
 | Ghostty | upstream | the fork (external I/O) |
-| Languages | Swift app on a Rust core (`kmux-core`) | Swift app; Rust daemon and keeper, which also run on Linux |
+| Languages | Swift app, Rust CLI | Swift app; Rust daemon and keeper, which also run on Linux |
 
-**Kanna uses two layers of kmux** (see [layers and processes](#2-layers-and-processes)):
-- **Layer 3, the mux UI:** the pane views (terminal, web, markdown, iOS). The Kanna app draws with them.
-- **Layer 4, the CLI shape:** the protocol (`open`, `list`, `send`, `read`, `close`, …) and terminal sessions. Kanna's daemon runs it, so `kanna` and `kmux` look alike.
+**Kanna's layers 3 and 4 follow kmux** (see [layers and processes](#2-layers-and-processes)). kmux doesn't change for Kanna; it's the model Kanna's own code is checked against:
+- **Layer 3, the mux UI:** the pane views (terminal, web, markdown, iOS), Kanna's own Swift, started from kmux's views. The Kanna app draws with them.
+- **Layer 4, the CLI shape:** the protocol (`open`, `list`, `send`, `read`, `close`, …) and terminal sessions, in `kanna-mux`, Kanna's Rust crate ported from kmux's core. It passes kmux's own protocol cases, so `kanna` and `kmux` behave alike.
 
 **Only terminals live in the daemon.** Everything else a pane shows (a web page's URL and history, a markdown file, an iOS device and app) is layout state, kept and saved by the app with the rest of the layout.
 
@@ -39,9 +39,9 @@
 
 ## 2. Layers and processes
 
-Read each stack top to bottom, like the OSI model: each layer uses the ones below it. Kanna takes layers 3 and 4 from kmux and adds 1, 2 and 5 of its own.
+Read each stack top to bottom, like the OSI model: each layer uses the ones below it. Kanna's layers 3 and 4 follow kmux's; 1, 2 and 5 are Kanna's alone.
 
-**Colours:** green is Kanna's code, blue is a kmux library, purple is kmux's own app code, grey is macOS, orange is the CLIs. Outer boxes are processes.
+**Colours:** green is Kanna's own, blue is Kanna's code that follows kmux (the reference), purple is kmux's code, grey is macOS, orange is the CLIs. Outer boxes are processes.
 
 ```mermaid
 flowchart TB
@@ -51,11 +51,11 @@ flowchart TB
     subgraph APP["Kanna app process"]
         L1["1 · UI<br/>Desk and Shelf<br/>review · editor"]
         L2["2 · Kanna<br/>tasks · agents<br/>worktrees · hooks"]
-        L3["3 · Mux UI (kmux)<br/>terminal · web<br/>iOS · markdown views"]
+        L3["3 · Mux UI (as kmux)<br/>terminal · web<br/>iOS · markdown views"]
         L1 --> L2 --> L3
     end
     subgraph DAEMON["Kanna daemon process"]
-        L4["4 · CLI shape (kmux)<br/>commands · terminals<br/>libghostty-vt screens"]
+        L4["4 · kanna-mux (as kmux)<br/>commands · terminals<br/>libghostty-vt screens"]
     end
     subgraph KEEPER["keeper process"]
         L5["5 · Keeper<br/>holds the ptys"]
@@ -83,7 +83,7 @@ flowchart TB
     class CLI ext
 ```
 
-kmux has the same layers without 2 and 5, in one process:
+kmux, the reference, has the same layers without 2 and 5, in one process:
 
 ```mermaid
 flowchart TB
@@ -92,8 +92,8 @@ flowchart TB
     end
     subgraph APP["kmux app process (the only one)"]
         K1["1 · UI<br/>windows · tabs · splits"]
-        K3["3 · Mux UI (kmux)<br/>terminal · web<br/>iOS · markdown views"]
-        K4["4 · CLI shape (kmux)<br/>commands"]
+        K3["3 · Mux UI<br/>terminal · web<br/>iOS · markdown views"]
+        K4["4 · CLI shape<br/>commands"]
         K1 --> K3 --> K4
     end
     subgraph OS["6 · macOS"]
@@ -110,8 +110,7 @@ flowchart TB
     classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
     classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
     classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
-    class K1 kmuxapp
-    class K3,K4 kmux
+    class K1,K3,K4 kmuxapp
     class PTY,WK,SIM os
     class CLI ext
 ```
@@ -120,17 +119,17 @@ flowchart TB
 |---|---|---|---|
 | 1 · UI | Desk and Shelf, markdown review, code editor | windows, tabs, splits | app |
 | 2 · Kanna | tasks, agents, worktrees, hooks | — | app |
-| 3 · Mux UI | **kmux library** (KmuxUI): pane views and their layout state | the same | app |
-| 4 · CLI shape and terminals | **kmux library** (kmux-core, Rust) + libghostty-vt screens | kmux-core; terminals are the views' own | daemon |
+| 3 · Mux UI | Kanna's pane views (from kmux's) and their layout state | pane views | app |
+| 4 · CLI shape and terminals | `kanna-mux` (Rust, from kmux's core) + libghostty-vt screens | kmux's core; terminals are the views' own | daemon |
 | 5 · Keeper | creates and holds the ptys | — | keeper |
 | 6 · macOS | ptys, WebKit, simulator devices | the same | — |
 
 | Kanna piece | Layers | Built from |
 |---|---|---|
-| **Kanna app** | 1, 2, 3 | Kanna's UI and Kanna layer + KmuxUI + Kanna's external-I/O terminal backend (forked Ghostty) |
-| **Kanna daemon** (Rust; also runs on Linux) | 4 | kmux-core + a libghostty-vt screen per terminal + snapshots on disk |
+| **Kanna app** | 1, 2, 3 | Kanna's UI and Kanna layer + Kanna's pane views (started from kmux's) + the external-I/O terminal backend (forked Ghostty) |
+| **Kanna daemon** (Rust; also runs on Linux) | 4 | `kanna-mux` + a libghostty-vt screen per terminal + snapshots on disk |
 | **Keeper** | 5 | the `feat/keeper` branch and v3's keeper |
-| **`kanna` CLI** | — | KmuxClient (today's `kmux-client`), pointed at Kanna's daemon |
+| **`kanna` CLI** | — | kmux's `kmux-client` crate as it is, pointed at Kanna's daemon |
 
 - **The CLI is a client, not a layer:** like the app, it sits on top and calls down into layer 4. Neither serves the other; in Kanna both are clients of the daemon.
 - **Why terminals cross into the daemon and nothing else does:** a terminal is a running program, which must not die with the app. A web page, a markdown file or an iOS pane is just state to reopen: a URL, a path, a device. The page itself has to be in the app anyway (WebKit can't draw from another process), and simulator devices already outlive everything.
@@ -214,9 +213,9 @@ The `kmux` CLI is unchanged: it talks to the kmux app, which answers everything 
 
 ```mermaid
 flowchart LR
-    GU["ghostty-org/ghostty<br/>upstream"] -->|"pinned"| KMUX["tampopogk/kmux<br/>app + libraries, MIT"]
+    GU["ghostty-org/ghostty<br/>upstream"] -->|"pinned"| KMUX["tampopogk/kmux<br/>app, MIT"]
     GU -->|"rebased"| GF["jemdiggity/ghostty<br/>kmux-external-io"]
-    KMUX -->|"libraries"| KV["jemdiggity/kanna-v4<br/>app, daemon, keeper, CLI"]
+    KMUX -.->|"reference model"| KV["jemdiggity/kanna-v4<br/>app, daemon, keeper, CLI"]
     GF -->|"GhosttyKit"| KV
     classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
     classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
@@ -224,17 +223,17 @@ flowchart LR
     classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
     classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
     class GU,GF os
-    class KMUX kmux
+    class KMUX kmuxapp
     class KV kanna
 ```
 
 | Repo | What it holds |
 |---|---|
-| kmux | the kmux app and its libraries; upstream Ghostty |
+| kmux | the kmux app, unchanged: the reference for Kanna's mux and CLI; upstream Ghostty |
 | jemdiggity/ghostty | Ghostty with external I/O (9 files, +598/−38) |
-| kanna-v4 | the Kanna app, daemon, keeper and CLI; builds kmux's libraries against the forked GhosttyKit |
+| kanna-v4 | the Kanna app, daemon, keeper and CLI, with its own mux layers; builds against the forked GhosttyKit |
 
-kmux only needs to let a build supply its own GhosttyKit. With that, **the kanna-mux fork isn't needed** and can be deleted.
+Kanna checks itself against kmux: `kanna-mux` runs kmux's protocol cases, and Kanna's scenarios follow kmux's behaviour. **The kanna-mux fork isn't needed** and can be deleted.
 
 ---
 
@@ -304,8 +303,8 @@ sequenceDiagram
 |---|---|---|
 | Processes | keeper + kanna3d + app | keeper + daemon + app: **the same** |
 | What the daemon owns | terminals and layout | **terminals only**; the app owns the layout |
-| Daemon's protocol | its own | **kmux's CLI shape** |
-| App's panes | terminals only, its own views | **kmux's mux UI**: terminals, web, markdown, iOS |
+| Daemon's protocol | its own | **kmux's CLI shape**, checked against kmux |
+| App's panes | terminals only, its own views | **kmux's panes**, ported: terminals, web, markdown, iOS |
 | Screen state | libghostty-vt from the fork | libghostty-vt from **upstream** |
 | App terminals | fork, external I/O | the same fork, rebased |
 
@@ -313,26 +312,7 @@ sequenceDiagram
 
 ## 10. Build order
 
-```mermaid
-flowchart LR
-    S1["1 · kmux<br/>libraries:<br/>CLI shape, mux UI"] --> S2["2 · kmux<br/>TerminalBackend seam,<br/>GhosttyKit override"]
-    S2 --> S3["3 · kanna-v4<br/>daemon + keeper"]
-    S3 --> S4["4 · kanna-v4<br/>Kanna app on<br/>kmux's mux UI"]
-    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
-    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
-    classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
-    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
-    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
-    class S1,S2 kmux
-    class S3,S4 kanna
-```
-
-1. **kmux:** split the code into the libraries (kmux-core in Rust for the CLI shape, KmuxUI in Swift for the mux UI) and the app around them, with terminals separate from kmux's layout. Reference model and shared cases first.
-2. **kmux:** the `TerminalBackend` seam, and a way for a build to supply its own GhosttyKit.
-3. **kanna-v4:** the daemon (Rust: kmux-core + libghostty-vt + snapshots) and the keeper. Persistent terminals arrive here.
-4. **kanna-v4:** the Kanna app on KmuxUI, with the external-I/O terminal backend; Desk and Shelf owns the layout.
-
-Clean-up: kmux's terminal-wrapper hook and `KMUX_RESTORED` are removed; the kanna-mux fork is deleted.
+See [the build plan](../plans/mux-build.md).
 
 ---
 
@@ -340,14 +320,15 @@ Clean-up: kmux's terminal-wrapper hook and `KMUX_RESTORED` are removed; the kann
 
 | Term | Meaning |
 |---|---|
-| **CLI shape** | kmux's protocol: the commands and what they mean (layer 4). Kanna's daemon runs it, so the `kanna` CLI matches `kmux`. |
-| **Mux UI** | kmux's pane views (terminal, web, markdown, iOS) and their layout state (layer 3). |
+| **CLI shape** | kmux's protocol: the commands and what they mean (layer 4). Kanna's daemon implements it in `kanna-mux`, so the `kanna` CLI matches `kmux`. |
+| **Reference model** | What Kanna's code is checked against: kmux, unchanged, for the mux and its CLI. |
+| **Mux UI** | The pane views (terminal, web, markdown, iOS) and their layout state (layer 3). kmux has its own; Kanna's start from them. |
 | **Layout state** | Where panes are and what each non-terminal pane shows (a web URL and history, a markdown file, an iOS device and app). Kept by the app. |
 | **SimulatorKit / CoreSimulator** | Xcode's private frameworks for drawing a simulator device's screen and sending it touches; kmux uses them today. |
 | **Layers** | The stack in [section 2](#2-layers-and-processes), read top to bottom like the OSI model. |
 | **Kanna daemon** | Kanna's background process that owns the terminals. It outlives the Kanna app. kmux has none. |
 | **Keeper** | A tiny background process that only creates and holds the ptys, so shells outlive the daemon too. |
-| **TerminalBackend** | The seam in the mux UI between a terminal view and where its bytes come from: its own pty (kmux) or Kanna's daemon. |
+| **TerminalBackend** | In Kanna's mux UI, the seam between a terminal view and where its bytes come from (Kanna's daemon). |
 | **External I/O** | A Ghostty surface mode from the fork: no pty; output is pushed in, keystrokes come out through a callback. |
 | **libghostty-vt** | Ghostty's terminal engine as a library, without drawing: keeps a screen, formats it, makes snapshots. |
 | **pty** | Pseudo-terminal: what a shell talks to as if it were a real terminal. |
