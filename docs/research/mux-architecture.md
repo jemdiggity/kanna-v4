@@ -214,7 +214,7 @@ The `kmux` CLI is unchanged: it talks to the kmux app, which answers everything 
 ```mermaid
 flowchart LR
     GU["ghostty-org/ghostty<br/>upstream"] -->|"pinned"| KMUX["tampopogk/kmux<br/>app, MIT"]
-    GU -->|"rebased"| GF["jemdiggity/ghostty<br/>kmux-external-io"]
+    GU -->|"rebased"| GF["jemdiggity/ghostty<br/>kanna4 (on kanna3)"]
     KMUX -.->|"reference model"| KV["jemdiggity/kanna-v4<br/>app, daemon, keeper, CLI"]
     GF -->|"GhosttyKit"| KV
     classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff

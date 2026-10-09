@@ -270,7 +270,7 @@ Open (for the user):
 
 | What | Where | When |
 |---|---|---|
-| Push the Ghostty fork's `kmux-external-io` (Claude co-author lines already removed) | jemdiggity/ghostty | before 0.3 needs it |
+| Push the Ghostty fork's `kanna4` (Kanna v3's `kanna3` plus v4's four commits) | jemdiggity/ghostty | before anyone else builds Kanna |
 | Retire `feat/keeper` once 0.5 has taken what it needs | kanna-v4 | after 0.5 |
 | Delete the kanna-mux fork (no longer needed) | GitHub | only when you say so |
 
@@ -288,6 +288,7 @@ kmux isn't touched. Its terminal-wrapper hook (1f05ccb) stays, unused by Kanna o
 | Keeper's language | **Rust**, from `feat/keeper` | already written and tested (spawn, environment, limits) |
 | Where Kanna.app's code lives | **kanna-v4/apps/kanna** | Kanna's own app; its mux UI starts from kmux's views |
 | Kanna's Ghostty | **GhosttyKit from the fork**, built by kanna-v4 | kmux stays on upstream |
+| Which fork branch | **`kanna4`, built on Kanna v3's `kanna3`** (v3's five external-I/O commits and its libghostty-vt screen accessors, then v4's four: exit display, scrollback kept when widening, surface state across snapshots, font size resizing the program) | one fork line from v3 to v4, not two that drift apart; v4 started from a copy of v3's external-I/O commits without the accessors |
 | The `kanna` CLI | kmux's `kmux-client` crate, as it is | the protocol is the same |
 | The `kanna` CLI's commands (M4) | **a port of kmux's CLI** (`crates/kmux`: its command table, help, parsing, output), checked by a test that compiles kmux's own `commands.rs` and `output.rs` | one source of truth inside kanna; kmux stays unchanged and the reference; a library would mean changing kmux, building its private files into kanna would tie kanna's build to them ([spec §4.11](../kanna-spec.md#411-the-kanna-cli)) |
 | Where `kanna` goes by default (M4) | **Kanna's own daemon** (`kanna-dev/kanna.sock`), starting Kanna.app (`dev.kanna.app.dev`) when nothing answers; never the branded `dev.kanna.kanna` | M4 is "use Kanna.app in place of kmux"; the branded copy is still reached by its terminals (they set `KANNA_SOCKET`) or with `KANNA_SOCKET=…/kanna/kanna.sock`. **For you to confirm:** until M4, plain `kanna` (no `KANNA_SOCKET`) meant the branded copy |

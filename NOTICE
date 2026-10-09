@@ -170,8 +170,8 @@ Derived from Ghostty:
       package and path checks and most tests are Kanna's.
 
 Kanna.app links GhosttyKit and the daemon links libghostty-vt, both built
-from a fork of Ghostty: the kmux-external-io branch (upstream a806905, kmux's
-pin, plus the external-I/O patch) at the commit scripts/env.sh pins.
+from a fork of Ghostty: the kanna4 branch (Kanna v3's kanna3 branch, on upstream
+a806905, plus Kanna v4's commits) at the commit scripts/env.sh pins.
 
 MIT License
 

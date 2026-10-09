@@ -30,5 +30,5 @@ add_lib_prefix_swiftpm_needs() {
 }
 add_lib_prefix_swiftpm_needs
 grep -q GHOSTTY_IO_MODE_EXTERNAL "$xcframework"/*/Headers/ghostty.h \
-  || { echo "GhosttyKit has no external I/O: $source_dir isn't the fork's kmux-external-io" >&2; exit 1; }
+  || { echo "GhosttyKit has no external I/O: $source_dir isn't the fork's kanna4 branch" >&2; exit 1; }
 echo "Built $xcframework"
