@@ -110,3 +110,31 @@ fn after_a_double_dash_flags_are_text() {
     assert_eq!(requests.recv_timeout(Duration::from_secs(5)).unwrap()["args"]["text"], "--mux");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn with_kanna_socket_set_a_command_that_needs_the_app_fails_with_6_and_starts_nothing() {
+    let dir = folder("no-app");
+    let requests = serve(&dir.join("nothing.sock"), |request| match request["cmd"].as_str() {
+        Some("capabilities") => serde_json::json!({ "ok": true, "paneTypes": ["term"] }),
+        _ => serde_json::json!({ "ok": false, "error": { "code": "no_app", "message": "opening a pane with --split, --size, --tab or --window needs Kanna.app, and none is attached to this daemon" } }),
+    });
+    let started = Instant::now();
+    let output = kanna(&dir, &["open", "--split", "right"]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(6), "{stderr}");
+    assert!(stderr.contains("[no_app]") && stderr.contains("KANNA_SOCKET is set, so kanna doesn't start Kanna.app"), "{stderr}");
+    assert!(started.elapsed() < Duration::from_secs(5));
+    let sent: Vec<String> = requests.try_iter().filter_map(|r| r["cmd"].as_str().map(String::from)).collect();
+    assert_eq!(sent, ["capabilities", "open"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_dev_daemon_not_running_is_unreachable_and_starts_nothing() {
+    let dir = folder("dev");
+    let output = kanna(&dir, &["--mux", "kanna-dev", "list"]).env_remove("KANNA_SOCKET").env("HOME", &dir).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(3), "{stderr}");
+    assert!(stderr.contains("Kanna's daemon isn't running") && stderr.contains("kanna-dev/kanna.sock"), "{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

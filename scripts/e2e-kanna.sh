@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S8) is one behaviour of the finished system; the plan
+Each scenario (S1–S9) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M3 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-8]) only+=("$1") ;;
+    S[1-9]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -75,7 +75,12 @@ start_app() {
   app_pid=$!
   wait_for 10 app_attached || { echo "the app did not attach to the daemon"; return 1; }
 }
-stop_app() { [[ -n "$app_pid" ]] && kill "$app_pid" 2>/dev/null; wait "$app_pid" 2>/dev/null; app_pid=""; }
+stop_app() {
+  [[ -n "$app_pid" ]] || return 0
+  kill "$app_pid" 2>/dev/null; wait "$app_pid" 2>/dev/null
+  wait_for 5 eval "! kill -0 $app_pid"
+  app_pid=""
+}
 app_attached() { [[ "$(raw '{"id":1,"cmd":"debug.app"}' | field ok)" == True ]]; }
 cleanup() {
   stop_app; stop_daemon
@@ -199,10 +204,27 @@ S8() {
   fi
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5) echo M1 ;; S6|S7) echo M2 ;; S8) echo M3 ;; esac
+S9() {
+  local home="$KANNA_STATE_DIR/home" socket
+  socket="$home/Library/Application Support/kanna-dev/kanna.sock"
+  mkdir -p "$(dirname "$socket")"
+  KANNA_SOCKET="$socket" start_daemon || return 1
+  dev() { env -u KANNA_SOCKET HOME="$home" KANNA_MUX=kanna-dev KANNA_APP="$repo_root/target/Kanna.app" KANNA_BG=1 "$bin/kanna" "$@"; }
+  dev open --name left >/dev/null || return 1
+  KANNA_SOCKET="$socket" "$bin/kanna" open --name pinned --split right 2>"$KANNA_STATE_DIR/pinned.err"
+  check test $? -eq 6 || return 1
+  check grep -q "doesn't start Kanna.app" "$KANNA_STATE_DIR/pinned.err" || return 1
+  dev open --name right --split right >/dev/null
+  local status=$?
+  app_pid="$(sed -n 's/.*the app attached (pid \([0-9]*\)).*/\1/p' "$out/daemon.log" | tail -1)"
+  check test "$status" -eq 0 || return 1
+  check test "$(dev list --json | field windows.0.tabs.0.layout)" == '{"children": [{"pane": "left", "size": "1/2"}, {"pane": "right", "size": "1/2"}], "split": "row"}'
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8) echo M3 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

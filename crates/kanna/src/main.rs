@@ -1,11 +1,35 @@
 use kmux_client::{exit, fail, Args, Brand, Error, Failure, Kmux, Target};
 use std::collections::VecDeque;
 use serde_json::{json, Map, Value};
-use std::process::ExitCode;
+use std::path::PathBuf;
+use std::process::{Command, ExitCode};
+use std::time::{Duration, Instant};
 
 const KANNA: Brand = Brand { id: "kanna", name: "Kanna", bundle_id: "dev.kanna.kanna" };
 
-const USAGE: &str = "usage: kanna [--mux kanna|kmux] [--json] <command>
+const KANNA_APP_BUNDLE: &str = "dev.kanna.app.dev";
+
+const NO_APP: u8 = 6;
+
+const APP_START: Duration = Duration::from_secs(20);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Backend {
+    Kanna,
+    KannaDev,
+    Kmux,
+}
+
+impl Backend {
+    fn brand(self) -> Brand {
+        match self {
+            Backend::Kmux => Brand::KMUX,
+            Backend::Kanna | Backend::KannaDev => KANNA,
+        }
+    }
+}
+
+const USAGE: &str = "usage: kanna [--mux kanna|kanna-dev|kmux] [--json] <command>
 
 commands:
   open [term] [--cmd CMD] [--cwd DIR] a terminal
@@ -22,7 +46,10 @@ commands:
   close PANE
   mux
 
---mux kanna (the default) is Kanna.app, Kanna's own copy of kmux; --mux kmux is a kmux you run.";
+--mux kanna (the default) is Kanna.app, Kanna's own copy of kmux; --mux kmux is a kmux you run.
+--mux kanna-dev is Kanna's daemon (kanna-dev/kanna.sock in the app support folder). When it needs
+the app for a command (a split, focus, arrange…) and none is attached, kanna starts $KANNA_APP (or
+the app with bundle ID dev.kanna.app.dev) and waits for it; never when KANNA_SOCKET is set (exit 6).";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -38,14 +65,15 @@ fn main() -> ExitCode {
 fn run(args: Vec<String>) -> Result<(), Failure> {
     let mut args = Argv::new(args);
     let json_output = args.flag("--json");
-    let brand = match args.option("--mux")? {
+    let backend = match args.option("--mux")? {
         Some(mux) => backend(&mux, "")?,
         None => match std::env::var("KANNA_MUX") {
             Ok(mux) if !mux.is_empty() => backend(&mux, " (from KANNA_MUX)")?,
-            _ => KANNA,
+            _ => Backend::Kanna,
         },
     };
-    let connect = || connect(brand, pinned_socket(brand, |name| std::env::var(name).ok()));
+    let brand = backend.brand();
+    let connect = || Session::connect(backend);
     let command = args.positional().ok_or_else(|| fail(exit::USAGE, USAGE))?;
     let print = |reply: &Value, human: String| {
         if json_output {
@@ -60,32 +88,32 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             let request = open_request(&mut args)?;
             let kind = request["type"].as_str().unwrap_or_default().to_string();
             let mut mux = connect()?;
-            let capabilities = call(&mut mux, "capabilities", json!({}))?;
+            let capabilities = mux.call("capabilities", json!({}))?;
             let supported = capabilities["paneTypes"].as_array().is_some_and(|types| types.contains(&json!(kind)));
             if !supported {
                 return Err(fail(exit::UNSUPPORTED, format!("{} can't show {kind} panes yet", brand.name)));
             }
-            let reply = call(&mut mux, "open", Value::Object(request))?;
+            let reply = mux.call("open", Value::Object(request))?;
             let pane = &reply["pane"];
             let label = pane["name"].as_str().or(pane["id"].as_str()).unwrap_or_default().to_string();
             print(&reply, label);
         }
         "navigate" => {
             let request = navigate_request(&mut args)?;
-            let reply = call(&mut connect()?, "navigate", Value::Object(request))?;
+            let reply = connect()?.call("navigate", Value::Object(request))?;
             print(&reply, String::new());
         }
         "focus" | "restart" | "close" => {
             let pane = args.positional().ok_or_else(|| fail(exit::USAGE, format!("{command} needs a pane")))?;
             finish(&args)?;
-            let reply = call(&mut connect()?, &command, json!({ "pane": pane }))?;
+            let reply = connect()?.call(&command, json!({ "pane": pane }))?;
             print(&reply, String::new());
         }
         "send" => {
             let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "send needs a pane and text"))?;
             let text = args.positional().ok_or_else(|| fail(exit::USAGE, "send needs text"))?;
             finish(&args)?;
-            let reply = call(&mut connect()?, "send", json!({ "pane": pane, "text": text }))?;
+            let reply = connect()?.call("send", json!({ "pane": pane, "text": text }))?;
             print(&reply, String::new());
         }
         "read" => {
@@ -99,17 +127,17 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             if let Some(lines) = lines {
                 request["lines"] = json!(lines);
             }
-            let reply = call(&mut connect()?, "read", request)?;
+            let reply = connect()?.call("read", request)?;
             print(&reply, reply["text"].as_str().unwrap_or_default().to_string());
         }
         "list" => {
             finish(&args)?;
-            let reply = call(&mut connect()?, "list", json!({}))?;
+            let reply = connect()?.call("list", json!({}))?;
             print(&reply, format_list(&reply));
         }
         "mux" => {
             finish(&args)?;
-            let reply = call(&mut connect()?, "capabilities", json!({}))?;
+            let reply = connect()?.call("capabilities", json!({}))?;
             let list = |key: &str| {
                 reply[key].as_array().map(|v| v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default()
             };
@@ -121,26 +149,99 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
     Ok(())
 }
 
-fn connect(brand: Brand, pinned: Option<String>) -> Result<Kmux, Failure> {
-    let target = Target::from_env_for(brand);
-    let Some(variable) = pinned else {
-        return Kmux::connect_to(&target).map_err(Failure::from);
+struct Session {
+    mux: Kmux,
+    target: Target,
+    pinned: Option<String>,
+}
+
+impl Session {
+    fn connect(backend: Backend) -> Result<Session, Failure> {
+        let brand = backend.brand();
+        let mut target = Target::from_env_for(brand);
+        let pinned = pinned_socket(brand, |name| std::env::var(name).ok());
+        if backend == Backend::KannaDev && pinned.is_none() {
+            target.socket = daemon_socket(|name| std::env::var_os(name));
+        }
+        let mux = match (&pinned, backend) {
+            (Some(variable), _) => Kmux::try_connect(&target).ok_or_else(|| {
+                fail(exit::UNREACHABLE, format!("nothing answers on {} ({variable} is set, so kanna doesn't start an app for it)", target.socket.display()))
+            })?,
+            (None, Backend::KannaDev) => Kmux::try_connect(&target)
+                .ok_or_else(|| fail(exit::UNREACHABLE, format!("Kanna's daemon isn't running on {} (start kanna-daemon)", target.socket.display())))?,
+            (None, _) => Kmux::connect_to(&target).map_err(Failure::from)?,
+        };
+        Ok(Session { mux, target, pinned })
+    }
+
+    fn call(&mut self, cmd: &str, args: Value) -> Result<Value, Failure> {
+        let mut started: Option<Instant> = None;
+        loop {
+            match self.mux.call(cmd, args.clone()) {
+                Err(Error::Mux { code, message }) if code == "no_app" => {
+                    if let Some(variable) = &self.pinned {
+                        return Err(fail(NO_APP, format!("{message} [no_app] ({variable} is set, so kanna doesn't start Kanna.app for it)")));
+                    }
+                    match started {
+                        None => {
+                            launch_app(&self.target, |name| std::env::var(name).ok().filter(|v| !v.is_empty()))?;
+                            started = Some(Instant::now());
+                        }
+                        Some(at) if at.elapsed() > APP_START => {
+                            return Err(fail(NO_APP, format!("Kanna.app was started but didn't attach to the daemon on {} [no_app]", self.target.socket.display())));
+                        }
+                        Some(_) => {}
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                Err(Error::Mux { code, message }) if code == "unsupported" => return Err(fail(exit::UNSUPPORTED, format!("{message} [{code}]"))),
+                other => return other.map_err(Failure::from),
+            }
+        }
+    }
+}
+
+fn daemon_socket(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
+    let home = PathBuf::from(env("HOME").unwrap_or_default());
+    let support = if cfg!(target_os = "macos") {
+        home.join("Library/Application Support")
+    } else {
+        env("XDG_DATA_HOME").filter(|d| !d.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"))
     };
-    Kmux::try_connect(&target).ok_or_else(|| {
-        fail(exit::UNREACHABLE, format!("nothing answers on {} ({variable} is set, so kanna doesn't start an app for it)", target.socket.display()))
-    })
+    support.join("kanna-dev/kanna.sock")
+}
+
+fn launch_command(target: &Target, env: impl Fn(&str) -> Option<String>) -> Command {
+    let mut open = Command::new("/usr/bin/open");
+    open.arg("-n");
+    if target.background {
+        open.arg("-g");
+    }
+    open.arg("--env").arg(format!("KANNA_SOCKET={}", target.socket.display()));
+    if let Some(folder) = env("KANNA_STATE_DIR") {
+        open.arg("--env").arg(format!("KANNA_STATE_DIR={folder}"));
+    }
+    match env("KANNA_APP") {
+        Some(app) => open.arg("-a").arg(app),
+        None => open.arg("-b").arg(KANNA_APP_BUNDLE),
+    };
+    if target.background {
+        open.args(["--args", "--bg"]);
+    }
+    open
+}
+
+fn launch_app(target: &Target, env: impl Fn(&str) -> Option<String>) -> Result<(), Failure> {
+    let status = launch_command(target, env).status().map_err(|e| fail(NO_APP, format!("could not start Kanna.app: {e}")))?;
+    if status.success() {
+        return Ok(());
+    }
+    Err(fail(NO_APP, format!("this needs Kanna.app, which isn't running and couldn't be started (set KANNA_APP to it, or install {KANNA_APP_BUNDLE})")))
 }
 
 fn pinned_socket(brand: Brand, env: impl Fn(&str) -> Option<String>) -> Option<String> {
     let variable = brand.variable("SOCKET");
     env(&variable).is_some_and(|value| !value.is_empty()).then_some(variable)
-}
-
-fn call(mux: &mut Kmux, cmd: &str, args: Value) -> Result<Value, Failure> {
-    mux.call(cmd, args).map_err(|error| match error {
-        Error::Mux { code, message } if code == "unsupported" => fail(exit::UNSUPPORTED, format!("{message} [{code}]")),
-        error => Failure::from(error),
-    })
 }
 
 struct Argv {
@@ -174,11 +275,12 @@ impl Argv {
     }
 }
 
-fn backend(mux: &str, from: &str) -> Result<Brand, Failure> {
+fn backend(mux: &str, from: &str) -> Result<Backend, Failure> {
     match mux {
-        "kanna" => Ok(KANNA),
-        "kmux" => Ok(Brand::KMUX),
-        other => Err(fail(exit::UNSUPPORTED, format!("the {other} backend{from} isn't supported yet; use kanna or kmux"))),
+        "kanna" => Ok(Backend::Kanna),
+        "kanna-dev" => Ok(Backend::KannaDev),
+        "kmux" => Ok(Backend::Kmux),
+        other => Err(fail(exit::UNSUPPORTED, format!("the {other} backend{from} isn't supported yet; use kanna, kanna-dev or kmux"))),
     }
 }
 
@@ -311,6 +413,30 @@ mod tests {
         assert_eq!(pinned_socket(Brand::KMUX, env("KMUX_SOCKET")).as_deref(), Some("KMUX_SOCKET"));
         assert_eq!(pinned_socket(Brand::KMUX, env("KANNA_SOCKET")), None);
         assert_eq!(pinned_socket(KANNA, |_| Some(String::new())), None);
+    }
+
+    #[test]
+    fn the_dev_daemon_lives_in_the_app_support_folder() {
+        let home = |name: &str| (name == "HOME").then(|| std::ffi::OsString::from("/Users/x"));
+        let expected = if cfg!(target_os = "macos") { "/Users/x/Library/Application Support/kanna-dev/kanna.sock" } else { "/Users/x/.local/share/kanna-dev/kanna.sock" };
+        assert_eq!(daemon_socket(home), PathBuf::from(expected));
+    }
+
+    #[test]
+    fn the_app_started_for_the_daemon_is_the_new_app_never_the_branded_kmux() {
+        let target = Target { brand: KANNA, instance: "default".into(), socket: "/tmp/d/kanna.sock".into(), background: true };
+        let args = |env: &dyn Fn(&str) -> Option<String>| -> Vec<String> {
+            launch_command(&target, env).get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+        };
+        let none = args(&|_| None);
+        assert_eq!(none, ["-n", "-g", "--env", "KANNA_SOCKET=/tmp/d/kanna.sock", "-b", "dev.kanna.app.dev", "--args", "--bg"]);
+        assert!(!none.iter().any(|a| a == KANNA.bundle_id));
+        let app = args(&|name| match name {
+            "KANNA_APP" => Some("/x/Kanna.app".into()),
+            "KANNA_STATE_DIR" => Some("/tmp/d".into()),
+            _ => None,
+        });
+        assert_eq!(app, ["-n", "-g", "--env", "KANNA_SOCKET=/tmp/d/kanna.sock", "--env", "KANNA_STATE_DIR=/tmp/d", "-a", "/x/Kanna.app", "--args", "--bg"]);
     }
 
     #[test]
