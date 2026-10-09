@@ -1,6 +1,6 @@
 # kanna — Specification
 
-> **Status:** Draft v0.7 · **Last updated:** 2026-10-09
+> **Status:** Draft v0.8 · **Last updated:** 2026-10-09
 >
 > Items marked **[Assumption]** are guesses made to fill gaps. Confirm or correct them, and see [Open Questions](#11-open-questions).
 >
@@ -19,6 +19,7 @@
    - 4.5 [The App Link](#45-the-app-link)
    - 4.6 [The App's Terminal Views](#46-the-apps-terminal-views)
    - 4.7 [The Layout](#47-the-layout)
+   - 4.8 [Restarting the Daemon](#48-restarting-the-daemon)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -160,7 +161,7 @@ flowchart TB
 
 - **The CLI is a client, not a layer:** like the app, it calls down into the daemon. Neither serves the other.
 - **The keeper isn't in the path of any byte:** it hands each pty to the daemon, which reads and writes it.
-- **How a terminal starts:** the daemon asks the keeper of its state folder (`keeper.sock`, started as `$KANNA_KEEPER` or the `kanna-keeper` beside the daemon if none runs) to spawn the program; the keeper answers with the pid and the pty's master (`SCM_RIGHTS`), and later with the exit code, which the daemon records and acknowledges. `close` and `restart` end the program through the keeper; the daemon sets the size itself (`TIOCSWINSZ`). If the keeper goes away the daemon logs it and stops ([keeper spec](keeper.md)).
+- **How a terminal starts:** the daemon asks the keeper of its state folder (`keeper.sock`, started as `$KANNA_KEEPER` or the `kanna-keeper` beside the daemon if none runs) to spawn the program; the keeper answers with the pid and the pty's master (`SCM_RIGHTS`), and later with the exit code, which the daemon records and acknowledges. `close` and `restart` end the program through the keeper; the daemon sets the size itself (`TIOCSWINSZ`). If the keeper goes away the daemon logs it and stops ([keeper spec](keeper.md)). Stopping or crashing the daemon ends no terminal: the keeper keeps them, and the next daemon takes them back ([4.8](#48-restarting-the-daemon)).
 - **The app draws terminals from the daemon** through a forked Ghostty whose surfaces take their output from outside instead of a pty ("external I/O").
 
 ### 4.2 What the Daemon Keeps, What the App Keeps
@@ -375,6 +376,67 @@ sequenceDiagram
 **The CLI starts the app** ([plan](plans/mux-build.md) step 1.4). When the daemon answers a command with `no_app` and `KANNA_SOCKET` isn't set, `kanna` starts Kanna.app (`open -n -a $KANNA_APP`, or by bundle ID `dev.kanna.app.dev`, never the branded kmux `dev.kanna.kanna`; with `KANNA_SOCKET` and `KANNA_STATE_DIR` passed on, in the background with `KANNA_BG=1`), retries the command every 200 ms until the app has attached (a `no_app` answer changes nothing, so the retry is safe), and gives up after 20 s with exit 6. With `KANNA_SOCKET` set (a test, a script, a terminal inside Kanna) it never starts an app: it exits 6 with the daemon's message and "KANNA_SOCKET is set, so kanna doesn't start Kanna.app for it". Until the new app replaces the branded kmux one, the daemon is reached without `KANNA_SOCKET` as `--mux kanna-dev` (or `KANNA_MUX=kanna-dev`): the daemon's default socket, `kanna-dev/kanna.sock` in the app support folder; if nothing answers there kanna exits 3 (it doesn't start daemons).
 
 **Conformance.** kmux's 31 protocol cases pass three ways: against `kanna-mux` with the model in-process; with the model behind `LayoutOwner`, every step sent as JSON and answered on a later turn (`crates/kanna-mux/tests/protocol_cases.rs`); and through a running daemon, keeper and app link, with a test app answering through `LayoutOwner` (`crates/kanna-daemon/tests/protocol_cases.rs`: the 24 cases that use only terminals; the rest need web, markdown or iOS panes, M3). The app's own glue is checked by S5 and S9 of `scripts/e2e-kanna.sh` and by `crates/kanna-layout/tests`.
+
+### 4.8 Restarting the Daemon
+
+The daemon can stop, crash or be upgraded without losing a terminal ([plan](plans/mux-build.md) M2). The keeper holds every pty, so the programs keep running and their output waits in the pty's kernel buffer; the daemon keeps its terminals on disk, so the next one knows their IDs, names and screens; on start it takes every pty back from the keeper (`adopt`) and rebuilds its terminals from both.
+
+**Files on disk.** In `$KANNA_STATE_DIR/terminals/` (0700; a symlink there is refused), each written atomically (a new file, then renamed), mode 0600:
+
+| File | What it holds | Written |
+|---|---|---|
+| `terminals.json` | `{kanna: "terminals", version: 1, counters: {pane}, terminals: [{id, name, type, cmd, cwd, state, exitCode, pid, keeper}]}`: each terminal's pane record (`state` is `running` or `exited`, `keeper` the id the keeper knows its pty by) and the pane counter | on every change (open, close, restart, start, exit), from the daemon's main loop; an exit before the daemon acknowledges it to the keeper |
+| `<pane>.snap` | the terminal's screen as a GHOSTSNP snapshot (kanna-vt), as `attach` sends it | by a saver thread, at most once a second per terminal and only after its screen changed; all of them on a clean stop |
+
+- **Snapshots** are taken under the same lock the pty reader feeds the screen with, without touching what the app is sent. If one can't be encoded (inside some unfinished sequences, as on attach), the last good file stays and the saver tries again a second later; one over 16 MiB isn't written (the screen keeps at most 10 MB of scrollback, so this shouldn't happen) and the last good one stays. A failed write is tried again a second later.
+- **Bounded:** a snapshot file is at most 16 MiB, `terminals.json` is refused past 4 MiB when read; there is one snapshot per terminal, and the keeper holds at most 256 ptys. Snapshots of terminals that are gone are deleted when they close, and at start.
+- **A file it can't trust** (bad JSON, another version, two terminals with one ID, keeper id or name) is moved aside as `terminals.json.bad`, and the daemon starts as if it had none (it still takes back every pty the keeper has, below).
+- **One daemon per folder:** the daemon holds `flock` on `daemon.lock` there while it runs; a second one waits 5 s for it, then exits 1 ("another daemon (pid …) uses …"). Its keeper is the keeper of that folder only, so no daemon ever adopts or closes another's terminals.
+
+**Stopping.** On SIGTERM, SIGINT or SIGHUP the daemon stops reading every pty (whatever is unread stays in the kernel buffer for the next daemon), writes `terminals.json`, saves every screen that changed since its last save, and exits; its terminals keep running in the keeper. A crash (SIGKILL) skips that: up to a second of screen changes before it are lost from the saved screens, and a full-screen program redraws them when it gets SIGWINCH.
+
+**Starting.** The daemon connects to the keeper (pending exits arrive as events), adopts every pty it holds, and matches them with `terminals.json` by keeper id:
+
+```mermaid
+sequenceDiagram
+    participant D1 as old daemon
+    participant K as keeper
+    participant S as shell
+    participant D2 as new daemon
+    participant A as Kanna app
+    Note over D1: SIGTERM: stops reading, saves terminals.json and the screens<br/>(SIGKILL: what it saved up to a second before)
+    D1--xA: link closes; the app keeps trying to reconnect
+    S->>S: output waits in the pty buffer
+    D2->>D2: flock daemon.lock
+    D2->>K: connect, hello (unacknowledged exits arrive as events)
+    D2->>K: adopt
+    K->>D2: each pty: {id, pid, cmd, cwd, exit?} + master
+    D2->>D2: read terminals.json: same IDs, names, cmd, cwd; counter continues
+    D2->>D2: each screen from <pane>.snap (if the pid matches), sized to the pty (TIOCGWINSZ)
+    D2->>S: TIOCSWINSZ, then SIGWINCH to the pty's foreground group
+    D2->>S: reads what waited in the buffer into the screen, then carries on
+    D2->>K: ack exits that happened meanwhile (after saving them)
+    A->>D2: app.hello
+    D2->>A: ok, panes (the same IDs: layout.json still matches)
+    A->>D2: attach p1
+    D2->>A: snapshot p1, grid p1, then output
+```
+
+| The keeper has the pty | `terminals.json` has it | The daemon |
+|---|---|---|
+| yes, running | yes | takes it back: same ID, name, command, pid; its saved screen (a blank one if the file is missing or unreadable, or the record's pid isn't the pty's); the waiting output; SIGWINCH |
+| yes, exited meanwhile (unacknowledged) | yes | as above, then reads its last output, records the exit code, acknowledges it: `list` shows `exited` with the program's own code |
+| yes | no (a crash before the record was written, or the file lost) | **takes it back** with a blank screen, no name, its command (from the keeper's `/bin/sh -c CMD`, else none: a shell) and cwd, under the keeper's id if that's a pane ID not in use, else a new one; the app places it as a new pane |
+| no | yes, `exited` | keeps it as an exited terminal with its saved screen and exit code, as before the restart, until it's closed or restarted |
+| no | yes, `running` | drops it (its program ended and the keeper lost its exit: the keeper stopped, or idled out) and logs it |
+
+- **Why adopt the unknown ones rather than close them:** a pty the keeper holds is a program the user started (perhaps an agent mid-task); closing it would lose work the daemon could keep. It costs only a pane without a name, which the user can close. Closing was M0's behaviour (until 2.2 a starting daemon closed whatever the keeper had) and is gone.
+- **Pane IDs never repeat:** the counter continues from the larger of the saved counter and every ID on disk and in the keeper. Only losing `terminals.json` while the keeper has also lost the newest terminals can bring an old ID back.
+- **Exit codes** come from the keeper, the process's parent, so an exit while no daemon runs keeps its code (`exit 7` → `exitCode: 7` after the restart). On macOS a program can't finish exiting while its last output is unread; the new daemon reads it, and the exit arrives then.
+- **Sizes:** the pty keeps the size the last daemon set; the new daemon sizes each screen to it and sets it again, and the app resizes once it attaches.
+- **The app** sees its link close, keeps trying to reconnect, and on reconnecting says hello and attaches again ([4.5](#45-the-app-link)); the hello reply lists the same IDs, so its layout (in memory and in `layout.json`) still matches and nothing moves ([4.7](#47-the-layout)).
+
+**Checked by** `crates/kanna-daemon/tests/restart.rs` (a running shell keeps its pid and screen, output written while the daemon was down appears, and the app gets all of it on attach; a full-screen program redraws once after SIGWINCH; exits while the daemon is down, with their codes; a SIGKILLed daemon's saved screens; IDs don't repeat; a pty the disk doesn't know is taken back and a record the keeper doesn't know dropped; a second daemon on the folder is refused), the store's unit tests, and S6 of `scripts/e2e-kanna.sh` (with the app attached: same PIDs, screen and layout, output written meanwhile, the app's view).
 
 ---
 
