@@ -40,3 +40,35 @@ fn a_server_that_failed_to_start_leaves_the_running_one_alone() {
     assert!(!std::path::Path::new(&path).exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_stopped_server_starts_again() {
+    let dir = folder("again");
+    let path = dir.join("s.sock").to_string_lossy().into_owned();
+    let server = SocketServer::new(&path, echo());
+    server.start().unwrap();
+    server.stop();
+    assert!(!std::path::Path::new(&path).exists());
+    assert!(!SocketServer::is_listening(&path));
+    server.start().unwrap();
+    assert!(ask(&path, "{\"id\":2,\"cmd\":\"x\"}\n").contains("\"id\":2"));
+    assert!(ask(&path, "{\"id\":3,\"cmd\":\"x\"}\n").contains("\"id\":3"));
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn stopping_leaves_a_server_that_took_the_path_over_alone() {
+    let dir = folder("took");
+    let path = dir.join("s.sock").to_string_lossy().into_owned();
+    let old = SocketServer::new(&path, echo());
+    old.start().unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let new = SocketServer::new(&path, echo());
+    new.start().unwrap();
+    old.stop();
+    assert!(ask(&path, "{\"id\":4,\"cmd\":\"x\"}\n").contains("\"id\":4"));
+    drop(new);
+    assert!(!std::path::Path::new(&path).exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}

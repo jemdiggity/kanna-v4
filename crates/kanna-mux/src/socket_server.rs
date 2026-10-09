@@ -3,10 +3,11 @@ use crate::json::{encode, json, Value};
 use std::io::{BufRead, BufReader};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
+use std::thread::JoinHandle;
 
 /// Answers one request. It may answer later, from any thread; the server's
 /// connection thread waits for it. The embedder passes the request to the
@@ -26,13 +27,18 @@ pub struct SocketServer {
     pub path: String,
     handler: Handler,
     takeover: Option<(String, Takeover)>,
-    stopped: Arc<AtomicBool>,
-    bound: Mutex<Option<(u64, u64)>>,
+    running: Mutex<Option<Running>>,
+}
+
+struct Running {
+    identity: Option<(u64, u64)>,
+    wake: UnixStream,
+    thread: JoinHandle<()>,
 }
 
 impl SocketServer {
     pub fn new(path: &str, handler: Handler) -> SocketServer {
-        SocketServer { path: path.into(), handler, takeover: None, stopped: Arc::new(AtomicBool::new(false)), bound: Mutex::new(None) }
+        SocketServer { path: path.into(), handler, takeover: None, running: Mutex::new(None) }
     }
 
     /// A connection whose first request is `cmd` goes to `takeover` instead.
@@ -42,6 +48,10 @@ impl SocketServer {
     }
 
     pub fn start(&self) -> Result<(), KmuxError> {
+        let mut running = self.running.lock().unwrap();
+        if running.is_some() {
+            return Err(KmuxError::new("bad_request", format!("already listening on {}", self.path)));
+        }
         // SAFETY: sockaddr_un is plain data; all zeroes is a valid value.
         let address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
         if self.path.len() >= address.sun_path.len() {
@@ -55,34 +65,33 @@ impl SocketServer {
         }
         let _ = std::fs::remove_file(&self.path);
         let listener = UnixListener::bind(&self.path).map_err(|e| self.posix_error("bind", &e))?;
+        let identity = identity_of(&self.path);
+        let unbind = |error: KmuxError| {
+            if identity_of(&self.path) == identity {
+                let _ = std::fs::remove_file(&self.path);
+            }
+            error
+        };
         let _ = std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600));
-        *self.bound.lock().unwrap() = identity(&self.path);
+        listener.set_nonblocking(true).map_err(|e| unbind(self.posix_error("fcntl", &e)))?;
+        let (wake, woken) = UnixStream::pair().map_err(|e| unbind(self.posix_error("socketpair", &e)))?;
 
         let handler = self.handler.clone();
         let takeover = self.takeover.clone();
-        let stopped = self.stopped.clone();
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name("kmux.socket".into())
-            .spawn(move || {
-                for client in listener.incoming() {
-                    if stopped.load(Ordering::SeqCst) {
-                        return;
-                    }
-                    let Ok(client) = client else { continue };
-                    no_sigpipe(&client);
-                    let (handler, takeover) = (handler.clone(), takeover.clone());
-                    std::thread::spawn(move || serve(client, handler, takeover));
-                }
-            })
-            .map_err(|e| self.posix_error("thread", &e))?;
+            .spawn(move || accept_loop(listener, woken, handler, takeover))
+            .map_err(|e| unbind(self.posix_error("thread", &e)))?;
+        *running = Some(Running { identity, wake, thread });
         Ok(())
     }
 
     pub fn stop(&self) {
-        let Some(bound) = self.bound.lock().unwrap().take() else { return };
-        self.stopped.store(true, Ordering::SeqCst);
-        let _ = UnixStream::connect(&self.path);
-        if identity(&self.path) == Some(bound) {
+        let Some(running) = self.running.lock().unwrap().take() else { return };
+        let _ = running.wake.shutdown(Shutdown::Both);
+        drop(running.wake);
+        let _ = running.thread.join();
+        if running.identity.is_some() && identity_of(&self.path) == running.identity {
             let _ = std::fs::remove_file(&self.path);
         }
     }
@@ -96,13 +105,49 @@ impl SocketServer {
     }
 }
 
-fn identity(path: &str) -> Option<(u64, u64)> {
+fn identity_of(path: &str) -> Option<(u64, u64)> {
     std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
 }
 
 impl Drop for SocketServer {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+fn accept_loop(listener: UnixListener, woken: UnixStream, handler: Handler, takeover: Option<(String, Takeover)>) {
+    let mut fds = [
+        libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+        libc::pollfd { fd: woken.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+    ];
+    loop {
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return;
+        }
+        if fds[1].revents != 0 {
+            return;
+        }
+        loop {
+            let client = match listener.accept() {
+                Ok((client, _)) => client,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(_) => {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    break;
+                }
+            };
+            if client.set_nonblocking(false).is_err() {
+                continue;
+            }
+            no_sigpipe(&client);
+            let (handler, takeover) = (handler.clone(), takeover.clone());
+            let _ = std::thread::Builder::new().name("kmux.client".into()).spawn(move || serve(client, handler, takeover));
+        }
     }
 }
 
