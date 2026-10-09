@@ -1,0 +1,213 @@
+# kanna-keeper — Specification
+
+> **Status:** built (`crates/kanna-keeper`), step 0.5 of [the build plan](plans/mux-build.md) · **Last updated:** 2026-10-09
+>
+> **Related:** [kanna spec §4](kanna-spec.md#4-kannaapp), [mux architecture §8 (restarting the daemon)](research/mux-architecture.md#8-restarting-the-daemon).
+
+## Table of Contents
+
+1. [Summary](#1-summary)
+2. [Where It Sits](#2-where-it-sits)
+3. [Protocol](#3-protocol)
+4. [Spawn and Adopt](#4-spawn-and-adopt)
+5. [What Runs, and Its Environment](#5-what-runs-and-its-environment)
+6. [Exits and Close](#6-exits-and-close)
+7. [Life of the Keeper](#7-life-of-the-keeper)
+8. [The Client (for the Daemon)](#8-the-client-for-the-daemon)
+9. [Security and Limits](#9-security-and-limits)
+10. [Known Limitations](#10-known-limitations)
+11. [Testing](#11-testing)
+12. [Glossary](#12-glossary)
+
+---
+
+## 1. Summary
+
+The keeper is layer 5 of Kanna.app: a tiny process that **creates the ptys and holds a copy of each**, so the shells and programs in them outlive a daemon crash or upgrade.
+
+- It **spawns** a process on a new pty and hands the pty's master to the daemon over its socket (`SCM_RIGHTS`).
+- It **hands them all back** (`adopt`) to a daemon that restarted.
+- It's the processes' **parent**: it reaps them and reports their exit codes, the command's own (no `login(1)` in between).
+- It is **never in the path of terminal bytes**: the daemon reads, writes and resizes the ptys itself.
+
+It replaces the relay keeper of `feat/keeper` (a relay process per pane, the keeper copying bytes), which the daemon architecture made unnecessary.
+
+## 2. Where It Sits
+
+```mermaid
+flowchart LR
+    subgraph DAEMON["Kanna daemon"]
+        D["kanna-mux<br/>terminals, screens"]
+    end
+    subgraph KEEPER["keeper"]
+        K["kanna-keeper<br/>pty copies · pids"]
+    end
+    subgraph OS["OS"]
+        PTY["ptys"]
+        SH["shells, agents"]
+    end
+    D <-->|"keeper.sock<br/>JSON lines + SCM_RIGHTS"| K
+    K -->|"creates, holds, reaps"| SH
+    K -.->|"holds a copy"| PTY
+    D <-->|"reads, writes, TIOCSWINSZ"| PTY
+    PTY <--> SH
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    class K kanna
+    class D kmux
+    class PTY,SH os
+```
+
+| Part | Holds | Lives |
+|---|---|---|
+| **Daemon** | its own copy of each master; screens | until it crashes or is upgraded |
+| **Keeper** | a copy of each master, each process's pid, unacknowledged exits | while it has live processes or a client, then a minute more |
+| **Processes** | their pty's slave side, as controlling terminal | until they exit or are closed |
+
+Because the keeper holds a copy of every master, a pty stays open while the daemon is gone; output waits in the pty's kernel buffer until the next daemon adopts it.
+
+## 3. Protocol
+
+One connection per daemon on `$KANNA_STATE_DIR/keeper.sock`. Each message is one line of JSON. A reply that carries pty masters says `"fds": N`, and the N descriptors arrive as `SCM_RIGHTS` ancillary data on that line's first byte. A request may carry `"req"`, which its reply echoes.
+
+| Request | Reply | Notes |
+|---|---|---|
+| `{"op":"hello"}` | `{"ok":true,"version":1,"pid":P}` | protocol version and the keeper's pid |
+| `{"op":"spawn","id":ID,"command":CMD \| "shell":PATH,"cwd":DIR,"env":{K:V\|null},"cols":C,"rows":R}` | `{"ok":true,"id":ID,"pid":P,"cmd":[..],"fds":1}` + master | `command` and `shell` both optional, not both. Error if `ID` is in use. |
+| `{"op":"adopt"}` | one `{"req":..,"pty":{"id","pid","cmd","cwd","exit"?},"fds":1}` + master per pty, then `{"ok":true,"ptys":N}` | `exit` is present for an exited pty not yet acknowledged |
+| `{"op":"close","id":ID}` | `{"ok":true}` | ends the process group ([6](#6-exits-and-close)); the id is free at once |
+| `{"op":"ack","id":ID}` | `{"ok":true}` | forgets an exited pty; an error if it's still running |
+| — (event) | `{"exited":ID,"pid":P,"code":N}` or `{..,"signal":S}` | sent to every connection when a process exits, and on connect for every exit not yet acknowledged |
+
+Errors are `{"ok":false,"error":"…"}` and leave the connection usable. There is no `resize`: the daemon sets the size on its own copy with `TIOCSWINSZ`.
+
+## 4. Spawn and Adopt
+
+```mermaid
+sequenceDiagram
+    participant D1 as daemon
+    participant K as keeper
+    participant S as shell
+    participant D2 as new daemon
+    D1->>K: spawn {id: t1, shell, cols, rows}
+    K->>S: openpty, fork, setsid, TIOCSCTTY, exec
+    K-->>K: waits for the exec
+    K->>D1: {ok, pid} + master (SCM_RIGHTS)
+    D1->>S: reads and writes the pty
+    Note over D1: crash or upgrade
+    S->>S: output waits in the pty buffer
+    D2->>K: connect (pending exits arrive as events)
+    D2->>K: adopt
+    K->>D2: t1: {id, pid, cmd} + master
+    K->>D2: {ok, ptys: 1}
+    D2->>S: SIGWINCH (programs redraw)
+    D2->>S: reads the waiting output, carries on
+```
+
+- The spawn reply comes only once the child has exec'd, so a `close` straight after always reaches it.
+- `adopt` sends a fresh copy of each master each time; the keeper keeps its own.
+
+## 5. What Runs, and Its Environment
+
+| Request | Runs | argv[0] |
+|---|---|---|
+| `command: CMD` | `/bin/sh -c CMD` | `/bin/sh` |
+| `shell: PATH` | `PATH`, interactive | `-name` (login-shell convention) |
+| neither | the user's login shell (passwd, else `$SHELL`, else `/bin/sh`) | `-name` |
+
+- **Directly, never through `login(1)`**, which always exits 0 (`login -flp $USER /bin/sh -c 'exit 5'` exits 0). So `exit 3` is reported as 3.
+- **Environment:** the keeper's own (inherited from the daemon that started it), with HOME, USER, LOGNAME and SHELL filled from passwd if missing; then Ghostty's additions (`TERM=xterm-ghostty` and `TERMINFO` when Ghostty's resources are found, else `xterm-256color`; `COLORTERM`, `TERM_PROGRAM=ghostty`, `GHOSTTY_SHELL_FEATURES`, the keeper's folder on `PATH`); then the request's `env`, where `null` removes a variable; then Ghostty's shell integration (zsh `ZDOTDIR`, bash `ENV --posix`, fish/elvish/nushell `XDG_DATA_DIRS`). Ported from kanna-v3 via `feat/keeper` (`ghostty_env.rs`).
+- **Ghostty's resources** come from `GHOSTTY_RESOURCES_DIR`, else `KANNA_KEEPER_RESOURCES_DIR`, else the first `share/` or `Contents/Resources/` with Ghostty's terminfo above the keeper's binary.
+- **cwd** is the request's if it's a directory, else HOME. The child starts a new session with the pty as its controlling terminal, and its signal dispositions and mask reset.
+
+## 6. Exits and Close
+
+```mermaid
+stateDiagram-v2
+    [*] --> Running: spawn
+    Running --> Exited: process ends (keeper reaps it, event sent)
+    Exited --> [*]: ack, or close
+    Running --> [*]: close (SIGHUP, SIGKILL after the grace)
+```
+
+- **Exit:** reaped with `waitpid`; reported as `code` or `signal`. The keeper keeps the exited pty (and its master, so the last output can still be read) until it is acknowledged, and tells every new connection about it.
+- **Close:** `SIGHUP` to the process group and the pty's foreground group, `SIGKILL` to both after the grace period (1 s). A closed process's exit isn't reported.
+
+## 7. Life of the Keeper
+
+| | |
+|---|---|
+| **Command line** | `kanna-keeper [--state-dir DIR] [--detach]`. DIR defaults to `$KANNA_STATE_DIR`, else `~/Library/Application Support/kanna` (macOS) or `$XDG_DATA_HOME/kanna`. |
+| **Starting** | The daemon runs `kanna-keeper --state-dir DIR --detach` (via the client's `connect_or_start`): it double-forks into its own session, stdio on `/dev/null`, stderr appended to `keeper.log`, and returns once the socket listens. Without `--detach` it runs in the foreground. |
+| **One per directory** | `flock` on `keeper.lock`; a second keeper returns at once, successfully. |
+| **Files** | `keeper.sock`, `keeper.lock`, `keeper.pid`, `keeper.log` in DIR. |
+| **Client gone** | Nothing happens: the processes and the keeper's copies stay. |
+| **Idle exit** | After 60 s with no live process, no client and nothing being closed. Unacknowledged exits don't keep it. |
+| **SIGTERM / SIGINT** | It exits without signalling anyone. Its copies close; a pty with no other copy hangs up, and its processes get SIGHUP from the kernel. |
+
+## 8. The Client (for the Daemon)
+
+`kanna_keeper::client`, blocking:
+
+| Call | Does |
+|---|---|
+| `Client::connect(socket)` / `Client::connect_or_start(state_dir, keeper_bin)` | connects (checking the keeper runs as the same user), starting a detached keeper if none listens |
+| `hello() -> (version, pid)` | |
+| `spawn(&SpawnRequest) -> Pty` | `SpawnRequest::shell(id)` / `::command(id, cmd)`, then set `shell`, `cwd`, `env`, `cols`, `rows` |
+| `adopt() -> Vec<Pty>` | every pty held; `Pty { id, pid, cmd, cwd, master: OwnedFd, exit }` |
+| `close(id)`, `ack(id)` | |
+| `poll_events()`, `wait_event(timeout)` -> `Exited { id, pid, status }` | `status` is `ExitStatus::Code(n)` or `Signal(s)`; `shell_status()` gives 128+s |
+| `as_raw_fd()` | for the daemon's poll loop: readable means events; then `poll_events()` |
+
+Received masters are close-on-exec and blocking; the daemon sets what it needs.
+
+## 9. Security and Limits
+
+- **State directory** 0700 and owned by the user; **socket** 0600.
+- **Peer check:** every connection's uid (`getpeereid` on macOS, `SO_PEERCRED` on Linux) must be the keeper's; others are closed and logged. The client checks the keeper's uid the same way.
+- **Masters** are close-on-exec: no spawned process inherits another's pty.
+
+| What | Limit | Setting |
+|---|---|---|
+| Idle exit | 60 s | `KANNA_KEEPER_IDLE_MS` |
+| Grace before SIGKILL | 1 s | `KANNA_KEEPER_CLOSE_GRACE_MS` |
+| Ptys held | 256 | `KANNA_KEEPER_MAX_PTYS` |
+| Connections | 16 | — |
+| Request line | 1 MiB | — |
+| Unsent replies per connection | 8 MiB, then it's dropped | — |
+
+## 10. Known Limitations
+
+- **A keeper restart loses the processes' parent**, not the processes: if the keeper dies while a daemon holds the masters, the shells keep running but nobody reaps them or knows their exit code. Upgrading the keeper itself isn't covered.
+- **On macOS a process can't finish exiting while its last output is unread** (closing the tty waits for output to drain). With no daemon connected, its exit is reported once a daemon adopts the pty and reads it.
+- **A full pty buffer stops the program** while no daemon is reading, as with any terminal nobody reads.
+- **Exits after an idle exit are lost**: unacknowledged exits don't keep the keeper alive.
+- **Linux** builds (`cargo check --target x86_64-unknown-linux-gnu`) but the tests have only run on macOS.
+
+## 11. Testing
+
+`cargo test -p kanna-keeper`: unit tests of the Ghostty environment, and integration tests that each run a private keeper in a private state directory (stopped by PID):
+
+- spawn, then read and write through the received fd; the window size;
+- the login-shell convention, `env` (including `null`), cwd;
+- exit codes and signals (`exit 3` → 3, `kill -9` → signal 9, missing command → 127, a shell's `exit 4` → 4);
+- adopt after the client goes: same pid, output written meanwhile is readable, input works;
+- exits while nobody is connected: sent on connect, in `adopt` with the last output, again until acknowledged;
+- close: SIGHUP, SIGKILL for what ignores it, children in the group, closing right after spawning;
+- errors as replies; private files; one keeper per directory; the peer check (a debug-only `KANNA_KEEPER_TEST_PEER_UID`);
+- idle exit only with no process and no client; `connect_or_start` with a detached keeper.
+
+## 12. Glossary
+
+| Term | Meaning |
+|---|---|
+| **pty** | Pseudo-terminal: a master side (the terminal, here the daemon) and a slave side (the program's terminal). |
+| **Master copy** | Another descriptor for the same pty master. The pty stays open while any copy is open. |
+| **SCM_RIGHTS** | Sending open file descriptors to another process over a Unix socket. |
+| **Adopt** | A daemon taking over the ptys the keeper holds, after a restart. |
+| **Acknowledge (ack)** | The daemon telling the keeper it has recorded an exit, so the keeper can forget the pty. |
+| **Process group** | A process and the children it started, signalled together; each spawned process leads its own. |
+| **Login-shell convention** | Starting a shell with argv[0] beginning with `-` (`-zsh`), so it reads its login files. |
+| **login(1)** | macOS's program for starting a user's session; Ghostty runs commands through it, and it always exits 0. |
+| **Idle exit** | The keeper exiting by itself when it has nothing to keep. |

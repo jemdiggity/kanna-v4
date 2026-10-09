@@ -1,0 +1,15 @@
+[package]
+name = "kanna-keeper"
+version.workspace = true
+edition.workspace = true
+license = "FSL-1.1-MIT"
+description = "Creates Kanna's ptys and holds them so their processes outlive a daemon restart"
+
+[[bin]]
+name = "kanna-keeper"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+libc = "0.2"
+serde_json = "1"

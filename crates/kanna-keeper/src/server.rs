@@ -1,0 +1,564 @@
+//! The keeper: one per state directory, a single-threaded poll loop over its
+//! socket and its clients. It spawns processes on ptys, keeps a copy of each
+//! pty master, hands the masters to its client (the daemon), reaps the
+//! processes and reports their exits. It never reads or writes a pty.
+//! See docs/keeper.md.
+
+use crate::pty::{self, What};
+use crate::{fdpass, paths, sig, ExitStatus, PROTOCOL_VERSION};
+use anyhow::{Context, Result};
+use serde_json::{json, Map, Value};
+use std::collections::{BTreeMap, VecDeque};
+use std::io::Read;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+/// Connections at once; more are refused.
+const MAX_CONNS: usize = 16;
+/// Longest request line.
+const MAX_LINE: usize = 1 << 20;
+/// Unsent replies and events per connection before it is dropped.
+const MAX_OUT: usize = 8 << 20;
+
+pub struct Settings {
+    pub state_dir: PathBuf,
+    /// Exit after this long with no live process and no client.
+    pub idle: Duration,
+    /// Between SIGHUP and SIGKILL on `close`.
+    pub close_grace: Duration,
+    pub max_ptys: usize,
+}
+
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+impl Settings {
+    /// From the environment: `KANNA_KEEPER_IDLE_MS` (60 s),
+    /// `KANNA_KEEPER_CLOSE_GRACE_MS` (1 s), `KANNA_KEEPER_MAX_PTYS` (256).
+    pub fn from_env(state_dir: PathBuf) -> Self {
+        Settings {
+            state_dir,
+            idle: Duration::from_millis(env_u64("KANNA_KEEPER_IDLE_MS", 60_000)),
+            close_grace: Duration::from_millis(env_u64("KANNA_KEEPER_CLOSE_GRACE_MS", 1_000)),
+            max_ptys: env_u64("KANNA_KEEPER_MAX_PTYS", 256) as usize,
+        }
+    }
+}
+
+/// The uid a peer must have: ours. Debug builds let tests pretend otherwise.
+fn expected_uid() -> libc::uid_t {
+    #[cfg(debug_assertions)]
+    if let Some(uid) = std::env::var("KANNA_KEEPER_TEST_PEER_UID").ok().and_then(|v| v.parse().ok()) {
+        return uid;
+    }
+    unsafe { libc::getuid() }
+}
+
+/// A process the keeper spawned, and its pty.
+struct Pty {
+    pid: i32,
+    cmd: Vec<String>,
+    cwd: String,
+    /// The keeper's copy, kept until the exit is acknowledged, so a daemon
+    /// that connects later can still read the last output.
+    master: OwnedFd,
+    exit: Option<ExitStatus>,
+}
+
+impl Pty {
+    /// The process groups to signal: the session's and the pty's
+    /// foreground group.
+    fn groups(&self) -> Vec<i32> {
+        let mut groups = vec![self.pid];
+        let fg = unsafe { libc::tcgetpgrp(self.master.as_raw_fd()) };
+        if fg > 0 && fg != self.pid {
+            groups.push(fg);
+        }
+        groups
+    }
+
+    fn describe(&self, id: &str) -> Value {
+        let mut v = json!({"id": id, "pid": self.pid, "cmd": self.cmd, "cwd": self.cwd});
+        if let Some(exit) = self.exit {
+            v["exit"] = exit.to_json();
+        }
+        v
+    }
+}
+
+/// A line to send, with the descriptors that go with its first byte.
+struct Out {
+    bytes: Vec<u8>,
+    sent: usize,
+    fds: Vec<OwnedFd>,
+}
+
+struct Conn {
+    stream: UnixStream,
+    inbuf: Vec<u8>,
+    out: VecDeque<Out>,
+    out_bytes: usize,
+    dead: bool,
+}
+
+impl Conn {
+    fn send(&mut self, value: Value, fds: Vec<OwnedFd>) {
+        let mut bytes = serde_json::to_vec(&value).unwrap_or_default();
+        bytes.push(b'\n');
+        self.out_bytes += bytes.len();
+        if self.out_bytes > MAX_OUT {
+            eprintln!("kanna-keeper: dropped a client that isn't reading");
+            self.dead = true;
+            return;
+        }
+        self.out.push_back(Out { bytes, sent: 0, fds });
+    }
+
+    fn flush(&mut self) {
+        while let Some(out) = self.out.front_mut() {
+            let fds: Vec<_> = if out.sent == 0 { out.fds.iter().map(|f| f.as_raw_fd()).collect() } else { vec![] };
+            match fdpass::send(self.stream.as_raw_fd(), &out.bytes[out.sent..], &fds, true) {
+                Ok(n) => {
+                    out.sent += n;
+                    out.fds.clear();
+                    if out.sent == out.bytes.len() {
+                        self.out_bytes -= out.bytes.len();
+                        self.out.pop_front();
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(_) => {
+                    self.dead = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+struct Keeper {
+    listener: UnixListener,
+    sigs: OwnedFd,
+    conns: Vec<Conn>,
+    ptys: BTreeMap<String, Pty>,
+    /// Closed processes not reaped yet; their exits aren't reported.
+    closed: Vec<i32>,
+    /// Process groups to SIGKILL when the close grace runs out.
+    kills: Vec<(Instant, Vec<i32>)>,
+    settings: Settings,
+    idle_since: Instant,
+    peer_uid: libc::uid_t,
+    stop: bool,
+}
+
+/// Runs the keeper until it is idle or told to stop (SIGTERM, SIGINT).
+/// Returns at once if another keeper holds the state directory. `ready` is
+/// written to once the socket is listening, and closed either way.
+pub fn run(settings: Settings, ready: Option<OwnedFd>) -> Result<()> {
+    let dir = settings.state_dir.clone();
+    paths::ensure_dir(&dir).with_context(|| format!("state directory {}", dir.display()))?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(paths::lock(&dir))?;
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        // Another keeper owns this directory.
+        return Ok(());
+    }
+    sig::set_cloexec(lock.as_raw_fd());
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
+    let sigs = sig::pipe(&[libc::SIGCHLD, libc::SIGTERM, libc::SIGINT])?;
+    let sock = paths::socket(&dir);
+    let _ = std::fs::remove_file(&sock);
+    let old = unsafe { libc::umask(0o177) };
+    let listener = UnixListener::bind(&sock);
+    unsafe { libc::umask(old) };
+    let listener = listener.with_context(|| format!("binding {}", sock.display()))?;
+    std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600))?;
+    listener.set_nonblocking(true)?;
+    let pid_file = paths::pid(&dir);
+    std::fs::write(&pid_file, format!("{}\n", std::process::id()))?;
+    if let Some(ready) = ready {
+        unsafe { libc::write(ready.as_raw_fd(), b"1".as_ptr().cast(), 1) };
+    }
+    let mut keeper = Keeper {
+        listener,
+        sigs,
+        conns: Vec::new(),
+        ptys: BTreeMap::new(),
+        closed: Vec::new(),
+        kills: Vec::new(),
+        settings,
+        idle_since: Instant::now(),
+        peer_uid: expected_uid(),
+        stop: false,
+    };
+    let result = keeper.run();
+    drop(keeper);
+    let _ = std::fs::remove_file(&sock);
+    if std::fs::read_to_string(&pid_file).is_ok_and(|p| p.trim() == std::process::id().to_string()) {
+        let _ = std::fs::remove_file(&pid_file);
+    }
+    drop(lock);
+    result
+}
+
+fn pollfd(fd: libc::c_int, events: libc::c_short) -> libc::pollfd {
+    libc::pollfd { fd, events, revents: 0 }
+}
+
+impl Keeper {
+    fn run(&mut self) -> Result<()> {
+        while !self.stop {
+            let mut fds = vec![
+                pollfd(self.sigs.as_raw_fd(), libc::POLLIN),
+                pollfd(self.listener.as_raw_fd(), libc::POLLIN),
+            ];
+            for c in &self.conns {
+                let events = if c.out.is_empty() { libc::POLLIN } else { libc::POLLIN | libc::POLLOUT };
+                fds.push(pollfd(c.stream.as_raw_fd(), events));
+            }
+            let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, self.timeout()) };
+            if n < 0 {
+                let e = std::io::Error::last_os_error();
+                if e.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(e.into());
+                }
+                continue;
+            }
+            if fds[0].revents != 0 {
+                for signo in sig::drain(&self.sigs) {
+                    match signo {
+                        libc::SIGTERM | libc::SIGINT => self.stop = true,
+                        libc::SIGCHLD => self.reap(),
+                        _ => {}
+                    }
+                }
+            }
+            for i in 0..fds.len() - 2 {
+                if fds[2 + i].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0 {
+                    self.read_conn(i);
+                }
+            }
+            if fds[1].revents != 0 {
+                self.accept();
+            }
+            for c in &mut self.conns {
+                c.flush();
+            }
+            self.conns.retain(|c| !c.dead);
+            self.run_kills();
+            self.check_idle();
+        }
+        Ok(())
+    }
+
+    fn timeout(&self) -> libc::c_int {
+        let now = Instant::now();
+        let mut wait = Duration::from_secs(1);
+        if let Some(at) = self.kills.iter().map(|(at, _)| *at).min() {
+            wait = wait.min(at.saturating_duration_since(now));
+        }
+        if self.idle() {
+            wait = wait.min((self.idle_since + self.settings.idle).saturating_duration_since(now));
+        }
+        wait.as_millis() as libc::c_int + 1
+    }
+
+    /// No client, no live process, nothing waiting to be killed.
+    fn idle(&self) -> bool {
+        self.conns.is_empty()
+            && self.closed.is_empty()
+            && self.kills.is_empty()
+            && self.ptys.values().all(|p| p.exit.is_some())
+    }
+
+    fn check_idle(&mut self) {
+        if !self.idle() {
+            self.idle_since = Instant::now();
+        } else if self.idle_since.elapsed() >= self.settings.idle {
+            self.stop = true;
+        }
+    }
+
+    fn run_kills(&mut self) {
+        let now = Instant::now();
+        self.kills.retain(|(at, groups)| {
+            if *at > now {
+                return true;
+            }
+            for &pg in groups {
+                unsafe { libc::killpg(pg, libc::SIGKILL) };
+            }
+            false
+        });
+    }
+
+    fn accept(&mut self) {
+        loop {
+            match self.listener.accept() {
+                Ok((stream, _)) => {
+                    match fdpass::peer_uid(&stream) {
+                        Ok(uid) if uid == self.peer_uid => {}
+                        _ => {
+                            eprintln!("kanna-keeper: refused a connection from another user");
+                            continue;
+                        }
+                    }
+                    if self.conns.len() >= MAX_CONNS {
+                        eprintln!("kanna-keeper: refused a connection: too many clients");
+                        continue;
+                    }
+                    let _ = stream.set_nonblocking(true);
+                    let mut conn = Conn { stream, inbuf: Vec::new(), out: VecDeque::new(), out_bytes: 0, dead: false };
+                    // Exits nobody has acknowledged yet.
+                    for (id, p) in &self.ptys {
+                        if let Some(exit) = p.exit {
+                            conn.send(exited_event(id, p.pid, exit), vec![]);
+                        }
+                    }
+                    self.conns.push(conn);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+    }
+
+    fn read_conn(&mut self, i: usize) {
+        let mut buf = [0u8; 65536];
+        let n = match self.conns[i].stream.read(&mut buf) {
+            Ok(0) => {
+                self.conns[i].dead = true;
+                return;
+            }
+            Ok(n) => n,
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted) => return,
+            Err(_) => {
+                self.conns[i].dead = true;
+                return;
+            }
+        };
+        self.conns[i].inbuf.extend_from_slice(&buf[..n]);
+        while let Some(end) = self.conns[i].inbuf.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = self.conns[i].inbuf.drain(..=end).collect();
+            if self.conns[i].dead {
+                return;
+            }
+            match serde_json::from_slice::<Value>(&line) {
+                Ok(req) => self.request(i, &req),
+                Err(e) => self.conns[i].send(json!({"ok": false, "error": format!("bad request: {e}")}), vec![]),
+            }
+        }
+        if self.conns[i].inbuf.len() > MAX_LINE {
+            eprintln!("kanna-keeper: dropped a client: request too long");
+            self.conns[i].dead = true;
+        }
+    }
+
+    fn request(&mut self, i: usize, req: &Value) {
+        let tag = req.get("req").cloned().unwrap_or(Value::Null);
+        let id = req["id"].as_str().unwrap_or("");
+        let result: Result<(Value, Vec<OwnedFd>), String> = match req["op"].as_str().unwrap_or("") {
+            "hello" => Ok((json!({"version": PROTOCOL_VERSION, "pid": std::process::id()}), vec![])),
+            "spawn" => self.spawn(id, req),
+            "adopt" => {
+                let lines: Vec<_> = self
+                    .ptys
+                    .iter()
+                    .filter_map(|(id, p)| {
+                        let fd = p.master.try_clone().ok()?;
+                        Some((json!({"req": tag, "pty": p.describe(id), "fds": 1}), fd))
+                    })
+                    .collect();
+                let count = lines.len();
+                for (line, fd) in lines {
+                    self.conns[i].send(line, vec![fd]);
+                }
+                Ok((json!({"ptys": count}), vec![]))
+            }
+            "close" => self.close(id),
+            "ack" => self.ack(id),
+            op => Err(format!("unknown op {op:?}")),
+        };
+        let (mut reply, fds) = match result {
+            Ok((body, fds)) => {
+                let mut reply = json!({"ok": true});
+                if let Value::Object(body) = body {
+                    reply.as_object_mut().unwrap().extend(body);
+                }
+                if !fds.is_empty() {
+                    reply["fds"] = json!(fds.len());
+                }
+                (reply, fds)
+            }
+            Err(error) => (json!({"ok": false, "error": error}), vec![]),
+        };
+        if !tag.is_null() {
+            reply["req"] = tag;
+        }
+        self.conns[i].send(reply, fds);
+    }
+
+    fn spawn(&mut self, id: &str, req: &Value) -> Result<(Value, Vec<OwnedFd>), String> {
+        valid_id(id)?;
+        if self.ptys.contains_key(id) {
+            return Err(format!("pty {id:?} exists"));
+        }
+        if self.ptys.len() >= self.settings.max_ptys {
+            return Err(format!("too many ptys ({})", self.settings.max_ptys));
+        }
+        let what = match (req["command"].as_str(), req["shell"].as_str()) {
+            (Some(_), Some(_)) => return Err("give command or shell, not both".into()),
+            (Some(command), None) => What::Command(command),
+            (None, shell) => What::Shell(shell),
+        };
+        let size = |key: &str, default: u16| req[key].as_u64().map_or(default, |v| v.clamp(1, 10_000) as u16);
+        let env: Option<&Map<String, Value>> = req["env"].as_object();
+        let (spawned, argv) =
+            pty::spawn(&what, req["cwd"].as_str(), env, size("rows", 24), size("cols", 80)).map_err(|e| format!("{e:#}"))?;
+        let fd = spawned.master.try_clone().map_err(|e| e.to_string())?;
+        let pid = spawned.pid;
+        let cwd = req["cwd"].as_str().unwrap_or("").to_string();
+        let cmd: Vec<String> = argv.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        let reply = json!({"id": id, "pid": pid, "cmd": cmd});
+        self.ptys.insert(id.to_string(), Pty { pid, cmd, cwd, master: spawned.master, exit: None });
+        Ok((reply, vec![fd]))
+    }
+
+    /// SIGHUP to the process group and the pty's foreground group, SIGKILL
+    /// to both after the grace period. The id is free at once.
+    fn close(&mut self, id: &str) -> Result<(Value, Vec<OwnedFd>), String> {
+        let Some(p) = self.ptys.remove(id) else {
+            return Err(format!("no pty {id:?}"));
+        };
+        if p.exit.is_none() {
+            let groups = p.groups();
+            for &pg in &groups {
+                unsafe { libc::killpg(pg, libc::SIGHUP) };
+            }
+            self.kills.push((Instant::now() + self.settings.close_grace, groups));
+            self.closed.push(p.pid);
+        }
+        Ok((json!({}), vec![]))
+    }
+
+    /// Forgets an exited pty. Acknowledging one that's gone is fine.
+    fn ack(&mut self, id: &str) -> Result<(Value, Vec<OwnedFd>), String> {
+        match self.ptys.get(id) {
+            Some(p) if p.exit.is_none() => Err(format!("pty {id:?} is still running")),
+            Some(_) => {
+                self.ptys.remove(id);
+                Ok((json!({}), vec![]))
+            }
+            None => Ok((json!({}), vec![])),
+        }
+    }
+
+    fn reap(&mut self) {
+        loop {
+            let mut raw = 0;
+            let pid = unsafe { libc::waitpid(-1, &mut raw, libc::WNOHANG) };
+            if pid <= 0 {
+                break;
+            }
+            if let Some(i) = self.closed.iter().position(|&p| p == pid) {
+                self.closed.swap_remove(i);
+                continue;
+            }
+            let exit = if libc::WIFSIGNALED(raw) {
+                ExitStatus::Signal(libc::WTERMSIG(raw))
+            } else {
+                ExitStatus::Code(libc::WEXITSTATUS(raw))
+            };
+            let Some((id, p)) = self.ptys.iter_mut().find(|(_, p)| p.pid == pid && p.exit.is_none()) else {
+                continue;
+            };
+            p.exit = Some(exit);
+            let event = exited_event(id, pid, exit);
+            for c in &mut self.conns {
+                c.send(event.clone(), vec![]);
+            }
+        }
+    }
+}
+
+fn exited_event(id: &str, pid: i32, exit: ExitStatus) -> Value {
+    let mut v = json!({"exited": id, "pid": pid});
+    v.as_object_mut().unwrap().extend(exit.to_json().as_object().unwrap().clone());
+    v
+}
+
+fn valid_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id.len() > 128 || id.chars().any(char::is_control) {
+        return Err(format!("bad id {id:?}"));
+    }
+    Ok(())
+}
+
+/// `--detach`: runs the keeper in the background, in its own session, with
+/// stdio on /dev/null and stderr appended to keeper.log. Returns once it is
+/// listening, or once it has found another keeper already running.
+pub fn detach(settings: Settings) -> Result<()> {
+    paths::ensure_dir(&settings.state_dir).with_context(|| format!("state directory {}", settings.state_dir.display()))?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(paths::log(&settings.state_dir))?;
+    let mut fds = [-1; 2];
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let (read, write) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    sig::set_cloexec(read.as_raw_fd());
+    sig::set_cloexec(write.as_raw_fd());
+    match unsafe { libc::fork() } {
+        -1 => Err(std::io::Error::last_os_error().into()),
+        0 => {
+            drop(read);
+            unsafe { libc::setsid() };
+            match unsafe { libc::fork() } {
+                -1 => unsafe { libc::_exit(1) },
+                0 => {}
+                _ => unsafe { libc::_exit(0) },
+            }
+            let null = std::fs::OpenOptions::new().read(true).write(true).open("/dev/null");
+            unsafe {
+                if let Ok(null) = &null {
+                    libc::dup2(null.as_raw_fd(), 0);
+                    libc::dup2(null.as_raw_fd(), 1);
+                }
+                libc::dup2(log.as_raw_fd(), 2);
+            }
+            drop(null);
+            drop(log);
+            let code = match run(settings, Some(write)) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("kanna-keeper: {e:#}");
+                    1
+                }
+            };
+            std::process::exit(code);
+        }
+        child => {
+            drop(write);
+            let mut status = 0;
+            unsafe { libc::waitpid(child, &mut status, 0) };
+            let mut byte = [0u8; 1];
+            let mut read = std::fs::File::from(read);
+            let _ = read.read(&mut byte);
+            Ok(())
+        }
+    }
+}
