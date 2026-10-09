@@ -1,4 +1,5 @@
 mod app_link;
+mod host;
 mod keeper;
 mod pty;
 mod reader;
@@ -7,7 +8,9 @@ mod terminals;
 
 use app_link::{AppLayout, AppLink, Outbox, APP_COMMANDS, HELLO};
 use kanna_mux::json::Value;
-use kanna_mux::{Brand, Core, Instance, PaneType, SocketServer, DEFAULT_NAME};
+use host::Host;
+use kanna_mux::json::json;
+use kanna_mux::{Brand, Core, Instance, SocketServer, DEFAULT_NAME};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -103,7 +106,6 @@ fn run() -> Result<(), String> {
     let layout = Rc::new(AppLayout::default());
     let core = Core::with_link(layout.clone());
     core.set_instance(Instance::with_socket(DEFAULT_NAME, Some(socket_path.clone())));
-    core.set_pane_types(vec![PaneType::Term]);
     let wake = events.clone();
     core.set_wakeup(Some(Arc::new(move || {
         let _ = wake.send(Event::Wake);
@@ -141,7 +143,8 @@ fn run() -> Result<(), String> {
     let env = vec![("KANNA_SOCKET".to_string(), socket_path.clone())];
     let terminals = Rc::new(Terminals::new(keeper.clone(), store, events.clone(), env));
     *terminals.core.borrow_mut() = Some(core.weak());
-    core.set_host(Some(terminals.clone()));
+    let host = Rc::new(Host::new(terminals.clone()));
+    core.set_host(Some(host.clone()));
     let on_change = Rc::downgrade(&terminals);
     core.set_on_change(Some(Rc::new(move || {
         if let Some(terminals) = on_change.upgrade() {
@@ -174,6 +177,7 @@ fn run() -> Result<(), String> {
     let app_timeout = std::env::var("KANNA_APP_TIMEOUT_MS").ok().and_then(|ms| ms.parse().ok()).map(Duration::from_millis).unwrap_or(APP_TIMEOUT);
     let app = Rc::new(AppLink::new(core.weak(), terminals.clone(), app_timeout));
     layout.connect(&app);
+    host.connect(&app);
     let on_start = Rc::downgrade(&app);
     *terminals.on_start.borrow_mut() = Some(Box::new(move |pane| {
         if let Some(app) = on_start.upgrade() {
@@ -232,7 +236,10 @@ fn run() -> Result<(), String> {
             Err(RecvTimeoutError::Disconnected) => break,
         };
         match event {
-            Event::Request(request, reply) => core.handle(request, reply),
+            Event::Request(request, reply) => match app.unreachable(&request) {
+                Some(error) => reply(json!({ "id": request.get("id").cloned().unwrap_or(Value::Null), "ok": false, "error": { "code": error.code, "message": error.message } })),
+                None => core.handle(request, reply),
+            },
             Event::Wake => {}
             Event::Output { pane, serial } => match terminals.output(&pane, serial) {
                 Some(Taken::Bytes(bytes)) => app.output(&pane, &bytes),
@@ -269,7 +276,16 @@ fn run() -> Result<(), String> {
                 break;
             }
             Event::AppHello { conn, hello, out, stream } => app.hello(conn, hello, out, stream),
-            Event::AppMessage { conn, message } => app.message(conn, message),
+            Event::AppMessage { conn, message } => {
+                if let Some(request) = app.message(conn, message) {
+                    let link = Rc::downgrade(&app);
+                    core.handle(request, move |reply| {
+                        if let Some(link) = link.upgrade() {
+                            link.answer_app(conn, reply);
+                        }
+                    });
+                }
+            }
             Event::AppGone { conn } => app.gone(conn),
             Event::AppCaughtUp { conn } => app.caught_up(conn),
             Event::Quit(_) => continue,

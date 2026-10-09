@@ -2,7 +2,7 @@ use crate::error::KmuxError;
 use crate::json::{encode, json, num, string, Map, Value};
 use crate::layout::{read_pane_table, serve, LayoutHost, Placement, SplitSide};
 use crate::model::{Model, Node};
-use crate::pane::{Pane, Panes};
+use crate::pane::{Pane, PaneType, Panes};
 use crate::state::{self, number_in, STATE_VERSION};
 use crate::state_file::{Contents, StateFile};
 use std::collections::HashSet;
@@ -49,6 +49,8 @@ impl LayoutOwner {
             "serve" => self.serve(request.get("request").unwrap_or(&Value::Null)),
             "attach" => self.attach(request.get("panes").unwrap_or(&Value::Null)),
             "view" => Ok(self.view()),
+            "hello" => Ok([("panes".to_string(), self.hello())].into_iter().collect()),
+            "pane" => self.record(request.get("pane").unwrap_or(&Value::Null)),
             "export" => Ok(match self.export() {
                 Value::Object(state) => state,
                 _ => Map::new(),
@@ -76,6 +78,25 @@ impl LayoutOwner {
             }
         }
         serve(&mut self.model, request, &self.panes)
+    }
+
+    pub fn hello(&self) -> Value {
+        let panes = match &self.saved {
+            Some(saved) => state::import_panes(saved).map(|(panes, _)| panes).unwrap_or_default(),
+            None => {
+                let placed: HashSet<String> = self.placed().into_iter().collect();
+                self.panes.iter().filter(|p| placed.contains(&p.id)).cloned().collect()
+            }
+        };
+        Value::Array(panes.iter().filter(|p| p.kind != PaneType::Term).map(|p| Value::Object(state::pane_record(p))).collect())
+    }
+
+    fn record(&mut self, record: &Value) -> Result<Map, KmuxError> {
+        let [pane] = read_pane_table(&Value::Array(vec![record.clone()]))?.try_into().map_err(|_| KmuxError::new("bad_request", "one pane"))?;
+        if let Some(known) = self.panes.get_mut(&pane.id) {
+            *known = pane;
+        }
+        Ok(Map::new())
     }
 
     fn learn(&mut self, pane: Pane) {
@@ -276,6 +297,25 @@ mod tests {
                 { "pane": "p4", "type": "term", "size": 0.125 }
             ] } })
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_records_of_web_markdown_and_ios_panes_are_saved_and_handed_back_in_the_hello() {
+        let dir = folder("records");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let site = json!({ "id": "p1", "name": "site", "type": "web", "url": "http://a.test/", "history": true });
+        owner.handle(&json!({ "call": "serve", "request": { "op": "place", "pane": site, "at": {} } }));
+        owner.handle(&json!({ "call": "serve", "request": { "op": "place", "pane": { "id": "p2", "name": null, "type": "term" }, "at": { "split": "right" } } }));
+        owner.handle(&json!({ "call": "pane", "pane": { "id": "p1", "name": "site", "type": "web", "url": "http://b.test/", "history": true } }));
+        owner.handle(&json!({ "call": "pane", "pane": { "id": "p9", "name": "stray", "type": "md", "path": "/x.md" } }));
+        assert_eq!(owner.handle(&json!({ "call": "hello" }))["panes"], json!([{ "id": "p1", "name": "site", "type": "web", "url": "http://b.test/", "history": true }]));
+        owner.save().unwrap();
+
+        let (again, _) = LayoutOwner::open(Some(file), false);
+        assert_eq!(again.hello(), json!([{ "id": "p1", "name": "site", "type": "web", "url": "http://b.test/", "history": true }]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -1,6 +1,7 @@
 use crate::error::KmuxError;
 use crate::json::{json, num, opt, string, Map, Value};
-use crate::pane::{Pane, PaneType, Panes};
+use crate::pane::{Pane, PaneState, PaneType, Panes};
+use crate::state;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -125,7 +126,7 @@ fn split_name(split: SplitSide) -> &'static str {
 }
 
 pub fn pane_entry(pane: &Pane) -> Value {
-    json!({ "id": pane.id, "name": opt(pane.name.as_deref()), "type": pane.kind.as_str() })
+    Value::Object(state::pane_record(pane))
 }
 
 pub fn pane_table(panes: &Panes) -> Value {
@@ -139,7 +140,12 @@ pub fn read_pane_table(table: &Value) -> Result<Vec<Pane>, KmuxError> {
         .map(|entry| {
             let id = string(entry, "id").filter(|id| !id.is_empty()).ok_or_else(|| bad("a pane has no id"))?;
             let kind = string(entry, "type").and_then(PaneType::parse).ok_or_else(|| bad(&format!("pane {id} has no known type")))?;
-            Ok(Pane::new(id, string(entry, "name").map(String::from), kind))
+            let mut pane = state::read_record(entry, id, kind);
+            if let Some(state) = string(entry, "state").and_then(PaneState::parse) {
+                pane.state = state;
+            }
+            pane.error = string(entry, "error").map(String::from);
+            Ok(pane)
         })
         .collect()
 }

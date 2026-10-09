@@ -155,14 +155,19 @@ pub struct App {
     pub stream: UnixStream,
     reader: BufReader<UnixStream>,
     pub owner: kanna_mux::LayoutOwner,
+    pub shows: bool,
 }
 
 impl App {
     pub fn connect(socket: &Path) -> App {
+        App::connect_with(socket, json!([]))
+    }
+
+    pub fn connect_with(socket: &Path, panes: Value) -> App {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             let mut app = App::raw(socket);
-            app.send(json!({"id": 0, "cmd": "app.hello", "args": {"pid": std::process::id()}}));
+            app.send(json!({"id": 0, "cmd": "app.hello", "args": {"pid": std::process::id(), "panes": panes}}));
             let hello = app.next().expect("no answer to app.hello");
             if hello["ok"] == true {
                 return app;
@@ -176,7 +181,7 @@ impl App {
         let stream = UnixStream::connect(socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let reader = BufReader::new(stream.try_clone().unwrap());
-        App { stream, reader, owner: kanna_mux::LayoutOwner::new() }
+        App { stream, reader, owner: kanna_mux::LayoutOwner::new(), shows: true }
     }
 
     pub fn answering(self) -> std::thread::JoinHandle<()> {
@@ -204,6 +209,13 @@ impl App {
             };
             if message["id"] == 0 && message["ok"] == true {
                 self.owner.handle(&json!({"call": "attach", "panes": message["panes"]}));
+            }
+            if message["cmd"] == "start" || message["cmd"] == "pane" {
+                self.owner.handle(&json!({"call": "pane", "pane": message["args"]["pane"]}));
+            }
+            if message["cmd"] == "start" && self.shows {
+                let pane = message["args"]["pane"]["id"].clone();
+                self.tell("update", json!({"pane": pane, "state": "running"}));
             }
             if message["cmd"] != "layout" {
                 return Some(message);

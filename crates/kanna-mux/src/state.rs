@@ -23,38 +23,63 @@ pub(crate) fn whole(value: Option<&Value>) -> Option<usize> {
     (n.round() == n && n >= 0.0 && n < 1e9).then_some(n as usize)
 }
 
+pub fn pane_record(pane: &Pane) -> Map {
+    let mut out = Map::new();
+    out.insert("id".into(), pane.id.clone().into());
+    out.insert("name".into(), opt(pane.name.as_deref()));
+    out.insert("type".into(), pane.kind.as_str().into());
+    match pane.kind {
+        PaneType::Term => {
+            out.insert("cmd".into(), opt(pane.command.as_deref()));
+            out.insert("cwd".into(), opt(pane.cwd.as_deref()));
+            out.insert("session".into(), opt(pane.session.as_deref()));
+        }
+        PaneType::Web => {
+            out.insert("url".into(), opt(pane.url.as_deref()));
+            out.insert("history".into(), Value::Bool(pane.history.is_some()));
+        }
+        PaneType::Md => {
+            out.insert("path".into(), opt(pane.path.as_deref()));
+            out.insert("zoom".into(), num(pane.zoom.unwrap_or(1.0)));
+        }
+        PaneType::Ios => {
+            out.insert("app".into(), opt(pane.app.as_deref()));
+            out.insert("device".into(), opt(pane.device.as_deref()));
+        }
+    }
+    out
+}
+
 pub(crate) fn export_panes(panes: &Panes) -> Value {
-    Value::Array(
-        panes
-            .iter()
-            .map(|pane| {
-                let mut out = Map::new();
-                out.insert("id".into(), pane.id.clone().into());
-                out.insert("name".into(), opt(pane.name.as_deref()));
-                out.insert("type".into(), pane.kind.as_str().into());
-                match pane.kind {
-                    PaneType::Term => {
-                        out.insert("cmd".into(), opt(pane.command.as_deref()));
-                        out.insert("cwd".into(), opt(pane.cwd.as_deref()));
-                        out.insert("session".into(), opt(pane.session.as_deref()));
-                    }
-                    PaneType::Web => {
-                        out.insert("url".into(), opt(pane.url.as_deref()));
-                        out.insert("history".into(), Value::Bool(pane.history.is_some()));
-                    }
-                    PaneType::Md => {
-                        out.insert("path".into(), opt(pane.path.as_deref()));
-                        out.insert("zoom".into(), num(pane.zoom.unwrap_or(1.0)));
-                    }
-                    PaneType::Ios => {
-                        out.insert("app".into(), opt(pane.app.as_deref()));
-                        out.insert("device".into(), opt(pane.device.as_deref()));
-                    }
-                }
-                Value::Object(out)
-            })
-            .collect(),
-    )
+    Value::Array(panes.iter().map(|pane| Value::Object(pane_record(pane))).collect())
+}
+
+pub fn read_record(item: &Value, id: &str, kind: PaneType) -> Pane {
+    let mut pane = Pane::new(id, string(item, "name").map(String::from), kind);
+    let field = |key: &str| string(item, key).map(String::from);
+    match kind {
+        PaneType::Term => {
+            pane.command = field("cmd");
+            pane.cwd = field("cwd");
+            pane.session = field("session");
+        }
+        PaneType::Web => {
+            pane.url = field("url");
+            if is_true(item, "history") {
+                pane.history = Some(History::default());
+            }
+        }
+        PaneType::Md => {
+            pane.path = field("path");
+            pane.zoom = item.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0);
+            pane.history = Some(History::default());
+        }
+        PaneType::Ios => {
+            pane.app = field("app");
+            pane.device = field("device");
+        }
+    }
+    pane
 }
 
 pub(crate) fn import_panes(state: &Value) -> Result<(Vec<Pane>, usize), KmuxError> {
@@ -102,27 +127,7 @@ pub(crate) fn import_panes(state: &Value) -> Result<(Vec<Pane>, usize), KmuxErro
                 return Err(bad(&format!("{} pane {id} has no {needed}", kind.as_str())));
             }
         }
-        let mut pane = Pane::new(id, name, kind);
-        let field = |key: &str| string(item, key).map(String::from);
-        pane.command = field("cmd");
-        pane.cwd = field("cwd");
-        pane.session = field("session");
-        pane.url = field("url");
-        pane.path = field("path");
-        pane.app = field("app");
-        pane.device = field("device");
-        if kind == PaneType::Md {
-            pane.zoom = item.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0);
-        }
-        if (kind == PaneType::Web && is_true(item, "history")) || kind == PaneType::Md {
-            pane.history = Some(History::default());
-        }
-        if kind != PaneType::Term {
-            pane.command = None;
-            pane.cwd = None;
-            pane.session = None;
-        }
-        panes.push(pane);
+        panes.push(read_record(item, id, kind));
         counter = counter.max(n);
     }
     Ok((panes, counter))

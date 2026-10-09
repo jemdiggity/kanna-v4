@@ -268,6 +268,19 @@ impl CoreHandle {
         self.changed();
     }
 
+    pub fn drop_panes(&self, ids: &[String], error: &str) {
+        for id in ids {
+            let starting = self.state().panes.get(id).is_some_and(|p| p.state == PaneState::Starting);
+            if starting {
+                self.update(id, PaneState::Failed, None, Some(error.into()));
+            }
+            self.state().panes.forget(id);
+            self.resume(id);
+        }
+        self.changed();
+        self.0.exec.run();
+    }
+
     pub fn set_pid(&self, id: &str, pid: Option<i64>) {
         if let Some(pane) = self.state().panes.get_mut(id) {
             pane.pid = pid;
