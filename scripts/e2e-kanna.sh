@@ -4,12 +4,12 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S10) is one behaviour of the finished system; the plan
+Each scenario (S1–S10, S20–S22) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
 
-usage: scripts/e2e-kanna.sh [--through M0|M1|M2|M3] [S1 S4 …]
+usage: scripts/e2e-kanna.sh [--through M0|M1|M2|M3|M4] [S1 S4 …]
   --through M  run the scenarios due by milestone M (default: all);
                later ones are listed as not due
   S…           only these scenarios
@@ -29,11 +29,11 @@ app="$repo_root/target/Kanna.app/Contents/MacOS/Kanna"
 out="$repo_root/target/e2e-kanna"
 mkdir -p "$out"
 
-through=M3 only=()
+through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S10) only+=("$1") ;;
+    S[1-9]|S10|S2[0-2]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -84,6 +84,7 @@ stop_app() {
 }
 app_attached() { [[ "$(raw '{"id":1,"cmd":"debug.app"}' | field ok)" == True ]]; }
 cleanup() {
+  stop_instances
   stop_app; stop_daemon
   stop_started_daemon
   stop_keeper
@@ -104,6 +105,26 @@ stop_keeper() {
   [[ "$(ps -o command= -p "$pid" 2>/dev/null)" == *kanna-keeper*"--state-dir $KANNA_STATE_DIR"* ]] || return 0
   kill "$pid" 2>/dev/null
   wait_for 5 eval "! kill -0 $pid"
+}
+stop_folder() {
+  local dir="$1" pid
+  [[ -d "$dir" ]] || return 0
+  pid="$(sed -n 's/.*the app attached (pid \([0-9]*\)).*/\1/p' "$dir/daemon.log" 2>/dev/null | tail -1)"
+  if [[ "$pid" =~ ^[0-9]+$ && "$(ps -o command= -p "$pid" 2>/dev/null)" == *"$repo_root/target/Kanna.app/Contents/MacOS/Kanna"* ]]; then
+    kill "$pid" 2>/dev/null; wait_for 5 eval "! kill -0 $pid"
+  fi
+  pid="$(cat "$dir/daemon.pid" 2>/dev/null)"
+  if [[ "$pid" =~ ^[0-9]+$ && "$(ps -o command= -p "$pid" 2>/dev/null)" == *kanna-daemon* ]]; then
+    kill "$pid" 2>/dev/null; wait_for 5 eval "! kill -0 $pid"
+  fi
+  pid="$(cat "$dir/keeper.pid" 2>/dev/null)"
+  if [[ "$pid" =~ ^[0-9]+$ && "$(ps -o command= -p "$pid" 2>/dev/null)" == *kanna-keeper*"--state-dir $dir"* ]]; then
+    kill "$pid" 2>/dev/null; wait_for 5 eval "! kill -0 $pid"
+  fi
+}
+stop_instances() {
+  local dir
+  for dir in "$KANNA_STATE_DIR"/home/Library/Application\ Support/kanna-dev*; do stop_folder "$dir"; done
 }
 trap cleanup EXIT
 
@@ -284,10 +305,148 @@ S10() {
   check kill -0 "$(cat "$KANNA_STATE_DIR/daemon.pid")" || return 1
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; esac
+says() { local got; got="$("$@" 2>&1)"; [[ "$got" == "$expected" ]] || { echo "kanna ${*:2}: expected \"$expected\", got \"$got\""; return 1; }; }
+exits() { local want="$1"; shift; "$@" >/dev/null 2>&1; local got=$?; [[ $got == "$want" ]] || { echo "${*}: exit $got, expected $want"; return 1; }; }
+app_text() { raw "{\"id\":1,\"cmd\":\"debug.text\",\"args\":{\"pane\":\"$1\"}}" | field text | grep -q -- "$2"; }
+page_text() { raw "{\"id\":1,\"cmd\":\"debug.web\",\"args\":{\"pane\":\"$1\"}}" | field text | grep -q -- "$2"; }
+doc_text() { raw "{\"id\":1,\"cmd\":\"debug.md\",\"args\":{\"pane\":\"$1\"}}" | field text | grep -q -- "$2"; }
+
+S20() {
+  start_daemon && start_app || return 1
+  local dir="$KANNA_STATE_DIR" expected
+  cd "$dir" || return 1
+  expected="opened p1 (s20) in window w1, tab t1: running"; says kanna open --name s20 --cmd 'printf "S20 READY\n"; exec cat' || return 1
+  expected="opened p2 (e2e) in window w1, tab t1: running"; says kanna open --name e2e --split right --size 1/3 || return 1
+  check test "$(layout)" == '{"children": [{"pane": "s20", "size": "2/3"}, {"pane": "e2e", "size": "1/3"}], "split": "row"}' || return 1
+  check wait_for 5 app_text s20 "S20 READY" || return 1
+  check test "$(kanna list | head -2)" == $'*w1  focused: e2e\n  *t1 "Tab 1"  s20:2/3 | e2e:1/3' || return 1
+  expected="focused s20 (key window w1)"; says kanna focus s20 || return 1
+  expected="e2e is zoomed (run again to unzoom)"; says kanna zoom e2e || return 1
+  check test "$(kanna list --json | field windows.0.zoomed)" == e2e || return 1
+  expected="e2e is no longer zoomed"; says kanna zoom e2e || return 1
+  expected="s20:3/4 | e2e:1/4"; says kanna resize e2e 1/4 || return 1
+  expected="s20:1/2 / e2e:1/2"; says kanna move e2e --to s20 --side bottom || return 1
+  expected="e2e:1/4 | s20:3/4"; says kanna arrange '{"split":"row","children":[{"pane":"e2e","size":"1/4"},{"pane":"s20"}]}' || return 1
+  expected="opened p3 (t) in window w1, tab t2: running"; says kanna open --tab --name t || return 1
+  expected='t2 is now "shells"'; says kanna rename-tab t2 shells || return 1
+  expected="w1: t2, t1"; says kanna move-tab t2 --index 0 || return 1
+  expected="switched to t1 (key window w1)"; says kanna focus --tab t1 || return 1
+  expected="t"; says kanna move t --window new || return 1
+  check test "$(kanna list --json | field windows.1.tabs.0.layout)" == '{"pane": "t"}' || return 1
+  expected="key window is now w1"; says kanna focus --window w1 || return 1
+  expected="closed window w2 (panes p3)"; says kanna close --window w2 || return 1
+  kanna send e2e 'echo S20-$((40+2))' || return 1
+  check wait_for 5 shows e2e S20-42 || return 1
+  check wait_for 5 app_text e2e S20-42 || return 1
+  kanna send e2e -- echo --json || return 1
+  check wait_for 5 eval 'kanna read e2e --lines 2 | grep -qx -- --json' || return 1
+  expected="p1 (s20) (printf \"S20 READY\\n\"; exec cat) is running"; says kanna restart s20 || return 1
+  printf '<title>S20</title><p>S20 PAGE</p>\n' >"$dir/a.html"
+  printf '<title>S20 B</title><p>S20 OTHER</p>\n' >"$dir/b.html"
+  expected="opened p4 (site) in window w1, tab t1: running"; says kanna open web "file://$dir/a.html" --name site --history --split down || return 1
+  check wait_for 5 page_text site "S20 PAGE" || return 1
+  expected="p4 (site) (file://$dir/b.html) is running"; says kanna navigate site "file://$dir/b.html" || return 1
+  check wait_for 5 page_text site "S20 OTHER" || return 1
+  expected="p4 (site) (file://$dir/a.html) is running"; says kanna navigate site --back || return 1
+  check wait_for 5 page_text site "S20 PAGE" || return 1
+  expected="p4 (site) (file://$dir/b.html) is running"; says kanna navigate site --forward || return 1
+  kanna open web "file://$dir/a.html" --name plain --tab >/dev/null || return 1
+  exits 2 kanna navigate plain --back || return 1
+  printf '# S20 DOC\n\nS20 TEXT\n' >"$dir/s20.md"
+  printf '# S20 NEXT\n' >"$dir/next.md"
+  kanna open md s20.md --name doc --tab >/dev/null || return 1
+  check is doc path "$(pwd -P)/s20.md" || return 1
+  check wait_for 5 doc_text doc "S20 TEXT" || return 1
+  kanna navigate doc next.md >/dev/null || return 1
+  check wait_for 5 doc_text doc "S20 NEXT" || return 1
+  kanna navigate doc --back >/dev/null || return 1
+  check wait_for 5 doc_text doc "S20 TEXT" || return 1
+  local missing
+  missing="$(kanna open md "$dir/missing.md" --tab 2>&1)"; check test $? -eq 1 || return 1
+  check grep -q "No such file" <<<"$missing" || return 1
+  check test "$(kanna capabilities | tail -1)" == "Kanna.app: attached" || return 1
+  check grep -q "The running Kanna supports every command." <(kanna help) || return 1
+  check test "$(kanna open --json --name j --tab | field pane.name)" == j || return 1
+  exits 4 kanna close nope || return 1
+  exits 1 kanna open --name e2e || return 1
+  exits 2 kanna zoom || return 1
+  exits 5 kanna raw '{"cmd":"nope"}' || return 1
+  exits 0 kanna raw '{"cmd":"debug.app"}' || return 1
+  kanna close --window w1 >/dev/null || return 1
+  check test "$(kanna list --json | field windows)" == "[]" || return 1
+  expected="no windows (open one with \`kanna open\`)"; says kanna list
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10)
+
+S21() {
+  start_daemon || return 1
+  local expected
+  expected="opened p1 (s21), unplaced until Kanna.app opens: running"; says kanna open --name s21 --cmd 'echo S21 READY; exec cat' || return 1
+  check test "$(kanna list | head -1)" == "no windows: Kanna.app isn't open (these terminals keep running)" || return 1
+  check wait_for 5 shows s21 "S21 READY" || return 1
+  kanna send s21 S21-SENT || return 1
+  check wait_for 5 shows s21 S21-SENT || return 1
+  expected="p1 (s21) (echo S21 READY; exec cat) is running"; says kanna restart s21 || return 1
+  check grep -q "Kanna.app: not attached" <(kanna capabilities) || return 1
+  kanna open --name gone >/dev/null || return 1
+  expected="closed p2"; says kanna close gone || return 1
+  local args
+  while IFS= read -r args; do
+    eval "exits 6 kanna $args" || return 1
+  done <<'NEEDS'
+open --split right
+open --tab
+open --window new
+open web http://localhost:1
+open md /tmp/x.md
+focus s21
+focus --tab t1
+zoom s21
+resize s21 1/2
+move s21 --window new
+arrange '{"split":"row","children":[{"pane":"s21"}]}'
+rename-tab t1 x
+move-tab t1 --index 0
+close --tab t1
+close --window w1
+navigate site http://localhost:1
+raw '{"cmd":"debug.app"}'
+NEEDS
+  check grep -q "KANNA_SOCKET is set, so kanna doesn't start Kanna.app" <(kanna focus s21 2>&1) || return 1
+  start_app || return 1
+  check test "$(layout)" == '{"pane": "s21"}' || return 1
+  expected="focused s21 (key window w1)"; says kanna focus s21 || return 1
+  stop_app
+  check test "$(kanna list --json | field windows)" == "[]"
+}
+
+S22() {
+  local home="$KANNA_STATE_DIR/home" folder support
+  support="$home/Library/Application Support"
+  folder="$support/kanna-dev-e2e"
+  mkdir -p "$home"
+  inst() { env -u KANNA_SOCKET -u KANNA_STATE_DIR -u KANNA_INSTANCE HOME="$home" KANNA_APP="$repo_root/target/Kanna.app" "$bin/kanna" "$@"; }
+  check test "$(inst instances)" == "No Kanna instances are running. Any command starts one, e.g. kanna open (default) or kanna --instance work open." || return 1
+  inst --instance e2e --bg open --name s22 --cmd 'echo "S22 $KANNA_INSTANCE"; exec cat' >/dev/null || return 1
+  check test -S "$folder/kanna.sock" || return 1
+  check grep -q "Kanna.app/Contents/Helpers/kanna-daemon" <(ps -o command= -p "$(cat "$folder/daemon.pid")") || return 1
+  check wait_for 5 eval 'inst --instance e2e read s22 | grep -q "S22 e2e"' || return 1
+  check test "$(inst --instance e2e capabilities --json | field instance)" == e2e || return 1
+  check wait_for 10 eval '[[ "$(inst --instance e2e capabilities --json | field app)" == True ]]' || return 1
+  check wait_for 5 eval 'inst --instance e2e list --json | field windows.0.tabs.0.layout | grep -q s22' || return 1
+  local listed
+  listed="$(inst instances)"
+  check grep -q "^  e2e  1 window, [12] panes\?$" <<<"$listed" || { echo "$listed"; return 1; }
+  check test "$(inst --instance e2e instances --json | field instances.0.current)" == True || return 1
+  inst --instance e2e open --name s22b --split right >/dev/null || return 1
+  check test "$(inst --instance e2e list --json | field windows.0.tabs.0.layout)" == '{"children": [{"pane": "s22", "size": "1/2"}, {"pane": "s22b", "size": "1/2"}], "split": "row"}' || return 1
+  stop_folder "$folder"
+  check test "$(inst instances)" == "No Kanna instances are running. Any command starts one, e.g. kanna open (default) or kanna --instance work open."
+}
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S20|S21|S22) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S20 S21 S22)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
