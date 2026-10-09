@@ -172,7 +172,7 @@ final class GhosttyRuntime {
         case GHOSTTY_ACTION_OPEN_URL:
             let value = action.action.open_url
             guard let url = value.url else { return false }
-            effects.open(String(decoding: UnsafeRawBufferPointer(start: url, count: Int(value.len)), as: UTF8.self))
+            effects.open(String(decoding: UnsafeRawBufferPointer(start: url, count: Int(value.len)), as: UTF8.self), kind: value.kind, in: view.window)
             return true
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             view.setMouseShape(action.action.mouse_shape)

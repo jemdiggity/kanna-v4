@@ -157,7 +157,16 @@ Derived from Ghostty:
       NSEvent+Extension.swift.
   apps/kanna/Sources/Kanna/Terminal/GhosttyRuntime.swift
       Runtime callbacks follow Ghostty's macOS app (Ghostty 4ec3122, via
-      kanna v3): Ghostty.App.swift.
+      kanna v3): Ghostty.App.swift. Its handling of config reloads, colour
+      schemes, clipboard confirmation, bells, notifications and links
+      follows Ghostty.App.swift at the commit scripts/env.sh pins.
+  apps/kanna/Sources/KannaLinks/UntrustedURL.swift
+  apps/kanna/Tests/KannaLinksTests/UntrustedURLTests.swift
+  apps/kanna/Sources/Kanna/Terminal/LinkAlert.swift
+      From Ghostty's macOS app at the commit scripts/env.sh pins:
+      macos/Sources/Helpers/UntrustedURL.swift, UntrustedURLAlert.swift and
+      macos/Tests/Ghostty/UntrustedURLTests.swift, with comments removed;
+      UntrustedURL(clicked:) and the extra tests are Kanna's.
 
 Kanna.app links GhosttyKit and the daemon links libghostty-vt, both built
 from a fork of Ghostty: the kmux-external-io branch (upstream a806905, kmux's

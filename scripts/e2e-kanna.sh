@@ -751,15 +751,46 @@ S34() {
   check wait_for 5 eval 'kanna read s34 | grep -qE " $wide\$"' || return 1
   check test "$(kanna read s34 --lines 10000 | grep -c '^[0-9]*$')" -ge 3000 || return 1
   stop_app; start_app || return 1
-  check test "$(kanna read s34 --lines 10000 | grep -c '^[0-9]*$')" -ge 3000
+  check test "$(kanna read s34 --lines 10000 | grep -c '^[0-9]*$')" -ge 3000 || return 1
+  local before narrow
+  before="$(terminal cols '{"pane":"s34"}')"
+  key cmd+=; key cmd+=
+  check wait_for 5 eval '[[ "$(terminal cols "{\"pane\":\"s34\"}")" -lt "$before" ]]' || return 1
+  narrow="$(terminal cols '{"pane":"s34"}')"
+  kanna send s34 "clear; stty size" || return 1
+  check wait_for 5 eval 'kanna read s34 | grep -qE " $narrow\$"'
 }
 
 S35() {
   start_daemon && start_app || return 1
-  kanna open --name s35 --cmd "printf 'https://example.com/s35\r\n\007\033]9;S35 NOTE\007\033]9;4;1;40\007'; sleep 1.5; printf '\033]777;notify;S35 T;S35 B\007S35-READY'; exec cat" >/dev/null || return 1
+  local dir="$KANNA_STATE_DIR/links"
+  mkdir -p "$dir"; printf 'plain\n' >"$dir/notes.txt"; printf '#!/bin/sh\n' >"$dir/run.command"
+  cat >"$KANNA_STATE_DIR/links.sh" <<SH
+printf 'https://example.com/s35\r\n'
+printf '\033]8;;https://example.com/osc8\033\\\\osc8-web-link-osc8-web-link\033]8;;\033\\\\\r\n'
+printf '\033]8;;x-apple.systempreferences:com.apple.Security\033\\\\osc8-custom-scheme-osc8-custom\033]8;;\033\\\\\r\n'
+printf '\033]8;;file:///System/Applications/Calculator.app\033\\\\osc8-application-osc8-application\033]8;;\033\\\\\r\n'
+printf '\033]8;;file://$dir/run.command\033\\\\osc8-command-file-osc8-command-file\033]8;;\033\\\\\r\n'
+printf '\033]8;;file://$dir/notes.txt\033\\\\osc8-text-file-osc8-text-file-osc8\033]8;;\033\\\\\r\n'
+printf '$dir/run.command\r\n'
+SH
+  kanna open --name s35 --cmd "sh '$KANNA_STATE_DIR/links.sh'; printf '\007\033]9;S35 NOTE\007\033]9;4;1;40\007'; sleep 1.5; printf '\033]777;notify;S35 T;S35 B\007S35-READY'; exec cat" >/dev/null || return 1
   check wait_for 5 shows s35 S35-READY || return 1
-  terminal cols '{"pane":"s35","click":{"at":[30,8],"mods":["cmd"]}}' >/dev/null || return 1
-  check wait_for 5 eval 'terminal opened "{\"pane\":\"s35\"}" | grep -q "https://example.com/s35"' || return 1
+  local row
+  for row in 0 1 2 3 4 5 6; do
+    terminal cols "{\"pane\":\"s35\",\"click\":{\"cell\":[3,$row],\"mods\":[\"cmd\"]}}" >/dev/null || return 1
+  done
+  local links
+  check wait_for 5 eval 'test "$(terminal links "{\"pane\":\"s35\"}" | python3 -c "import json, sys; print(len(json.load(sys.stdin)))")" == 7' || { terminal links '{"pane":"s35"}'; return 1; }
+  links="$(terminal links '{"pane":"s35"}' | python3 -c 'import json, sys; print("\n".join(l["decision"] + " " + l["url"] for l in json.load(sys.stdin)))')"
+  check test "$links" == "allow https://example.com/s35
+allow https://example.com/osc8
+confirm x-apple.systempreferences:com.apple.Security
+deny:unsafeFile file:///System/Applications/Calculator.app
+deny:unsafeFile file://$dir/run.command
+allow file://$dir/notes.txt
+deny:unsafeFile $dir/run.command" || { echo "$links"; return 1; }
+  check test "$(terminal opened '{"pane":"s35"}' | python3 -c 'import json, sys; print(len(json.load(sys.stdin)))')" == 3 || return 1
   check test "$(terminal bells '{"pane":"s35"}')" -ge 1 || return 1
   check terminal notifications '{"pane":"s35"}' | grep -q "S35 NOTE" || return 1
   check terminal notifications '{"pane":"s35"}' | grep -q "S35 B" || return 1

@@ -27,7 +27,8 @@ enum TerminalDebug {
                 "title": .string(view.title), "hoveredLink": view.hoveredLink.map { .string($0) } ?? .null,
                 "selection": .bool(ghostty_surface_has_selection(surface)), "background": background.map { .string($0) } ?? .null,
                 "clipboard": effects.read(GHOSTTY_CLIPBOARD_STANDARD).map { .string($0) } ?? .null,
-                "opened": .array(effects.opened.map { .string($0) }), "bells": .number(Double(effects.bells)),
+                "opened": .array(effects.opened.map { .string($0) }),
+                "links": .array(effects.links.map { ["url": .string($0.url), "decision": .string($0.decision)] }), "bells": .number(Double(effects.bells)),
                 "notifications": .array(effects.notifications.map { ["title": .string($0.title), "body": .string($0.body)] }),
                 "settings": .object(runtime.settings.objectFields), "focused": .bool(view.window?.firstResponder === view),
             ]
@@ -39,8 +40,16 @@ enum TerminalDebug {
     }
 
     private static func click(_ view: TerminalSurfaceView, _ click: [String: JSON]) throws {
-        guard let window = view.window, case .array(let at)? = click["at"], at.count == 2, let x = at[0].number, let y = at[1].number else {
-            throw KannaError("bad_request", "click needs at: [x, y] from the pane's top left")
+        guard let window = view.window, let surface = view.surface else { throw KannaError("not_found", "the terminal is not on screen") }
+        let x: Double, y: Double
+        if case .array(let at)? = click["at"], at.count == 2, let left = at[0].number, let top = at[1].number {
+            (x, y) = (left, top)
+        } else if case .array(let cell)? = click["cell"], cell.count == 2, let column = cell[0].number, let row = cell[1].number {
+            let size = ghostty_surface_size(surface)
+            let scale = Double(window.backingScaleFactor)
+            (x, y) = (2 + (column + 0.5) * Double(size.cell_width_px) / scale, 2 + (row + 0.5) * Double(size.cell_height_px) / scale)
+        } else {
+            throw KannaError("bad_request", "click needs at: [x, y] from the pane's top left, or cell: [column, row]")
         }
         var flags: NSEvent.ModifierFlags = []
         if case .array(let mods)? = click["mods"] {

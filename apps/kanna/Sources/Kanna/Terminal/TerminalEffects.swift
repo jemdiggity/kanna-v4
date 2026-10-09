@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import KannaLinks
 import UserNotifications
 
 @MainActor
@@ -8,6 +9,7 @@ final class TerminalEffects {
     let general: NSPasteboard
     let selection: NSPasteboard
     private(set) var opened: [String] = []
+    private(set) var links: [(url: String, decision: String)] = []
     private(set) var notifications: [(title: String, body: String)] = []
     private(set) var bells = 0
     var authorized: Bool?
@@ -37,10 +39,35 @@ final class TerminalEffects {
         board.setString(text, forType: .string)
     }
 
-    func open(_ url: String) {
-        if recording { return opened.append(url) }
-        let target = URL(string: url).flatMap { $0.scheme == nil ? nil : $0 } ?? URL(fileURLWithPath: (url as NSString).expandingTildeInPath)
-        NSWorkspace.shared.open(target)
+    func open(_ text: String, kind: ghostty_action_open_url_kind_e, in window: NSWindow?) {
+        if kind == GHOSTTY_ACTION_OPEN_URL_KIND_TEXT || kind == GHOSTTY_ACTION_OPEN_URL_KIND_HTML {
+            return openScreenFile(text, asText: kind == GHOSTTY_ACTION_OPEN_URL_KIND_TEXT)
+        }
+        let link = kind == GHOSTTY_ACTION_OPEN_URL_KIND_OSC8 ? UntrustedURL(text) : UntrustedURL(clicked: text)
+        let decision = link.decision
+        if recording {
+            links.append((text, decision.name))
+            if case .allow(let url) = decision { opened.append(url.absoluteString) }
+            return
+        }
+        switch decision {
+        case .allow(let url): NSWorkspace.shared.open(url)
+        case .confirm(let url): LinkAlert.confirm(url, showing: link.displayString, in: window)
+        case .deny(let reason):
+            LinkAlert.block(reason, showing: link.displayString, in: window) { [weak self] target in
+                self?.write(target, to: GHOSTTY_CLIPBOARD_STANDARD)
+            }
+        }
+    }
+
+    private func openScreenFile(_ path: String, asText: Bool) {
+        let url = URL(filePath: NSString(string: path).standardizingPath)
+        if recording { return opened.append(url.absoluteString) }
+        guard asText, let editor = NSWorkspace.shared.urlForApplication(toOpen: url) ?? NSWorkspace.shared.urlForApplication(toOpen: .plainText) else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
     }
 
     func ring(_ features: UInt32, in window: NSWindow?) {
