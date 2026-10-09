@@ -538,3 +538,56 @@ fn detach_fails_when_the_keeper_cannot_listen() {
     assert!(stderr.contains("keeper.sock"), "{stderr}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn concurrent_connect_or_start_all_reach_one_keeper() {
+    for _ in 0..5 {
+        let dir = private_dir();
+        let state = dir.join("state");
+        let threads: Vec<_> = (0..12)
+            .map(|_| {
+                let state = state.clone();
+                std::thread::spawn(move || {
+                    let mut c = Client::connect_or_start(&state, Path::new(BIN)).map_err(|e| e.to_string())?;
+                    c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+                    c.hello().map(|h| h.1).map_err(|e| e.to_string())
+                })
+            })
+            .collect();
+        let pids: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+        let keeper: Option<i32> =
+            std::fs::read_to_string(state.join("keeper.pid")).ok().and_then(|p| p.trim().parse().ok());
+        if let Some(pid) = keeper {
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            wait_for("the detached keeper to stop", || !alive(pid));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        for pid in &pids {
+            assert_eq!(pid.as_ref().ok(), keeper.as_ref(), "{pids:?}");
+        }
+    }
+}
+
+#[test]
+fn a_connection_made_while_the_keeper_goes_idle_is_served() {
+    let dir = private_dir();
+    let state = dir.join("state");
+    let socket = state.join("keeper.sock");
+    let mut keeper =
+        KilledOnDrop(clean_command(&state, &dir.join("home")).env("KANNA_KEEPER_IDLE_MS", "3").spawn().unwrap());
+    let mut served = 0;
+    let mut i = 0u64;
+    while keeper.0.try_wait().unwrap().is_none() {
+        i += 1;
+        let Ok(mut c) = Client::connect(&socket) else { continue };
+        c.set_timeout(Some(Duration::from_secs(5))).unwrap();
+        if let Err(e) = c.hello() {
+            panic!("connected after {served} served, then: {e}");
+        }
+        served += 1;
+        drop(c);
+        std::thread::sleep(Duration::from_micros((i % 9) * 700));
+        assert!(served < 20_000);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

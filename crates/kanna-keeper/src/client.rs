@@ -11,6 +11,8 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+pub const START_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// A pty the keeper holds: the process in it, and a copy of its master for
 /// the daemon to read, write and resize.
 #[derive(Debug)]
@@ -116,19 +118,40 @@ impl Client {
     /// spawned process's environment.
     pub fn connect_or_start(state_dir: &Path, keeper_bin: &Path) -> io::Result<Self> {
         let socket = paths::socket(state_dir);
-        if let Ok(client) = Self::connect(&socket) {
-            return Ok(client);
+        let deadline = Instant::now() + START_TIMEOUT;
+        let mut backoff = Duration::from_millis(5);
+        loop {
+            let error = match Self::connect(&socket) {
+                Ok(client) => return Ok(client),
+                Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(e),
+                Err(e) => e,
+            };
+            if Instant::now() >= deadline {
+                return Err(keeper_error(format!("no keeper is listening on {}: {error}", socket.display())));
+            }
+            let out = std::process::Command::new(keeper_bin)
+                .arg("--state-dir")
+                .arg(state_dir)
+                .arg("--detach")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .output()?;
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                return Err(keeper_error(format!(
+                    "{} --detach failed ({}): {}",
+                    keeper_bin.display(),
+                    out.status,
+                    stderr.trim()
+                )));
+            }
+            if let Ok(client) = Self::connect(&socket) {
+                return Ok(client);
+            }
+            std::thread::sleep(backoff.min(deadline.saturating_duration_since(Instant::now())));
+            backoff = (backoff * 2).min(Duration::from_millis(200));
         }
-        let status = std::process::Command::new(keeper_bin)
-            .arg("--state-dir")
-            .arg(state_dir)
-            .arg("--detach")
-            .stdin(std::process::Stdio::null())
-            .status()?;
-        if !status.success() {
-            return Err(keeper_error(format!("{} --detach failed: {status}", keeper_bin.display())));
-        }
-        Self::connect(&socket)
     }
 
     pub fn set_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {

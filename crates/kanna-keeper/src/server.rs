@@ -13,7 +13,7 @@ use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Connections at once; more are refused.
@@ -155,8 +155,6 @@ struct Keeper {
     stop: bool,
 }
 
-/// What `--detach` hears on its pipe: [`LISTENING`], [`ALREADY_RUNNING`],
-/// or [`FAILED`] followed by the error.
 pub const LISTENING: u8 = b'1';
 pub const ALREADY_RUNNING: u8 = b'2';
 pub const FAILED: u8 = b'E';
@@ -168,8 +166,7 @@ fn tell(ready: Option<&OwnedFd>, bytes: &[u8]) {
 }
 
 /// Runs the keeper until it is idle or told to stop (SIGTERM, SIGINT).
-/// Returns at once if another keeper holds the state directory. `ready`
-/// gets [`LISTENING`] once the socket listens, or [`ALREADY_RUNNING`].
+/// Returns at once if another keeper holds the state directory.
 pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
     sig::cloexec_inherited();
     let dir = settings.state_dir.clone();
@@ -197,13 +194,7 @@ pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
     }
     let sigs = sig::pipe(&[libc::SIGCHLD, libc::SIGTERM, libc::SIGINT])?;
     let sock = paths::socket(&dir);
-    let _ = std::fs::remove_file(&sock);
-    let old = unsafe { libc::umask(0o177) };
-    let listener = UnixListener::bind(&sock);
-    unsafe { libc::umask(old) };
-    let listener = listener.with_context(|| format!("binding {}", sock.display()))?;
-    std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600))?;
-    listener.set_nonblocking(true)?;
+    let listener = listen(&sock)?;
     let pid_file = paths::pid(&dir);
     std::fs::write(&pid_file, format!("{}\n", std::process::id()))?;
     tell(ready, &[LISTENING]);
@@ -227,6 +218,17 @@ pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
     }
     drop(lock);
     result
+}
+
+fn listen(sock: &Path) -> Result<UnixListener> {
+    let _ = std::fs::remove_file(sock);
+    let old = unsafe { libc::umask(0o177) };
+    let listener = UnixListener::bind(sock);
+    unsafe { libc::umask(old) };
+    let listener = listener.with_context(|| format!("binding {}", sock.display()))?;
+    std::fs::set_permissions(sock, std::fs::Permissions::from_mode(0o600))?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
 }
 
 fn pollfd(fd: libc::c_int, events: libc::c_short) -> libc::pollfd {
@@ -302,9 +304,26 @@ impl Keeper {
     fn check_idle(&mut self) {
         if !self.idle() {
             self.idle_since = Instant::now();
-        } else if self.idle_since.elapsed() >= self.settings.idle {
-            self.stop = true;
+            return;
         }
+        if self.idle_since.elapsed() < self.settings.idle {
+            return;
+        }
+        let sock = paths::socket(&self.settings.state_dir);
+        let _ = std::fs::remove_file(&sock);
+        self.accept();
+        if self.conns.is_empty() {
+            self.stop = true;
+            return;
+        }
+        match listen(&sock) {
+            Ok(listener) => self.listener = listener,
+            Err(e) => {
+                eprintln!("kanna-keeper: {e:#}");
+                self.stop = true;
+            }
+        }
+        self.idle_since = Instant::now();
     }
 
     fn run_kills(&mut self) {
@@ -522,10 +541,9 @@ fn valid_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `--detach`: runs the keeper in the background, in its own session, in
-/// `/`, with stdio on /dev/null and stderr appended to keeper.log. Returns
-/// once it is listening or has found another keeper running, and fails
-/// with the keeper's error if it stopped before listening.
+/// `--detach`: runs the keeper in the background, in its own session, with
+/// stdio on /dev/null and stderr appended to keeper.log. Returns once it is
+/// listening, or once it has found another keeper already running.
 pub fn detach(mut settings: Settings) -> Result<()> {
     paths::ensure_dir(&settings.state_dir).with_context(|| format!("state directory {}", settings.state_dir.display()))?;
     settings.state_dir = std::path::absolute(&settings.state_dir)?;

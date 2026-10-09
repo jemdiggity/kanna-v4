@@ -140,10 +140,10 @@ stateDiagram-v2
 |---|---|
 | **Command line** | `kanna-keeper [--state-dir DIR] [--detach]`. DIR defaults to `$KANNA_STATE_DIR`, else `~/Library/Application Support/kanna` (macOS) or `$XDG_DATA_HOME/kanna`. |
 | **Starting** | The daemon runs `kanna-keeper --state-dir DIR --detach` (via the client's `connect_or_start`): it double-forks into its own session, changes to `/`, stdio on `/dev/null`, stderr appended to `keeper.log`, and returns once the socket listens (or it found another keeper listening). If the keeper fails before listening, `--detach` prints its error and exits 1; the keeper reports which over a pipe (`1` listening, `2` another keeper, `E` and the error). Without `--detach` it runs in the foreground. |
-| **One per directory** | `flock` on `keeper.lock`; a second keeper returns at once, successfully. |
+| **One per directory** | `flock` on `keeper.lock`; a second keeper returns at once, successfully (with `--detach`, reporting another keeper). The lock's owner may still be starting or already stopping, so `connect_or_start` keeps connecting, and starting a keeper again, with backoff for up to 5 s. |
 | **Files** | `keeper.sock`, `keeper.lock`, `keeper.pid`, `keeper.log` in DIR. |
 | **Client gone** | Nothing happens: the processes and the keeper's copies stay. |
-| **Idle exit** | After 60 s with no live process, no client and nothing being closed. Unacknowledged exits don't keep it. |
+| **Idle exit** | After 60 s with no live process, no client and nothing being closed. Unacknowledged exits don't keep it. It first unlinks the socket, so no one else can connect, then accepts whoever connected meanwhile; if anyone did, it listens again and carries on. |
 | **Signals** | It unblocks SIGCHLD, SIGTERM and SIGINT at start: the daemon that starts it blocks the signals it waits for, and children inherit that. |
 | **SIGTERM / SIGINT** | It exits without signalling anyone. Its copies close; a pty with no other copy hangs up, and its processes get SIGHUP from the kernel. |
 
@@ -153,7 +153,7 @@ stateDiagram-v2
 
 | Call | Does |
 |---|---|
-| `Client::connect(socket)` / `Client::connect_or_start(state_dir, keeper_bin)` | connects (checking the keeper runs as the same user), starting a detached keeper if none listens |
+| `Client::connect(socket)` / `Client::connect_or_start(state_dir, keeper_bin)` | connects (checking the keeper runs as the same user), starting a detached keeper if none listens; retries for up to `START_TIMEOUT` (5 s), and fails with the keeper's own error if `--detach` does |
 | `hello() -> (version, pid)` | the daemon compares `version` with its `PROTOCOL_VERSION` and refuses a keeper that differs, saying which pid to stop |
 | `spawn(&SpawnRequest) -> Pty` | `SpawnRequest::shell(id)` / `::command(id, cmd)`, then set `shell`, `cwd`, `env`, `cols`, `rows` |
 | `adopt() -> Vec<Pty>` | every pty held; `Pty { id, pid, cmd, cwd, master: OwnedFd, exit }` |
