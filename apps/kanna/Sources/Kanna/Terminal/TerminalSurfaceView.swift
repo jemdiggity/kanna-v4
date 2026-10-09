@@ -20,6 +20,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     let surfaceID: UInt
     var address: UInt { surfaceID }
     private var occlusionObserver: NSObjectProtocol?
+    private var trackingArea: NSTrackingArea?
     private var marked = NSMutableAttributedString()
     private var accumulating: [String]?
     private var suppressedKeyUps = Set<UInt16>()
@@ -264,7 +265,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
     }
 
     private func mouseButton(_ event: NSEvent, _ action: ghostty_input_mouse_state_e, _ button: ghostty_input_mouse_button_e) {
