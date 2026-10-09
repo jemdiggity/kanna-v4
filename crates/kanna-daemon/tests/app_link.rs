@@ -246,3 +246,23 @@ fn a_closed_pane_lets_go_of_its_pty() {
     unsafe { libc::kill(orphan, libc::SIGKILL) };
     assert_eq!(left, 0, "the daemon still holds the closed pane's pty");
 }
+
+#[test]
+fn output_inside_an_open_sequence_leaves_the_daemon_responsive() {
+    let instance = Instance::start();
+    let pane = instance.open("apc-flood", Some("printf 'x\\n'; i=0; line=$(printf '%0200d' 0); while [ $i -lt 12000 ]; do printf '\\033[3%dm%s\\033[0m\\n' $((i % 8)) \"$line\"; i=$((i+1)); done; printf '\\033_a\\235'; exec yes 0123456789abcdef"));
+    wait_for("the scrollback", || instance.screen(&pane).contains("0000000000"));
+    std::thread::sleep(Duration::from_secs(3));
+    let mut app = instance.app();
+    app.tell("attach", json!({"pane": pane}));
+    for _ in 0..20 {
+        app.tell("attach", json!({"pane": pane}));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let started = Instant::now();
+    for _ in 0..20 {
+        instance.call("list", json!({}));
+    }
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_secs(2), "20 lists took {elapsed:?}");
+}

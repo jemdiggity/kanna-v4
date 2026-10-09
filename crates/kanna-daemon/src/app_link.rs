@@ -47,6 +47,8 @@ impl Outbox {
     }
 }
 
+const SNAPSHOT_RETRY: Duration = Duration::from_millis(100);
+
 pub const APP_COMMANDS: [&str; 5] = ["debug.app", "debug.type", "debug.key", "debug.text", "debug.snapshot"];
 
 pub fn takeover(events: Sender<Event>) -> Takeover {
@@ -112,7 +114,7 @@ pub struct AppLink {
     timeout: Duration,
     next_id: Cell<u64>,
     attached: RefCell<HashSet<String>>,
-    unsent: RefCell<HashSet<String>>,
+    unsent: RefCell<HashMap<String, Instant>>,
     shown: RefCell<Option<Value>>,
 }
 
@@ -228,7 +230,11 @@ impl AppLink {
         let args = message.get("args").cloned().unwrap_or_else(|| json!({}));
         let pane = string(&args, "pane").unwrap_or_default().to_string();
         match string(&message, "cmd").unwrap_or_default() {
-            "attach" => self.attach(&pane),
+            "attach" => {
+                if !self.attached.borrow().contains(&pane) {
+                    self.attach(&pane);
+                }
+            }
             "detach" => {
                 self.attached.borrow_mut().remove(&pane);
                 self.unsent.borrow_mut().remove(&pane);
@@ -256,8 +262,9 @@ impl AppLink {
         let snapshot = match attach.snapshot {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                if self.unsent.borrow_mut().insert(pane.into()) {
-                    eprintln!("kanna-daemon: can't snapshot {pane} yet ({error}); trying again after its next output");
+                let retry = Instant::now() + SNAPSHOT_RETRY;
+                if self.unsent.borrow_mut().insert(pane.into(), retry).is_none() {
+                    eprintln!("kanna-daemon: can't snapshot {pane} yet ({error}); trying again shortly");
                 }
                 return;
             }
@@ -276,8 +283,8 @@ impl AppLink {
         if !self.shows(pane) {
             return;
         }
-        if self.unsent.borrow().contains(pane) {
-            return self.attach(pane);
+        if self.unsent.borrow().contains_key(pane) {
+            return;
         }
         self.notify("output", json!({ "pane": pane, "data": BASE64.encode(bytes) }));
     }
@@ -286,11 +293,8 @@ impl AppLink {
         if !self.shows(pane) {
             return;
         }
-        if self.unsent.borrow().contains(pane) {
-            self.attach(pane);
-            if !self.unsent.borrow().contains(pane) {
-                return;
-            }
+        if self.unsent.borrow().contains_key(pane) {
+            return;
         }
         self.notify("exited", json!({ "pane": pane, "code": code }));
     }
@@ -331,10 +335,19 @@ impl AppLink {
     }
 
     pub fn next_deadline(&self) -> Option<Instant> {
-        self.pending.borrow().values().map(|(deadline, _)| *deadline).min()
+        let replies = self.pending.borrow().values().map(|(deadline, _)| *deadline).min();
+        let snapshots = self.unsent.borrow().values().copied().min();
+        [replies, snapshots].into_iter().flatten().min()
     }
 
     pub fn expire(&self, now: Instant) {
+        let due: Vec<String> = self.unsent.borrow().iter().filter(|(_, retry)| **retry <= now).map(|(pane, _)| pane.clone()).collect();
+        for pane in due {
+            self.unsent.borrow_mut().remove(&pane);
+            if self.attached.borrow().contains(&pane) {
+                self.attach(&pane);
+            }
+        }
         let late: Vec<u64> = self.pending.borrow().iter().filter(|(_, (deadline, _))| *deadline <= now).map(|(id, _)| *id).collect();
         for id in late {
             let Some((_, responder)) = self.pending.borrow_mut().remove(&id) else { continue };
