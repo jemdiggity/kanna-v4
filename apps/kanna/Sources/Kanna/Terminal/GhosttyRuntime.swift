@@ -19,7 +19,6 @@ final class GhosttyRuntime {
     /// was already freed finds nothing instead of a dangling object.
     private var live: [UInt: TerminalSurfaceView] = [:]
     private var timer: Timer?
-    var onChildExited: ((TerminalSurfaceView, Int) -> Void)?
     var onClose: ((TerminalSurfaceView) -> Void)?
 
     init() throws {
@@ -31,17 +30,7 @@ final class GhosttyRuntime {
         var runtime = ghostty_runtime_config_s()
         runtime.supports_selection_clipboard = true
         runtime.wakeup_cb = { _ in DispatchQueue.main.async { MainActor.assumeIsolated { GhosttyRuntime.shared?.tick() } } }
-        runtime.action_cb = { _, target, action in
-            guard target.tag == GHOSTTY_TARGET_SURFACE,
-                  let userdata = target.target.surface.flatMap({ ghostty_surface_userdata($0) }) else { return false }
-            let address = UInt(bitPattern: userdata)
-            // Other actions (splits, tabs, …) aren't Kanna's yet: Ghostty's defaults apply.
-            guard action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED else { return false }
-            let code = Int(action.action.child_exited.exit_code)
-            let report: @Sendable () -> Void = { MainActor.assumeIsolated { GhosttyRuntime.shared?.childExited(address, code) } }
-            if Thread.isMainThread { report() } else { DispatchQueue.main.async { report() } }
-            return true
-        }
+        runtime.action_cb = { _, _, _ in false }
         runtime.read_clipboard_cb = { userdata, _, state, _, _, _ in
             let address = UInt(bitPattern: userdata)
             return MainActor.assumeIsolated { GhosttyRuntime.shared?.readClipboard(address, state: state) ?? GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
@@ -102,11 +91,6 @@ final class GhosttyRuntime {
     }
 
     private func tick() { ghostty_app_tick(app) }
-
-    private func childExited(_ address: UInt, _ code: Int) {
-        guard let view = live[address] else { return }
-        onChildExited?(view, code)
-    }
 
     private func readClipboard(_ address: UInt, state: UnsafeMutableRawPointer?) -> ghostty_clipboard_read_result_e {
         // Only a user-initiated paste may read; OSC 52 reads arrive with no
