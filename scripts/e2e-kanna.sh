@@ -166,16 +166,23 @@ S5() {
 }
 
 S6() {
-  start_daemon || return 1
+  start_daemon && start_app || return 1
   kanna open --name s6 >/dev/null || return 1
-  local pid
-  pid="$(pane s6 pid)"
-  kanna send s6 'sleep 2; echo S6-AFTER' || return 1
+  kanna open --name s6b --split right >/dev/null || return 1
+  local pid before
+  pid="$(pane s6 pid)" before="$(layout)"
+  kanna send s6 'echo S6-BEFORE; sleep 2; echo S6-AFTER' || return 1
+  check wait_for 5 shows s6 S6-BEFORE || return 1
   stop_daemon
   sleep 3
   start_daemon || return 1
   check is s6 pid "$pid" || return 1
-  check wait_for 5 shows s6 S6-AFTER
+  check shows s6 S6-BEFORE || return 1
+  check wait_for 5 shows s6 S6-AFTER || return 1
+  check wait_for 10 app_attached || return 1
+  check test "$(layout)" == "$before" || return 1
+  app_shows() { raw '{"id":1,"cmd":"debug.text","args":{"pane":"s6"}}' | field text | grep -q S6-AFTER; }
+  check wait_for 5 app_shows
 }
 
 S7() {
