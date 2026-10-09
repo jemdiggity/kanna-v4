@@ -42,8 +42,8 @@ const SUN_PATH: usize = 108;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 const SUN_PATH: usize = 104;
 
-/// Creates the directory 0700, or checks that an existing one is a real
-/// directory (not a symlink) that belongs to us, and tightens it to 0700.
+/// Creates the directory 0700, or checks that an existing one belongs to us
+/// and tightens it to 0700.
 pub fn ensure_dir(dir: &Path) -> io::Result<()> {
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     let path = std::ffi::CString::new(dir.as_os_str().as_bytes())
