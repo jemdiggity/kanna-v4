@@ -8,14 +8,15 @@
 2. [kmux: an app and its libraries](#2-kmux-an-app-and-its-libraries)
 3. [Kanna: what it builds from kmux](#3-kanna-what-it-builds-from-kmux)
 4. [Sessions and arrangement](#4-sessions-and-arrangement)
-5. [How the kanna CLI fits](#5-how-the-kanna-cli-fits)
-6. [The repos](#6-the-repos)
-7. [Typing and output](#7-typing-and-output)
-8. [Restarting the app](#8-restarting-the-app)
-9. [Restarting the daemon](#9-restarting-the-daemon)
-10. [Compared with kanna-v3](#10-compared-with-kanna-v3)
-11. [Build order](#11-build-order)
-12. [Glossary](#12-glossary)
+5. [Web and iOS panes](#5-web-and-ios-panes)
+6. [How the kanna CLI fits](#6-how-the-kanna-cli-fits)
+7. [The repos](#7-the-repos)
+8. [Typing and output](#8-typing-and-output)
+9. [Restarting the app](#9-restarting-the-app)
+10. [Restarting the daemon](#10-restarting-the-daemon)
+11. [Compared with kanna-v3](#11-compared-with-kanna-v3)
+12. [Build order](#12-build-order)
+13. [Glossary](#13-glossary)
 
 ---
 
@@ -46,12 +47,17 @@ flowchart TB
             UI["mux UI<br/>pane views, split and tab views"]
         end
         PTYB["terminal backend: pty<br/>upstream Ghostty"]
+        WEB["web views<br/>WebKit"]
+        SIMV["iOS screen<br/>SimulatorKit"]
         KUI --> UI
         KUI --> CORE
         UI --> PTYB
+        UI --> WEB
+        UI --> SIMV
     end
     CLI["kmux CLI, agents"] -->|"socket"| CORE
     PTYB --- SH["shells"]
+    SIMV <-->|"screen, touches"| SIM["iOS Simulator<br/>(its own processes)"]
 ```
 
 | Library | Layer | What's in it |
@@ -80,15 +86,21 @@ flowchart TB
         subgraph L3["kmux mux UI"]
             PANES["pane views"]
             EXT["terminal backend: external I/O<br/>(Kanna's, forked Ghostty)"]
+            WEB["web views<br/>WebKit"]
+            SIMV["iOS screen<br/>SimulatorKit"]
         end
         L1 --> L2
         L1 --> L3
         PANES --> EXT
+        PANES --> WEB
+        PANES --> SIMV
     end
     subgraph DP["Kanna daemon (process)"]
         CORE["kmux CLI shape<br/>protocol, sessions"]
         VT["a libghostty-vt screen per terminal"]
+        SIMC["iOS control<br/>simctl, touches, accessibility"]
     end
+    SIM["iOS Simulator<br/>(its own processes)"]
     subgraph KP["keeper (process)"]
         KEEPER["holds the ptys"]
     end
@@ -102,11 +114,14 @@ flowchart TB
     KEEPER -->|"creates, holds a copy"| PTY
     CORE <-->|"reads and writes"| PTY
     PTY --- SH
+    SIMV <-->|"screen, your touches"| SIM
+    SIMC <-->|"boot, launch, agent taps"| SIM
+    CORE -->|"web commands forwarded"| WEB
 ```
 
 | Kanna piece | Built from |
 |---|---|
-| **Kanna daemon** | kmux's CLI shape (KmuxCore) + a libghostty-vt screen per terminal + snapshots on disk |
+| **Kanna daemon** | kmux's CLI shape (KmuxCore) + a libghostty-vt screen per terminal + snapshots on disk + iOS control |
 | **Keeper** | the `feat/keeper` branch and v3's keeper |
 | **Kanna app** | Kanna's UI and Kanna layer + kmux's mux UI (KmuxUI) + Kanna's external-I/O terminal backend |
 | **`kanna` CLI** | kmux's client (kmux-client), pointed at Kanna's daemon |
@@ -123,6 +138,7 @@ flowchart LR
         S1["s1 terminal<br/>pty, screen, cwd, exit code"]
         S2["s2 web: URL"]
         S3["s3 markdown: file"]
+        S4["s4 iOS: device, app"]
     end
     subgraph K["Kanna app: arrangement"]
         DESK["Desk and Shelf<br/>s1 and s3 on the desk,<br/>s2 on the shelf"]
@@ -130,6 +146,7 @@ flowchart LR
     DESK -. "by ID" .-> S1
     DESK -.-> S2
     DESK -.-> S3
+    DESK -.-> S4
 ```
 
 | | What it is | Owned and saved by |
@@ -141,7 +158,42 @@ In the kmux app both live in the one process, as today: the sessions model and i
 
 ---
 
-## 5. How the kanna CLI fits
+## 5. Web and iOS panes
+
+Terminals can move into the daemon because a terminal is just bytes. Web pages and the iOS Simulator aren't, so each lives where it can.
+
+```mermaid
+flowchart LR
+    subgraph APP["Kanna app"]
+        WV["web view<br/>the live page"]
+        SV["iOS pane<br/>draws the device screen"]
+    end
+    subgraph D["Kanna daemon"]
+        WS["web session<br/>URL, history"]
+        IS["iOS session<br/>device, app"]
+        IC["iOS control"]
+    end
+    SIM["iOS Simulator device<br/>(CoreSimulator's own processes)"]
+    WS -. "app opens it at the URL" .-> WV
+    D -->|"web.eval, web.click, page text"| WV
+    SV <-->|"screen, your touches"| SIM
+    IC <-->|"boot, launch, taps,<br/>accessibility tree, screenshot"| SIM
+    IS --- IC
+```
+
+| | Web | iOS |
+|---|---|---|
+| The live thing | a WebKit view, which must be in the app (it can't be drawn from another process) | the simulator device, already its own processes; it outlives both the app and the daemon |
+| The daemon keeps | URL and history | device, app, and agent control (`tap`, `swipe`, `type`, accessibility tree, screenshots) |
+| The app keeps | the web view itself | a view of the device's screen, plus your mouse as touches |
+| App quits | the page reloads at its URL on relaunch; cookies and logins stay (on disk) | nothing is lost; the device keeps running |
+| Agents with the app closed | web commands fail clearly (or the CLI starts the app) | everything works |
+
+Pixels never go through the daemon: the iOS pane reads the screen straight from the simulator, as kmux's does today.
+
+---
+
+## 6. How the kanna CLI fits
 
 ```mermaid
 flowchart TB
@@ -158,16 +210,17 @@ flowchart TB
 |---|---|---|---|
 | `list`, `send`, `read`, `wait`, `close`, `restart` | sessions | daemon | works |
 | `navigate`, `snapshot --text` | session content | daemon | works |
+| iOS `tap`, `swipe`, `type`, accessibility tree, screenshots | the simulator | daemon | works |
 | `open term --cmd …` | creates a session | daemon | works: created, shown when the app opens |
 | `open … --split right`, `arrange`, `focus` | arrangement | forwarded to the app | fails clearly, or the CLI starts the app first |
-| pixel snapshots, web page text | the drawn view | forwarded to the app | fails clearly |
+| pixel snapshots of terminals, all `web.*` commands, web page text | the live view | forwarded to the app | fails clearly, or the CLI starts the app first |
 | later: `kanna task …`, "put this on the desk" | the Kanna layer | the app | needs the app |
 
 The `kmux` CLI is unchanged: it talks to the kmux app, which answers everything itself.
 
 ---
 
-## 6. The repos
+## 7. The repos
 
 ```mermaid
 flowchart LR
@@ -187,7 +240,7 @@ kmux only needs to let a build supply its own GhosttyKit. With that, **the kanna
 
 ---
 
-## 7. Typing and output
+## 8. Typing and output
 
 ```mermaid
 sequenceDiagram
@@ -211,7 +264,7 @@ The keeper isn't in the path of any byte.
 
 ---
 
-## 8. Restarting the app
+## 9. Restarting the app
 
 ```mermaid
 sequenceDiagram
@@ -228,7 +281,7 @@ sequenceDiagram
 
 ---
 
-## 9. Restarting the daemon
+## 10. Restarting the daemon
 
 ```mermaid
 sequenceDiagram
@@ -247,7 +300,7 @@ sequenceDiagram
 
 ---
 
-## 10. Compared with kanna-v3
+## 11. Compared with kanna-v3
 
 | | kanna-v3 | Now |
 |---|---|---|
@@ -260,7 +313,7 @@ sequenceDiagram
 
 ---
 
-## 11. Build order
+## 12. Build order
 
 ```mermaid
 flowchart LR
@@ -278,13 +331,14 @@ Clean-up: kmux's terminal-wrapper hook and `KMUX_RESTORED` are removed; the kann
 
 ---
 
-## 12. Glossary
+## 13. Glossary
 
 | Term | Meaning |
 |---|---|
 | **CLI shape** | kmux's protocol and sessions model: the commands and what they mean. Kanna's daemon runs it, so the `kanna` CLI matches `kmux`. |
 | **Mux UI** | kmux's views: the pane views (terminal, web, markdown, iOS) and the split and tab views. |
-| **Session** | One thing a pane shows: a terminal (pty, screen, cwd, exit code), or a web URL, a markdown file, an iOS app. |
+| **Session** | One thing a pane shows: a terminal (pty, screen, cwd, exit code), or a web URL, a markdown file, an iOS device and app. |
+| **SimulatorKit / CoreSimulator** | Xcode's private frameworks for drawing a simulator device's screen and sending it touches; kmux uses them today. |
 | **Arrangement** | Where sessions appear. kmux: windows, tabs, splits. Kanna: Desk and Shelf. |
 | **Kanna daemon** | Kanna's background process that owns the sessions. It outlives the Kanna app. kmux has none. |
 | **Keeper** | A tiny background process that only creates and holds the ptys, so shells outlive the daemon too. |
