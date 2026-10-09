@@ -19,6 +19,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// Started with `--bg` (or `KANNA_BG=1`), e.g. by tests: don't take over the screen.
     private let background = CommandLine.arguments.contains("--bg") || ProcessInfo.processInfo.environment["KANNA_BG"] == "1"
     private let echo = ProcessInfo.processInfo.environment["KANNA_ECHO"] == "1"
+    private let debugCommands = ProcessInfo.processInfo.environment["KANNA_DEBUG"] == "1"
     private var window: NSWindow!
     private var layout: LayoutView!
     private var focused: String?
@@ -151,6 +152,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     // MARK: Debug commands
 
     private func installCommands() {
+        guard debugCommands else { return }
         // The app is up: who it is, what it's attached to, what it shows.
         commands["debug.app"] = { [weak self] _ in
             var reply: [String: JSON] = [

@@ -26,9 +26,11 @@ enum Snapshot {
         }
         var out: [String: JSON] = ["window": .string(id), "width": .number(Double(image.width)), "height": .number(Double(image.height))]
         if let path {
-            let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: url)
+            let url = try outputURL(path)
+            guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+                throw KannaError("bad_request", "could not encode the snapshot")
+            }
+            try writeNew(png, to: url)
             out["path"] = .string(url.path)
         }
         let scale = CGFloat(image.width) / window.frame.width
@@ -49,6 +51,30 @@ enum Snapshot {
             return .object(result)
         })
         return out
+    }
+
+    private static var outputDirectory: URL {
+        if let dir = ProcessInfo.processInfo.environment["KANNA_STATE_DIR"], !dir.isEmpty { return URL(fileURLWithPath: dir, isDirectory: true) }
+        return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    }
+
+    private static func outputURL(_ name: String) throws -> URL {
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0") else {
+            throw KannaError("bad_request", "path must be a file name; snapshots are saved in \(outputDirectory.path)")
+        }
+        return outputDirectory.appendingPathComponent(name, isDirectory: false)
+    }
+
+    private static func writeNew(_ data: Data, to url: URL) throws {
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw KannaError("bad_request", "can't create \(url.path): \(String(cString: strerror(errno)))") }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: data)
+        } catch {
+            unlink(url.path)
+            throw KannaError("bad_request", "can't write \(url.path): \(error.localizedDescription)")
+        }
     }
 }
 
