@@ -18,6 +18,7 @@
    - 4.4 [Languages and Platforms](#44-languages-and-platforms)
    - 4.5 [The App Link](#45-the-app-link)
    - 4.6 [The App's Terminal Views](#46-the-apps-terminal-views)
+   - 4.7 [The Layout](#47-the-layout)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -291,6 +292,37 @@ sequenceDiagram
 - **Clipboard reads need a paste.** Only a user-initiated paste reads the clipboard; an OSC 52 read, which arrives with no input event in flight, is answered with nothing.
 - **Focus follows the first responder**, not key-window status, so a pane keeps its focused cursor across reparenting. `ghostty_surface_set_occlusion` takes visibility: false stops the renderer updating at all, so `KANNA_IGNORE_OCCLUSION=1` (the test scripts) keeps hidden windows drawing.
 - **`debug.snapshot` captures with `CGWindowListCreateImage`**, looked up at run time: it is obsoleted in the macOS 15 SDK but still exported, and an app may capture its own windows without the screen-recording permission ScreenCaptureKit needs.
+
+### 4.7 The Layout
+
+The app owns the layout (windows, tabs, splits, focus, zoom; later Desk and Shelf) and saves it; the daemon owns the terminals.
+
+**Design: one layout model, in Rust, run by the app.** The layout logic is `kanna-mux`'s model (ported from kmux, checked with kmux's protocol cases); there is no second copy in Swift. The app links it as a static library (`crates/kanna-layout`, a small C interface taking and returning JSON) and is the only process that holds a layout: it applies layout commands to it, draws it, and saves it. The daemon's `kanna-mux` core keeps the protocol and the panes, and reaches the layout through an asynchronous seam, `LayoutLink`; in the daemon that link is the app link, so each layout step is a request to the app. Why this and not kmux's Swift model copied into the app:
+
+- **One implementation.** A Swift copy would be a second layout model to keep in step with the Rust one that `kanna-mux` (and its tests) needs anyway; every kmux change would be ported twice.
+- **Conformance is checked on what runs.** kmux's protocol cases run against `kanna-mux` twice: with the model in-process, and with the model behind the same JSON requests the app answers (`LayoutOwner`, the code the app runs), its answers arriving later as they do over the app link.
+- **Linux.** A Linux UI gets the same layout by linking the same library.
+- **The app knows the views.** Choices only a UI can make (which way an `auto` split goes, window frames) are made where the views are.
+
+```mermaid
+flowchart LR
+    CLI["kanna CLI"] -->|"open --split right"| CORE
+    subgraph D["daemon"]
+        CORE["kanna-mux core<br/>protocol · panes"] --> LINK["LayoutLink:<br/>the app link"]
+    end
+    subgraph A["Kanna app"]
+        OWNER["LayoutOwner (Rust, kanna-layout)<br/>kanna-mux's layout model"] --> VIEW["windows, splits<br/>(Swift views)"]
+        OWNER --> FILE[("layout.json")]
+    end
+    LINK -->|"layout {op: place, …}"| OWNER
+    OWNER -->|"ok {window}"| LINK
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class CORE,LINK,OWNER kmux
+    class VIEW,FILE kanna
+    class CLI ext
+```
 
 ---
 
