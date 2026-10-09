@@ -299,6 +299,12 @@ impl CoreHandle {
         self.0.exec.run();
     }
 
+    pub fn set_pid(&self, id: &str, pid: Option<i64>) {
+        if let Some(pane) = self.state().panes.get_mut(id) {
+            pane.pid = pid;
+        }
+    }
+
     /// A web page followed a link or redirect on its own.
     pub fn page_moved(&self, id: &str, url: &str) {
         if let Some(pane) = self.state().panes.get_mut(id) {
@@ -600,6 +606,7 @@ impl CoreHandle {
         }
         if let Some(pane) = self.state().panes.get_mut(id) {
             pane.state = PaneState::Starting;
+            pane.pid = None;
             if clear_exit {
                 pane.exit_code = None;
             }

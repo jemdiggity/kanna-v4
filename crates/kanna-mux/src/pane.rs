@@ -83,6 +83,7 @@ pub struct Pane {
     /// Terminals: reserved for re-attaching a hosted terminal session. Saved
     /// and restored, unused for now.
     pub session: Option<String>,
+    pub pid: Option<i64>,
 }
 
 impl Pane {
@@ -103,6 +104,7 @@ impl Pane {
             history: None,
             zoom: None,
             session: None,
+            pid: None,
         }
     }
 
@@ -124,6 +126,9 @@ impl Pane {
             PaneType::Term => {
                 out.insert("cmd".into(), opt(self.command.as_deref()));
                 out.insert("cwd".into(), opt(self.cwd.as_deref()));
+                if let Some(pid) = self.pid {
+                    out.insert("pid".into(), num(pid as f64));
+                }
             }
             PaneType::Web => {
                 out.insert("url".into(), opt(self.url.as_deref()));
@@ -220,5 +225,18 @@ impl Panes {
         self.order = panes.iter().map(|p| p.id.clone()).collect();
         self.panes = panes.into_iter().map(|p| (p.id.clone(), p)).collect();
         self.counter = self.counter.max(counter);
+    }
+}
+
+#[cfg(test)]
+mod pid_tests {
+    use super::*;
+
+    #[test]
+    fn a_terminal_lists_its_pid_once_it_has_one() {
+        let mut pane = Pane::new("p1", None, PaneType::Term);
+        assert!(pane.summary().get("pid").is_none());
+        pane.pid = Some(4242);
+        assert_eq!(pane.summary().get("pid").and_then(|v| v.as_f64()), Some(4242.0));
     }
 }
