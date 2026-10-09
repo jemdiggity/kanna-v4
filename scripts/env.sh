@@ -58,3 +58,9 @@ kanna_ghostty_source() {
   fi
   echo "$dir"
 }
+
+kanna_ghostty_rev() {
+  rev="$(git -C "$1" rev-parse HEAD 2>/dev/null)" || { echo unknown; return; }
+  if [ -n "$(git -C "$1" status --porcelain 2>/dev/null)" ]; then rev="$rev-dirty"; fi
+  echo "$rev"
+}

@@ -38,9 +38,14 @@ done
 # A private instance. This may run inside a Kanna pane, whose variables point
 # at your Kanna: replace them all.
 unset KANNA_PANE KANNA_INSTANCE
-export KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)"
-export KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
+new_state_dir() {
+  KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)" || exit 1
+  [[ -n "$KANNA_STATE_DIR" && -d "$KANNA_STATE_DIR" ]] || { echo "e2e-kanna: mktemp gave no folder" >&2; exit 1; }
+  export KANNA_STATE_DIR KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
+}
+new_state_dir
 export KANNA_IGNORE_OCCLUSION=1 # draw even if the window is covered
+export KANNA_DEBUG=1
 daemon_pid="" app_pid=""
 
 # ── the instance ──────────────────────────────────────────────────────────
@@ -124,7 +129,8 @@ S2() {
   raw '{"id":1,"cmd":"debug.type","args":{"pane":"s2","text":"echo S2-$((40+2))\r"}}' >/dev/null
   check wait_for 5 shows s2 S2-42 || return 1
   local drawn
-  drawn="$(raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$out/s2.png\",\"marker\":\"S2-42\"}}")"
+  drawn="$(raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"s2.png","marker":"S2-42"}}')"
+  cp "$KANNA_STATE_DIR/s2.png" "$out/s2.png" 2>/dev/null
   check python3 -c 'import json, sys
 m = [p["marker"] for p in json.loads(sys.argv[1])["panes"] if p.get("marker", {}).get("found")]
 assert m and all(x["inked"] == x["glyphs"] > 0 for x in m)' "$drawn"
@@ -218,8 +224,7 @@ for s in "${scenarios[@]}"; do
   if [[ "$m" > "$through" ]]; then printf '%-3s --   not due (%s)\n' "$s" "$m"; continue; fi
   # Each scenario on a fresh instance, in this shell (so we keep its PIDs).
   cleanup
-  export KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)"
-  export KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
+  new_state_dir
   if "$s" >"$out/$s.log" 2>&1; then
     printf '%-3s PASS (%s)\n' "$s" "$m"; passed=$((passed + 1))
   else

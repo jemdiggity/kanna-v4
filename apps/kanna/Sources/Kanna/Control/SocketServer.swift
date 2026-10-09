@@ -10,7 +10,11 @@ final class SocketServer: @unchecked Sendable {
 
     let path: String
     private let handler: Handler
+    private let lock = NSLock()
     private var listener: Int32 = -1
+    private var connections = 0
+    private static let maxConnections = 16
+    private static let maxLineBytes = 1 << 20
 
     init(path: String, handler: @escaping Handler) {
         self.path = path
@@ -23,39 +27,73 @@ final class SocketServer: @unchecked Sendable {
         }
         try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         if Self.isListening(path) { throw KannaError("bad_request", "another Kanna.app is already listening on \(path)") }
-        unlink(path)
-
-        listener = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard listener >= 0 else { throw posixError("socket") }
-        var address = Self.address(path)
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        var info = stat()
+        if lstat(path, &info) == 0 {
+            guard info.st_mode & S_IFMT == S_IFSOCK else { throw KannaError("bad_request", "\(path) exists and is not a socket") }
+            unlink(path)
         }
-        guard bound == 0 else { throw posixError("bind") }
-        chmod(path, 0o600)
-        guard listen(listener, 16) == 0 else { throw posixError("listen") }
 
-        let thread = Thread { [self] in acceptLoop() }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw posixError("socket") }
+        var address = Self.address(path)
+        let mask = umask(0o177)
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        umask(mask)
+        guard bound == 0 else {
+            let error = posixError("bind")
+            close(fd)
+            throw error
+        }
+        guard listen(fd, 16) == 0 else {
+            let error = posixError("listen")
+            close(fd)
+            unlink(path)
+            throw error
+        }
+        lock.withLock { listener = fd }
+
+        let thread = Thread { [self] in acceptLoop(fd) }
         thread.name = "kanna.socket"
         thread.start()
     }
 
     func stop() {
-        if listener >= 0 { close(listener) }
-        listener = -1
-        unlink(path)
+        let fd = lock.withLock {
+            let fd = listener
+            listener = -1
+            return fd
+        }
+        guard fd >= 0 else { return }
+        shutdown(fd, SHUT_RDWR)
+        close(fd)
+        var info = stat()
+        if lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFSOCK { unlink(path) }
     }
 
-    private func acceptLoop() {
+    private func acceptLoop(_ fd: Int32) {
         while true {
-            let client = accept(listener, nil, nil)
+            let client = accept(fd, nil, nil)
             if client < 0 {
                 if errno == EINTR { continue }
                 return
             }
+            let admitted = lock.withLock {
+                guard listener == fd, connections < Self.maxConnections else { return false }
+                connections += 1
+                return true
+            }
+            guard admitted else {
+                close(client)
+                continue
+            }
             var noSigPipe: Int32 = 1
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-            Thread { [self] in serve(client) }.start()
+            Thread { [self] in
+                serve(client)
+                lock.withLock { connections -= 1 }
+            }.start()
         }
     }
 
@@ -71,12 +109,20 @@ final class SocketServer: @unchecked Sendable {
                 let line = buffer[buffer.startIndex..<newline]
                 buffer.removeSubrange(buffer.startIndex...newline)
                 if line.allSatisfy({ $0 == UInt8(ascii: " ") || $0 == UInt8(ascii: "\r") }) { continue }
-                var reply = respond(Data(line)).encoded()
+                var reply = (line.count > Self.maxLineBytes ? Self.tooLong : respond(Data(line))).encoded()
                 reply.append(UInt8(ascii: "\n"))
                 guard writeAll(client, reply) else { return }
             }
+            if buffer.count > Self.maxLineBytes {
+                var reply = Self.tooLong.encoded()
+                reply.append(UInt8(ascii: "\n"))
+                _ = writeAll(client, reply)
+                return
+            }
         }
     }
+
+    private static let tooLong: JSON = ["id": nil, "ok": false, "error": ["code": "bad_request", "message": "request is longer than 1 MiB"]]
 
     private func respond(_ line: Data) -> JSON {
         guard let request = try? JSON.parse(line) else {

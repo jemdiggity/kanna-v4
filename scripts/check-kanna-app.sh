@@ -12,8 +12,11 @@ app="$repo_root/target/Kanna.app/Contents/MacOS/Kanna"
 out="$repo_root/target/check-kanna-app"
 mkdir -p "$out"
 dir="$(mktemp -d "${TMPDIR:-/tmp}/kanna-check.XXXXXX")"
+[[ -n "$dir" && -d "$dir" ]] || { echo "FAIL: mktemp gave no folder" >&2; exit 1; }
 # Echo mode: no daemon; the app's one terminal echoes, on its own debug socket.
 export KANNA_ECHO=1
+export KANNA_DEBUG=1
+export KANNA_STATE_DIR="$dir"
 export KANNA_APP_SOCKET="$dir/app.sock"
 export KANNA_IGNORE_OCCLUSION=1 # draw even if the window is covered
 
@@ -55,21 +58,28 @@ done
 [[ "$(printf '%s\n' "$text" | head -1)" == "echo hi" ]] || fail "the terminal shows: $(printf '%q' "$text")"
 
 # 3. And it's drawn: every glyph of the marker has ink in the window.
-snapshot=""
-for _ in $(seq 20); do
-  snapshot="$(raw "{\"id\":4,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$out/echo.png\",\"marker\":\"echo hi\"}}")"
-  python3 - "$snapshot" <<'PY' && break
+drawn() {
+  python3 - "$1" <<'PY'
 import json, sys
 marker = json.loads(sys.argv[1])["panes"][0].get("marker", {})
 sys.exit(0 if marker.get("found") and marker["inked"] == marker["glyphs"] > 0 else 1)
 PY
+}
+snapshot=""
+for _ in $(seq 20); do
+  snapshot="$(raw '{"id":4,"cmd":"debug.snapshot","args":{"marker":"echo hi"}}')"
+  drawn "$snapshot" && break
   sleep 0.2
 done
-python3 - "$snapshot" <<'PY' || fail "echo hi is not drawn: $snapshot"
-import json, sys
-marker = json.loads(sys.argv[1])["panes"][0].get("marker", {})
-assert marker.get("found") and marker["inked"] == marker["glyphs"] > 0, marker
-PY
+snapshot="$(raw '{"id":5,"cmd":"debug.snapshot","args":{"path":"echo.png","marker":"echo hi"}}')"
+drawn "$snapshot" || fail "echo hi is not drawn: $snapshot"
+[[ -f "$dir/echo.png" ]] || fail "debug.snapshot did not save echo.png in $dir: $snapshot"
+cp "$dir/echo.png" "$out/echo.png"
+
+for name in echo.png ../escape.png /tmp/escape.png; do
+  reply="$(raw "{\"id\":6,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$name\"}}")"
+  [[ "$(field ok <<<"$reply")" == False ]] || fail "debug.snapshot wrote $name: $reply"
+done
 
 # 4. It stops cleanly when asked, and takes its socket with it.
 kill "$app_pid"

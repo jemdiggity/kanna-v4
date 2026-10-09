@@ -21,18 +21,20 @@ enum Snapshot {
     static func run(_ window: NSWindow, id: String, panes: [(id: String, view: NSView)], path: String?, marker: String?) throws -> [String: JSON] {
         // kCGWindowListOptionIncludingWindow; boundsIgnoreFraming | bestResolution.
         guard let image = createImage?(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0 | 1 << 3)?.takeRetainedValue(),
-              let data = image.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else {
+              let data = image.dataProvider?.data else {
             throw KannaError("bad_request", "window capture unavailable")
         }
         var out: [String: JSON] = ["window": .string(id), "width": .number(Double(image.width)), "height": .number(Double(image.height))]
         if let path {
-            let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: url)
+            let url = try outputURL(path)
+            guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+                throw KannaError("bad_request", "could not encode the snapshot")
+            }
+            try writeNew(png, to: url)
             out["path"] = .string(url.path)
         }
         let scale = CGFloat(image.width) / window.frame.width
-        let reader = Pixels(bytes: bytes, image: image)
+        let reader = Pixels(bytes: [UInt8](data as Data), image: image)
         out["panes"] = .array(panes.map { id, view in
             let inWindow = view.convert(view.bounds, to: nil)
             let rect = CGRect(x: inWindow.minX * scale, y: (window.frame.height - inWindow.maxY) * scale, width: inWindow.width * scale, height: inWindow.height * scale)
@@ -49,6 +51,30 @@ enum Snapshot {
             return .object(result)
         })
         return out
+    }
+
+    private static var outputDirectory: URL {
+        if let dir = ProcessInfo.processInfo.environment["KANNA_STATE_DIR"], !dir.isEmpty { return URL(fileURLWithPath: dir, isDirectory: true) }
+        return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    }
+
+    private static func outputURL(_ name: String) throws -> URL {
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0") else {
+            throw KannaError("bad_request", "path must be a file name; snapshots are saved in \(outputDirectory.path)")
+        }
+        return outputDirectory.appendingPathComponent(name, isDirectory: false)
+    }
+
+    private static func writeNew(_ data: Data, to url: URL) throws {
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw KannaError("bad_request", "can't create \(url.path): \(String(cString: strerror(errno)))") }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: data)
+        } catch {
+            unlink(url.path)
+            throw KannaError("bad_request", "can't write \(url.path): \(error.localizedDescription)")
+        }
     }
 }
 
@@ -101,19 +127,20 @@ private struct RGB: Hashable, CustomStringConvertible {
 }
 
 private struct Pixels {
-    let bytes: UnsafePointer<UInt8>
+    let bytes: [UInt8]
     let image: CGImage
     let bgra: Bool
 
-    init(bytes: UnsafePointer<UInt8>, image: CGImage) {
+    init(bytes: [UInt8], image: CGImage) {
         self.bytes = bytes
         self.image = image
         bgra = image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder32Little
     }
 
     func pixel(_ x: Int, _ y: Int) -> RGB {
-        let p = bytes + y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
-        return bgra ? RGB(r: Int(p[2]), g: Int(p[1]), b: Int(p[0])) : RGB(r: Int(p[0]), g: Int(p[1]), b: Int(p[2]))
+        let p = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
+        guard p >= 0, p + 2 < bytes.count else { return RGB(r: 0, g: 0, b: 0) }
+        return bgra ? RGB(r: Int(bytes[p + 2]), g: Int(bytes[p + 1]), b: Int(bytes[p])) : RGB(r: Int(bytes[p]), g: Int(bytes[p + 1]), b: Int(bytes[p + 2]))
     }
 
     func forEach(in rect: CGRect, _ body: (RGB) -> Void) {

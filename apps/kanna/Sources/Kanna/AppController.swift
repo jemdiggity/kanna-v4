@@ -19,6 +19,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// Started with `--bg` (or `KANNA_BG=1`), e.g. by tests: don't take over the screen.
     private let background = CommandLine.arguments.contains("--bg") || ProcessInfo.processInfo.environment["KANNA_BG"] == "1"
     private let echo = ProcessInfo.processInfo.environment["KANNA_ECHO"] == "1"
+    private let debugCommands = ProcessInfo.processInfo.environment["KANNA_DEBUG"] == "1"
     private var window: NSWindow!
     private var layout: LayoutView!
     private var focused: String?
@@ -30,6 +31,15 @@ final class AppController: NSObject, NSApplicationDelegate {
         if let path = ProcessInfo.processInfo.environment["KANNA_SOCKET"], !path.isEmpty { return path }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent("kanna-dev/kanna.sock").path
+    }
+
+    static var appSocketPath: String {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return support.appendingPathComponent("kanna/kanna.sock").path
+    }
+
+    static func isAppSocket(_ path: String) -> Bool {
+        (path as NSString).standardizingPath.lowercased() == (appSocketPath as NSString).standardizingPath.lowercased()
     }
 
     /// Echo mode's debug socket: `$KANNA_APP_SOCKET`, else `kanna-app.sock`
@@ -59,6 +69,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                 fatal("kanna: \(error)")
             }
         } else {
+            if Self.isAppSocket(Self.daemonSocketPath) { fatal("kanna: \(Self.daemonSocketPath) belongs to Kanna.app; use another KANNA_SOCKET") }
             let daemon = DaemonLink(socketPath: Self.daemonSocketPath, commands: commands)
             daemon.onLayout = { [weak self] in self?.mirror($0) }
             terminals = ExternalIOBackend(runtime: runtime, link: daemon)
@@ -141,6 +152,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     // MARK: Debug commands
 
     private func installCommands() {
+        guard debugCommands else { return }
         // The app is up: who it is, what it's attached to, what it shows.
         commands["debug.app"] = { [weak self] _ in
             var reply: [String: JSON] = [

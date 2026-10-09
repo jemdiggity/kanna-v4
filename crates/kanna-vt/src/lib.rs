@@ -49,8 +49,7 @@ pub enum Lines {
 
 pub struct Terminal {
     raw: NonNull<ffi::GhosttyTerminalImpl>,
-    #[allow(clippy::box_collection)]
-    replies_at_fixed_address: Box<Vec<u8>>,
+    replies: NonNull<Vec<u8>>,
 }
 
 unsafe impl Send for Terminal {}
@@ -104,8 +103,9 @@ impl Terminal {
 
     fn adopt(raw: ffi::GhosttyTerminal) -> Result<Terminal, Error> {
         let raw = NonNull::new(raw).ok_or(Error { op: "ghostty_terminal_new", code: ffi::GHOSTTY_INVALID_VALUE })?;
-        let mut terminal = Terminal { raw, replies_at_fixed_address: Box::new(Vec::new()) };
-        let userdata: *mut Vec<u8> = &mut *terminal.replies_at_fixed_address;
+        let replies = NonNull::from(Box::leak(Box::new(Vec::new())));
+        let terminal = Terminal { raw, replies };
+        let userdata: *mut Vec<u8> = replies.as_ptr();
         let callback: ffi::GhosttyTerminalWritePtyFn = write_pty;
         unsafe {
             check(
@@ -146,7 +146,7 @@ impl Terminal {
     }
 
     pub fn take_replies(&mut self) -> Vec<u8> {
-        std::mem::take(&mut *self.replies_at_fixed_address)
+        std::mem::take(unsafe { &mut *self.replies.as_ptr() })
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), Error> {
@@ -263,7 +263,10 @@ impl Terminal {
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        unsafe { ffi::ghostty_terminal_free(self.raw.as_ptr()) };
+        unsafe {
+            ffi::ghostty_terminal_free(self.raw.as_ptr());
+            drop(Box::from_raw(self.replies.as_ptr()));
+        }
     }
 }
 
@@ -323,11 +326,9 @@ mod abi {
             ("GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS", GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS as i64),
             ("GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES", GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES as i64),
             ("sizeof GhosttyTerminalScreen", size_of::<i32>() as i64),
-            ("GHOSTTY_TERMINAL_SCREEN_PRIMARY", GHOSTTY_TERMINAL_SCREEN_PRIMARY as i64),
             ("GHOSTTY_TERMINAL_SCREEN_ALTERNATE", GHOSTTY_TERMINAL_SCREEN_ALTERNATE as i64),
             ("GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES", GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES as i64),
             ("GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION", GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION as i64),
-            ("GHOSTTY_POINT_TAG_ACTIVE", GHOSTTY_POINT_TAG_ACTIVE as i64),
             ("GHOSTTY_POINT_TAG_SCREEN", GHOSTTY_POINT_TAG_SCREEN as i64),
             ("sizeof GhosttyPointCoordinate", size_of::<GhosttyPointCoordinate>() as i64),
             ("GhosttyPointCoordinate.y", offset_of!(GhosttyPointCoordinate, y) as i64),
