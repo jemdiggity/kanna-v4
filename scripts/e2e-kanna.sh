@@ -730,7 +730,11 @@ S33() {
   check wait_for 5 shows s33 'IN ^\[13;2u' || return 1
   terminal cols '{"pane":"s33","click":{"at":[5,5]}}' >/dev/null || return 1
   check wait_for 5 shows s33 'IN ^\[<0;1;1M' || return 1
-  check wait_for 5 shows s33 '\[<0;1;1m'
+  check wait_for 5 shows s33 '\[<0;1;1m' || return 1
+  kanna open --name s33b --split right >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(kanna read s33 | grep -oE "IN \^\[[IO]" | tail -1)" == "IN ^[O" ]]' || return 1
+  kanna focus s33 >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(kanna read s33 | grep -oE "IN \^\[[IO]" | tail -1)" == "IN ^[I" ]]'
 }
 
 S34() {
