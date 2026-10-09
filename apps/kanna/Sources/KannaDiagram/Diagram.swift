@@ -27,10 +27,10 @@ public enum Diagram {
         let context = Unmanaged.passUnretained(log).toOpaque()
         guard let raw = withExtendedLifetime(log, {
             bytes.withUnsafeBufferPointer { buffer in
-                buffer.withMemoryRebound(to: CChar.self) { kmux_merman_layout($0.baseAddress, $0.count, measure, context) }
+                buffer.withMemoryRebound(to: CChar.self) { kanna_merman_layout($0.baseAddress, $0.count, measure, context) }
             }
         }) else { throw DiagramError(message: "merman returned nothing") }
-        defer { kmux_merman_free(raw) }
+        defer { kanna_merman_free(raw) }
         guard let object = try? JSONSerialization.jsonObject(with: Data(bytes: raw, count: strlen(raw))) as? [String: Any] else {
             throw DiagramError(message: "merman returned invalid JSON")
         }
@@ -79,7 +79,7 @@ public struct DiagramError: Error, CustomStringConvertible {
     public init(message: String) { self.message = message }
 }
 
-private let measure: kmux_merman_measure_fn = { request, out, context in
+private let measure: kanna_merman_measure_fn = { request, out, context in
     guard let request = request?.pointee, let out else { return 0 }
     func string(_ pointer: UnsafePointer<CChar>?, _ length: Int) -> String {
         guard let pointer, length > 0 else { return "" }
@@ -91,26 +91,26 @@ private let measure: kmux_merman_measure_fn = { request, out, context in
     let htmlLike = request.html_like != 0
     let monospaced = family.contains("mono") || family.contains("courier")
     let maxWidth = request.max_width > 0 ? CGFloat(request.max_width) : nil
-    if let context, Int(request.kind) == Int(KMUX_MEASURE_METRICS) {
+    if let context, Int(request.kind) == Int(KANNA_MEASURE_METRICS) {
         Unmanaged<MeasureLog>.fromOpaque(context).takeUnretainedValue().record(text, size: size, htmlLike: htmlLike)
     }
     let measured = LabelText.measure(text, size: size, bold: request.bold != 0, italic: request.italic != 0, monospaced: monospaced,
                                      maxWidth: maxWidth, htmlLike: htmlLike)
     switch Int(request.kind) {
-    case Int(KMUX_MEASURE_METRICS), Int(KMUX_MEASURE_WRAPPED_RAW):
+    case Int(KANNA_MEASURE_METRICS), Int(KANNA_MEASURE_WRAPPED_RAW):
         out.pointee.width = Double(measured.width)
         out.pointee.height = Double(measured.height)
         out.pointee.line_count = UInt32(measured.lines)
-        if Int(request.kind) == Int(KMUX_MEASURE_WRAPPED_RAW) {
+        if Int(request.kind) == Int(KANNA_MEASURE_WRAPPED_RAW) {
             out.pointee.raw_width = Double(LabelText.measure(text, size: size, bold: request.bold != 0, italic: request.italic != 0,
                                                              monospaced: monospaced, maxWidth: nil, htmlLike: htmlLike).width)
         }
-    case Int(KMUX_MEASURE_WIDTH):
+    case Int(KANNA_MEASURE_WIDTH):
         out.pointee.length = Double(LabelText.measure(text, size: size, bold: request.bold != 0, italic: request.italic != 0,
                                                       monospaced: monospaced, maxWidth: nil, htmlLike: htmlLike).width)
-    case Int(KMUX_MEASURE_HEIGHT):
+    case Int(KANNA_MEASURE_HEIGHT):
         out.pointee.length = Double(measured.height)
-    case Int(KMUX_MEASURE_EXTENTS):
+    case Int(KANNA_MEASURE_EXTENTS):
         let width = LabelText.measure(text, size: size, bold: request.bold != 0, italic: request.italic != 0,
                                       monospaced: monospaced, maxWidth: nil, htmlLike: htmlLike).width
         out.pointee.left = Double(width) / 2

@@ -1,4 +1,4 @@
-use kmux_client::{Args, Failure};
+use kanna_client::{Args, Failure};
 use std::collections::VecDeque;
 
 pub struct Argv {

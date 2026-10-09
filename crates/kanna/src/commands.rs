@@ -1,6 +1,6 @@
 use crate::args::Argv;
 use crate::output;
-use kmux_client::{exit, fail, Failure};
+use kanna_client::{exit, fail, Failure};
 use serde_json::{json, Map, Value};
 
 pub struct Command {

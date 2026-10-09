@@ -129,7 +129,7 @@ flowchart TB
 | **Kanna app** | 1, 2, 3 | Kanna's UI and Kanna layer + Kanna's pane views (started from kmux's) + the external-I/O terminal backend (forked Ghostty) |
 | **Kanna daemon** (Rust; also runs on Linux) | 4 | `kanna-mux` + a libghostty-vt screen per terminal + snapshots on disk |
 | **Keeper** | 5 | the `feat/keeper` branch and v3's keeper |
-| **`kanna` CLI** | — | kmux's `kmux-client` crate as it is, pointed at Kanna's daemon |
+| **`kanna` CLI** | — | a copy of kmux's `kmux-client` (`crates/kanna-client`), pointed at Kanna's daemon |
 
 - **The CLI is a client, not a layer:** like the app, it sits on top and calls down into layer 4. Neither serves the other; in Kanna both are clients of the daemon.
 - **Why terminals cross into the daemon and nothing else does:** a terminal is a running program, which must not die with the app. A web page, a markdown file or an iOS pane is just state to reopen: a URL, a path, a device. The page itself has to be in the app anyway (WebKit can't draw from another process), and simulator devices already outlive everything.

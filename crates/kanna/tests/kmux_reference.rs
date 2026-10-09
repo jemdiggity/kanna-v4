@@ -1,10 +1,16 @@
-#[allow(dead_code)]
-#[path = "../../../../kmux/crates/kmux/src/output.rs"]
-mod output;
+#![cfg(kmux_reference)]
+
+extern crate kanna_client as kmux_client;
 
 #[allow(dead_code)]
-#[path = "../../../../kmux/crates/kmux/src/commands.rs"]
-mod commands;
+mod output {
+    include!(concat!(env!("OUT_DIR"), "/kmux_output.rs"));
+}
+
+#[allow(dead_code)]
+mod commands {
+    include!(concat!(env!("OUT_DIR"), "/kmux_commands.rs"));
+}
 
 use kanna::args::Argv;
 use serde_json::{json, Value};

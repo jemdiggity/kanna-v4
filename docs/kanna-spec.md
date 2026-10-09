@@ -225,6 +225,8 @@ flowchart LR
 ```
 
 - `kanna-mux` runs kmux's own protocol cases (`../kmux/tests/kmux-protocol/cases`).
+- **What kmux is the reference for:** the mux core and its control protocol, the CLI, and the mux UI (windows, tabs, splits, pane views). Kanna's own layers on top (Desk and Shelf, tasks, agents) have no kmux counterpart.
+- **Building doesn't need kmux; checking does.** Kanna builds from its own sources, including its copies of kmux's socket client (`crates/kanna-client`) and mermaid bridge (`crates/kanna-merman`). The tests that compare Kanna with kmux read a kmux checkout beside the repo (or `$KMUX_DIR`): the protocol cases, and the CLI check that compiles kmux's `commands.rs` and `output.rs`. Without one they fail and say so, rather than pass without checking.
 - Where Kanna and kmux behave differently, Kanna is wrong unless we decided otherwise.
 - `kmux.rev` records the kmux commit Kanna matches. When kmux changes and Kanna should follow, port the change and move `kmux.rev`.
 - Nothing changes in kmux for Kanna's sake.
@@ -586,7 +588,7 @@ sequenceDiagram
 
 ### 4.11 The kanna CLI
 
-`kanna` is kmux's command line for Kanna: every command, option, help text, output, error and exit code of kmux's `kmux` (kmux's `crates/kmux`, at 1f05ccb), branded kanna, plus a few additions of Kanna's. It sends kmux's control protocol to Kanna's daemon over its socket (or, with `--mux kmux`, to a kmux), through kmux's `kmux-client` crate ([plan](plans/mux-build.md) track B).
+`kanna` is kmux's command line for Kanna: every command, option, help text, output, error and exit code of kmux's `kmux` (kmux's `crates/kmux`, at 1f05ccb), branded kanna, plus a few additions of Kanna's. It sends kmux's control protocol to Kanna's daemon over its socket (or, with `--mux kmux`, to a kmux), through `crates/kanna-client`, a copy of kmux's `kmux-client` ([plan](plans/mux-build.md) track B).
 
 **Design: a port of kmux's CLI, checked against kmux's own source.** kmux's CLI is one table of commands (name, group, summary, usage, options, notes, examples, how its arguments become a request, how its reply prints); help, `commands --json`, parsing and output all come from it. `kanna` has the same table, ported into `crates/kanna/src/commands.rs` (with `output.rs`, and `lib.rs` for help, `commands`, `instances`, `raw` and errors; provenance in NOTICE), and `crates/kanna/tests/kmux_reference.rs` compiles kmux's own `commands.rs` and `output.rs`, unchanged, beside it and checks one against the other.
 
@@ -597,7 +599,7 @@ flowchart LR
     TABLE --> HELP["help · commands --json"]
     TABLE --> PARSE["arguments → request"]
     TABLE --> OUT["reply → text"]
-    PARSE -->|"kmux-client"| D["Kanna's daemon<br/>(or a kmux)"]
+    PARSE -->|"kanna-client"| D["Kanna's daemon<br/>(or a kmux)"]
     classDef kmuxapp fill:#4f3f7f,stroke:#b39cff,color:#ffffff
     classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
     classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff

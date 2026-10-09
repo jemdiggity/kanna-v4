@@ -94,10 +94,14 @@ Derived from kmux:
       additions (read, --mux, --, exit 6, Kanna's instances).
       crates/kanna/tests/kmux_reference.rs compiles kmux's commands.rs
       and output.rs, unchanged, to check the port against them.
+  crates/kanna-client
+      From kmux's crates/kmux-client at 1f05ccb (the control-socket
+      client, exit codes and argument reader), comments removed.
+  crates/kanna-merman
+      From kmux's crates/kmux-merman at 1f05ccb (the C bridge to merman),
+      comments removed, its symbols renamed kanna_merman_*.
   scripts/build-merman.sh
-      Follows kmux's scripts/build-merman.sh and builds kmux's
-      crates/kmux-merman (kmux's C bridge to merman) from the kmux
-      checkout.
+      Follows kmux's scripts/build-merman.sh; builds crates/kanna-merman.
 
   scripts/env.sh                 follows kmux's scripts/env.sh
   scripts/build-ghosttykit.sh    follows kmux's scripts/build-ghosttykit.sh
@@ -132,7 +136,7 @@ Linked libraries
 Kanna.app links, unmodified:
 
   merman 0.8.0 (https://github.com/Latias94/merman), MIT OR Apache-2.0,
-      through kmux's crates/kmux-merman.
+      through crates/kanna-merman.
   swift-markdown 0.7.3 (https://github.com/swiftlang/swift-markdown),
       Apache-2.0, and swift-cmark (cmark-gfm), BSD-2-Clause and MIT, as
       published by the Swift project.

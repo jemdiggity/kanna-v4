@@ -19,10 +19,9 @@ flowchart TB
 
 ## Build
 
-Kanna builds against a kmux checkout beside this repo, and against Ghostty from the `kanna4` branch of [jemdiggity/ghostty](https://github.com/jemdiggity/ghostty/tree/kanna4), which the scripts clone and pin (`scripts/env.sh`).
+Kanna builds against Ghostty from the `kanna4` branch of [jemdiggity/ghostty](https://github.com/jemdiggity/ghostty/tree/kanna4), which the scripts clone and pin (`scripts/env.sh`).
 
 ```sh
-git clone https://github.com/tampopogk/kmux.git ../kmux   # once
 scripts/build-ghostty-vt.sh       # libghostty-vt for the daemon
 cargo build --workspace --release # daemon, keeper, CLI
 scripts/build-kanna-app.sh        # target/Kanna.app, with the daemon and keeper inside
@@ -44,7 +43,10 @@ kanna help
 
 ## Test
 
+The tests that check Kanna against kmux, the reference model, need a kmux checkout beside this repo (or `KMUX_DIR`).
+
 ```sh
+git clone https://github.com/tampopogk/kmux.git ../kmux   # once
 cargo test --workspace
 swift test --package-path apps/kanna -c release --scratch-path target/kanna-build
 scripts/e2e-kanna.sh              # private instances on their own sockets; never touches yours

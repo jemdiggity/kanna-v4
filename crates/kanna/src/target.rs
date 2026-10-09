@@ -1,4 +1,4 @@
-use kmux_client::{exit, fail, valid_instance, Brand, Error, Failure, Kmux, DEFAULT_INSTANCE};
+use kanna_client::{exit, fail, valid_instance, Brand, Error, Failure, Kmux, DEFAULT_INSTANCE};
 use serde_json::{json, Value};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -89,8 +89,8 @@ impl Target {
         self.brand().name
     }
 
-    fn client(&self) -> kmux_client::Target {
-        kmux_client::Target { brand: self.brand(), instance: self.instance.clone(), socket: self.socket.clone(), background: self.background }
+    fn client(&self) -> kanna_client::Target {
+        kanna_client::Target { brand: self.brand(), instance: self.instance.clone(), socket: self.socket.clone(), background: self.background }
     }
 
     pub fn try_connect(&self) -> Option<Kmux> {

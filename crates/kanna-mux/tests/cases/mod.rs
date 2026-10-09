@@ -36,7 +36,7 @@ fn listed(reply: &Value, key: &str) -> Vec<String> {
 
 pub fn run_cases(label: &str, make: &dyn Fn() -> Send) -> usize {
     let mut files: Vec<PathBuf> = std::fs::read_dir(cases_directory())
-        .expect("no cases directory")
+        .unwrap_or_else(|e| panic!("kmux is the reference model for Kanna's mux core, and its protocol cases aren't at {} ({e}); clone kmux beside this repo or set KMUX_DIR", cases_directory().display()))
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "json"))
         .collect();

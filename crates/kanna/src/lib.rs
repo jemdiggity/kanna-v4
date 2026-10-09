@@ -5,7 +5,7 @@ pub mod target;
 
 use args::Argv;
 use commands::{Command, COMMANDS, GROUPS};
-use kmux_client::{exit, fail, Failure};
+use kanna_client::{exit, fail, Failure};
 use serde_json::{json, Value};
 use target::{process_env, Backend, Choice, Env, Session, Target};
 
