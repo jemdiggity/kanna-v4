@@ -5,8 +5,8 @@
 ## Contents
 
 1. [In short](#1-in-short)
-2. [kmux: an app and its libraries](#2-kmux-an-app-and-its-libraries)
-3. [Kanna: what it builds from kmux](#3-kanna-what-it-builds-from-kmux)
+2. [The layers](#2-the-layers)
+3. [Kanna's processes and connections](#3-kannas-processes-and-connections)
 4. [Sessions and arrangement](#4-sessions-and-arrangement)
 5. [Web and iOS panes](#5-web-and-ios-panes)
 6. [How the kanna CLI fits](#6-how-the-kanna-cli-fits)
@@ -30,103 +30,124 @@
 | After a restart | the layout comes back, terminals are new | everything comes back exactly |
 | Ghostty | upstream | the fork (external I/O) |
 
-**Kanna uses two layers of kmux:**
-1. **The CLI shape:** the protocol and the sessions model (`open`, `list`, `send`, `navigate`, `close`, …). Kanna's daemon runs it, so `kanna` and `kmux` look alike.
-2. **The mux UI:** the pane views (terminal, web, markdown, iOS) and, if wanted, the split and tab views. The Kanna app draws with them.
+**Kanna uses two layers of kmux** (see [the layers](#2-the-layers)):
+- **Layer 3, the mux UI:** the pane views (terminal, web, markdown, iOS). The Kanna app draws with them.
+- **Layer 4, sessions (the CLI shape):** the protocol and the sessions model (`open`, `list`, `send`, `navigate`, `close`, …). Kanna's daemon runs it, so `kanna` and `kmux` look alike.
 
 ---
 
-## 2. kmux: an app and its libraries
+## 2. The layers
+
+Read each stack top to bottom, like the OSI model: each layer uses the one below it. Kanna takes layers 3 and 4 from kmux and adds 1, 2 and 5 of its own.
 
 ```mermaid
 flowchart TB
-    subgraph APP["kmux app (one process)"]
-        KUI["kmux's windows, tabs, splits"]
-        subgraph LIBS["kmux libraries"]
-            CORE["CLI shape<br/>protocol, sessions model"]
-            UI["mux UI<br/>pane views, split and tab views"]
-        end
-        PTYB["terminal backend: pty<br/>upstream Ghostty"]
-        WEB["web views<br/>WebKit"]
-        SIMV["iOS screen<br/>SimulatorKit"]
-        KUI --> UI
-        KUI --> CORE
-        UI --> PTYB
-        UI --> WEB
-        UI --> SIMV
+    subgraph L1["1 · UI — Kanna app"]
+        direction LR
+        DESK["Desk and Shelf"] ~~~ REVIEW["markdown review"] ~~~ EDIT["code editor"]
     end
-    CLI["kmux CLI, agents"] -->|"socket"| CORE
-    PTYB --- SH["shells"]
-    SIMV <-->|"screen, touches"| SIM["iOS Simulator<br/>(its own processes)"]
+    subgraph L2["2 · Kanna — Kanna app"]
+        direction LR
+        TASKS["tasks"] ~~~ AGENTS["agents"] ~~~ WT["worktrees"] ~~~ HOOKS["hooks, attention"]
+    end
+    subgraph L3["3 · Mux UI — kmux library, in the Kanna app"]
+        direction LR
+        TV["terminal view<br/>(external I/O)"] ~~~ WV["web view"] ~~~ IV["iOS screen"] ~~~ MV["markdown view"]
+    end
+    subgraph L4["4 · Sessions — kmux CLI shape, in the Kanna daemon"]
+        direction LR
+        TS["terminals<br/>libghostty-vt screens"] ~~~ WS["web<br/>URL, history"] ~~~ IS["iOS<br/>device, agent control"] ~~~ MS["markdown<br/>file"]
+    end
+    subgraph L5["5 · Keeper — keeper process"]
+        KEEP["creates and holds the ptys"]
+    end
+    subgraph L6["6 · macOS"]
+        direction LR
+        PTY["ptys, shells, agents"] ~~~ WK["WebKit"] ~~~ SIM["iOS Simulator devices"]
+    end
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6
 ```
 
-| Library | Layer | What's in it |
-|---|---|---|
-| **KmuxCore** | CLI shape | the protocol, the sessions model and command handling; no UI |
-| **KmuxUI** | mux UI | the pane views, the split and tab views, and the `TerminalBackend` seam |
-| **KmuxClient** | CLI shape | the Rust client the CLIs use (it exists today as `kmux-client`) |
-
-kmux itself doesn't change shape: one app, terminals with their own ptys, the same CLI. The work is drawing clean lines between these libraries and the app around them, so another app can take them. kmux has **no daemon**.
-
----
-
-## 3. Kanna: what it builds from kmux
+kmux has the same stack without layers 2 and 5, all in one process:
 
 ```mermaid
 flowchart TB
-    subgraph APP["Kanna desktop app (process)"]
-        subgraph L1["UI layer (Kanna)"]
-            DESK["Desk and Shelf<br/>arrangement"]
-            REVIEW["markdown review"]
-            EDIT["code editor"]
-        end
-        subgraph L2["Kanna layer"]
-            TASKS["tasks, agents, worktrees, hooks"]
-        end
-        subgraph L3["kmux mux UI"]
-            PANES["pane views"]
-            EXT["terminal backend: external I/O<br/>(Kanna's, forked Ghostty)"]
-            WEB["web views<br/>WebKit"]
-            SIMV["iOS screen<br/>SimulatorKit"]
-        end
-        L1 --> L2
-        L1 --> L3
-        PANES --> EXT
-        PANES --> WEB
-        PANES --> SIMV
+    subgraph K1["1 · UI — kmux app"]
+        direction LR
+        WIN["windows"] ~~~ TABS["tabs"] ~~~ SPLITS["splits"]
     end
-    subgraph DP["Kanna daemon (process)"]
-        CORE["kmux CLI shape<br/>protocol, sessions"]
-        VT["a libghostty-vt screen per terminal"]
-        SIMC["iOS control<br/>simctl, touches, accessibility"]
+    subgraph K3["3 · Mux UI — kmux library, in the kmux app"]
+        direction LR
+        TV["terminal view<br/>(own pty)"] ~~~ WV["web view"] ~~~ IV["iOS screen"] ~~~ MV["markdown view"]
     end
-    SIM["iOS Simulator<br/>(its own processes)"]
-    subgraph KP["keeper (process)"]
-        KEEPER["holds the ptys"]
+    subgraph K4["4 · Sessions — kmux CLI shape, in the kmux app"]
+        direction LR
+        TS["terminals"] ~~~ WS["web"] ~~~ IS["iOS"] ~~~ MS["markdown"]
+    end
+    subgraph K6["6 · macOS"]
+        direction LR
+        PTY["ptys, shells, agents"] ~~~ WK["WebKit"] ~~~ SIM["iOS Simulator devices"]
+    end
+    K1 --> K3 --> K4 --> K6
+```
+
+| Layer | Kanna | kmux | Kanna process |
+|---|---|---|---|
+| 1 · UI | Desk and Shelf, markdown review, code editor | windows, tabs, splits | app |
+| 2 · Kanna | tasks, agents, worktrees, hooks | — | app |
+| 3 · Mux UI | **kmux library** (KmuxUI) | **kmux library** (KmuxUI) | app |
+| 4 · Sessions | **kmux library** (KmuxCore, the CLI shape) | **kmux library** (KmuxCore) | daemon |
+| 5 · Keeper | creates and holds the ptys | — | keeper |
+| 6 · macOS | ptys, WebKit, simulator devices | the same | — |
+
+- **The process line** runs between layers 3 and 4 in Kanna, so terminals survive the app quitting. In kmux there's no line: one app, no daemon.
+- **CLIs enter at layer 4:** `kanna` talks to Kanna's daemon, `kmux` to the kmux app.
+- **Where a layer is skipped:** the iOS screen reads pixels straight from the simulator; the daemon reads and writes the ptys itself once the keeper hands them over; web views sit in layer 3 because WebKit can't draw from another process, so the daemon passes `web.*` commands up to them.
+
+| kmux library | Layer | What's in it |
+|---|---|---|
+| **KmuxUI** | 3 · Mux UI | the pane views, the split and tab views, and the `TerminalBackend` seam |
+| **KmuxCore** | 4 · Sessions | the CLI shape: protocol, sessions model, command handling; no UI |
+| **KmuxClient** | (CLIs) | the Rust client the CLIs use (today's `kmux-client`) |
+
+---
+
+## 3. Kanna's processes and connections
+
+The same layers, with every connection between processes:
+
+```mermaid
+flowchart TB
+    subgraph APP["Kanna app — layers 1, 2, 3"]
+        direction LR
+        UI["1 · UI"] --> KL["2 · Kanna"] --> MUX["3 · Mux UI<br/>terminal, web, iOS, markdown views"]
+    end
+    subgraph DP["Kanna daemon — layer 4"]
+        CORE["sessions<br/>libghostty-vt screens, iOS control"]
     end
     CLI["kanna CLI, agents"]
-    PTY["ptys"]
-    SH["shells and agents"]
-    L2 -->|"socket"| CORE
-    EXT <-->|"terminal output and input"| CORE
-    CLI -->|"socket"| CORE
-    CORE <-->|"socket: start a shell,<br/>pty handles back"| KEEPER
+    subgraph KP["keeper — layer 5"]
+        KEEPER["holds the ptys"]
+    end
+    subgraph OS["macOS — layer 6"]
+        direction LR
+        PTY["ptys → shells, agents"] ~~~ SIM["iOS Simulator devices"]
+    end
+    APP <-->|"socket: commands, terminal bytes,<br/>web commands passed up"| DP
+    CLI -->|"socket"| DP
+    DP <-->|"socket: start a shell, pty handles back"| KP
     KEEPER -->|"creates, holds a copy"| PTY
     CORE <-->|"reads and writes"| PTY
-    PTY --- SH
-    SIMV <-->|"screen, your touches"| SIM
-    SIMC <-->|"boot, launch, agent taps"| SIM
-    CORE -->|"web commands forwarded"| WEB
+    CORE <-->|"boot, launch, agent taps"| SIM
+    MUX <-->|"screen, your touches"| SIM
 ```
 
-| Kanna piece | Built from |
-|---|---|
-| **Kanna daemon** | kmux's CLI shape (KmuxCore) + a libghostty-vt screen per terminal + snapshots on disk + iOS control |
-| **Keeper** | the `feat/keeper` branch and v3's keeper |
-| **Kanna app** | Kanna's UI and Kanna layer + kmux's mux UI (KmuxUI) + Kanna's external-I/O terminal backend |
-| **`kanna` CLI** | kmux's client (kmux-client), pointed at Kanna's daemon |
-
-The keeper creates each pty and keeps a copy, so shells outlive a daemon restart; the daemon reads and writes them directly.
+| Kanna piece | Layers | Built from |
+|---|---|---|
+| **Kanna app** | 1, 2, 3 | Kanna's UI and Kanna layer + KmuxUI + Kanna's external-I/O terminal backend (forked Ghostty) |
+| **Kanna daemon** | 4 | KmuxCore + a libghostty-vt screen per terminal + snapshots on disk + iOS control |
+| **Keeper** | 5 | the `feat/keeper` branch and v3's keeper |
+| **`kanna` CLI** | — | KmuxClient, pointed at Kanna's daemon |
 
 ---
 
