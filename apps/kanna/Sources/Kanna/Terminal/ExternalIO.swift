@@ -134,9 +134,9 @@ final class ExternalIOBackend: TerminalBackend {
             }
         }
         let terminal = ExternalTerminal(pane: pane, view: view)
-        terminals[view.address] = terminal
+        terminals[view.surfaceID] = terminal
         guard runtime.attach(view, options: &options) else {
-            terminals.removeValue(forKey: view.address)
+            terminals.removeValue(forKey: view.surfaceID)
             return false
         }
         link.opened(terminal)
@@ -144,7 +144,7 @@ final class ExternalIOBackend: TerminalBackend {
     }
 
     func stop(_ view: TerminalSurfaceView) {
-        if let terminal = terminals.removeValue(forKey: view.address) {
+        if let terminal = terminals.removeValue(forKey: view.surfaceID) {
             link.closed(terminal)
             terminal.discard()
         }
@@ -155,10 +155,10 @@ final class ExternalIOBackend: TerminalBackend {
     /// later: never inside Ghostty's own call (a resize is reported while the
     /// surface is still being created or resized).
     nonisolated private static func onMain(_ userdata: UnsafeMutableRawPointer?, _ body: @escaping @MainActor (ExternalIOBackend, ExternalTerminal) -> Void) {
-        let address = UInt(bitPattern: userdata)
+        let surfaceID = UInt(bitPattern: userdata)
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                guard let backend = ExternalIOBackend.shared, let terminal = backend.terminals[address] else { return }
+                guard let backend = ExternalIOBackend.shared, let terminal = backend.terminals[surfaceID] else { return }
                 body(backend, terminal)
             }
         }

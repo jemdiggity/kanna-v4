@@ -15,7 +15,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     static let ignoresOcclusion = ProcessInfo.processInfo.environment["KANNA_IGNORE_OCCLUSION"] == "1"
     private static var lastSurfaceID: UInt = 0
     let surfaceID: UInt
-    var address: UInt { surfaceID }
     private var occlusionObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var marked = NSMutableAttributedString()
