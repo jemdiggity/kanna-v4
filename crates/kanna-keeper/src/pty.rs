@@ -25,6 +25,11 @@ pub enum What<'a> {
     Command(&'a str),
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const SIGNALS: libc::c_int = 65;
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const SIGNALS: libc::c_int = 32;
+
 static ORIGINAL_NOFILE: std::sync::OnceLock<libc::rlimit> = std::sync::OnceLock::new();
 
 pub fn raise_nofile() {
@@ -194,7 +199,16 @@ pub fn spawn(
     }
     crate::sig::set_cloexec(exec_pipe[0]);
     crate::sig::set_cloexec(exec_pipe[1]);
-    let pid = unsafe { libc::fork() };
+    let mut saved: libc::sigset_t = unsafe { std::mem::zeroed() };
+    let pid = unsafe {
+        let mut all: libc::sigset_t = std::mem::zeroed();
+        libc::sigfillset(&mut all);
+        libc::pthread_sigmask(libc::SIG_SETMASK, &all, &mut saved);
+        libc::fork()
+    };
+    if pid != 0 {
+        unsafe { libc::pthread_sigmask(libc::SIG_SETMASK, &saved, std::ptr::null_mut()) };
+    }
     if pid < 0 {
         let e = std::io::Error::last_os_error();
         unsafe {
@@ -208,6 +222,15 @@ pub fn spawn(
     if pid == 0 {
         // Only async-signal-safe calls from here to exec.
         unsafe {
+            let mut default: libc::sigaction = std::mem::zeroed();
+            default.sa_sigaction = libc::SIG_DFL;
+            libc::sigemptyset(&mut default.sa_mask);
+            for signo in 1..SIGNALS {
+                libc::sigaction(signo, &default, std::ptr::null_mut());
+            }
+            let mut empty: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut empty);
+            libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
             libc::close(exec_pipe[0]);
             libc::close(master);
             libc::setsid();
@@ -218,25 +241,9 @@ pub fn spawn(
             if slave > 2 {
                 libc::close(slave);
             }
-            // The keeper ignores SIGHUP and SIGPIPE, and ignored signals
-            // survive exec: restore the defaults.
-            for signo in [
-                libc::SIGHUP,
-                libc::SIGPIPE,
-                libc::SIGINT,
-                libc::SIGQUIT,
-                libc::SIGTERM,
-                libc::SIGCHLD,
-                libc::SIGWINCH,
-            ] {
-                libc::signal(signo, libc::SIG_DFL);
-            }
             if let Some(limit) = ORIGINAL_NOFILE.get() {
                 libc::setrlimit(libc::RLIMIT_NOFILE, limit);
             }
-            let mut empty: libc::sigset_t = std::mem::zeroed();
-            libc::sigemptyset(&mut empty);
-            libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
             if libc::chdir(cwd_c.as_ptr()) != 0 {
                 if let Some(home) = &home_c {
                     libc::chdir(home.as_ptr());

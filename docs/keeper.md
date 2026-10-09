@@ -119,7 +119,7 @@ sequenceDiagram
 - **Directly, never through `login(1)`**, which always exits 0 (`login -flp $USER /bin/sh -c 'exit 5'` exits 0). So `exit 3` is reported as 3.
 - **Environment:** the keeper's own (inherited from the daemon that started it), with HOME, USER, LOGNAME and SHELL filled from passwd if missing; then Ghostty's additions (`TERM=xterm-ghostty` and `TERMINFO` when Ghostty's resources are found, else `xterm-256color`; `COLORTERM`, `TERM_PROGRAM=ghostty`, `GHOSTTY_SHELL_FEATURES`, the keeper's folder on `PATH`); then the request's `env`, where `null` removes a variable; then Ghostty's shell integration (zsh `ZDOTDIR`, bash `ENV --posix`, fish/elvish/nushell `XDG_DATA_DIRS`). Ported from kanna-v3 via `feat/keeper` (`ghostty_env.rs`).
 - **Ghostty's resources** come from `GHOSTTY_RESOURCES_DIR`, else `KANNA_KEEPER_RESOURCES_DIR`, else the first `share/` or `Contents/Resources/` with Ghostty's terminfo above the keeper's binary.
-- **cwd** is the request's if it's a directory, else HOME. The child starts a new session with the pty as its controlling terminal, and its signal dispositions and mask reset.
+- **cwd** is the request's if it's a directory, else HOME. The child starts a new session with the pty as its controlling terminal. The keeper blocks every signal around `fork`, and the child's first act is to reset every disposition (1 to NSIG) to the default, ignored ones included, then empty its mask, so no keeper handler runs in it and nothing the keeper ignored stays ignored.
 
 ## 6. Exits and Close
 

@@ -5,13 +5,24 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 static mut WRITE_FD: libc::c_int = -1;
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+unsafe fn errno() -> *mut libc::c_int {
+    libc::__errno_location()
+}
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+unsafe fn errno() -> *mut libc::c_int {
+    libc::__error()
+}
+
 extern "C" fn handler(signo: libc::c_int) {
     unsafe {
+        let saved = *errno();
         let fd = WRITE_FD;
         if fd >= 0 {
             let byte = [signo as u8];
             libc::write(fd, byte.as_ptr().cast(), 1);
         }
+        *errno() = saved;
     }
 }
 

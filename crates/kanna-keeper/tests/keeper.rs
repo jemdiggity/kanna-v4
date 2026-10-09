@@ -729,3 +729,28 @@ fn a_closed_process_keeps_its_pid_until_the_kill_is_done() {
     assert!(process_state(pid).starts_with('Z'), "{pid} is {:?}", process_state(pid));
     wait_for(&format!("{pid} to be reaped"), || !alive(pid));
 }
+
+#[test]
+fn spawned_processes_start_with_default_signal_dispositions() {
+    use std::os::unix::process::CommandExt;
+    let dir = private_dir();
+    let state = dir.join("state");
+    let mut cmd = clean_command(&state, &dir.join("home"));
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::signal(libc::SIGUSR1, libc::SIG_IGN);
+            libc::signal(libc::SIGALRM, libc::SIG_IGN);
+            Ok(())
+        });
+    }
+    let _keeper = KilledOnDrop(cmd.spawn().unwrap());
+    let socket = state.join("keeper.sock");
+    wait_for("the keeper's socket", || Client::connect(&socket).is_ok());
+    let mut c = Client::connect(&socket).unwrap();
+    for (id, signo, name) in [("usr1", libc::SIGUSR1, "USR1"), ("alrm", libc::SIGALRM, "ALRM")] {
+        let pty = c.spawn(&SpawnRequest::command(id, &format!("kill -{name} $$; echo survived"))).unwrap();
+        assert_eq!(exit_reading(&mut c, &pty.master).0.status, ExitStatus::Signal(signo), "{name}");
+        c.ack(id).unwrap();
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
