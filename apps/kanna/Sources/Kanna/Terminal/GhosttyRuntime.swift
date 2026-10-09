@@ -36,8 +36,9 @@ final class GhosttyRuntime {
             let id = UInt(bitPattern: userdata)
             MainActor.assumeIsolated { GhosttyRuntime.shared?.confirmClipboard(id, confirm, state: state, request: request) }
         }
-        runtime.write_clipboard_cb = { _, _, content, count, confirm in
-            MainActor.assumeIsolated { GhosttyRuntime.writeClipboard(content: content, count: count, confirm: confirm) }
+        runtime.write_clipboard_cb = { userdata, _, content, count, confirm in
+            let id = UInt(bitPattern: userdata)
+            MainActor.assumeIsolated { GhosttyRuntime.shared?.writeClipboard(id, content: content, count: count, confirm: confirm) }
         }
         runtime.close_surface_cb = { userdata, _ in
             let id = UInt(bitPattern: userdata)
@@ -105,46 +106,98 @@ final class GhosttyRuntime {
     }
 
     private func confirmClipboard(_ id: UInt, _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?, state: UnsafeMutableRawPointer?, request: ghostty_clipboard_request_e) {
-        guard let surface = live[id]?.surface else { return }
-        guard request == GHOSTTY_CLIPBOARD_REQUEST_PASTE, let confirm else {
-            ghostty_surface_deny_clipboard_request(surface, state)
-            return
+        let items = request == GHOSTTY_CLIPBOARD_REQUEST_PASTE ? confirm.map { ClipboardItems($0.pointee) } : nil
+        let token = UInt(bitPattern: state)
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { GhosttyRuntime.shared?.askToPaste(id, items, state: token) }
+        }
+    }
+
+    private func askToPaste(_ id: UInt, _ items: ClipboardItems?, state: UInt) {
+        guard let view = live[id], let surface = view.surface else { return }
+        guard let items, let window = view.window else {
+            return ghostty_surface_deny_clipboard_request(surface, UnsafeMutableRawPointer(bitPattern: state))
         }
         let alert = NSAlert()
         alert.messageText = "Allow terminal paste?"
         alert.informativeText = "The terminal requests clipboard data."
         alert.addButton(withTitle: "Paste")
         alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else {
-            ghostty_surface_deny_clipboard_request(surface, state)
-            return
-        }
-        let value = confirm.pointee
-        let items: [ghostty_clipboard_content_s] = value.contents.map { contents in (0..<value.contents_len).map { contents[$0] } } ?? []
-        var complete = ghostty_clipboard_complete_s(contents: nil, contents_len: 0, available: value.available, available_len: value.available_len, confirmed: true, remember: false)
-        items.withUnsafeBufferPointer { buffer in
-            complete.contents = buffer.baseAddress
-            complete.contents_len = buffer.count
-            ghostty_surface_complete_clipboard_request(surface, &complete, state)
+        alert.beginSheetModal(for: window) { response in
+            MainActor.assumeIsolated {
+                guard let surface = GhosttyRuntime.shared?.live[id]?.surface else { return }
+                let state = UnsafeMutableRawPointer(bitPattern: state)
+                if response == .alertFirstButtonReturn {
+                    items.complete(surface, state: state)
+                } else {
+                    ghostty_surface_deny_clipboard_request(surface, state)
+                }
+            }
         }
     }
 
-    private static func writeClipboard(content: UnsafePointer<ghostty_clipboard_content_s>?, count: Int, confirm: Bool) {
+    private func writeClipboard(_ id: UInt, content: UnsafePointer<ghostty_clipboard_content_s>?, count: Int, confirm: Bool) {
         guard let content, count > 0 else { return }
         let value = content[0]
-        guard String(cString: value.mime) == "text/plain", let bytes = value.data else { return }
+        guard let mime = value.mime, String(cString: mime) == "text/plain", let bytes = value.data else { return }
         let text = String(decoding: UnsafeRawBufferPointer(start: bytes, count: value.len), as: UTF8.self)
-        if confirm {
-            let alert = NSAlert()
-            alert.messageText = "Allow terminal clipboard write?"
-            alert.informativeText = text
-            alert.addButton(withTitle: "Allow")
-            alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard confirm else { return Self.setClipboard(text) }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                guard let window = GhosttyRuntime.shared?.live[id]?.window else { return }
+                let alert = NSAlert()
+                alert.messageText = "Allow terminal clipboard write?"
+                alert.informativeText = text
+                alert.addButton(withTitle: "Allow")
+                alert.addButton(withTitle: "Cancel")
+                alert.beginSheetModal(for: window) { response in
+                    if response == .alertFirstButtonReturn { MainActor.assumeIsolated { Self.setClipboard(text) } }
+                }
+            }
         }
+    }
+
+    private static func setClipboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
 
     private static func error(_ message: String) -> NSError { NSError(domain: "kanna", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
+}
+
+private struct ClipboardItems: Sendable {
+    let contents: [(mime: String, data: Data)]
+    let available: [String]
+
+    init(_ value: ghostty_clipboard_confirm_s) {
+        contents = (0..<value.contents_len).compactMap { index in
+            guard let item = value.contents?[index], let mime = item.mime else { return nil }
+            return (String(cString: mime), item.data.map { Data(bytes: $0, count: item.len) } ?? Data())
+        }
+        available = (0..<value.available_len).compactMap { index in value.available?[index].map { String(cString: $0) } }
+    }
+
+    @MainActor
+    func complete(_ surface: ghostty_surface_t, state: UnsafeMutableRawPointer?) {
+        let mimes = contents.map { strdup($0.mime) }
+        let datas = contents.map { item -> UnsafeMutablePointer<CChar> in
+            let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: max(1, item.data.count))
+            item.data.copyBytes(to: UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: UInt8.self), count: item.data.count)
+            return buffer
+        }
+        let names: [UnsafePointer<CChar>?] = available.map { UnsafePointer(strdup($0)) }
+        defer {
+            mimes.forEach { free($0) }
+            datas.forEach { $0.deallocate() }
+            names.forEach { free(UnsafeMutableRawPointer(mutating: $0)) }
+        }
+        let items = contents.indices.map { ghostty_clipboard_content_s(mime: mimes[$0], data: datas[$0], len: contents[$0].data.count) }
+        items.withUnsafeBufferPointer { buffer in
+            names.withUnsafeBufferPointer { available in
+                var complete = ghostty_clipboard_complete_s(contents: buffer.baseAddress, contents_len: buffer.count, available: available.baseAddress,
+                                                            available_len: available.count, confirmed: true, remember: false)
+                ghostty_surface_complete_clipboard_request(surface, &complete, state)
+            }
+        }
+    }
 }
