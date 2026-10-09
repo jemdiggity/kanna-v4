@@ -33,7 +33,7 @@ fn with_the_app_attached_it_places_panes_and_answers_for_the_layout() {
     let instance = Instance::start();
     instance.open("early", Some("cat"));
     let app = instance.app();
-    assert_eq!(app.owner.view()["root"], json!({"pane": "p1", "type": "term"}));
+    assert_eq!(app.owner.view()["windows"][0]["root"], json!({"pane": "p1", "type": "term"}));
     let _answering = app.answering();
     let opened = instance.call("open", json!({"type": "term", "name": "right", "cmd": "cat", "split": "right", "size": "1/3"}));
     assert_eq!((opened["ok"].clone(), opened["window"].clone(), opened["tab"].clone()), (json!(true), json!("w1"), json!("t1")), "{opened}");
