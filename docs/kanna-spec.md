@@ -1,6 +1,6 @@
 # kanna — Specification
 
-> **Status:** Draft v0.5 · **Last updated:** 2026-10-09
+> **Status:** Draft v0.6 · **Last updated:** 2026-10-09
 >
 > Items marked **[Assumption]** are guesses made to fill gaps. Confirm or correct them, and see [Open Questions](#11-open-questions).
 >
@@ -16,6 +16,7 @@
    - 4.2 [What the Daemon Keeps, What the App Keeps](#42-what-the-daemon-keeps-what-the-app-keeps)
    - 4.3 [kmux Is the Reference Model](#43-kmux-is-the-reference-model)
    - 4.4 [Languages and Platforms](#44-languages-and-platforms)
+   - 4.5 [The App Link](#45-the-app-link)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -229,6 +230,52 @@ flowchart LR
 
 The daemon has to run on Linux too, so everything below the app is Rust. A Linux UI would be its own, on the same daemon.
 
+### 4.5 The App Link
+
+The app is a client of the daemon, like the CLI, but it stays connected: it shows the daemon's terminals, types into them, and answers the requests only the app can (`debug.*` now; layout, web and iOS commands later). The **app link** is that one connection, on the daemon's own socket (`$KANNA_SOCKET`).
+
+**The same wire as the control protocol.** One JSON object per line, both ways. A message with `cmd` is a request, shaped `{"id", "cmd", "args"}` as in the control protocol; with an `id` it wants a reply, `{"id", "ok": true, …}` or `{"id", "ok": false, "error": {"code", "message"}}`, and without one it's a notice that gets none. Each side numbers its own requests, and a reply goes to the side that asked. Terminal bytes are base64 in a `data` field.
+
+**Saying it's the app.** The app's first line is `{"id": 0, "cmd": "app.hello", "args": {"pid": …}}`. The daemon answers `{"id": 0, "ok": true, "daemon": {"pid": …}}` and the connection is the app link from then on. One app at a time: a second gets `ok: false` (`app_attached`) and is closed. If the daemon goes away, the app keeps trying to connect, and on reconnecting says hello and attaches its terminals again.
+
+```mermaid
+sequenceDiagram
+    participant A as Kanna app
+    participant D as Kanna daemon
+    participant C as kanna CLI
+    A->>D: app.hello
+    D->>A: ok
+    D->>A: layout (what to show)
+    A->>D: attach p1
+    D->>A: grid p1 80×24, output p1 (recent output, replayed)
+    A->>D: resize p1 to fit the view
+    D->>A: grid p1 (the size it now has)
+    Note over A,D: from now on, both ways
+    A->>D: input p1 (keystrokes)
+    D->>A: output p1 (what the program wrote)
+    C->>D: debug.type pane s1
+    D->>A: debug.type pane p1 (names resolved to IDs)
+    A->>D: ok
+    D->>C: ok
+```
+
+| Message | From | What it says |
+|---|---|---|
+| `app.hello {pid}` | app | I'm the app; the reply accepts or refuses it |
+| `layout {window, tab, focused, root}` | daemon | what to show: the tree of panes, sent again whenever it changes |
+| `attach {pane}` / `detach {pane}` | app | I show (or no longer show) this terminal |
+| `grid {pane, cols, rows}` | daemon | the terminal's size, after an attach or a resize |
+| `output {pane, data}` | daemon | bytes the program wrote; on attach, its recent output first |
+| `exited {pane, code}` | daemon | the program ended |
+| `input {pane, data}` | app | bytes the view wrote: keys, paste, mouse and focus reports |
+| `resize {pane, cols, rows, width, height}` | app | the view now fits this many cells (and pixels) |
+| `debug.*` (with an `id`) | daemon | a request from a client, passed on; the app's reply is the client's |
+
+- **The daemon decides a terminal's size.** The view asks with `resize`; the daemon sets the pty's size, and the view takes the size `grid` gives it, in order with the output.
+- **Requests for the app** (`debug.app`, `debug.type`, `debug.key`, `debug.text`, `debug.snapshot`) can come from any client. The daemon turns a pane name into its ID, passes the request on and returns the app's reply. With no app attached they fail with `no_app`; if the app goes away first, with `app_gone`.
+- **Layout, for M0:** the daemon keeps kanna-mux's own layout model and sends the first window's active tab: `{"pane": ID, "type": …}` for a pane, `{"split": "row" | "column", "children": […]}` for a split (a row side by side, a column stacked), each child with its `size` as a fraction. The app mirrors it, keeping each pane's view as the tree changes; panes it can't show yet are placeholders. From M1 the app owns the layout ([plan](plans/mux-build.md) step 1.3) and this message goes.
+- **Replay, for M0:** a terminal's last megabyte of output, replayed into a fresh view. From M1 the daemon sends a snapshot of the screen instead (step 1.2).
+
 ---
 
 ## 5. Mux Backends
@@ -287,7 +334,7 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 
 | Command | What it does |
 |---------|--------------|
-| `kanna open term [--cmd CMD] [--cwd DIR]` | Open a terminal pane. |
+| `kanna open [term] [--cmd CMD] [--cwd DIR]` | Open a terminal pane (the default type, as in kmux). |
 | `kanna open web URL [--history]` | Open a web pane; `--history` gives it back/forward. |
 | `kanna open md FILE` | Show a markdown file, rendered natively with mermaid diagrams; it reloads when the file changes. |
 | `kanna open ios --app APP [--device NAME]` | Launch an iOS app in a simulator pane. |
@@ -299,6 +346,7 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 | `kanna close PANE` | Close a pane. |
 | `kanna restart PANE` | Restart what's inside a pane. |
 | `kanna send PANE TEXT` | Type text into a terminal pane. |
+| `kanna read PANE [--lines N]` | Print a terminal pane's screen as text; with `--lines`, its last N lines, counting scrollback. Kanna.app only (kmux has no `read` yet). |
 | `kanna navigate PANE URL\|FILE\|--back\|--forward` | Point a web pane at a new URL (or move through its history), or a markdown pane at another `.md` file. |
 | `kanna mux` | Show the backend in use and what it supports. |
 
