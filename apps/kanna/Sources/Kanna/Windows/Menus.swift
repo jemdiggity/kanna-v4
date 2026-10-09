@@ -23,7 +23,9 @@ extension AppController {
             main.addItem(item)
             return submenu
         }
-        let app = menu("Kanna", [])
+        let app = menu("Kanna", [("New Instance", #selector(newInstance), nil, nil)])
+        if Self.instanceName != "default" { app.insertItem(withTitle: "Instance: \(Self.instanceName)", action: nil, keyEquivalent: "", at: 0) }
+        app.addItem(.separator())
         app.addItem(withTitle: "Quit Kanna", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let edit = NSMenu(title: "Edit")
         let editItems: [(String, String, String?, Shortcut)?] = [
@@ -93,6 +95,17 @@ extension AppController {
                 let shortcut = Shortcut(key: item.keyEquivalent, modifiers: item.keyEquivalentModifierMask)
                 return ["menu": .string(top.submenu?.title ?? ""), "item": .string(item.title), "shortcut": .string(item.keyEquivalent.isEmpty ? "" : shortcut.label)]
             }
+        }
+    }
+
+    @objc func newInstance() {
+        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("KANNA_") && !$0.key.hasPrefix("KMUX_") }
+        environment["KANNA_SOCKET"] = Self.instanceSocket(Self.unusedInstanceName)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        configuration.environment = environment
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
+            if let error { FileHandle.standardError.write(Data("kanna: could not start a new instance: \(error)\n".utf8)) }
         }
     }
 

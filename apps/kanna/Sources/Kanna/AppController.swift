@@ -40,6 +40,22 @@ final class AppController: NSObject, NSApplicationDelegate {
         CommandLine.arguments.contains("--fresh") || ProcessInfo.processInfo.environment["KANNA_FRESH"] == "1"
     }
 
+    static var instanceName: String {
+        let folder = ((daemonSocketPath as NSString).deletingLastPathComponent as NSString).lastPathComponent
+        return folder.hasPrefix("kanna-dev-") ? String(folder.dropFirst("kanna-dev-".count)) : "default"
+    }
+
+    static func instanceSocket(_ name: String) -> String {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return support.appendingPathComponent(name == "default" ? "kanna-dev" : "kanna-dev-\(name)").appendingPathComponent("kanna.sock").path
+    }
+
+    static var unusedInstanceName: String {
+        var number = 2
+        while SocketServer.isListening(instanceSocket(String(number))) { number += 1 }
+        return String(number)
+    }
+
     static var appSocketPath: String {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent("kanna/kanna.sock").path

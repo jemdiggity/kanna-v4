@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S10, S20–S22) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S10|S2[0-2]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -443,6 +443,92 @@ S22() {
   check test "$(inst instances)" == "No Kanna instances are running. Any command starts one, e.g. kanna open (default) or kanna --instance work open."
 }
 
+key() { raw "{\"id\":1,\"cmd\":\"debug.key\",\"args\":{\"key\":\"$1\"}}" >/dev/null; sleep 0.3; }
+state() { kanna list --json; }
+win() {
+  state | python3 -c 'import json, sys
+w = next(w for w in json.load(sys.stdin)["windows"] if w["id"] == sys.argv[1])
+v = w
+for k in sys.argv[2].split("."): v = v[int(k)] if k.isdigit() else v[k]
+print(json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v)' "$1" "$2"
+}
+count() { python3 -c 'import json, sys; print(len(json.load(sys.stdin)))'; }
+snap() {
+  local shot
+  shot="$(raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"window\":\"$1\",\"path\":\"$2.png\",\"marker\":\"*\"}}")"
+  cp "$KANNA_STATE_DIR/$2.png" "$out/$2.png" 2>/dev/null
+  printf '%s\n' "$shot"
+}
+drawn() {
+  python3 -c 'import json, sys
+shot = json.loads(sys.argv[1]); want = int(sys.argv[2])
+panes = shot.get("panes", [])
+assert len(panes) == want, f"{len(panes)} panes drawn, wanted {want}: {shot}"
+for p in panes:
+    m = p.get("marker", {})
+    assert p["ink"] > 0 and m.get("found") and m["inked"] == m["glyphs"] > 0, p' "$1" "$2"
+}
+click_tab() { raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"tab\":\"$1\",\"clicks\":${2:-1}}}" >/dev/null; sleep 0.3; }
+drag() { last_drag="$1 → $(raw "{\"id\":1,\"cmd\":\"debug.drag\",\"args\":$1}")"; sleep 0.3; }
+
+S11() {
+  start_daemon && start_app || return 1
+  kanna open --name k1 >/dev/null || return 1
+  key cmd+d; key cmd+shift+d
+  check test "$(win w1 tabs.0.layout)" == '{"children": [{"pane": "k1", "size": "1/2"}, {"children": [{"pane": "p2", "size": "1/2"}, {"pane": "p3", "size": "1/2"}], "size": "1/2", "split": "column"}], "split": "row"}' || return 1
+  check test "$(win w1 focused)" == p3 || return 1
+  key "cmd+]"; check test "$(win w1 focused)" == k1 || return 1
+  key "cmd+["; check test "$(win w1 focused)" == p3 || return 1
+  key cmd+shift+return; check test "$(win w1 zoomed)" == p3 || return 1
+  key "cmd+["; check test "$(win w1 zoomed)" == None || return 1
+  raw '{"id":1,"cmd":"debug.click","args":{"pane":"k1"}}' >/dev/null; sleep 0.3
+  check test "$(win w1 focused)" == k1 || return 1
+  sleep 1
+  check drawn "$(snap w1 s11-splits)" 3 || return 1
+  printf '# S11 DOC\n\nclick me\n' >"$KANNA_STATE_DIR/s11.md"
+  kanna open md --name doc --split right "$KANNA_STATE_DIR/s11.md" >/dev/null || return 1
+  key "cmd+["; check test "$(win w1 focused)" != doc || return 1
+  raw '{"id":1,"cmd":"debug.click","args":{"pane":"doc","at":[4,200]}}' >/dev/null; sleep 0.3
+  check test "$(win w1 focused)" == doc || return 1
+  mdzoom() { raw '{"id":1,"cmd":"debug.md","args":{"pane":"doc"}}' | field zoom; }
+  key cmd+shift+=; check python3 -c 'import sys; assert float(sys.argv[1]) > 1' "$(mdzoom)" || return 1
+  key cmd+0; check test "$(mdzoom)" == 1 || return 1
+  local pinched
+  pinched="$(raw '{"id":1,"cmd":"debug.pinch","args":{"pane":"doc"}}')"
+  check python3 -c 'import json, sys; z = json.loads(sys.argv[1])["zooms"]; assert z and z[-1] > 1.2, z' "$pinched" || return 1
+  check test "$(raw '{"id":1,"cmd":"debug.stats"}' | field pid)" == "$app_pid" || return 1
+  kanna close doc >/dev/null || return 1
+  key cmd+t; check test "$(win w1 tabs | count)" == 2 || return 1
+  key "cmd+shift+["; check test "$(win w1 tabs.0.active)" == True || return 1
+  key "cmd+shift+]"; check test "$(win w1 tabs.1.active)" == True || return 1
+  local tab2
+  tab2="$(win w1 tabs.1.id)"
+  click_tab "$tab2" 2
+  for k in w e b return; do key "$k"; done
+  check test "$(win w1 tabs.1.title)" == web || return 1
+  click_tab "$tab2" 2
+  for k in x escape; do key "$k"; done
+  check test "$(win w1 tabs.1.title)" == web || return 1
+  click_tab "$(win w1 tabs.0.id)"; check test "$(win w1 tabs.0.active)" == True || return 1
+  click_tab "$tab2"
+  key cmd+n; check test "$(state | field windows | count)" == 2 || return 1
+  check test "$(win w2 key)" == True || return 1
+  sleep 1
+  check drawn "$(snap w2 s11-second-window)" 1 || return 1
+  key 'cmd+`'; check test "$(win w1 key)" == True || return 1
+  key cmd+w; check test "$(win w1 tabs | count)" == 1 || return 1
+  key cmd+shift+w; check test "$(state | field windows | count)" == 1 || return 1
+  local menus
+  menus="$(raw '{"id":1,"cmd":"debug.menu"}')"
+  for item in "Split Right" "Split Down" "New Web Pane Right" "New Markdown Pane Below…" "Open URL…" "Back" "Forward" "Home" "Next Pane" \
+              "Previous Pane" "Zoom" "Move Pane to New Window" "Restart" "Close Pane" "New Tab" "Next Tab" "Previous Tab" "Zoom In" "Zoom Out" \
+              "Actual Size" "New Window" "Close Window" "Move Tab to New Window" "Next Window" "Previous Window" "Undo" "Cut" "Copy" "Paste" \
+              "Select All" "New Instance" "Quit Kanna"; do
+    [[ "$menus" == *"\"item\":\"$item\""* ]] || { echo "no menu item \"$item\""; return 1; }
+  done
+  [[ "$menus" == *'"item":"Split Right","menu":"Pane","shortcut":"⌘d"'* ]] || { echo "Split Right isn't ⌘D: $menus"; return 1; }
+}
+
 S12() {
   start_daemon && start_app || return 1
   kanna open --name da >/dev/null && kanna open --name db --split right >/dev/null || return 1
@@ -472,7 +558,11 @@ S12() {
   check test "$(size db)" == "$before" || return 1
   sleep 1
   check drawn "$(snap w1 s12-resized)" 4 || return 1
-  local tab="$(win w1 tabs.0.id)"
+  kanna open --name ended --cmd 'exit 3' --tab >/dev/null || return 1
+  check wait_for 5 is ended state exited || return 1
+  sleep 0.5
+  check test "$(snap w1 s12-exited | field panes.0.notice)" == "exited (3)" || return 1
+  kanna close ended >/dev/null || return 1
   drag "{\"pane\":\"wide\",\"to\":{\"outside\":true}}"
   check test "$(state | field windows | count)" == 2 || { echo "$last_drag"; return 1; }
   sleep 1
@@ -525,6 +615,8 @@ S13() {
   drag '{"pane":"da","to":{"outside":true}}'
   check test "$(state | field windows | count)" == 3 || return 1
   local menu
+  menu="$(raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"tab\":\"$(win w1 tabs.0.id)\",\"button\":1}}")"
+  check test "$(field menu <<<"$menu")" == '["Move Tab to New Window", "Close Tab"]' || return 1
   menu="$(raw '{"id":1,"cmd":"debug.click","args":{"pane":"db","button":1}}')"
   for item in "Split Right" "Close Pane" "Move Pane to New Window" "Restart"; do
     [[ "$menu" == *"\"$item\""* ]] || { echo "the pane menu has no \"$item\": $menu"; return 1; }
@@ -537,9 +629,9 @@ S13() {
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S20|S21|S22) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S20 S21 S22)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

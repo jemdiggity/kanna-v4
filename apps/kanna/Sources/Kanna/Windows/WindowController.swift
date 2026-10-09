@@ -47,7 +47,8 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     func render(_ state: JSON, _ panes: PaneViews) {
         tab = state["tab"]?.string
-        window.title = "\(state["title"]?.string ?? "Kanna") — \(id)"
+        let instance = AppController.instanceName
+        window.title = "\(state["title"]?.string ?? "Kanna") — \(id)" + (instance == "default" ? "" : " · \(instance)")
         tabBar.show(state)
         let root = state["root"] ?? .null
         let ids = Self.paneIDs(root)

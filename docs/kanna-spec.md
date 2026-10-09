@@ -297,7 +297,7 @@ sequenceDiagram
 - **Requests from the daemon are answered in order.** The app answers `layout` on its main thread as the message arrives, before anything after it; `debug.*` may answer later.
 
 - **The daemon decides a terminal's size.** The view asks with `resize`; the daemon sets the pty's size, and the view takes the size `grid` gives it, in order with the output.
-- **Requests for the app** (`debug.app`, `debug.type`, `debug.key`, `debug.text`, `debug.snapshot`, `debug.web`, `debug.md`, `debug.ios`, and kmux's UI commands `debug.click`, `debug.drag`, `debug.menu`, `debug.pinch`, `debug.stats`, [4.10](#410-windows-tabs-and-splits)) can come from any client. The daemon turns a pane name into its ID, passes the request on and returns the app's reply. With no app attached they fail with `no_app`; if the app goes away first, with `app_gone`. If the app doesn't answer within 10 s they fail with `timeout`.
+- **Requests for the app** (every `debug.*` command the core doesn't answer itself: `debug.app`, `debug.type`, `debug.key`, `debug.text`, `debug.snapshot`, `debug.web`, `debug.md`, `debug.ios`, and kmux's UI commands `debug.click`, `debug.drag`, `debug.menu`, `debug.pinch`, `debug.stats`, [4.10](#410-windows-tabs-and-splits)) can come from any client. The daemon turns a pane name into its ID, passes the request on and returns the app's reply. With no app attached they fail with `no_app`; if the app goes away first, with `app_gone`. If the app doesn't answer within 10 s they fail with `timeout`.
 - **Debug commands are off by default.** The app answers `debug.*` only when started with `KANNA_DEBUG=1` (the test scripts set it). `debug.snapshot` takes a plain file name and writes a new file in `$KANNA_STATE_DIR` (or `$TMPDIR`); it never overwrites one.
 - **Limits:** a resize beyond 1000 cells a side is refused; a line over 16 MiB drops the app; an app that falls 16 MiB behind on output stops getting it and starts its terminals over (snapshot, grid) once it has caught up, and one 64 MiB behind is dropped.
 - **The layout is the app's** ([4.7](#47-the-layout)): the daemon keeps none and asks the app for every layout step. M0's `layout` notice, which mirrored a layout the daemon kept, is gone.
@@ -554,7 +554,7 @@ sequenceDiagram
 
 | Menu | Items |
 |---|---|
-| Kanna | Quit Kanna ⌘Q |
+| Kanna | New Instance, Quit Kanna ⌘Q |
 | Edit | Undo ⌘Z, Redo ⇧⌘Z, Cut ⌘X, Copy ⌘C, Paste ⌘V, Select All ⌘A (sent to whatever has focus) |
 | Pane | Split Right ⌘D, Split Down ⇧⌘D, New Web / iOS Pane Right and Below, New Markdown Pane Right… and Below…, Open URL… ⌘L, Back, Forward, Home ⇧⌘H, Next Pane ⌘], Previous Pane ⌘[, Zoom ⇧⌘↩, Move Pane to New Window, Restart ⌘R, Close Pane ⌘W |
 | View | New Tab ⌘T, Next Tab ⇧⌘], Previous Tab ⇧⌘[, Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 (a markdown pane's zoom, or a terminal's font size) |
@@ -563,7 +563,7 @@ sequenceDiagram
 - Every item acts on the key window and its focused pane. Pane, tab and window cycling go in reading order and wrap; moving focus cancels a zoom. A new web pane starts with its URL selected for editing; a new markdown pane asks for a file; a new iOS pane opens Settings.
 - **Ghostty keybindings** that no menu item takes reach the app as actions: `new_split`, `goto_split` (previous, left and up go back; the rest forward), `toggle_split_zoom`, `new_tab`, `goto_tab` (next, previous), `new_window`, `close_window`, `goto_window`, and `close_surface` (closes the pane). The pane the key was typed in is focused first. `GhosttyRuntime` passes them on (`onAction`, `onClose`); the app decides.
 - **Right-clicking a pane** opens the Pane menu for it (it takes focus first): in a terminal unless its program uses the mouse, below WebKit's own items in a web pane, below the text items in a markdown pane, alone in an iOS pane.
-- **kmux's New Instance is left out:** Kanna.app is one app per daemon and state folder; see the plan's open items.
+- **Instances** ([4.11](#411-the-kanna-cli)): Kanna → New Instance starts another Kanna.app, as kmux's does, for the first instance named 2, 3, … whose daemon doesn't answer: its `KANNA_SOCKET` is `kanna-dev-N/kanna.sock` (and no other `KANNA_*` or `KMUX_*` variable is passed), so it starts its own daemon there. An instance other than the default one shows its name in its window titles (`Tab 1 — w1 · work`) and at the top of the Kanna menu; the name comes from the socket's folder, as the daemon's does.
 
 **Debug commands** (with `KANNA_DEBUG=1`; the daemon passes them to the app, turning a top-level `pane` name into its ID; nested ones are resolved by the app):
 
