@@ -144,7 +144,8 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](../../km
 | Command | What it does |
 |---------|--------------|
 | `kanna open term [--cmd CMD] [--cwd DIR]` | Open a terminal pane. |
-| `kanna open web URL` | Open a web pane. |
+| `kanna open web URL [--history]` | Open a web pane; `--history` gives it back/forward. |
+| `kanna open md FILE` | Show a markdown file, rendered natively with mermaid diagrams; it reloads when the file changes. |
 | `kanna open ios --app APP [--device NAME]` | Launch an iOS app in a simulator pane. |
 | `kanna arrange LAYOUT` | Rearrange existing panes in one go ([6.2](#62-the-layout-expression)). |
 | `kanna resize PANE SIZE` | Change one pane's size. |
@@ -154,7 +155,7 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](../../km
 | `kanna close PANE` | Close a pane. |
 | `kanna restart PANE` | Restart what's inside a pane. |
 | `kanna send PANE TEXT` | Type text into a terminal pane. |
-| `kanna navigate PANE URL` | Point a web pane at a new URL. |
+| `kanna navigate PANE URL\|FILE\|--back\|--forward` | Point a web pane at a new URL (or move through its history), or a markdown pane at another `.md` file. |
 | `kanna mux` | Show the backend in use and what it supports. |
 
 `PANE` can be a name (`site`) or an ID (`p2`).

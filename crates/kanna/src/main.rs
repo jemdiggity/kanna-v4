@@ -7,8 +7,16 @@ use std::process::ExitCode;
 const USAGE: &str = "usage: kanna [--mux kmux] [--json] <command>
 
 commands:
-  open term [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down] [--size FRACTION] [--tab] [--window ID|new] [--no-wait]
+  open term [--cmd CMD] [--cwd DIR]   a terminal
+  open web URL [--history]            a web page
+  open md FILE                        a markdown file, rendered (with mermaid diagrams)
+  open ios --app APP [--device NAME]  an iOS app in the simulator
+     open options: [--name NAME] [--split right|down] [--size FRACTION] [--tab] [--window ID|new] [--no-wait]
   list
+  focus PANE
+  navigate PANE URL|FILE|--back|--forward
+  send PANE TEXT
+  restart PANE
   close PANE
   mux";
 
@@ -46,21 +54,8 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
 
     match command.as_str() {
         "open" => {
-            let mut request = Map::new();
-            for (flag, key) in [("--cmd", "cmd"), ("--cwd", "cwd"), ("--name", "name"), ("--split", "split"), ("--size", "size"), ("--window", "window")] {
-                if let Some(value) = args.option(flag)? {
-                    request.insert(key.into(), json!(value));
-                }
-            }
-            if args.flag("--tab") {
-                request.insert("tab".into(), json!(true));
-            }
-            if args.flag("--no-wait") {
-                request.insert("wait".into(), json!(false));
-            }
-            let kind = args.positional().ok_or_else(|| fail(exit::USAGE, "open needs a pane type: term, web or ios"))?;
-            request.insert("type".into(), json!(kind));
-            finish(&args)?;
+            let request = open_request(&mut args)?;
+            let kind = request["type"].as_str().unwrap_or_default().to_string();
             let mut mux = Kmux::connect()?;
             let capabilities = mux.call("capabilities", json!({}))?;
             let supported = capabilities["paneTypes"].as_array().is_some_and(|types| types.contains(&json!(kind)));
@@ -72,16 +67,28 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
             let label = pane["name"].as_str().or(pane["id"].as_str()).unwrap_or_default().to_string();
             print(&reply, label);
         }
+        "navigate" => {
+            let request = navigate_request(&mut args)?;
+            let reply = Kmux::connect()?.call("navigate", Value::Object(request))?;
+            print(&reply, String::new());
+        }
+        "focus" | "restart" | "close" => {
+            let pane = args.positional().ok_or_else(|| fail(exit::USAGE, format!("{command} needs a pane")))?;
+            finish(&args)?;
+            let reply = Kmux::connect()?.call(&command, json!({ "pane": pane }))?;
+            print(&reply, String::new());
+        }
+        "send" => {
+            let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "send needs a pane and text"))?;
+            let text = args.positional().ok_or_else(|| fail(exit::USAGE, "send needs text"))?;
+            finish(&args)?;
+            let reply = Kmux::connect()?.call("send", json!({ "pane": pane, "text": text }))?;
+            print(&reply, String::new());
+        }
         "list" => {
             finish(&args)?;
             let reply = Kmux::connect()?.call("list", json!({}))?;
             print(&reply, format_list(&reply));
-        }
-        "close" => {
-            let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "close needs a pane"))?;
-            finish(&args)?;
-            let reply = Kmux::connect()?.call("close", json!({ "pane": pane }))?;
-            print(&reply, String::new());
         }
         "mux" => {
             finish(&args)?;
@@ -95,6 +102,81 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
         other => return Err(fail(exit::USAGE, format!("unknown command \"{other}\"\n{USAGE}"))),
     }
     Ok(())
+}
+
+/// `open TYPE …` as a kmux `open` request.
+fn open_request(args: &mut Args) -> Result<Map<String, Value>, Failure> {
+    let mut request = Map::new();
+    for (flag, key) in [
+        ("--cmd", "cmd"), ("--cwd", "cwd"), ("--name", "name"), ("--split", "split"), ("--size", "size"),
+        ("--window", "window"), ("--app", "app"), ("--device", "device"),
+    ] {
+        if let Some(value) = args.option(flag)? {
+            request.insert(key.into(), json!(value));
+        }
+    }
+    for (flag, key, value) in [("--tab", "tab", true), ("--history", "history", true), ("--no-wait", "wait", false)] {
+        if args.flag(flag) {
+            request.insert(key.into(), json!(value));
+        }
+    }
+    let kind = args.positional().ok_or_else(|| fail(exit::USAGE, "open needs a pane type: term, web, md or ios"))?;
+    match kind.as_str() {
+        "web" => {
+            let url = args.positional().ok_or_else(|| fail(exit::USAGE, "open web needs a URL"))?;
+            request.insert("url".into(), json!(url));
+        }
+        "md" => {
+            let file = args.positional().ok_or_else(|| fail(exit::USAGE, "open md needs a file"))?;
+            request.insert("path".into(), json!(absolute(&file)));
+        }
+        "ios" if !request.contains_key("app") => return Err(fail(exit::USAGE, "open ios needs --app APP (a .app or a bundle ID)")),
+        _ => {}
+    }
+    if let Some(cwd) = request.get("cwd").and_then(Value::as_str).map(absolute) {
+        request.insert("cwd".into(), json!(cwd));
+    }
+    request.insert("type".into(), json!(kind));
+    finish(args)?;
+    Ok(request)
+}
+
+/// `navigate PANE URL|FILE|--back|--forward`: a `.md` target is a file for a markdown pane.
+fn navigate_request(args: &mut Args) -> Result<Map<String, Value>, Failure> {
+    let back = args.flag("--back");
+    let forward = args.flag("--forward");
+    let pane = args.positional().ok_or_else(|| fail(exit::USAGE, "navigate needs a pane"))?;
+    let mut request = Map::new();
+    request.insert("pane".into(), json!(pane));
+    if back || forward {
+        request.insert(if back { "back" } else { "forward" }.into(), json!(true));
+    } else {
+        let target = args.positional().ok_or_else(|| fail(exit::USAGE, "navigate needs a URL, a file, --back or --forward"))?;
+        if is_markdown(&target) {
+            request.insert("path".into(), json!(absolute(&target)));
+        } else {
+            request.insert("url".into(), json!(target));
+        }
+    }
+    finish(args)?;
+    Ok(request)
+}
+
+fn is_markdown(target: &str) -> bool {
+    !target.contains("://") && [".md", ".markdown", ".mdown"].iter().any(|ext| target.to_lowercase().ends_with(ext))
+}
+
+/// Paths are sent absolute: kmux doesn't share kanna's working directory.
+fn absolute(path: &str) -> String {
+    let expanded = match path.strip_prefix("~/") {
+        Some(rest) => std::env::var("HOME").map(|home| format!("{home}/{rest}")).unwrap_or_else(|_| path.to_string()),
+        None => path.to_string(),
+    };
+    let p = std::path::Path::new(&expanded);
+    if p.is_absolute() {
+        return expanded;
+    }
+    std::env::current_dir().map(|dir| dir.join(p).to_string_lossy().into_owned()).unwrap_or(expanded)
 }
 
 fn format_list(reply: &Value) -> String {
@@ -135,5 +217,43 @@ fn finish(args: &Args) -> Result<(), Failure> {
     match args.first() {
         None => Ok(()),
         Some(extra) => Err(fail(exit::USAGE, format!("unexpected argument \"{extra}\""))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Args {
+        Args::new(list.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn open_md_sends_an_absolute_path() {
+        let request = open_request(&mut args(&["md", "/tmp/a.md", "--name", "spec"])).unwrap();
+        assert_eq!(request["type"], "md");
+        assert_eq!(request["path"], "/tmp/a.md");
+        assert_eq!(request["name"], "spec");
+        let relative = open_request(&mut args(&["md", "docs/a.md"])).unwrap();
+        assert!(relative["path"].as_str().unwrap().starts_with('/'));
+    }
+
+    #[test]
+    fn open_web_and_ios_pass_their_options() {
+        let web = open_request(&mut args(&["web", "http://localhost:3000", "--history"])).unwrap();
+        assert_eq!(web["url"], "http://localhost:3000");
+        assert_eq!(web["history"], true);
+        let ios = open_request(&mut args(&["ios", "--app", "com.apple.Preferences", "--device", "iPhone 16"])).unwrap();
+        assert_eq!(ios["app"], "com.apple.Preferences");
+        assert_eq!(ios["device"], "iPhone 16");
+        assert!(open_request(&mut args(&["ios"])).is_err());
+        assert!(open_request(&mut args(&["md"])).is_err());
+    }
+
+    #[test]
+    fn navigate_tells_files_from_urls() {
+        assert_eq!(navigate_request(&mut args(&["spec", "/tmp/b.md"])).unwrap()["path"], "/tmp/b.md");
+        assert_eq!(navigate_request(&mut args(&["site", "https://x.dev/a.md"])).unwrap()["url"], "https://x.dev/a.md");
+        assert_eq!(navigate_request(&mut args(&["site", "--back"])).unwrap()["back"], true);
     }
 }
