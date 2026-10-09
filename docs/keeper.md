@@ -166,7 +166,7 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 
 ## 9. Security and Limits
 
-- **State directory** 0700 and owned by the user; **socket** 0600.
+- **State directory** 0700, owned by the user and a real directory: a symlink there is refused (it is opened `O_NOFOLLOW`, checked and tightened through that descriptor). **Socket** 0600.
 - **Peer check:** every connection's uid (`getpeereid` on macOS, `SO_PEERCRED` on Linux) must be the keeper's; others are closed and logged. The client checks the keeper's uid the same way.
 - **Masters** are close-on-exec: no spawned process inherits another's pty.
 
