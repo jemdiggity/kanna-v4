@@ -57,7 +57,19 @@ extension AppController {
                 guard let view = panes[pane], view.window != nil else { return nil }
                 return (pane, view.terminal ?? view)
             }
-            return try Snapshot.run(controller.window, id: id, panes: shown, path: args["path"]?.string, marker: args["marker"]?.string)
+            var reply = try Snapshot.run(controller.window, id: id, panes: shown, path: args["path"]?.string, marker: args["marker"]?.string)
+            if case .array(let list)? = reply["panes"] {
+                reply["panes"] = .array(list.map { entry in
+                    guard case .object(var fields) = entry, let pane = entry["id"]?.string, let message = panes[pane]?.message else { return entry }
+                    fields["notice"] = .string(message)
+                    return .object(fields)
+                })
+            }
+            reply["tabs"] = window["tabs"].map { tabs in
+                guard case .array(let list) = tabs else { return tabs }
+                return .array(list.compactMap { $0["title"] })
+            } ?? []
+            return reply
         }
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
@@ -136,8 +148,12 @@ extension AppController {
             cg.setIntegerValueField(.mouseEventButtonNumber, value: Int64(button))
             guard let down = NSEvent(cgEvent: cg) else { throw KannaError("bad_request", "can't make that mouse event") }
             if button == 1 {
-                guard let view = window.contentView?.hitTest(window.contentView?.convert(point, from: nil) ?? point) else { return [:] }
-                let menu = view.menu(for: down) ?? (view as? TerminalSurfaceView)?.contextMenu?()
+                var view = window.contentView?.hitTest(window.contentView?.convert(point, from: nil) ?? point)
+                var menu: NSMenu?
+                while let current = view, menu == nil {
+                    menu = (current as? TerminalSurfaceView)?.contextMenu?() ?? current.menu(for: down)
+                    view = current.superview
+                }
                 let items = (menu?.items ?? []).filter { !$0.isSeparatorItem }.map { JSON.string($0.title) }
                 return ["menu": .array(items)]
             }
