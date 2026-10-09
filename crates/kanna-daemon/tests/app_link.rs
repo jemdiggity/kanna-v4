@@ -75,3 +75,20 @@ fn an_endless_line_drops_the_app() {
     wait_for("the daemon to let the app go", || instance.log().contains("the app went away"));
     instance.app();
 }
+
+#[test]
+fn a_request_the_app_never_answers_times_out() {
+    let instance = Instance::start_with(&[("KANNA_APP_TIMEOUT_MS", "500")]);
+    let mut app = instance.app();
+    let asked = Instant::now();
+    let reply = instance.call("debug.app", json!({}));
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error"]["code"], "timeout", "{reply}");
+    assert!(asked.elapsed() < Duration::from_secs(3));
+
+    let request = app.until("the request", |m| m["cmd"] == "debug.app");
+    app.send(json!({"id": request["id"], "ok": true, "late": true}));
+    let mut second = App::raw(&instance.socket());
+    second.send(json!({"id": 0, "cmd": "app.hello", "args": {}}));
+    assert_eq!(second.next().unwrap()["error"]["code"], "app_attached");
+}

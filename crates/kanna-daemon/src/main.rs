@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use terminals::Terminals;
 
 const USAGE: &str = "usage: kanna-daemon [--uses-keeper]
@@ -30,6 +30,8 @@ keeper of that folder, starting $KANNA_KEEPER (default: the kanna-keeper
 beside this binary) if none runs.
 
   --uses-keeper   exits 0: this daemon gets its ptys from a keeper";
+
+const APP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What the main thread acts on.
 pub enum Event {
@@ -147,7 +149,8 @@ fn run() -> Result<(), String> {
     *terminals.core.borrow_mut() = Some(core.weak());
     core.set_host(Some(terminals.clone()));
 
-    let app = Rc::new(AppLink::new(core.weak(), terminals.clone()));
+    let app_timeout = std::env::var("KANNA_APP_TIMEOUT_MS").ok().and_then(|ms| ms.parse().ok()).map(Duration::from_millis).unwrap_or(APP_TIMEOUT);
+    let app = Rc::new(AppLink::new(core.weak(), terminals.clone(), app_timeout));
     let on_change = Rc::downgrade(&app);
     core.set_on_change(Some(Rc::new(move || {
         if let Some(app) = on_change.upgrade() {
@@ -192,7 +195,8 @@ fn run() -> Result<(), String> {
 
     let mut failure = None;
     loop {
-        let deadline = core.poll();
+        app.expire(Instant::now());
+        let deadline = [core.poll(), app.next_deadline()].into_iter().flatten().min();
         let event = match deadline {
             Some(at) => inbox.recv_timeout(at.saturating_duration_since(Instant::now())),
             None => inbox.recv().map_err(|_| RecvTimeoutError::Disconnected),

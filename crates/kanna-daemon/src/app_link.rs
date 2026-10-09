@@ -21,6 +21,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// The first request of an app's connection.
 pub const HELLO: &str = "app.hello";
@@ -87,7 +88,8 @@ pub struct AppLink {
     terminals: Rc<Terminals>,
     app: RefCell<Option<Connection>>,
     /// Requests passed to the app, by the ID the daemon gave them.
-    pending: RefCell<HashMap<u64, Responder>>,
+    pending: RefCell<HashMap<u64, (Instant, Responder)>>,
+    timeout: Duration,
     next_id: Cell<u64>,
     /// The terminals the app shows: it gets their output.
     attached: RefCell<HashSet<String>>,
@@ -96,12 +98,13 @@ pub struct AppLink {
 }
 
 impl AppLink {
-    pub fn new(core: WeakCore, terminals: Rc<Terminals>) -> AppLink {
+    pub fn new(core: WeakCore, terminals: Rc<Terminals>, timeout: Duration) -> AppLink {
         AppLink {
             core,
             terminals,
             app: RefCell::new(None),
             pending: RefCell::default(),
+            timeout,
             next_id: Cell::new(0),
             attached: RefCell::default(),
             shown: RefCell::new(None),
@@ -150,7 +153,7 @@ impl AppLink {
         self.app.borrow_mut().take();
         self.attached.borrow_mut().clear();
         self.shown.borrow_mut().take();
-        let pending: Vec<Responder> = self.pending.borrow_mut().drain().map(|(_, r)| r).collect();
+        let pending: Vec<Responder> = self.pending.borrow_mut().drain().map(|(_, (_, r))| r).collect();
         for responder in pending {
             responder.reply(Err(KmuxError::new("app_gone", "Kanna.app went away before answering")));
         }
@@ -170,7 +173,7 @@ impl AppLink {
         // An answer to a request the daemon passed on.
         if message.get("ok").is_some() {
             let responder = message.get("id").and_then(Value::as_u64).and_then(|id| self.pending.borrow_mut().remove(&id));
-            if let Some(responder) = responder {
+            if let Some((_, responder)) = responder {
                 responder.reply(answer(message));
             }
             return;
@@ -271,8 +274,21 @@ impl AppLink {
         }
         let id = self.next_id.get() + 1;
         self.next_id.set(id);
-        self.pending.borrow_mut().insert(id, responder);
+        self.pending.borrow_mut().insert(id, (Instant::now() + self.timeout, responder));
         self.send(json!({ "id": id, "cmd": cmd, "args": args }));
+    }
+
+    pub fn next_deadline(&self) -> Option<Instant> {
+        self.pending.borrow().values().map(|(deadline, _)| *deadline).min()
+    }
+
+    pub fn expire(&self, now: Instant) {
+        let late: Vec<u64> = self.pending.borrow().iter().filter(|(_, (deadline, _))| *deadline <= now).map(|(id, _)| *id).collect();
+        for id in late {
+            let Some((_, responder)) = self.pending.borrow_mut().remove(&id) else { continue };
+            let seconds = self.timeout.as_secs_f64();
+            responder.reply(Err(KmuxError::new("timeout", format!("Kanna.app didn't answer within {seconds}s"))));
+        }
     }
 }
 
