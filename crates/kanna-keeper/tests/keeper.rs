@@ -157,7 +157,7 @@ fn spawn_then_read_and_write_through_the_fd() {
     req.rows = 30;
     let pty = c.spawn(&req).unwrap();
     assert!(pty.pid > 0 && alive(pty.pid));
-    assert_eq!(pty.cmd, ["/bin/sh", "-c", req.command.as_deref().unwrap()]);
+    assert_eq!(pty.cmd[1..], ["-l", "-c", req.command.as_deref().unwrap()]);
     read_until(&pty.master, "ready");
     write(&pty.master, "hello\n");
     read_until(&pty.master, "got:hello");
@@ -793,4 +793,15 @@ fn a_spawn_that_doesnt_exec_in_time_fails_and_is_killed() {
     assert!(c.adopt().unwrap().is_empty());
     let again = c.spawn(&SpawnRequest::command("late", "true")).unwrap_err();
     assert!(again.to_string().contains("timed out"), "{again}");
+}
+
+#[test]
+fn programs_start_from_the_session_not_from_whoever_started_the_keeper() {
+    let f = Fixture::with(&[("EDITOR", "nvim"), ("KANNA_LEAK", "yes"), ("LANG", "C")]);
+    let mut c = f.client();
+    let req = SpawnRequest::command("t1", "printf 'E=[%s] K=[%s] L=[%s] P=[%s] END\\n' \"$EDITOR\" \"$KANNA_LEAK\" \"$LANG\" \"$PATH\"; sleep 30");
+    let pty = c.spawn(&req).unwrap();
+    let out = read_until(&pty.master, "] END");
+    assert!(out.contains("E=[] K=[] L=[C]"), "{out}");
+    assert!(out.contains("/usr/bin"), "{out}");
 }

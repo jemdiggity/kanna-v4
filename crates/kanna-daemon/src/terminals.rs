@@ -315,6 +315,7 @@ impl Terminals {
             };
             let mut pane = Pane::new(&id, None, PaneType::Term);
             pane.command = match pty.cmd.as_slice() {
+                [_, l, c, command] if l == "-l" && c == "-c" => Some(command.clone()),
                 [sh, c, command] if sh == "/bin/sh" && c == "-c" => Some(command.clone()),
                 _ => None,
             };

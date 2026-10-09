@@ -44,9 +44,27 @@ fn cstring(bytes: &[u8]) -> Result<CString> {
 
 const DEFAULT_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
 
-fn keeper_only(key: &OsStr) -> bool {
+const SESSION_WIDE: &[&str] = &[
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TMPDIR",
+    "LANG",
+    "__CF_USER_TEXT_ENCODING",
+    "SSH_AUTH_SOCK",
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "XDG_SESSION_TYPE",
+    "DBUS_SESSION_BUS_ADDRESS",
+];
+
+const LOGIN_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+fn session_wide(key: &OsStr) -> bool {
     let key = key.as_bytes();
-    key == b"KANNA_STATE_DIR" || key == b"KANNA_KEEPER" || key.starts_with(b"KANNA_KEEPER_")
+    SESSION_WIDE.iter().any(|wanted| wanted.as_bytes() == key) || key.starts_with(b"LC_")
 }
 
 #[cfg(debug_assertions)]
@@ -72,7 +90,7 @@ pub struct Base {
 impl Base {
     pub fn load() -> Self {
         let user = ghostty_env::current_user();
-        let mut env: Env = std::env::vars_os().filter(|(key, _)| !keeper_only(key)).collect();
+        let mut env: Env = std::env::vars_os().filter(|(key, _)| session_wide(key)).collect();
         if let Some(user) = &user {
             let home = user.home.clone().map(PathBuf::into_os_string).unwrap_or_default();
             for (key, value) in
@@ -83,11 +101,12 @@ impl Base {
                 }
             }
         }
-        let login_shell = user
-            .as_ref()
-            .map(|u| u.shell.clone())
+        env.insert("PATH".into(), LOGIN_PATH.into());
+        let login_shell = env
+            .get(OsStr::new("SHELL"))
             .filter(|s| !s.is_empty())
-            .or_else(|| env.get(OsStr::new("SHELL")).filter(|s| !s.is_empty()).cloned())
+            .cloned()
+            .or_else(|| user.as_ref().map(|u| u.shell.clone()).filter(|s| !s.is_empty()))
             .unwrap_or_else(|| "/bin/sh".into());
         let ctx = ghostty_env::Context::for_env(&env, user);
         Base { env, ctx, login_shell, delay_us: test_delay_us() }
@@ -97,7 +116,7 @@ impl Base {
         match what {
             What::Shell(Some(shell)) if !shell.is_empty() => vec![(*shell).into()],
             What::Shell(_) => vec![self.login_shell.clone()],
-            What::Command(line) => vec!["/bin/sh".into(), "-c".into(), (*line).into()],
+            What::Command(line) => vec![self.login_shell.clone(), "-l".into(), "-c".into(), (*line).into()],
         }
     }
 }
