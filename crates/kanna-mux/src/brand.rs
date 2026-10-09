@@ -11,17 +11,13 @@ pub struct Brand {
     pub id: String,
     /// What the user sees: window title, app menu.
     pub display_name: String,
-    /// A program every terminal runs through, if the product hosts its own
-    /// terminals (Kanna keeps them alive across app restarts): kmux runs
-    /// `WRAPPER` for a shell, or `WRAPPER -- SHELL -c COMMAND` for a command.
-    pub terminal_wrapper: Option<String>,
 }
 
 static CURRENT: OnceLock<Brand> = OnceLock::new();
 
 impl Brand {
     pub fn new(id: &str, display_name: &str) -> Brand {
-        Brand { id: id.into(), display_name: display_name.into(), terminal_wrapper: None }
+        Brand { id: id.into(), display_name: display_name.into() }
     }
 
     pub fn kmux() -> Brand {
@@ -29,17 +25,11 @@ impl Brand {
     }
 
     /// This process's brand: the one the app set, else kmux.
-    /// `KMUX_TERMINAL_WRAPPER` (an absolute path) overrides the wrapper, for tests.
     pub fn current() -> &'static Brand {
-        CURRENT.get_or_init(|| {
-            let mut brand = Brand::kmux();
-            brand.terminal_wrapper = std::env::var("KMUX_TERMINAL_WRAPPER").ok().filter(|w| !w.is_empty());
-            brand
-        })
+        CURRENT.get_or_init(Brand::kmux)
     }
 
-    /// Sets the brand, once, before anything reads it. The app resolves a
-    /// wrapper inside its bundle to an absolute path first.
+    /// Sets the brand, once, before anything reads it.
     pub fn set_current(brand: Brand) -> Result<(), Brand> {
         CURRENT.set(brand)
     }

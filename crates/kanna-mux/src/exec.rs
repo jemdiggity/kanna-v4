@@ -1,6 +1,6 @@
 //! A small single-threaded executor for the core's commands, with timers.
 //! It runs only when the embedder calls in (`Core::poll`, or any call that
-//! changes the core); see DESIGN.md. Wakers are thread-safe: waking from
+//! changes the core). Wakers are thread-safe: waking from
 //! another thread queues the task and calls the embedder's wakeup, which
 //! should arrange for `Core::poll` on the core's thread.
 
@@ -196,7 +196,7 @@ impl Future for Sleep {
         let id = self.executor.next_timer.get() + 1;
         self.executor.next_timer.set(id);
         let deadline = self.deadline;
-        let earliest = self.executor.next_deadline().map_or(true, |next| deadline < next);
+        let earliest = self.executor.next_deadline().is_none_or(|next| deadline < next);
         self.executor.timers.borrow_mut().push((id, deadline, cx.waker().clone()));
         self.timer = Some(id);
         if earliest {

@@ -214,7 +214,7 @@ fn describe(value: &Value) -> String {
 
 fn swift_double(value: f64) -> String {
     let size = value.abs();
-    if !value.is_finite() || size == 0.0 || (size >= 1e-4 && size <= 9007199254740992.0) {
+    if !value.is_finite() || size == 0.0 || (1e-4..=9007199254740992.0).contains(&size) {
         return format!("{value:?}");
     }
     let text = format!("{value:e}");
@@ -467,29 +467,6 @@ impl Model {
         window.focused = Some(id.into());
         window.tabs[location.tab].last_focus = Some(id.into());
         self.key = Some(window.id.clone());
-    }
-
-    /// The pane `step` places after the focused one in reading order, wrapping.
-    pub fn cycle_pane(&self, window: &str, step: isize) -> Option<String> {
-        let window = self.window(window)?;
-        let ids = pane_ids(window.active_tab().and_then(|t| t.root.as_ref()));
-        if ids.is_empty() {
-            return None;
-        }
-        let at = window.focused.as_ref().and_then(|f| ids.iter().position(|id| id == f)).unwrap_or(0) as isize;
-        let count = ids.len() as isize;
-        Some(ids[((at + step) % count + count) as usize % ids.len()].clone())
-    }
-
-    /// The tab `step` places after the active one, wrapping.
-    pub fn cycle_tab(&self, window: &str, step: isize) -> Option<String> {
-        let window = self.window(window)?;
-        if window.tabs.is_empty() {
-            return None;
-        }
-        let at = window.tabs.iter().position(|t| Some(&t.id) == window.active.as_ref()).unwrap_or(0) as isize;
-        let count = window.tabs.len() as isize;
-        Some(window.tabs[((at + step) % count + count) as usize % window.tabs.len()].id.clone())
     }
 
     // MARK: Views for the protocol

@@ -1,6 +1,6 @@
 //! Handles control-protocol requests (docs/kmux-spec.md §7). The core owns
 //! panes and the commands that act on them alone; where panes are belongs to
-//! the `LayoutHost`. Everything runs on one thread; see DESIGN.md.
+//! the `LayoutHost`. Everything runs on one thread.
 
 use crate::error::KmuxError;
 use crate::exec::{sleep, Executor, Signal, Wakeup};
@@ -424,11 +424,11 @@ impl CoreHandle {
     }
 
     fn capabilities(&self) -> Map {
+        let commands = self.commands();
         let s = self.state();
         let layout = s.layout.features();
         let mut features: Vec<&str> = FEATURES.iter().copied().filter(|f| CORE_FEATURES.contains(f) || layout.contains(f)).collect();
         features.extend(layout.iter().filter(|f| !FEATURES.contains(f)));
-        let commands = self.commands_of(&s);
         reply([
             ("mux", "kmux".into()),
             ("instance", s.instance.name.clone().into()),
@@ -436,12 +436,6 @@ impl CoreHandle {
             ("commands", commands.into()),
             ("features", features.into()),
         ])
-    }
-
-    fn commands_of(&self, s: &State) -> Vec<String> {
-        let mut commands: Vec<String> = CORE_COMMANDS.iter().chain(s.layout.commands()).map(|c| c.to_string()).collect();
-        commands.sort();
-        commands
     }
 
     fn list(&self) -> Map {
