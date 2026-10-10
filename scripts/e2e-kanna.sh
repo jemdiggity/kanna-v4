@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S38) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S38, S40) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-8]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-8]|S40) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -43,6 +43,7 @@ done
 unset KANNA_PANE KANNA_INSTANCE
 new_state_dir() {
   KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)" || exit 1
+  export KANNA_AGENT_RULES_DIR="$KANNA_STATE_DIR/agent-rules-override"
   [[ -n "$KANNA_STATE_DIR" && -d "$KANNA_STATE_DIR" ]] || { echo "e2e-kanna: mktemp gave no folder" >&2; exit 1; }
   export KANNA_STATE_DIR KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
 }
@@ -50,6 +51,7 @@ new_state_dir
 export KANNA_IGNORE_OCCLUSION=1
 export KANNA_DEBUG=1
 export KANNA_NO_INITIAL_WINDOW=1
+export KANNA_AGENT_RULES_URL=none
 daemon_pid="" app_pid=""
 
 need() { [[ -x "$1" ]] || { echo "not built: ${1#$repo_root/}"; return 1; }; }
@@ -974,10 +976,35 @@ assert lone["dock"]["edge"] == "left" and lone["tabs"] == [], lone' "$KANNA_STAT
   check drawn "$(snap "$main" s38-restored)" 2
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-8]) echo M4 ;; esac
+S40() {
+  start_daemon && start_app || return 1
+  kanna open --name s40shell >/dev/null || return 1
+  kanna open --name s40 --tab --cmd "$repo_root/tools/mock-agent/mock-agent" >/dev/null || return 1
+  s40_status() { raw '{"id":1,"cmd":"debug.status"}' | field "panes.$(pane s40 id).$1"; }
+  check wait_for 5 is s40 status idle || return 1
+  check test "$(pane s40shell status)" == None || return 1
+  kanna focus s40shell >/dev/null || return 1
+  kanna send s40 turn || return 1
+  check wait_for 5 is s40 status working || return 1
+  check wait_for 10 is s40 status needs-you || return 1
+  kanna list | grep -E '^p[0-9]+ +s40 +term +running +needs-you ' >/dev/null || { echo "no STATUS column"; kanna list; return 1; }
+  kanna status explain s40 | grep -qF 'rule: mock/needs-you/proceed' || { kanna status explain s40; return 1; }
+  check wait_for 5 eval '[[ "$(s40_status status)" == needs-you ]]' || return 1
+  kanna send s40 1 || return 1
+  check wait_for 5 is s40 status working || return 1
+  check wait_for 10 is s40 status idle || return 1
+  check wait_for 5 eval '[[ "$(s40_status status)" == idle && "$(s40_status unread)" == True ]]' || { raw '{"id":1,"cmd":"debug.status"}'; return 1; }
+  kanna focus s40 >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(s40_status unread)" == False ]]' || return 1
+  kanna send s40 exit || return 1
+  check wait_for 5 is s40 status exited || return 1
+  check wait_for 5 eval '[[ "$(s40_status status)" == exited ]]'
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-8]|S40) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S40)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
