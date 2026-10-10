@@ -505,6 +505,11 @@ S11() {
   key "cmd+]"; check test "$(win w1 focused)" == k1 || return 1
   key "cmd+["; check test "$(win w1 focused)" == p3 || return 1
   key cmd+shift+return; check test "$(win w1 zoomed)" == p3 || return 1
+  key cmd+t; check wait_for 5 eval '[[ "$(win w1 tabs.1.layout)" == *p4* ]]' || return 1
+  check test "$(win w1 zoomed)" == None || return 1
+  key "cmd+shift+["; check test "$(win w1 zoomed)" == p3 || return 1
+  kanna close p4 >/dev/null || return 1
+  check test "$(win w1 zoomed)" == p3 || return 1
   key "cmd+["; check test "$(win w1 zoomed)" == None || return 1
   raw '{"id":1,"cmd":"debug.click","args":{"pane":"k1"}}' >/dev/null; sleep 0.3
   check test "$(win w1 focused)" == k1 || return 1

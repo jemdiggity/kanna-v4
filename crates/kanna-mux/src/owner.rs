@@ -196,7 +196,7 @@ impl LayoutOwner {
                 let tab = window.active_tab();
                 let dock = window.dock.as_ref();
                 let docked = |pane: &String| dock.is_some_and(|d| &d.pane == pane);
-                let zoomed = window.zoomed.clone().filter(|z| docked(z) || tab.is_some_and(|t| crate::model::pane_ids(t.root.as_ref()).contains(z)));
+                let zoomed = window.zoomed().cloned().filter(|z| docked(z) || tab.is_some_and(|t| crate::model::pane_ids(t.root.as_ref()).contains(z)));
                 let root = match (&zoomed, tab) {
                     (Some(pane), _) if docked(pane) => Value::Null,
                     (Some(pane), _) => self.node(&Node::Pane(pane.clone())),
@@ -421,6 +421,39 @@ mod tests {
         assert_eq!(owner.handle(&json!({ "call": "frame", "window": "w1", "frame": { "x": 10, "y": 20, "w": 800, "h": 600 } }))["changed"], true);
         assert_eq!(owner.view()["windows"][0]["frame"], json!({ "x": 10.0, "y": 20.0, "w": 800.0, "h": 600.0 }));
         assert_eq!(owner.export()["windows"][0]["frame"], json!({ "x": 10, "y": 20, "w": 800, "h": 600 }));
+    }
+
+    #[test]
+    fn each_tab_keeps_its_zoom_while_you_are_on_another_and_after_a_relaunch() {
+        let dir = folder("tab-zoom");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({}));
+        place(&mut owner, "p2", json!({ "split": "right" }));
+        place(&mut owner, "p3", json!({ "tab": true }));
+        let command = |owner: &mut LayoutOwner, cmd: &str, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": cmd, "args": args } }));
+        let window = |owner: &LayoutOwner| owner.view()["windows"][0].clone();
+        command(&mut owner, "zoom", json!({ "pane": "p1" }));
+        assert_eq!(window(&owner)["zoomed"], "p1");
+        command(&mut owner, "focus", json!({ "tab": "t2" }));
+        assert_eq!(window(&owner)["zoomed"], Value::Null);
+        command(&mut owner, "focus", json!({ "tab": "t1" }));
+        assert_eq!(window(&owner)["zoomed"], "p1");
+        assert_eq!(window(&owner)["focused"], "p1");
+        command(&mut owner, "focus", json!({ "pane": "p3" }));
+        command(&mut owner, "focus", json!({ "pane": "p2" }));
+        assert_eq!(window(&owner)["zoomed"], Value::Null, "focusing another pane still unzooms");
+        command(&mut owner, "zoom", json!({ "pane": "p2" }));
+        command(&mut owner, "focus", json!({ "tab": "t2" }));
+        owner.save().unwrap();
+
+        let (mut again, _) = LayoutOwner::open(Some(file), false);
+        again.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2", "p3"]) }));
+        assert_eq!(window(&again)["zoomed"], Value::Null);
+        command(&mut again, "focus", json!({ "tab": "t1" }));
+        assert_eq!(window(&again)["zoomed"], "p2");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
