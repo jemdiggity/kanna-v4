@@ -91,6 +91,9 @@
   addEventListener("resize", changed);
   addEventListener("hashchange", changed);
   addEventListener("load", changed);
+  let moved = 0;
+  addEventListener("mousemove", e => { const now = Date.now(); if (now - moved < 40) return; moved = now; post({ kind: "move", x: e.clientX, y: e.clientY }); }, { passive: true });
+  document.documentElement.addEventListener("mouseleave", () => post({ kind: "move", x: -1, y: -1 }));
   for (const type of ["keydown", "keyup"]) addEventListener(type, e => post({ kind: "key", meta: e.metaKey, key: e.key, down: e.type === "keydown" }), true);
   post({ kind: "ready", info: info() });
 })();

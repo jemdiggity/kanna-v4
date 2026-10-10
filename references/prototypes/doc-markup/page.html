@@ -102,11 +102,15 @@ body.meta #doc img { cursor: crosshair; }
 #shield { position: absolute; inset: 0; z-index: 4; display: none; cursor: crosshair; }
 body.meta .reader.page #shield { display: block; }
 .imark.hover { pointer-events: none; z-index: 4; border-style: dashed; background: transparent; }
-.imark.region { pointer-events: none; z-index: 4; background: transparent; }
-.imark.region.done { background: transparent; }
-.badge { position: absolute; z-index: 6; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: var(--accent); color: white; font: 600 11.5px/22px var(--sans); text-align: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
-.badge.done { background: rgba(128, 128, 128, 0.85); }
-.badge.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+.imark.region { pointer-events: none; z-index: 4; background: transparent; border-width: 1.5px; }
+.imark.region:not(.over):not(.on) { border-color: transparent; }
+.imark.region.over { border-style: dashed; }
+.imark.region.on { border-style: solid; background: var(--tint); }
+.imark.region.on.large { background: transparent; }
+.imark.region.done { border-color: rgba(128, 128, 128, 0.7); }
+.dot { position: absolute; z-index: 6; width: 12px; height: 12px; border-radius: 6px; background: var(--accent); border: 2px solid white; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); cursor: pointer; }
+.dot.done { background: rgba(128, 128, 128, 0.9); }
+.dot.on { box-shadow: 0 0 0 2px var(--accent); }
 </style>
 </head>
 <body>
@@ -262,6 +266,7 @@ addEventListener("message", e => {
     if (m.key === "Escape" && state.composer) { closeComposer(); anchorAll(); }
     if (m.down && m.meta && m.key === "Enter") pageSelectionComment();
   }
+  if (m.kind === "move") { page.pointer = [m.x, m.y]; showOver(); }
   if (m.kind === "ready" || m.kind === "changed") {
     const was = page.info.hash;
     if (m.kind === "ready" && page.restore) { const [x, y] = page.restore; page.restore = null; ask({ kind: "scroll", x, y }); }
@@ -310,37 +315,35 @@ function isLarge(b) {
 }
 function drawPageMarks() {
   const reader = document.getElementById("reader");
-  reader.querySelectorAll(".imark:not(.draft):not(.hover), .badge").forEach(m => m.remove());
+  reader.querySelectorAll(".imark:not(.draft):not(.hover), .dot").forEach(m => m.remove());
+  const [w, h] = page.info.viewport;
   for (const t of state.threads) {
     if (!onPage(t)) continue;
     const b = pageBox(t);
     if (!b) continue;
     const kind = (t.state === "open" ? "" : " done") + (t.id === state.active ? " on" : "");
-    const open = e => { e.stopPropagation(); state.active = t.id; anchorAll(); document.querySelector(".card.on")?.scrollIntoView({ block: "nearest", behavior: "smooth" }); openPop(t.id); };
-    if (isLarge(b)) {
-      const [w, h] = page.info.viewport;
-      const region = document.createElement("div");
-      region.className = "imark region" + kind;
-      placeBox(region, b);
-      region.hidden = t.id !== state.active;
-      const badge = document.createElement("div");
-      badge.className = "badge" + kind;
-      badge.dataset.id = t.id;
-      badge.textContent = t.id;
-      Object.assign(badge.style, { left: Math.min(Math.max(b.left, 0), w - 40) + 6 + "px", top: Math.min(Math.max(b.top, 0), h - 30) + 6 + "px" });
-      badge.addEventListener("mouseenter", () => { region.hidden = false; });
-      badge.addEventListener("mouseleave", () => { region.hidden = t.id !== state.active; });
-      badge.addEventListener("click", open);
-      reader.append(region, badge);
-      continue;
-    }
-    const m = document.createElement("div");
-    m.className = "imark" + kind;
-    m.dataset.id = t.id;
-    placeBox(m, b);
-    m.addEventListener("click", open);
-    reader.appendChild(m);
+    const region = document.createElement("div");
+    region.className = "imark region" + kind + (isLarge(b) ? " large" : "");
+    region.dataset.id = t.id;
+    placeBox(region, b);
+    const dot = document.createElement("div");
+    dot.className = "dot" + kind;
+    dot.dataset.id = t.id;
+    dot.title = t.id;
+    Object.assign(dot.style, { left: Math.min(Math.max(b.left - 6, 2), w - 16) + "px", top: Math.min(Math.max(b.top - 6, 2), h - 16) + "px" });
+    dot.addEventListener("mouseenter", () => region.classList.add("over"));
+    dot.addEventListener("mouseleave", () => region.classList.remove("over"));
+    dot.addEventListener("click", e => { e.stopPropagation(); state.active = t.id; anchorAll(); document.querySelector(".card.on")?.scrollIntoView({ block: "nearest", behavior: "smooth" }); openPop(t.id); });
+    reader.append(region, dot);
   }
+  showOver();
+}
+function showOver() {
+  const [x, y] = page.pointer || [-1, -1];
+  document.querySelectorAll(".imark.region").forEach(r => {
+    const b = page.boxes[r.dataset.id];
+    r.classList.toggle("over", !!b && x >= b.left && x <= b.left + b.width && y >= b.top && y <= b.top + b.height);
+  });
 }
 async function hoverPage(e) {
   const seq = ++page.hoverSeq;

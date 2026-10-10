@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page Marks</title>
+<style>
+:root {
+  --accent: #3b6fe0;
+  --tint: rgba(59, 111, 224, 0.10);
+  --page: #ffffff;
+  --ink: #1d1d1f;
+  --soft: #6e6e73;
+  --line: #e3e3e8;
+  --bg: #f4f4f6;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px 40px; background: var(--bg); color: var(--ink); font: 14px var(--sans); }
+h1 { font-size: 18px; margin: 0 0 4px; }
+.lede { color: var(--soft); margin: 0 0 20px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; }
+.variant h2 { font-size: 14px; margin: 0 0 2px; }
+.variant p { color: var(--soft); margin: 0 0 8px; font-size: 12.5px; }
+.states { display: grid; gap: 8px; }
+.state { position: relative; background: var(--page); border: 1px solid var(--line); border-radius: 8px; padding: 18px 18px 22px; overflow: hidden; }
+.state .label { position: absolute; top: 6px; right: 8px; font-size: 10.5px; color: var(--soft); text-transform: uppercase; letter-spacing: 0.04em; }
+.page h3 { margin: 0 0 6px; font-size: 17px; }
+.page .copy { margin: 0 0 12px; color: #444; font-size: 12.5px; line-height: 1.45; }
+.page .btn { display: inline-block; padding: 7px 16px; border-radius: 6px; background: #1d1d1f; color: white; font-size: 12.5px; }
+.page .card { margin-top: 12px; padding: 10px; border-radius: 6px; background: #f0f0f3; font-size: 12px; color: #555; }
+.m { position: relative; display: inline-block; }
+.m.block { display: block; }
+.box { position: absolute; inset: -3px; border-radius: 4px; pointer-events: none; }
+.dot { position: absolute; width: 16px; height: 16px; border-radius: 8px; background: var(--accent); color: white; font: 600 9.5px/16px var(--sans); text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+.now .box { border: 2px solid var(--accent); background: var(--tint); }
+.pins .dot { top: -9px; right: -9px; }
+.pins .hover .box, .pins .on .box { border: 1px solid var(--accent); }
+.pins .on .box { background: var(--tint); }
+.corners .box { --c: 7px; background:
+  linear-gradient(var(--accent), var(--accent)) top left / var(--c) 1.5px no-repeat,
+  linear-gradient(var(--accent), var(--accent)) top left / 1.5px var(--c) no-repeat,
+  linear-gradient(var(--accent), var(--accent)) top right / var(--c) 1.5px no-repeat,
+  linear-gradient(var(--accent), var(--accent)) top right / 1.5px var(--c) no-repeat,
+  linear-gradient(var(--accent), var(--accent)) bottom left / var(--c) 1.5px no-repeat,
+  linear-gradient(var(--accent), var(--accent)) bottom left / 1.5px var(--c) no-repeat,
+  linear-gradient(var(--accent), var(--accent)) bottom right / var(--c) 1.5px no-repeat,
+  linear-gradient(var(--accent), var(--accent)) bottom right / 1.5px var(--c) no-repeat; }
+.corners .hover .box, .corners .on .box { outline: 1px solid var(--accent); outline-offset: -1px; }
+.corners .on .box { background-color: var(--tint); }
+.under .box { border-bottom: 2px solid var(--accent); border-radius: 0; inset: auto -2px -4px -2px; height: 0; }
+.under .dot { top: -8px; left: -10px; width: 8px; height: 8px; font-size: 0; }
+.under .hover .box, .under .on .box { inset: -3px; height: auto; border: 1px solid var(--accent); border-radius: 4px; }
+.under .on .box { background: var(--tint); }
+.dots .dot { top: -6px; left: -8px; width: 10px; height: 10px; font-size: 0; border: 2px solid white; }
+.dots .hover .box, .dots .on .box { border: 1px dashed var(--accent); }
+.dots .on .box { border-style: solid; background: var(--tint); }
+</style>
+</head>
+<body>
+<h1>Page marks: subtler options</h1>
+<p class="lede">The same mockup with two comments (on the heading and the button) in each style: at rest, with the pointer on one, and with one selected. Today's marks are first. Chosen: D, dots (2026-10-11).</p>
+<div class="grid" id="grid"></div>
+<template id="page">
+  <div class="page">
+    <h3><span class="m a">Desk: one task per window<span class="box"></span><span class="dot">c1</span></span></h3>
+    <p class="copy">A task is what a Desk holds: its agent, docked on the left, and its tabs. The Shelf below holds the others.</p>
+    <span class="m b"><span class="btn">Park</span><span class="box"></span><span class="dot">c2</span></span>
+    <div class="card">Doc markup reference model · working</div>
+  </div>
+</template>
+<script>
+const variants = [
+  ["now", "Now", "A tinted box with a 2px border on everything commented."],
+  ["pins", "A · Pins", "A numbered pin on each thing's corner; its outline only on hover or when selected."],
+  ["corners", "B · Corners", "Thin corner brackets show the extent without covering it; a full outline on hover or when selected."],
+  ["under", "C · Underline", "A 2px line under each thing and a small dot; the outline on hover or when selected."],
+  ["dots", "D · Dots", "Just a small dot at each thing's top-left; a dashed outline on hover, solid when selected."],
+];
+const grid = document.getElementById("grid"), tpl = document.getElementById("page");
+for (const [key, title, about] of variants) {
+  const v = document.createElement("section");
+  v.className = "variant " + key;
+  v.innerHTML = `<h2>${title}</h2><p>${about}</p><div class="states"></div>`;
+  for (const [state, mark] of [["At rest", ""], ["Pointer on c2", "hover"], ["c1 selected", "on"]]) {
+    const s = document.createElement("div");
+    s.className = "state";
+    s.innerHTML = `<span class="label">${state}</span>`;
+    s.appendChild(tpl.content.cloneNode(true));
+    if (mark === "hover") s.querySelector(".m.b").classList.add("hover");
+    if (mark === "on") s.querySelector(".m.a").classList.add("on");
+    v.querySelector(".states").appendChild(s);
+  }
+  if (key === "now") v.querySelectorAll(".dot").forEach(d => d.remove());
+  grid.appendChild(v);
+}
+</script>
+</body>
+</html>

@@ -1058,7 +1058,7 @@ print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
   key cmd+=; key cmd+=
   check wait_for 5 eval '[[ "$(s39_web | field zoom)" == 1.25 ]]' || { s39_web; return 1; }
   sleep 0.3
-  check test "$(python3 -c 'import json, sys; a, b = json.loads(sys.argv[1]), json.loads(sys.argv[2]); print(abs(a[0] - b[0]) < 2 and abs(a[1] - b[1]) < 2)' "$(s39_web | field marks.c1)" "$(s39_web ',"find":"#go"' | field at)")" == True || { s39_web; s39_web ',"find":"#go"'; return 1; }
+  check test "$(python3 -c 'import json, sys; a, b = json.loads(sys.argv[1]), json.loads(sys.argv[2]); print(abs(a[0] - b[0]) < 2 and abs(a[1] - b[1]) < 2)' "$(s39_web | field areas.c1)" "$(s39_web ',"find":"#go"' | field at)")" == True || { s39_web; s39_web ',"find":"#go"'; return 1; }
   s39_shot s39-zoomed
   key cmd+0
   kanna navigate page "file://$dir/page.html#later" >/dev/null || return 1
@@ -1108,15 +1108,15 @@ PY
   s39_moved() { python3 -c 'import json, sys; a, b, c, d = (json.loads(v) for v in sys.argv[1:]); dx, dy = (b[0] - a[0]) - (d[0] - c[0]), (b[1] - a[1]) - (d[1] - c[1]); print(abs(dx) < 3 and abs(dy) < 3, dx, dy)' "$@"; }
   local red0 mark0 red1 mark1
   sleep 0.3
-  red0="$(s39_red s39-red-start)"; mark0="$(s39_web | field marks.c3)"
+  red0="$(s39_red s39-red-start)"; mark0="$(s39_web | field areas.c3)"
   key cmd+=; key cmd+=
   raw '{"id":1,"cmd":"debug.web","args":{"pane":"page","js":"scrollTo(150, 200)"}}' >/dev/null
   sleep 0.6
-  red1="$(s39_red s39-red-zoomed)"; mark1="$(s39_web | field marks.c3)"
+  red1="$(s39_red s39-red-zoomed)"; mark1="$(s39_web | field areas.c3)"
   [[ "$(s39_moved "$red0" "$red1" "$mark0" "$mark1")" == True* ]] || { echo "the mark should move with the page: red $red0 → $red1, mark $mark0 → $mark1: $(s39_moved "$red0" "$red1" "$mark0" "$mark1")"; return 1; }
   raw '{"id":1,"cmd":"debug.pinch","args":{"pane":"page","steps":[0.15,0.1]}}' >/dev/null
   sleep 0.6
-  red1="$(s39_red s39-red-pinched)"; mark1="$(s39_web | field marks.c3)"
+  red1="$(s39_red s39-red-pinched)"; mark1="$(s39_web | field areas.c3)"
   [[ "$(s39_moved "$red0" "$red1" "$mark0" "$mark1")" == True* ]] || { echo "the mark should move with a pinch: red $red0 → $red1, mark $mark0 → $mark1"; return 1; }
   key cmd+0
   raw '{"id":1,"cmd":"debug.web","args":{"pane":"page","js":"(() => { scrollTo(0, 0); const r = document.createRange(); r.selectNodeContents(document.querySelector(\"p\")); getSelection().removeAllRanges(); getSelection().addRange(r); return 1; })()"}}' >/dev/null
@@ -1138,9 +1138,9 @@ PY
   key cmd+return
   check wait_for 5 eval '[[ "$(s39_thread c5 status)" == sent ]]' || { s39_web; return 1; }
   key escape
-  check wait_for 5 eval '[[ "$(s39_web | field badges)" == "[\"c5\"]" ]]' || { echo "a comment on the whole view should be a badge"; s39_web; return 1; }
-  check test "$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])[0] < 60)' "$(s39_web | field marks.c5)")" == True || { s39_web; return 1; }
-  sleep 0.3; s39_shot s39-badge
+  check wait_for 5 eval 's39_web | field areas | grep -q c5' || { s39_web; return 1; }
+  check test "$(python3 -c 'import json, sys; x, y = json.loads(sys.argv[1]); print(x < 20 and y < 60)' "$(s39_web | field marks.c5)")" == True || { echo "the whole view's dot should sit at its top-left"; s39_web; return 1; }
+  sleep 0.3; s39_shot s39-dots
   raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
   sleep 0.5; s39_shot s39-dark
 }

@@ -50,15 +50,13 @@ Every doc works the same way; only what you can point at differs.
 | ⌘-click | a word (even on a link) | the part of the page under it; holding ⌘ outlines it first |
 | ⌘-drag | a box on an image | a box anywhere on the page |
 | ⌘-click an image | the whole image | the image, as a part |
-| Plain click | follows a link, or opens a thread's mark | uses the page, or opens a thread's mark |
+| Plain click | follows a link, or opens a thread's mark | uses the page; a thread's dot opens it |
 
 ![A box drawn on an image, with its thread selected in the list](doc-markup-image.png)
 
-![A mockup in a web pane, with a part and a box marked and both threads listed](doc-markup-page.png)
+![A mockup in a web pane: a dot on each commented part or box, one grey for a resolved thread, the threads listed beside it](doc-markup-page.png)
 
-- **A comment on most of the view is a badge.** A mark covering more than half the view would hide the page under its tint, so it's drawn as a badge with the thread's ID at its top-left corner instead. Hovering the badge, or selecting the thread, outlines what it covers, untinted.
-
-![A comment on the whole window shown as a c1 badge, beside an ordinary mark](doc-markup-badge.png)
+- **On a page, a mark is a dot.** Each commented part or box shows only a small dot at its top-left corner (grey once resolved), so the page stays as it is and works as it does: clicking the thing uses the page; clicking the dot opens the thread. Pointing at the thing outlines it, dashed; selecting the thread outlines it solid, tinted unless it covers most of the view.
 
 - **Marks stay on what you pointed at.** A passage or selected text is found again by its words and the text around them; a part of a page by its place in the page and its text; a box by where it is on the image or page. They follow edits, reloads and zoom. Anything that can't be found again is kept and marked **detached**, never dropped.
 - **A page's view.** A thread on a page remembers which view of it it was on (the part of the URL after `#`), shows its mark only there, and takes you there when you open it from the list.
