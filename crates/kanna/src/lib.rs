@@ -111,7 +111,7 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         return Err(commands::usage(command.name, &format!("unexpected argument \"{extra}\"")));
     }
     let mut mux = Session::connect(&target, env)?;
-    let reply = match mux.call(wire(command), request.clone()) {
+    let reply = match mux.call(wire(command, &request), request.clone()) {
         Ok(reply) => reply,
         Err(failure) => return Err(explain(command, failure, &mut mux, &target)),
     };
@@ -147,8 +147,8 @@ fn explain(command: &Command, mut failure: Failure, mux: &mut Session, target: &
     failure
 }
 
-fn wire(command: &Command) -> &'static str {
-    if command.name == "markup" { "open" } else { command.name }
+fn wire(command: &Command, request: &Value) -> &'static str {
+    if command.name == "markup" && request.get("type").is_some() { "open" } else { command.name }
 }
 
 fn supported(target: &Target) -> Option<Vec<String>> {
@@ -162,7 +162,7 @@ fn unsupported_mark(target: &Target) -> String {
 
 fn mark(command: &Command, supported: Option<&[String]>, target: &Target) -> String {
     match supported {
-        Some(names) if !names.iter().any(|n| n == wire(command)) => unsupported_mark(target),
+        Some(names) if !names.iter().any(|n| n == command.name) => unsupported_mark(target),
         _ => String::new(),
     }
 }
@@ -410,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn a_local_page_opens_as_a_file_url() {
+    fn a_local_page_opens_as_a_file_url_and_markup_opens_or_switches_comments() {
         let dir = std::env::temp_dir().join(format!("kanna-page-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let page = dir.join("a page.html");
@@ -425,7 +425,14 @@ mod tests {
         assert_eq!(request["type"], json!("web"));
         assert_eq!(request["markup"], json!(true));
         assert_eq!(request["tab"], json!(true));
-        assert!(parse("kanna markup notes.md").is_err());
+        let (_, request) = parse("kanna markup /tmp/notes.md --split right").unwrap();
+        assert_eq!((request["type"].clone(), request["path"].clone(), request["markup"].clone()), (json!("md"), json!("/tmp/notes.md"), json!(true)));
+        assert_eq!(parse("kanna markup spec --off").unwrap().1, json!({ "pane": "spec", "off": true }));
+        assert_eq!(parse("kanna markup spec").unwrap().1["pane"], json!("spec"));
+        assert!(parse("kanna markup spec --tab").is_err());
+        assert!(parse("kanna markup /tmp/notes.md --off").is_err());
+        let (_, request) = parse("kanna open md /tmp/notes.md").unwrap();
+        assert!(request.get("markup").is_none() && request.get("agent").is_none());
         assert_eq!(parse("kanna markup /tmp/m.html").unwrap().1["url"], json!("file:///tmp/m.html"));
         std::fs::remove_dir_all(&dir).unwrap();
     }

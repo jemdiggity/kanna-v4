@@ -37,6 +37,18 @@ pub fn opened(_: &Value, reply: &Value) -> String {
     format!("opened {} in window {window}, tab {}: {}", label(&reply["pane"]), reply["tab"].as_str().unwrap_or("?"), state(&reply["pane"]))
 }
 
+pub fn marked(args: &Value, reply: &Value) -> String {
+    if args.get("type").is_some() {
+        return opened(args, reply);
+    }
+    let pane = &reply["pane"];
+    let to = pane["agent"].as_str().map(|agent| format!(", sent to {agent}")).unwrap_or_default();
+    match pane["markup"] == true {
+        true => format!("comments on in {}{to}", label(pane)),
+        false => format!("comments off in {}", label(pane)),
+    }
+}
+
 pub fn moved(reply: &Value) -> String {
     let dock = &reply["dock"];
     if dock.is_object() {

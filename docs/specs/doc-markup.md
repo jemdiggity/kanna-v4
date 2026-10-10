@@ -39,7 +39,8 @@ General remarks that aren't about something in the doc go straight to the agent'
 
 Every doc works the same way; only what you can point at differs.
 
-- **Two kinds of doc.** A markdown file, opened with `kanna open md FILE`, and an HTML page, opened with `kanna markup FILE.html`. (`kanna open web` shows a page without comments.)
+- **Two kinds of doc.** A markdown file and an HTML page, opened for comments with `kanna markup FILE.md` or `kanna markup FILE.html`.
+- **Comments are opt-in.** `kanna open md` and `kanna open web` show the doc alone: no thread list, no marks, ⌘ gestures do nothing. Comments come on or go off in a pane that's already open with `kanna markup PANE` (`--off`) or **Pane ▸ Comments**; turning them off keeps its threads for next time.
 - **Preview only.** The pane shows the file and reloads when it changes; you don't edit in it. Comments are the only thing you add.
 - **Commenting.** Select text and press ⌘↵, in either kind. ⌘ adds what the kind offers:
 
@@ -66,7 +67,7 @@ Every doc works the same way; only what you can point at differs.
 
 **A comment is typed into the agent that opened the doc, as `kanna send` would, the moment you post it.** The same for every agent: Claude, Codex or anything else that reads its terminal.
 
-- **Which pane:** the terminal that ran `kanna open md` or `kanna markup` for the doc, shown in the toolbar. A doc opened any other way (the menu, another doc's link) has no agent.
+- **Which pane:** the terminal that ran `kanna markup` for the doc, shown in the toolbar. Comments turned on from the menu go to the pane's agent if it had one, else nowhere: they're saved, not sent.
 - **What's typed:** one paste, then Enter: a header naming the thread, file and line; what you pointed at, as `>` lines; then your words. For a passage that's the passage:
 
 ```
@@ -140,8 +141,8 @@ flowchart LR
 ```
 
 - **Threads live in the daemon**, beside the terminals they're typed into, so `reply` and `resolve` work the same with the app closed. The anchoring and thread logic come from v3's `kanna3-doc` crate, ported as `crates/kanna-doc`; v3's delivery gate and draft tracking are not ported.
-- **Sending** uses the daemon's existing `send`, wrapped as a bracketed paste so a multi-line comment arrives whole (plain `send` would submit it at its first newline). `kanna open md` passes the pane it runs in (`$KANNA_PANE`, which Kanna sets in every terminal), and the doc remembers it.
-- **The app** adds the thread panel, marks and the comment box to the markdown pane and to a web pane opened with `kanna markup`, one shared set of views (`KannaDocs`), and gets thread changes over the app link like any other pane update. A page is worked from a script world of its own (`WKContentWorld`), which the page's scripts can't see or call; its marked-up copy is the web view's own screenshot.
+- **Sending** uses the daemon's existing `send`, wrapped as a bracketed paste so a multi-line comment arrives whole (plain `send` would submit it at its first newline). `kanna markup` passes the pane it runs in (`$KANNA_PANE`, which Kanna sets in every terminal), and the doc remembers it. Comments on or off are the pane's `markup` flag, set by `open` or the `markup` command, which restarts the pane's view as `navigate` does.
+- **The app** adds the thread panel, marks and the comment box to a markdown or web pane with comments on, one shared set of views (`KannaDocs`), and gets thread changes over the app link like any other pane update. A page is worked from a script world of its own (`WKContentWorld`), which the page's scripts can't see or call; its marked-up copy is the web view's own screenshot.
 - **Stored** in `<repo>/.kanna/docs/`, one file per doc, so threads survive restarts.
 - **Built so far:** both panes have the native comment UI, matching the reference model (e2e S37 drives the markdown pane, S39 a page, and both screenshot it). Until the daemon's doc store lands, the app reads and writes the reference model's files directly, so the prototype's `kanna-doc reply` and `resolve` (and the skill) work with it unchanged.
 

@@ -58,6 +58,7 @@ extension AppController {
             ("Back", #selector(goBack), nil, nil),
             ("Forward", #selector(goForward), nil, nil),
             ("Home", #selector(pressHome), nil, .shiftCmd("h")),
+            ("Comments", #selector(toggleComments), nil, nil),
             nil,
             ("Next Pane", #selector(nextPane), "goto_split:next", .cmd("]")),
             ("Previous Pane", #selector(previousPane), "goto_split:previous", .cmd("[")),
@@ -176,6 +177,9 @@ extension AppController {
         case #selector(zoomIn), #selector(zoomOut), #selector(actualSize): return panes.terminal(pane) != nil || contents.markdown(pane) != nil || contents.web(pane) != nil
         case #selector(pressHome): return contents.ios(pane)?.screen != nil
         case #selector(openURL): return contents.web(pane) != nil
+        case #selector(toggleComments):
+            item.state = commentsOn(pane) ? .on : .off
+            return contents.web(pane) != nil || contents.markdown(pane) != nil
         case #selector(goBack), #selector(goForward): return contents.web(pane) != nil || contents.markdown(pane) != nil
         case #selector(nextPane), #selector(previousPane), #selector(toggleZoom), #selector(movePaneToNewWindow), #selector(restartPane):
             return focusedPane != nil
@@ -208,6 +212,15 @@ extension AppController {
     private func history(back: Bool) {
         guard let pane = focusedPane else { return }
         request("navigate", ["pane": .string(pane), back ? "back" : "forward": true])
+    }
+
+    @objc func toggleComments() {
+        guard let pane = focusedPane, contents.web(pane) != nil || contents.markdown(pane) != nil else { return }
+        request("markup", commentsOn(pane) ? ["pane": .string(pane), "off": true] : ["pane": .string(pane)])
+    }
+
+    private func commentsOn(_ pane: String) -> Bool {
+        contents.markdown(pane)?.markup ?? contents.web(pane)?.markable ?? false
     }
 
     @objc func movePaneToNewWindow() {

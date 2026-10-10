@@ -315,6 +315,12 @@ pub fn lines(wants: &[Want], words: &[String], env: Env) -> Vec<String> {
         list.get_or_insert_with(|| live(words, env).unwrap_or(json!({}))).clone()
     };
     let current = words.last().map(String::as_str).unwrap_or("");
+    let kinds: Vec<&[&str]> = wants.iter().filter_map(|w| match w { Want::Files(kinds) => Some(*kinds), _ => None }).collect();
+    if !kinds.is_empty() {
+        let all = kinds.iter().any(|k| k.is_empty());
+        let extensions: Vec<&str> = if all { vec![] } else { kinds.concat() };
+        out.push(format!(":files {}", extensions.join(" ")).trim_end().to_string());
+    }
     for want in wants {
         match want {
             Want::Words(list) => out.extend(list.iter().map(|(w, d)| line(w, d))),
@@ -322,7 +328,7 @@ pub fn lines(wants: &[Want], words: &[String], env: Env) -> Vec<String> {
             Want::Tabs => out.extend(tabs(&listed(words))),
             Want::Windows => out.extend(windows(&listed(words))),
             Want::Instances => out.extend(instances(env)),
-            Want::Files(extensions) => out.push(format!(":files {}", extensions.join(" ")).trim_end().to_string()),
+            Want::Files(_) => {}
             Want::Dirs => out.push(":dirs".into()),
             Want::Commands => out.push(":commands".into()),
             Want::Devices => out.extend(devices()),
@@ -514,7 +520,10 @@ mod tests {
         assert_eq!(at("rename-tab "), [Want::Tabs]);
         assert_eq!(at("navigate "), [Want::Panes]);
         assert_eq!(at("navigate p1 "), [Want::Files(MARKDOWN)]);
-        assert_eq!(at("markup "), [Want::Files(HTML)]);
+        assert_eq!(at("markup "), [Want::Files(MARKDOWN), Want::Files(HTML), Want::Panes]);
+        assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(HTML)], &[String::new()], &|_| None), [":files md markdown mdown html htm"]);
+        assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(&[])], &[String::new()], &|_| None), [":files"]);
+        assert!(words(&at("markup spec -")).contains(&"--off".into()));
         assert_eq!(words(&at("resize p1 ")), ["1/2", "1/3", "2/3", "1/4", "3/4"]);
     }
 

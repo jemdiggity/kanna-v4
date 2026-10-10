@@ -30,7 +30,7 @@ pub type CommandHandler = Rc<dyn Fn(Value, Responder)>;
 
 pub type PrefixHandler = Rc<dyn Fn(&str, Value, Responder)>;
 
-pub const CORE_COMMANDS: [&str; 8] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read"];
+pub const CORE_COMMANDS: [&str; 9] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read", "markup"];
 
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
 
@@ -372,6 +372,7 @@ impl CoreHandle {
             "send" => self.send(&args),
             "read" => self.read(&args),
             "navigate" => self.navigate(&args).await,
+            "markup" => self.markup(&args).await,
             "debug.saveState" => {
                 let state = self.export_state().await?;
                 self.state().saved_state = Some(state.clone());
@@ -477,8 +478,8 @@ impl CoreHandle {
         if args.get("agent").is_some() && !matches!(kind, PaneType::Md | PaneType::Web) {
             return Err(bad_request("agent is only for markdown and web panes"));
         }
-        if args.get("markup").is_some() && kind != PaneType::Web {
-            return Err(bad_request("markup is only for web panes"));
+        if args.get("markup").is_some() && !matches!(kind, PaneType::Md | PaneType::Web) {
+            return Err(bad_request("markup is only for markdown and web panes"));
         }
         let name = string(args, "name").map(String::from);
         let taken = |core: &CoreHandle| match &name {
@@ -708,6 +709,25 @@ impl CoreHandle {
             pane.history = changed.history;
             pane.path = changed.path;
             pane.url = changed.url;
+        }
+        let snapshot = self.reload(&pane.id, false).await;
+        Ok(reply([("pane", self.summary(&pane.id, &snapshot))]))
+    }
+
+    async fn markup(&self, args: &Value) -> Result<Map, KmuxError> {
+        let pane = self.need_pane(string(args, "pane"))?;
+        if !matches!(pane.kind, PaneType::Md | PaneType::Web) {
+            return Err(KmuxError::new(
+                "wrong_type",
+                format!("{} is a {} pane; comments only work on web and markdown panes", pane.label(), pane.kind.as_str()),
+            ));
+        }
+        let on = !is_true(args, "off");
+        if let Some(pane) = self.state().panes.get_mut(&pane.id) {
+            pane.markup = on;
+            if let Some(agent) = string(args, "agent").filter(|_| on) {
+                pane.agent = Some(agent.to_string());
+            }
         }
         let snapshot = self.reload(&pane.id, false).await;
         Ok(reply([("pane", self.summary(&pane.id, &snapshot))]))

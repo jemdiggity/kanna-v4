@@ -465,7 +465,7 @@ sequenceDiagram
 
 ### 4.9 Web, Markdown and iOS Panes
 
-A web, markdown or iOS pane is a view in the app and a record in its layout: a web pane's URL (and whether it keeps history, and whether it's open for comments: `kanna markup`), a markdown pane's file and zoom, the agent pane that opened a markdown file or a page for comments ([doc markup](specs/doc-markup.md)), an iOS pane's app and device, saved in `layout.json` in kmux's state file format. The daemon runs none of them ([4.2](#42-what-the-daemon-keeps-what-the-app-keeps)), but its `kanna-mux` core still gives them their IDs, checks and answers every command about them as kmux does (`open`, `navigate` with its history, `close`, `restart`, `list`), and passes them to the app to show ([plan](plans/mux-build.md) M3).
+A web, markdown or iOS pane is a view in the app and a record in its layout: a web pane's URL (and whether it keeps history), a markdown pane's file and zoom, whether either is open for comments (`kanna markup`), the agent pane that opened a markdown file or a page for comments ([doc markup](specs/doc-markup.md)), an iOS pane's app and device, saved in `layout.json` in kmux's state file format. The daemon runs none of them ([4.2](#42-what-the-daemon-keeps-what-the-app-keeps)), but its `kanna-mux` core still gives them their IDs, checks and answers every command about them as kmux does (`open`, `navigate` with its history, `close`, `restart`, `list`), and passes them to the app to show ([plan](plans/mux-build.md) M3).
 
 **Design: the app's panes are lent to the daemon while it's attached.** The app owns the records and saves them; on hello it hands them to the daemon, whose core holds them beside its terminals for as long as the link lasts, so kmux's core logic runs unchanged on one pane table; when the app goes, so do they. Why not keep them in the daemon: they'd outlive the app with nothing to show them, and `list` would report pages no view has; and why not answer their commands in the app: the core (IDs, names, history, errors) would be split in two. Every change to a record goes through the daemon's core and comes back to the app, so there is one writer.
 
@@ -646,6 +646,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 | `status explain PANE`, `status explain --file SCREEN --agent AGENT`, `status update`; `list`'s STATUS column and `status` field | — | agent status ([4.17](#417-agent-status)); the column shows only when a pane has a status, so a kmux reply prints as kmux prints it | the daemon judges agent panes; `capabilities` lists `status` |
 | `--` | — (`--json` is taken from anywhere, so it can't be typed) | ends the options: `kanna send p1 -- --json` | text that looks like an option |
 | `--mux`, `KANNA_MUX` | — | `kanna` (default) or `kmux` | kanna can drive a kmux too |
+| `markup FILE.md\|FILE.html`, `markup PANE [--off]` | — | opens a doc with comments, or turns them on or off in a pane; `open` shows docs without them ([4.13](#413-doc-markup)) | review with an agent is opt-in |
 | `completions zsh\|bash`, `__complete` | — | tab completion from the command table, with live pane, tab and window names ([4.18](#418-tab-completion)) | the CLI is how you drive Kanna from a terminal |
 | Exit 6 | — | the command needs Kanna.app, which isn't attached and wasn't started | terminals work without the app; layout commands don't ([4.7](#47-the-layout)) |
 | Starting | starts the kmux app | starts Kanna.app (`$KANNA_APP` or `dev.kanna.app.dev`, never the branded `dev.kanna.kanna`), which starts the daemon; never with `KANNA_SOCKET` set | the app starts the daemon ([4.5](#45-the-app-link)) |
@@ -841,7 +842,7 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 ### 4.18 Tab Completion
 
-**[Built]** Tab completes every `kanna` command, option and value in zsh and bash: pane names and IDs, tabs and windows from the running Kanna (never starting one), and only the files a command takes. On in Kanna's zsh terminals with no setup (the daemon gives them a `ZDOTDIR` of its own that hands over to yours). Generated from the CLI's command table, so a new command or option completes with no extra work. Its own spec: [specs/tab-completion.md](specs/tab-completion.md). In `crates/kanna/src/complete.rs` with the shell scripts beside it, and `crates/kanna-daemon/src/shell.rs`; checked by their unit tests and S41.
+**[Built]** Tab completes every `kanna` command, option and value in zsh and bash: pane names and IDs, tabs and windows from the running Kanna (never starting one), and only the files a command takes. On in Kanna's zsh and bash terminals with no setup (the daemon adds a step to the login shell's startup that hands over to yours). Generated from the CLI's command table, so a new command or option completes with no extra work. Its own spec: [specs/tab-completion.md](specs/tab-completion.md). In `crates/kanna/src/complete.rs` with the shell scripts beside it, and `crates/kanna-daemon/src/shell.rs`; checked by their unit tests and S41.
 
 ---
 

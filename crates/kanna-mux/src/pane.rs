@@ -150,6 +150,9 @@ impl Pane {
             PaneType::Md => {
                 out.insert("path".into(), opt(self.path.as_deref()));
                 out.insert("agent".into(), opt(self.agent.as_deref()));
+                if self.markup {
+                    out.insert("markup".into(), Value::Bool(true));
+                }
             }
         }
         if let Some(code) = self.exit_code {

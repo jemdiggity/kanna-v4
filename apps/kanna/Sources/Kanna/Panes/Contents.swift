@@ -88,7 +88,7 @@ final class Contents {
                 failure = directory.boolValue ? "\(path) is a folder, not a markdown file" : "No such file: \(path)"
             } else {
                 let spot = markdownSpots[id]?[path]
-                let markdown = MarkdownPaneView(path: path, zoom: spot?.zoom ?? markdownZoom[id] ?? pane["zoom"]?.number.map { CGFloat($0) } ?? 1)
+                let markdown = MarkdownPaneView(path: path, zoom: spot?.zoom ?? markdownZoom[id] ?? pane["zoom"]?.number.map { CGFloat($0) } ?? 1, markup: pane["markup"]?.bool == true)
                 markdown.startScrollY = spot?.y
                 markdown.onHistory = { [weak self] back in self?.onRequest?("navigate", ["pane": .string(id), back ? "back" : "forward": true]) }
                 markdown.onZoom = { [weak self, weak markdown] in

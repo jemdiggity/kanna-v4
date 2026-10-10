@@ -17,7 +17,7 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
     var agent: String? { didSet { markup?.agent = agent } }
     var onSend: ((String, String, @escaping (String?) -> Void) -> Void)? { didSet { markup?.onSend = onSend } }
 
-    private let markable: Bool
+    let markable: Bool
 
     init(url: String, markup: Bool = false) {
         markable = markup

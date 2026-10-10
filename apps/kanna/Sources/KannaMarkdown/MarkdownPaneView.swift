@@ -13,6 +13,7 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
     public var startScrollY: CGFloat?
     public var contextMenu: (() -> NSMenu?)? { didSet { textView.contextMenu = contextMenu } }
     public let path: String
+    public let markup: Bool
     public var keyView: NSView { textView }
     public var zoom: CGFloat { scrollView.magnification }
     public private(set) var renderMs: Double = 0
@@ -41,8 +42,9 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
     public var agent: String? { didSet { agentChanged() } }
     public var onSend: ((String, String, @escaping (String?) -> Void) -> Void)?
 
-    public init(path: String, zoom: CGFloat = 1) {
+    public init(path: String, zoom: CGFloat = 1, markup: Bool = false) {
         self.path = path
+        self.markup = markup
         store = DocStore(file: path)
         record = store.read()
         storeStamp = store.stamp
@@ -65,9 +67,11 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
         scrollView.magnification = zoom
         scrollView.backgroundColor = MarkdownTheme.background
         addSubview(scrollView)
-        addSubview(bar)
-        addSubview(panel)
-        setUpComments()
+        if markup {
+            addSubview(bar)
+            addSubview(panel)
+            setUpComments()
+        }
         textView.delegate = self
         scrollView.onSwipe = { [weak self] back in self?.onHistory?(back) }
         magnifyObserver = NotificationCenter.default.addObserver(forName: NSScrollView.didEndLiveMagnifyNotification, object: scrollView, queue: .main) { [weak self] _ in
@@ -108,8 +112,8 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
 
     public override func layout() {
         super.layout()
-        let barHeight: CGFloat = 34
-        let side = threadsVisible ? ThreadPanel.width : 0
+        let barHeight: CGFloat = markup ? 34 : 0
+        let side = markup && threadsVisible ? ThreadPanel.width : 0
         bar.frame = NSRect(x: 0, y: bounds.height - barHeight, width: bounds.width, height: barHeight)
         scrollView.frame = NSRect(x: 0, y: 0, width: max(0, bounds.width - side), height: max(0, bounds.height - barHeight))
         panel.isHidden = side == 0

@@ -322,8 +322,8 @@ pub static COMMANDS: &[Command] = &[
     Command {
         name: "markup",
         group: "Panes",
-        summary: "Open a local page (a mockup) in a web pane you can comment on; the comments come to this pane.",
-        usage: "kanna markup FILE.html [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]",
+        summary: "Open a markdown file or a local page to comment on, or turn comments on or off in a pane; the comments come to this pane.",
+        usage: "kanna markup FILE.md|FILE.html [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]\n       kanna markup PANE [--off]",
         options: &[
             ("--name NAME", "A name to refer to the pane by in later commands."),
             ("--split right|down|auto", "Where the pane goes relative to the focused pane, as for open."),
@@ -332,14 +332,17 @@ pub static COMMANDS: &[Command] = &[
             ("--window ID|new", "Open in that window, or a new one."),
             ("--dock [left|right]", "Make it the window's docked pane, as for open."),
             ("--no-wait", "Return as soon as the pane exists."),
+            ("--off", "Turn comments off in PANE: it shows the doc alone again. Its comments are kept."),
         ],
-        notes: "A web pane like `kanna open web FILE`, with a thread list and a comment box: ⌘-click a part of the page or ⌘-drag a box to comment. Each comment is typed into the terminal that ran markup, with the part or box and a screenshot with it marked up. `kanna open web` shows the page without comments.",
+        notes: "A markdown or web pane like `kanna open md FILE` or `kanna open web FILE`, with a thread list and a comment box: select text and press ⌘↵, ⌘-click a part, or ⌘-drag a box. Each comment is typed into the terminal that ran markup, with the part or box and, for a page or an image, a screenshot with it marked up. `kanna open` shows the doc without comments; `kanna markup PANE` turns them on there.",
         examples: &[
             ("kanna markup docs/mockups/desk.html --split right", "Review a mockup beside this pane."),
-            ("kanna markup docs/mockups/desk.html --tab", "The same, in a new tab."),
+            ("kanna markup docs/specs/desk.md --tab", "Review a spec in a new tab."),
+            ("kanna markup spec", "Turn on comments in the pane named spec; they come to this pane."),
+            ("kanna markup spec --off", "Show spec without comments again."),
         ],
         parse: parse_markup,
-        show: output::opened,
+        show: output::marked,
     },
 ];
 
@@ -362,15 +365,35 @@ fn parse_markup(args: &mut Argv) -> Result<Value, Failure> {
     if args.flag("--no-wait") {
         out.insert("wait".into(), json!(false));
     }
-    let file = args.positional().ok_or_else(|| usage("markup", "say which page: kanna markup FILE.html"))?;
-    let lower = file.to_lowercase();
-    if !(lower.ends_with(".html") || lower.ends_with(".htm")) {
-        return Err(usage("markup", &format!("{file} is not an HTML page (.html or .htm)")));
+    let off = args.flag("--off");
+    let target = args.positional().ok_or_else(|| usage("markup", "say what: kanna markup FILE.md, kanna markup FILE.html or kanna markup PANE"))?;
+    let lower = target.to_lowercase();
+    let agent = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty());
+    let page = lower.ends_with(".html") || lower.ends_with(".htm");
+    if !is_markdown(&target) && !page {
+        if !out.is_empty() {
+            return Err(usage("markup", &format!("{target} is a pane, so it stays where it is: no placement options")));
+        }
+        let mut pane = json!({ "pane": target });
+        if off {
+            pane["off"] = json!(true);
+        } else if let Some(agent) = agent {
+            pane["agent"] = json!(agent);
+        }
+        return Ok(pane);
     }
-    out.insert("type".into(), json!("web"));
-    out.insert("url".into(), json!(file_url(&absolute(&file))));
+    if off {
+        return Err(usage("markup", "--off is for a pane: kanna markup PANE --off"));
+    }
+    if page {
+        out.insert("type".into(), json!("web"));
+        out.insert("url".into(), json!(file_url(&absolute(&target))));
+    } else {
+        out.insert("type".into(), json!("md"));
+        out.insert("path".into(), json!(absolute(&target)));
+    }
     out.insert("markup".into(), json!(true));
-    if let Some(agent) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
+    if let Some(agent) = agent {
         out.insert("agent".into(), json!(agent));
     }
     Ok(Value::Object(out))
@@ -536,9 +559,6 @@ fn parse_open(args: &mut Argv) -> Result<Value, Failure> {
     if kind == "md" {
         let file = args.positional().ok_or_else(|| usage("open", "markdown panes need a file: kanna open md FILE"))?;
         out.insert("path".into(), json!(absolute(&file)));
-        if let Some(agent) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
-            out.insert("agent".into(), json!(agent));
-        }
     }
     if kind == "ios" && !out.contains_key("app") {
         return Err(usage("open", "iOS panes need an app: kanna open ios --app MyApp.app (or a bundle ID)"));

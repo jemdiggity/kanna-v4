@@ -15,6 +15,7 @@ extension MarkdownPaneView {
     }
 
     func agentChanged() {
+        guard markup else { return }
         bar.agent.set(agent.map { "Agent: \($0)" } ?? "No agent: comments are saved, not sent")
         bar.agent.warn = agent == nil
         bar.needsLayout = true
@@ -65,6 +66,7 @@ extension MarkdownPaneView {
     }
 
     func refreshMarks() {
+        guard markup else { return }
         let text = textView.textStorage?.string ?? ""
         anchors = [:]
         for thread in record.threads {

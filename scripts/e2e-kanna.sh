@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S41) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S42) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[01]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-2]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -862,6 +862,8 @@ S37() {
   agent_id="$(pane agent id)"
   KANNA_PANE="$agent_id" kanna open md --name doc --tab "$dir/review.md" >/dev/null || return 1
   s37_md() { raw "{\"id\":1,\"cmd\":\"debug.md\",\"args\":{\"pane\":\"doc\"${1:-}}}"; }
+  check wait_for 5 eval '[[ "$(s37_md | field markup)" == False && "$(s37_md | field agent)" == None ]]' || { echo "open md should show the file without comments"; s37_md; return 1; }
+  KANNA_PANE="$agent_id" kanna markup doc | grep -qF "comments on in" || return 1
   s37_count() { s37_md | field threads | python3 -c 'import json, sys; print(len(json.load(sys.stdin)))'; }
   s37_thread() { s37_md | field threads | python3 -c 'import json, sys
 t = [t for t in json.load(sys.stdin) if t["id"] == sys.argv[1]][0]
@@ -902,6 +904,10 @@ print(len(v) if isinstance(v, list) else v)' "$1" "$2"; }
   check wait_for 5 eval '[[ "$(s37_thread c4 state)" == resolved ]]' || return 1
   raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
   sleep 0.5; s37_shot s37-dark
+  kanna markup doc --off | grep -qF "comments off in" || return 1
+  check wait_for 5 eval '[[ "$(s37_md | field markup)" == False ]]' || return 1
+  KANNA_PANE="$agent_id" kanna markup "$dir/review.md" --name doc2 --tab >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(raw "{\"id\":1,\"cmd\":\"debug.md\",\"args\":{\"pane\":\"doc2\"}}" | field markup)" == True ]]'
 }
 
 S38() {
@@ -1173,7 +1179,8 @@ S41() {
     printf "%s\n" "$s41_screen" | grep -qE -- "$3" || { echo "kanna $1⇥ didn't show $3:"; printf "%s\n" "$s41_screen" | tail -8; return 1; }
   }
   check s41_tab "kanna open md al" "" 'open md alpha-notes\.md *$' || return 1
-  check s41_tab "kanna markup al" "" 'markup alpha\.html *$' || return 1
+  check s41_tab "kanna markup alpha." "" 'markup alpha\.html *$' || return 1
+  check s41_tab "kanna markup al" 2 'alpha-notes\.md.*alpha\.html|alpha\.html.*alpha-notes\.md' || return 1
   check s41_tab "kanna nav" "" 'kanna navigate *$' || return 1
   check s41_tab "kanna open " 2 '^md +-- A markdown file' || return 1
   check test "$(printf "%s\n" "$s41_screen" | grep -oE '^(term|web|md|ios) ' | tr -d ' \n')" == termwebmdios || return 1
@@ -1188,10 +1195,20 @@ S41() {
   check wait_for 5 shows s41-login 's41:_kanna:home:gone'
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[01]) echo M4 ;; esac
+S42() {
+  SHELL=/bin/bash PATH="$bin:$PATH" start_daemon && start_app || return 1
+  kanna open --name s42 >/dev/null || return 1
+  check wait_for 10 eval '[[ -n "$(kanna read s42 | tr -d "[:space:]")" ]]' || return 1
+  sleep 2
+  kanna send s42 'echo "s42:$(complete -p kanna):${PROMPT_COMMAND-none}:${KANNA_BASH_INIT-gone}"' || return 1
+  check wait_for 5 shows s42 's42:complete -o filenames -F _kanna kanna:'
+  kanna read s42 | grep -E '^s42:' | grep -qF ':gone' || { kanna read s42 | tail -4; return 1; }
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-2]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

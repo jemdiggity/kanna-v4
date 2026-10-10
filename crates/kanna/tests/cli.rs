@@ -77,9 +77,13 @@ fn every_command_works_through_the_daemon_and_the_app() {
     let opened = daemon.kanna(&["open", "md", "doc.md", "--name", "doc", "--tab"]).ok();
     assert_eq!(opened, "opened p6 (doc) in window w1, tab t5: running");
     assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][5]["path"], json!(doc.to_string_lossy()));
+    assert!(daemon.kanna(&["list", "--json"]).json()["panes"][5].get("markup").is_none());
+    assert_eq!(daemon.kanna(&["markup", "doc"]).ok(), "comments on in p6 (doc)");
+    assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][5]["markup"], json!(true));
+    assert_eq!(daemon.kanna(&["markup", "doc", "--off"]).ok(), "comments off in p6 (doc)");
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();
-    assert!(capabilities.starts_with("pane types: term, web, ios, md\ncommands: arrange, capabilities, close, focus, list, move, move-tab, navigate, open, read, rename-tab, resize, restart, send, status, zoom"), "{capabilities}");
+    assert!(capabilities.starts_with("pane types: term, web, ios, md\ncommands: arrange, capabilities, close, focus, list, markup, move, move-tab, navigate, open, read, rename-tab, resize, restart, send, status, zoom"), "{capabilities}");
     assert!(capabilities.ends_with("Kanna.app: attached"), "{capabilities}");
     let raw = daemon.kanna(&["raw", r#"{"cmd":"debug.anything","args":{"pane":"a"}}"#]).json();
     assert_eq!(raw, json!({ "cmd": "debug.anything", "args": { "pane": "p1" } }));
