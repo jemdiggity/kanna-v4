@@ -48,6 +48,12 @@ pub const GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES: i32 = 27;
 pub const GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES: i32 = 28;
 pub const GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES: i32 = 31;
 pub const GHOSTTY_TERMINAL_OPT_MODE_DEFAULT: i32 = 33;
+pub const GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT: i32 = 30;
+pub const GHOSTTY_TERMINAL_PROGRESS_STATE_REMOVE: i32 = 0;
+pub const GHOSTTY_TERMINAL_PROGRESS_STATE_SET: i32 = 1;
+pub const GHOSTTY_TERMINAL_PROGRESS_STATE_ERROR: i32 = 2;
+pub const GHOSTTY_TERMINAL_PROGRESS_STATE_INDETERMINATE: i32 = 3;
+pub const GHOSTTY_TERMINAL_PROGRESS_STATE_PAUSE: i32 = 4;
 pub const GHOSTTY_TERMINAL_DATA_COLS: i32 = 1;
 pub const GHOSTTY_TERMINAL_DATA_ROWS: i32 = 2;
 pub const GHOSTTY_TERMINAL_DATA_CURSOR_X: i32 = 3;
@@ -163,6 +169,15 @@ pub struct GhosttyTerminalModeConfig {
     pub mode: u16,
     pub value: bool,
 }
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GhosttyTerminalProgressReport {
+    pub size: usize,
+    pub state: i32,
+    pub progress: i8,
+}
+pub type GhosttyTerminalProgressReportFn =
+    unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, report: *const GhosttyTerminalProgressReport);
 pub type GhosttyTerminalColorSchemeFn =
     unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, out: *mut i32) -> bool;
 pub type GhosttyTerminalChangedFn = unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void);

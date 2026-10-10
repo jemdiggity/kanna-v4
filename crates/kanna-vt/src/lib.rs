@@ -79,8 +79,31 @@ pub struct Mode(pub u16);
 impl Mode {
     pub const CURSOR_BLINKING: Mode = Mode(12);
     pub const BRACKETED_PASTE: Mode = Mode(2004);
+    pub const SYNC_OUTPUT: Mode = Mode(2026);
     pub const GRAPHEME_CLUSTER: Mode = Mode(2027);
     pub const COLOR_SCHEME_REPORT: Mode = Mode(2031);
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Progress {
+    #[default]
+    None,
+    Set(u8),
+    Error(Option<u8>),
+    Indeterminate,
+    Paused(Option<u8>),
+}
+
+impl Progress {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Progress::None => "",
+            Progress::Set(_) => "set",
+            Progress::Error(_) => "error",
+            Progress::Indeterminate => "indeterminate",
+            Progress::Paused(_) => "pause",
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +123,7 @@ struct Hooks {
     size: ffi::GhosttySizeReportSize,
     scheme: Option<Scheme>,
     changed: Changed,
+    progress: Progress,
 }
 
 unsafe impl Send for Terminal {}
@@ -165,6 +189,7 @@ impl Terminal {
         let scheme: ffi::GhosttyTerminalColorSchemeFn = color_scheme;
         let title: ffi::GhosttyTerminalChangedFn = title_changed;
         let pwd: ffi::GhosttyTerminalChangedFn = pwd_changed;
+        let progress: ffi::GhosttyTerminalProgressReportFn = progress_report;
         unsafe {
             check(
                 "terminal userdata",
@@ -190,6 +215,10 @@ impl Terminal {
             check(
                 "terminal pwd_changed",
                 ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_PWD_CHANGED, pwd as *const c_void),
+            )?;
+            check(
+                "terminal progress_report",
+                ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT, progress as *const c_void),
             )?;
         }
         Ok(terminal)
@@ -308,6 +337,10 @@ impl Terminal {
             ffi::ghostty_terminal_get(self.raw.as_ptr(), ffi::GHOSTTY_TERMINAL_DATA_MODE, &mut config as *mut _ as *mut c_void)
         };
         code == ffi::GHOSTTY_SUCCESS && config.value
+    }
+
+    pub fn progress(&self) -> Progress {
+        unsafe { (*self.hooks.as_ptr()).progress }
     }
 
     pub fn take_changed(&mut self) -> Changed {
@@ -479,6 +512,26 @@ unsafe extern "C" fn pwd_changed(_terminal: ffi::GhosttyTerminal, userdata: *mut
     }
 }
 
+unsafe extern "C" fn progress_report(
+    _terminal: ffi::GhosttyTerminal,
+    userdata: *mut c_void,
+    report: *const ffi::GhosttyTerminalProgressReport,
+) {
+    if userdata.is_null() || report.is_null() {
+        return;
+    }
+    let report = &*report;
+    let percent = (report.progress >= 0).then(|| report.progress.min(100) as u8);
+    (*(userdata as *mut Hooks)).progress = match report.state {
+        ffi::GHOSTTY_TERMINAL_PROGRESS_STATE_REMOVE => Progress::None,
+        ffi::GHOSTTY_TERMINAL_PROGRESS_STATE_SET => Progress::Set(percent.unwrap_or(0)),
+        ffi::GHOSTTY_TERMINAL_PROGRESS_STATE_ERROR => Progress::Error(percent),
+        ffi::GHOSTTY_TERMINAL_PROGRESS_STATE_INDETERMINATE => Progress::Indeterminate,
+        ffi::GHOSTTY_TERMINAL_PROGRESS_STATE_PAUSE => Progress::Paused(percent),
+        _ => return,
+    };
+}
+
 unsafe extern "C" fn device_attributes(
     _terminal: ffi::GhosttyTerminal,
     _userdata: *mut c_void,
@@ -610,6 +663,15 @@ mod abi {
             ("GhosttySizeReportSize.columns", offset_of!(GhosttySizeReportSize, columns) as i64),
             ("GhosttySizeReportSize.cell_width", offset_of!(GhosttySizeReportSize, cell_width) as i64),
             ("GhosttySizeReportSize.cell_height", offset_of!(GhosttySizeReportSize, cell_height) as i64),
+            ("GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT", GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT as i64),
+            ("GHOSTTY_TERMINAL_PROGRESS_STATE_REMOVE", GHOSTTY_TERMINAL_PROGRESS_STATE_REMOVE as i64),
+            ("GHOSTTY_TERMINAL_PROGRESS_STATE_SET", GHOSTTY_TERMINAL_PROGRESS_STATE_SET as i64),
+            ("GHOSTTY_TERMINAL_PROGRESS_STATE_ERROR", GHOSTTY_TERMINAL_PROGRESS_STATE_ERROR as i64),
+            ("GHOSTTY_TERMINAL_PROGRESS_STATE_INDETERMINATE", GHOSTTY_TERMINAL_PROGRESS_STATE_INDETERMINATE as i64),
+            ("GHOSTTY_TERMINAL_PROGRESS_STATE_PAUSE", GHOSTTY_TERMINAL_PROGRESS_STATE_PAUSE as i64),
+            ("sizeof GhosttyTerminalProgressReport", size_of::<GhosttyTerminalProgressReport>() as i64),
+            ("GhosttyTerminalProgressReport.state", offset_of!(GhosttyTerminalProgressReport, state) as i64),
+            ("GhosttyTerminalProgressReport.progress", offset_of!(GhosttyTerminalProgressReport, progress) as i64),
         ];
         let mut c = vec![0i64; rust.len() + 8];
         let n = unsafe { kanna_vt_abi(c.as_mut_ptr(), c.len()) };

@@ -1,4 +1,4 @@
-use kanna_vt::{Changed, Colors, CursorStyle, Lines, Mode, Scheme, Terminal};
+use kanna_vt::{Changed, Colors, CursorStyle, Lines, Mode, Progress, Scheme, Terminal};
 
 fn terminal(cols: u16, rows: u16, output: &str) -> Terminal {
     let mut t = Terminal::new(cols, rows, 1000).unwrap();
@@ -103,6 +103,23 @@ fn the_line_limit_governs_scrollback_unless_bytes_are_limited_too() {
     assert!(t.scrollback_rows() < 5_000, "{} rows kept", t.scrollback_rows());
     t.set_scrollback_bytes(None).unwrap();
     assert_eq!(t.scrollback_bytes(), None);
+}
+
+#[test]
+fn progress_reports_and_synchronized_output() {
+    let mut t = terminal(20, 5, "");
+    assert_eq!(t.progress(), Progress::None);
+    t.write(b"\x1b]9;4;3\x07");
+    assert_eq!(t.progress(), Progress::Indeterminate);
+    t.write(b"\x1b]9;4;1;40\x07");
+    assert_eq!(t.progress(), Progress::Set(40));
+    t.write(b"\x1b]9;4;0\x07");
+    assert_eq!(t.progress(), Progress::None);
+    assert!(!t.mode(Mode::SYNC_OUTPUT));
+    t.write(b"\x1b[?2026h");
+    assert!(t.mode(Mode::SYNC_OUTPUT));
+    t.write(b"\x1b[?2026l");
+    assert!(!t.mode(Mode::SYNC_OUTPUT));
 }
 
 #[test]

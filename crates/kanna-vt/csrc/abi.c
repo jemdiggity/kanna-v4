@@ -92,6 +92,15 @@ static const long long kanna_vt_abi_values[] = {
     offsetof(GhosttySizeReportSize, columns),
     offsetof(GhosttySizeReportSize, cell_width),
     offsetof(GhosttySizeReportSize, cell_height),
+    GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT,
+    GHOSTTY_TERMINAL_PROGRESS_STATE_REMOVE,
+    GHOSTTY_TERMINAL_PROGRESS_STATE_SET,
+    GHOSTTY_TERMINAL_PROGRESS_STATE_ERROR,
+    GHOSTTY_TERMINAL_PROGRESS_STATE_INDETERMINATE,
+    GHOSTTY_TERMINAL_PROGRESS_STATE_PAUSE,
+    sizeof(GhosttyTerminalProgressReport),
+    offsetof(GhosttyTerminalProgressReport, state),
+    offsetof(GhosttyTerminalProgressReport, progress),
 };
 
 #define SIGNATURE(name, ret, ...) static ret (*const check_##name)(__VA_ARGS__) __attribute__((used)) = name
@@ -119,6 +128,8 @@ static bool (*const check_color_scheme)(GhosttyTerminal, void *, GhosttyColorSch
     (GhosttyTerminalColorSchemeFn)0;
 static void (*const check_title_changed)(GhosttyTerminal, void *) __attribute__((used)) = (GhosttyTerminalTitleChangedFn)0;
 static void (*const check_pwd_changed)(GhosttyTerminal, void *) __attribute__((used)) = (GhosttyTerminalPwdChangedFn)0;
+static void (*const check_progress)(GhosttyTerminal, void *, const GhosttyTerminalProgressReport *) __attribute__((used)) =
+    (GhosttyTerminalProgressReportFn)0;
 static bool (*const check_size)(GhosttyTerminal, void *, GhosttySizeReportSize *) __attribute__((used)) =
     (GhosttyTerminalSizeFn)0;
 

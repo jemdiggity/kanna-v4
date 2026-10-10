@@ -15,6 +15,7 @@ t.set_cell_pixels(9, 18); t.resize(120, 40)?;
 t.text(Lines::Screen);                        // `kanna read`: the visible screen
 t.text(Lines::Last(200));                     // `kanna read --lines 200`: counting scrollback
 t.size(); t.cursor(); t.title(); t.pwd(); t.alternate_screen(); t.cursor_visible();
+t.progress(); t.mode(Mode::SYNC_OUTPUT);      // OSC 9;4 progress; a frame still being drawn
 
 let snap: Vec<u8> = t.snapshot()?;            // GHOSTSNP, for the app or for disk
 let back = Terminal::from_snapshot(&snap)?;   // same grid, size, scrollback, modes, title
@@ -31,6 +32,8 @@ let back = Terminal::from_snapshot(&snap)?;   // same grid, size, scrollback, mo
 | `snapshot()` / `from_snapshot(&[u8])` | Encodes or decodes GHOSTSNP. A snapshot carries its grid: whoever loads it gets that size. Malformed, truncated or corrupt snapshots are refused, never a crash (each record is CRC32C-checked). |
 | `set_scrollback_lines(n)` / `scrollback_lines()` | The scrollback limit in lines. libghostty-vt prunes whole pages, so it keeps about `n` lines, give or take a page. |
 | `set_scrollback_bytes(Some(n))` / `scrollback_bytes()` | A limit in bytes as well; whichever is reached first applies. `Terminal::new` sets none (libghostty-vt's own default, 10 kB, would keep only about 800 lines). |
+| `progress()` | The last OSC 9;4 progress report: `None`, `Set(percent)`, `Error`, `Indeterminate` or `Paused`. Agent status reads it. Not kept in a snapshot. |
+| `mode(Mode::SYNC_OUTPUT)` | Whether the program is inside a synchronized update (mode 2026): its frame isn't finished, so agent status waits. |
 | `GHOSTTY_COMMIT` | The Ghostty commit the library was built from. |
 | `MAX_UNFINISHED_SEQUENCE_BYTES` | 1 MiB, the same as the app's `ghostty_surface_load_snapshot` accepts. |
 
