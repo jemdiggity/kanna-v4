@@ -32,6 +32,48 @@ struct DocThreadsTests {
         #expect(DocStore.message(t, file: "docs/a.md", text: "Fix") == "[kanna comment c4 · docs/a.md:22]\n> two\n> lines\nFix")
     }
 
+    @Test func onlyPlainThreadIDsAreSent() {
+        #expect(DocStore.isThreadID("c12"))
+        #expect(!DocStore.isThreadID("c1]\nrm -rf"))
+        #expect(!DocStore.isThreadID("c"))
+        #expect(!DocStore.isThreadID("x1"))
+    }
+
+    @Test func unquotedMessagesLeaveTheQuoteOut() {
+        #expect(DocStore.message(thread("gone"), file: "a.md", text: "Hi", quoted: false) == "[kanna comment c1 · a.md:1]\nHi")
+    }
+
+    func repo() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("kanna-doc-\(UUID().uuidString)").resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        return root
+    }
+
+    @Test func writesNeverFollowSymlinks() throws {
+        let root = try repo()
+        let target = root.appendingPathComponent("victim")
+        try Data("keep".utf8).write(to: target)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".kanna/docs"), withIntermediateDirectories: true)
+        let store = DocStore(file: root.appendingPathComponent("a.md").path)
+        try FileManager.default.createSymbolicLink(atPath: store.path + ".lock", withDestinationPath: target.path)
+        #expect(throws: (any Error).self) { try store.update { $0.next = 9 } }
+        try FileManager.default.removeItem(atPath: store.path + ".lock")
+        try FileManager.default.createSymbolicLink(atPath: store.path, withDestinationPath: target.path)
+        try store.update { $0.next = 9 }
+        #expect(String(decoding: try Data(contentsOf: target), as: UTF8.self) == "keep")
+        #expect(store.read().next == 9)
+    }
+
+    @Test func aSymlinkedDocsFolderIsRefused() throws {
+        let root = try repo()
+        let elsewhere = try repo()
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".kanna"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent(".kanna/docs").path, withDestinationPath: elsewhere.path)
+        let store = DocStore(file: root.appendingPathComponent("a.md").path)
+        #expect(throws: (any Error).self) { try store.update { $0.next = 9 } }
+        #expect(!FileManager.default.fileExists(atPath: elsewhere.appendingPathComponent("a.md.json").path))
+    }
+
     @Test func storeLivesBesideTheRepoAndRoundTrips() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("kanna-doc-\(UUID().uuidString)").resolvingSymlinksInPath()
         try FileManager.default.createDirectory(at: root.appendingPathComponent(".git"), withIntermediateDirectories: true)

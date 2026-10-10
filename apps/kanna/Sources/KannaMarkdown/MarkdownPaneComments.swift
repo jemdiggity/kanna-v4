@@ -260,9 +260,10 @@ extension MarkdownPaneView {
     }
 
     private func deliver(_ id: String, _ text: String) {
-        guard var thread = record.threads.first(where: { $0.id == id }) else { return }
+        guard var thread = record.threads.first(where: { $0.id == id }), DocStore.isThreadID(id) else { return }
         thread.line = DocStore.line(of: thread.quote, in: source, near: thread.line)
-        let message = DocStore.clean(DocStore.message(thread, file: store.relativeName, text: text))
+        let shown = anchors[id] != nil
+        let message = DocStore.clean(DocStore.message(thread, file: store.relativeName, text: text, quoted: shown))
         let finish: (String?) -> Void = { [weak self] error in
             guard let self else { return }
             try? store.update { record in

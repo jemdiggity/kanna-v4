@@ -65,16 +65,31 @@ public struct DocStore {
     public var stamp: Date? { (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date }
 
     public func read() -> DocRecord {
-        guard let data = FileManager.default.contents(atPath: path), let record = try? JSONDecoder().decode(DocRecord.self, from: data) else {
+        guard let data = Self.readNoFollow(path), let record = try? JSONDecoder().decode(DocRecord.self, from: data) else {
             return DocRecord(file: file)
         }
         return record
     }
 
+    static func readNoFollow(_ path: String) -> Data? {
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        return try? handle.readToEnd()
+    }
+
+    static func realFolder(_ path: String) throws {
+        if mkdir(path, 0o755) != 0, errno != EEXIST { throw CocoaError(.fileWriteNoPermission) }
+        var info = stat()
+        guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { throw CocoaError(.fileWriteInvalidFileName) }
+    }
+
     @discardableResult
     public func update<T>(_ change: (inout DocRecord) -> T) throws -> T {
-        try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-        let lock = open(path + ".lock", O_WRONLY | O_CREAT, 0o644)
+        let folder = (path as NSString).deletingLastPathComponent
+        try Self.realFolder((folder as NSString).deletingLastPathComponent)
+        try Self.realFolder(folder)
+        let lock = open(path + ".lock", O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard lock >= 0 else { throw CocoaError(.fileWriteNoPermission) }
         defer { close(lock) }
         flock(lock, LOCK_EX)
@@ -83,10 +98,27 @@ public struct DocStore {
         let result = change(&record)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
-        let temporary = (path as NSString).deletingPathExtension + ".tmp"
-        try encoder.encode(record).write(to: URL(fileURLWithPath: temporary))
-        _ = rename(temporary, path)
+        let data = try encoder.encode(record)
+        let temporary = path + ".\(UUID().uuidString).tmp"
+        let fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
+        guard fd >= 0 else { throw CocoaError(.fileWriteNoPermission) }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            unlink(temporary)
+            throw error
+        }
+        guard rename(temporary, path) == 0 else {
+            unlink(temporary)
+            throw CocoaError(.fileWriteUnknown)
+        }
         return result
+    }
+
+    public static func isThreadID(_ id: String) -> Bool {
+        id.count > 1 && id.count < 12 && id.first == "c" && id.dropFirst().allSatisfy(\.isASCII) && id.dropFirst().allSatisfy(\.isNumber)
     }
 
     public static func now() -> String {
@@ -104,8 +136,9 @@ public struct DocStore {
         }))
     }
 
-    public static func message(_ thread: DocThread, file: String, text: String) -> String {
+    public static func message(_ thread: DocThread, file: String, text: String, quoted: Bool = true) -> String {
         let quote = thread.quote.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n")
+        guard quoted else { return "[kanna comment \(thread.id) · \(file):\(thread.line)]\n\(text)" }
         return "[kanna comment \(thread.id) · \(file):\(thread.line)]\n\(quote.isEmpty ? "> " : quote)\n\(text)"
     }
 
