@@ -75,6 +75,16 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .card .act:hover { color: var(--ok); background: var(--panel); }
 .card .note { margin-top: 4px; color: var(--warn); font-size: 11.5px; }
 .card .reply { display: none; margin-top: 8px; }
+.pop { padding: 10px 32px 8px 12px; }
+.pop .msg { color: var(--text); white-space: pre-wrap; line-height: 1.45; }
+.pop .msg + .msg { margin-top: 6px; }
+.pop .msg.agent { color: var(--soft); padding-left: 10px; border-left: 2px solid var(--agent); }
+.pop .act { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--dim); cursor: pointer; }
+.pop .act:hover { color: var(--ok); background: var(--panel); }
+.pop .note { margin-top: 4px; color: var(--warn); font-size: 11.5px; }
+.pop textarea { min-height: 0; height: 28px; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; resize: none; }
+.mark { position: absolute; pointer-events: none; background: var(--tint); border-bottom: 1.5px solid var(--accent); }
+.mark.on { background: var(--tint-on); }
 .card.on .reply { display: block; }
 .card .reply textarea { width: 100%; height: 28px; resize: none; background: transparent; border: 0; border-top: 1px solid var(--line); color: var(--text); padding: 6px 0 0; font: 12.5px var(--sans); outline: none; }
 #fail { padding: 30px; color: var(--warn); }
@@ -206,7 +216,6 @@ function locate(idx, t) {
 }
 
 function anchorAll() {
-  if (!window.CSS || !CSS.highlights) return;
   const idx = textIndex();
   const all = [], active = [];
   state.anchors = {};
@@ -219,9 +228,67 @@ function anchorAll() {
     all.push(r);
     if (t.id === state.active) active.push(r);
   }
-  CSS.highlights.set("threads", new Highlight(...all));
-  CSS.highlights.set("active", new Highlight(...active));
+  if (window.CSS && CSS.highlights && window.Highlight) {
+    CSS.highlights.set("threads", new Highlight(...all));
+    CSS.highlights.set("active", new Highlight(...active));
+  } else {
+    drawMarks(all, active);
+  }
   renderThreads();
+}
+
+function drawMarks(all, active) {
+  const reader = document.getElementById("reader");
+  reader.querySelectorAll(".mark").forEach(m => m.remove());
+  const host = reader.getBoundingClientRect();
+  for (const r of all) {
+    for (const rect of r.getClientRects()) {
+      const m = document.createElement("div");
+      m.className = "mark" + (active.includes(r) ? " on" : "");
+      Object.assign(m.style, { left: rect.left - host.left + reader.scrollLeft + "px", top: rect.top - host.top + reader.scrollTop + "px", width: rect.width + "px", height: rect.height + "px" });
+      reader.appendChild(m);
+    }
+  }
+}
+
+function threadMessages(t) {
+  return t.messages.map(m => `<div class="msg ${m.who === "agent" ? "agent" : ""}">${esc(m.text)}</div>`).join("");
+}
+
+function closePop() {
+  document.querySelectorAll(".pop").forEach(b => b.remove());
+}
+
+function openPop(id) {
+  closePop();
+  closeComposer();
+  const t = state.threads.find(x => x.id === id);
+  const span = state.anchors[id];
+  if (!t || !span) return;
+  const reader = document.getElementById("reader");
+  const rect = rangeAt(textIndex(), ...span).getBoundingClientRect(), host = reader.getBoundingClientRect();
+  const box = document.createElement("div");
+  box.className = "composer pop";
+  box.dataset.id = id;
+  const n = note(t);
+  box.innerHTML = `<span class="act" title="Resolve">✓</span>${threadMessages(t)}${n ? `<div class="note">${n}</div>` : ""}<textarea placeholder="Reply"></textarea>`;
+  reader.appendChild(box);
+  box.style.left = Math.max(8, Math.min(rect.left - host.left + reader.scrollLeft, reader.scrollLeft + reader.clientWidth - box.offsetWidth - 8)) + "px";
+  box.style.top = (rect.bottom - host.top + reader.scrollTop + 6) + "px";
+  const ta = box.querySelector("textarea");
+  ta.focus();
+  requestAnimationFrame(() => ta.focus());
+  ta.onkeydown = async e => {
+    if (e.key === "Escape") { closePop(); return; }
+    if (e.key === "Enter" && !e.shiftKey && ta.value.trim()) {
+      e.preventDefault();
+      const text = ta.value; ta.value = ""; ta.disabled = true;
+      await api("/api/reply", { id, text });
+      await poll();
+      openPop(id);
+    }
+  };
+  box.querySelector(".act").onclick = async () => { closePop(); await api("/api/resolve", { id }); poll(); };
 }
 
 function note(t) {
@@ -249,7 +316,7 @@ function renderThreads() {
     card.className = "card" + (t.id === state.active ? " on" : "") + (t.state === "resolved" ? " resolved" : "");
     const n = note(t);
     card.innerHTML = `<span class="act" title="${t.state === "open" ? "Resolve" : "Reopen"}">${t.state === "open" ? "✓" : "↺"}</span>
-      ${t.messages.map(m => `<div class="msg ${m.who === "agent" ? "agent" : ""}">${esc(m.text)}</div>`).join("")}
+      ${threadMessages(t)}
       ${n ? `<div class="note">${n}</div>` : ""}
       <div class="reply"><textarea data-id="${esc(t.id)}" placeholder="Reply"></textarea></div>`;
     card.onclick = e => { if (e.target.closest(".act, textarea")) return; if (state.active !== t.id) reveal(t.id); };
@@ -274,6 +341,7 @@ function renderThreads() {
 
 function reveal(id) {
   state.active = id;
+  closePop();
   anchorAll();
   const span = state.anchors[id];
   if (!span) return;
@@ -389,8 +457,10 @@ document.getElementById("doc").addEventListener("click", e => {
   if (id) {
     state.active = id;
     anchorAll();
-    if (!state.showThreads) toggleThreads();
     document.querySelector(".card.on")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    openPop(id);
+  } else {
+    closePop();
   }
 }, true);
 document.addEventListener("keydown", e => {
