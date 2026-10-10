@@ -43,6 +43,9 @@ The right side needs nothing new: the window's own tabs already are a group of t
 - **It closes only with its window.** Close Pane (⌘W) and `kanna close` don't close it: ⌘W in the docked pane does nothing, and `kanna close` on it fails with `docked: it closes with its window`. If its program exits, it stays on screen as `exited`, and Restart (⌘R) starts it again. Closing the window's last tab leaves the window with just its docked pane.
 - **Stays with its window:** moving or dragging a tab to another window leaves the docked pane where it is.
 - **Focus:** Next/Previous Pane go from the docked pane into the shown tab's panes and back. Zoom on a tab's pane fills the tabs' side; zoom on the docked pane fills the window.
+- **Docking where one is already docked** moves the old one into a new tab, not shown; the new one keeps the window's width.
+- **Beside it is not a place:** moving a pane beside the docked pane is refused; dropping a pane on it swaps the two.
+- **Errors** use the code `docked` for every refusal (close, `arrange` naming it, moving beside it).
 
 ## 3. Keys and mouse
 
@@ -58,7 +61,8 @@ The right side needs nothing new: the window's own tabs already are a group of t
 | `kanna open … --dock [left\|right]` | Open the pane as the key window's docked pane, on that edge (default left; a docked one already there moves to a new tab) |
 | `kanna move PANE --dock [left\|right]` | Dock an existing pane, or move the docked pane to the other edge |
 | `kanna move PANE --tab` | Undock it into a new tab (kmux's own `move`, now also accepting the docked pane) |
-| `kanna list` | Shows the window's docked pane on its own line: `dock: p1 (agent)` |
+| `kanna resize PANE …` | On the docked pane, sets its width |
+| `kanna list` | Shows the window's docked pane on its own line: `dock: p1 (agent)  left 2/5` |
 
 `kanna arrange` arranges the shown tab, as now; the docked pane isn't part of the expression.
 
