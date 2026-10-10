@@ -142,6 +142,64 @@ final class DividerView: NSView {
 }
 
 @MainActor
+final class DockDividerView: NSView {
+    let pane: String
+    private let left: Bool
+    private let span: CGFloat
+    private let extent: CGFloat
+    var onWidth: ((Double) -> Void)?
+
+    init(pane: String, left: Bool, line: NSRect, span: CGFloat, extent: CGFloat) {
+        self.pane = pane
+        self.left = left
+        self.span = span
+        self.extent = extent
+        super.init(frame: line.insetBy(dx: -DividerView.grab, dy: 0))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let content = superview else { return }
+        drag(in: content)
+    }
+
+    func position(_ fraction: CGFloat) -> NSPoint {
+        let offset = span * fraction + (left ? 0 : WindowController.divider)
+        return NSPoint(x: left ? offset : extent - offset, y: frame.midY)
+    }
+
+    func width(at point: NSPoint) -> Double {
+        let offset = left ? point.x : extent - WindowController.divider - point.x
+        let low = min(DividerView.minimum, span / 2)
+        let width = Double(min(max(offset, low), span - low) / span)
+        return (DividerView.nice + [0.4]).first { abs(width - $0) < 0.015 } ?? width
+    }
+
+    func drag(in content: NSView) {
+        let tip = NSTextField(labelWithString: "")
+        tip.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        tip.textColor = .white
+        tip.drawsBackground = true
+        tip.backgroundColor = NSColor.black.withAlphaComponent(0.75)
+        let move = { [self] (point: NSPoint) in
+            guard let window = content.window else { return }
+            let local = content.convert(window.convertPoint(fromScreen: point), from: nil)
+            let width = width(at: local)
+            onWidth?(width)
+            tip.stringValue = " \(DividerView.format(left ? width : 1 - width)) | \(DividerView.format(left ? 1 - width : width)) "
+            tip.sizeToFit()
+            tip.frame.origin = NSPoint(x: local.x + 12, y: local.y - 12 - tip.frame.height)
+            content.addSubview(tip)
+        }
+        move(trackMouse(move))
+        tip.removeFromSuperview()
+    }
+}
+
+@MainActor
 final class PaneGrip: NSView {
     static let size = NSSize(width: 34, height: 14)
     var onDrag: ((NSEvent) -> Void)?

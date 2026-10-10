@@ -88,8 +88,8 @@ extension AppController {
             let id = args["window"]?.string ?? state["key"]?.string ?? controllers.keys.sorted().first
             guard let id, let controller = controllers[id], let window = window(id) else { throw KannaError("not_found", "no window \"\(args["window"]?.string ?? "")\"") }
             controller.window.displayIfNeeded()
-            let shown: [(id: String, view: NSView)] = WindowController.paneIDs(window["root"] ?? .null).compactMap { pane in
-                guard let view = panes[pane], view.window != nil else { return nil }
+            let shown: [(id: String, view: NSView)] = WindowController.shownPanes(window).compactMap { pane in
+                guard let view = panes[pane], view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.superview != nil else { return nil }
                 return (pane, view.terminal ?? view)
             }
             var reply = try Snapshot.run(controller.window, id: id, panes: shown, tabBar: controller.tabBar, path: args["path"]?.string, marker: args["marker"]?.string)
@@ -146,7 +146,7 @@ extension AppController {
     }
 
     private func terminal(_ reference: String?) throws -> TerminalSurfaceView {
-        let shown = keyWindow.map { WindowController.paneIDs($0["root"] ?? .null) } ?? []
+        let shown = keyWindow.map { WindowController.shownPanes($0) } ?? []
         let id = try reference.map(resolve) ?? focusedPane.flatMap { panes.terminal($0) != nil ? $0 : nil } ?? shown.first { panes.terminal($0) != nil }
         guard let id, let view = panes[id] else { throw KannaError("not_found", "no pane \"\(reference ?? "")\" on screen") }
         guard let terminal = view.terminal else { throw KannaError("wrong_type", "\(id) is not a terminal") }

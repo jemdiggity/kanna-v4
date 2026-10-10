@@ -67,7 +67,7 @@ extension AppController {
             ("Restart", #selector(restartPane), nil, .cmd("r")),
             ("Close Pane", #selector(closeFocusedPane), "close_surface", .cmd("w")),
         ])
-        _ = menu("View", [
+        let view = menu("View", [
             ("New Tab", #selector(newTabInKeyWindow), "new_tab", .cmd("t")),
             ("Next Tab", #selector(nextTab), "next_tab", .shiftCmd("]")),
             ("Previous Tab", #selector(previousTab), "previous_tab", .shiftCmd("[")),
@@ -76,6 +76,16 @@ extension AppController {
             ("Zoom Out", #selector(zoomOut), "decrease_font_size:1", .cmd("-")),
             ("Actual Size", #selector(actualSize), "reset_font_size", .cmd("0")),
         ])
+        let tabs = NSMenu(title: "Show Tab")
+        for number in 1...9 {
+            let shortcut = runtime.shortcut(for: "goto_tab:\(number)") ?? .cmd("\(number)")
+            let item = tabs.addItem(withTitle: "Tab \(number)", action: #selector(showTab(_:) as (NSMenuItem) -> Void), keyEquivalent: shortcut.key)
+            item.keyEquivalentModifierMask = shortcut.modifiers
+            item.tag = number
+            item.target = self
+        }
+        view.insertItem(.separator(), at: 3)
+        view.insertItem(withTitle: "Show Tab", action: nil, keyEquivalent: "", at: 4).submenu = tabs
         let windowMenu = menu("Window", [
             ("New Window", #selector(newWindow), "new_window", .cmd("n")),
             ("Close Window", #selector(closeWindow), "close_window", .shiftCmd("w")),
@@ -177,9 +187,12 @@ extension AppController {
         case #selector(pressHome): return contents.ios(pane)?.screen != nil
         case #selector(openURL): return contents.web(pane) != nil
         case #selector(goBack), #selector(goForward): return contents.web(pane) != nil || contents.markdown(pane) != nil
-        case #selector(nextPane), #selector(previousPane), #selector(toggleZoom), #selector(movePaneToNewWindow), #selector(restartPane),
-             #selector(closeFocusedPane):
+        case #selector(nextPane), #selector(previousPane), #selector(toggleZoom), #selector(movePaneToNewWindow), #selector(restartPane):
             return focusedPane != nil
+        case #selector(closeFocusedPane): return focusedPane.map { !docked($0) } ?? false
+        case #selector(showTab(_:) as (NSMenuItem) -> Void):
+            guard case .array(let tabs)? = keyWindow?["tabs"] else { return false }
+            return tabs.count >= item.tag
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
         default: return true
@@ -190,9 +203,8 @@ extension AppController {
     @objc func previousPane() { cyclePane(-1) }
 
     private func cyclePane(_ step: Int) {
-        guard let window = keyWindow, let tab = window["tab"]?.string,
-              case .array(let tabs)? = window["tabs"], case .array(let list)? = tabs.first(where: { $0["id"]?.string == tab })?["panes"] else { return }
-        let ids = list.compactMap(\.string)
+        guard let window = keyWindow else { return }
+        let ids = WindowController.shownPanes(window)
         guard !ids.isEmpty else { return }
         let at = window["focused"]?.string.flatMap { ids.firstIndex(of: $0) } ?? 0
         layoutCommand("focus", ["pane": .string(ids[((at + step) % ids.count + ids.count) % ids.count])])
@@ -231,7 +243,10 @@ extension AppController {
         closePane(pane)
     }
 
-    func closePane(_ pane: String) { request("close", ["pane": .string(pane)]) }
+    func closePane(_ pane: String) {
+        guard !docked(pane) else { return }
+        request("close", ["pane": .string(pane)])
+    }
     func closeTab(_ tab: String) { request("close", ["tab": .string(tab)]) }
 
     @objc func newTabInKeyWindow() { newTab(in: keyWindow?["id"]?.string) }
@@ -240,6 +255,13 @@ extension AppController {
         var args: [String: JSON] = ["type": "term", "tab": true]
         if let window { args["window"] = .string(window) }
         request("open", args)
+    }
+
+    @objc func showTab(_ sender: NSMenuItem) { showTab(sender.tag) }
+
+    private func showTab(_ number: Int) {
+        guard case .array(let tabs)? = keyWindow?["tabs"], number >= 1, number <= tabs.count, let tab = tabs[number - 1]["id"]?.string else { return }
+        layoutCommand("focus", ["tab": .string(tab)])
     }
 
     @objc func nextTab() { cycleTab(1) }
@@ -282,7 +304,13 @@ extension AppController {
         case GHOSTTY_ACTION_NEW_TAB: perform = newTabInKeyWindow
         case GHOSTTY_ACTION_GOTO_TAB:
             let target = action.action.goto_tab
-            perform = target == GHOSTTY_GOTO_TAB_PREVIOUS ? previousTab : target == GHOSTTY_GOTO_TAB_NEXT ? nextTab : nil
+            let number = Int(target.rawValue)
+            perform = target == GHOSTTY_GOTO_TAB_PREVIOUS ? previousTab : target == GHOSTTY_GOTO_TAB_NEXT ? nextTab
+                : target == GHOSTTY_GOTO_TAB_LAST ? { [weak self] in
+                    guard case .array(let tabs)? = self?.keyWindow?["tabs"] else { return }
+                    self?.showTab(tabs.count)
+                }
+                : number >= 1 ? { [weak self] in self?.showTab(number) } : nil
         case GHOSTTY_ACTION_NEW_WINDOW: perform = newWindow
         case GHOSTTY_ACTION_CLOSE_WINDOW: perform = closeWindow
         case GHOSTTY_ACTION_GOTO_WINDOW:

@@ -197,8 +197,13 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
+    func docked(_ pane: String) -> Bool {
+        windows.contains { $0["dock"]?["pane"]?.string == pane }
+    }
+
     func windowOf(pane: String) -> JSON? {
         windows.first { window in
+            if window["dock"]?["pane"]?.string == pane { return true }
             guard case .array(let tabs)? = window["tabs"] else { return false }
             return tabs.contains { tab in
                 guard case .array(let ids)? = tab["panes"] else { return false }
@@ -221,6 +226,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var placed: Set<String> {
         var ids = Set<String>()
         for window in windows {
+            if let pane = window["dock"]?["pane"]?.string { ids.insert(pane) }
             guard case .array(let tabs)? = window["tabs"] else { continue }
             for tab in tabs {
                 guard case .array(let list)? = tab["panes"] else { continue }
@@ -341,6 +347,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             refresh()
             scheduleSave()
         }
+        controller.onDockWidth = { [weak self] pane, width in self?.layoutCommand("resize", ["pane": .string(pane), "size": .number(width)]) }
         controller.tabBar.onSelect = { [weak self] tab in self?.layoutCommand("focus", ["tab": .string(tab)]) }
         controller.tabBar.onClose = { [weak self] tab in self?.closeTab(tab) }
         controller.tabBar.onNew = { [weak self] in self?.newTab(in: id) }
