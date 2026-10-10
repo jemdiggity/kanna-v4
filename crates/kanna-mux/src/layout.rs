@@ -15,12 +15,50 @@ pub enum SplitSide {
     Auto,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    Left,
+    Right,
+}
+
+impl Edge {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Edge::Left => "left",
+            Edge::Right => "right",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Edge> {
+        match name {
+            "left" => Some(Edge::Left),
+            "right" => Some(Edge::Right),
+            _ => None,
+        }
+    }
+
+    pub fn read(value: Option<&Value>) -> Result<Option<Edge>, KmuxError> {
+        match value {
+            None | Some(Value::Null) => Ok(None),
+            Some(value) => value.as_str().and_then(Edge::parse).map(Some).ok_or_else(|| KmuxError::new("bad_request", "dock must be left or right")),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Placement {
     pub window: Option<String>,
     pub split: SplitSide,
     pub size: f64,
     pub new_tab: bool,
+    pub dock: Option<Edge>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spot {
+    pub window: String,
+    pub tab: Option<String>,
+    pub dock: Option<Edge>,
 }
 
 #[derive(Clone, Debug)]
@@ -41,7 +79,7 @@ pub trait LayoutHost {
 
     fn place(&mut self, pane: &str, at: &Placement) -> Result<Option<String>, KmuxError>;
 
-    fn location(&self, pane: &str) -> Option<(String, String)>;
+    fn location(&self, pane: &str) -> Option<Spot>;
 
     fn panes_in(&mut self, scope: &Scope) -> Result<Vec<String>, KmuxError>;
 
@@ -93,8 +131,11 @@ impl LayoutLink for LocalLayout {
     }
 }
 
-pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool) -> Value {
+pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>) -> Value {
     let mut at = Map::new();
+    if let Some(dock) = dock {
+        at.insert("dock".into(), dock.as_str().into());
+    }
     if let Some(window) = window {
         at.insert("window".into(), window.into());
     }
@@ -170,7 +211,16 @@ pub fn placement(at: &Value) -> Result<Placement, KmuxError> {
         None => 0.5,
         Some(size) => size.as_f64().filter(|s| *s > 0.0 && *s < 1.0).ok_or_else(|| bad("size must be a fraction between 0 and 1"))?,
     };
-    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)) })
+    let dock = Edge::read(at.get("dock")).map_err(|_| bad("dock must be left or right"))?;
+    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock })
+}
+
+fn spot(reply: &mut Map, spot: Option<Spot>, window: Option<String>) {
+    reply.insert("window".into(), opt(spot.as_ref().map(|s| s.window.as_str()).or(window.as_deref())));
+    reply.insert("tab".into(), opt(spot.as_ref().and_then(|s| s.tab.as_deref())));
+    if let Some(edge) = spot.and_then(|s| s.dock) {
+        reply.insert("dock".into(), edge.as_str().into());
+    }
 }
 
 pub fn serve(host: &mut dyn LayoutHost, request: &Value, panes: &Panes) -> Result<Map, KmuxError> {
@@ -180,14 +230,11 @@ pub fn serve(host: &mut dyn LayoutHost, request: &Value, panes: &Panes) -> Resul
             let pane = string(request.get("pane").unwrap_or(&Value::Null), "id").ok_or_else(|| bad("place needs a pane"))?;
             let at = placement(request.get("at").unwrap_or(&Value::Null))?;
             let window = host.place(pane, &at)?;
-            let location = host.location(pane);
-            reply.insert("window".into(), opt(location.as_ref().map(|l| l.0.as_str()).or(window.as_deref())));
-            reply.insert("tab".into(), opt(location.as_ref().map(|l| l.1.as_str())));
+            spot(&mut reply, host.location(pane), window);
         }
         "location" => {
             let location = string(request, "pane").and_then(|pane| host.location(pane));
-            reply.insert("window".into(), opt(location.as_ref().map(|l| l.0.as_str())));
-            reply.insert("tab".into(), opt(location.as_ref().map(|l| l.1.as_str())));
+            spot(&mut reply, location, None);
         }
         "panes-in" => {
             let scope = match string(request, "tab") {

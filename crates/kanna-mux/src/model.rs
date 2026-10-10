@@ -1,7 +1,7 @@
 use crate::error::KmuxError;
 use crate::fraction;
 use crate::json::{num, opt, string, trim, Map, Value};
-use crate::layout::{LayoutHost, Placement, SavedLayout, Scope, SplitSide};
+use crate::layout::{Edge, LayoutHost, Placement, SavedLayout, Scope, SplitSide, Spot};
 use crate::pane::Panes;
 use crate::state::{bad, number_in, quoted, whole};
 use std::collections::HashSet;
@@ -69,6 +69,15 @@ pub struct Frame {
     pub h: f64,
 }
 
+pub const DOCK_WIDTH: f64 = 2.0 / 5.0;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Dock {
+    pub pane: String,
+    pub edge: Edge,
+    pub width: f64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Window {
     pub id: String,
@@ -78,11 +87,37 @@ pub struct Window {
     pub zoomed: Option<String>,
     pub frame: Option<Frame>,
     pub tab_count: usize,
+    pub dock: Option<Dock>,
 }
 
 impl Window {
     fn new(id: String) -> Window {
-        Window { id, tabs: vec![], active: None, focused: None, zoomed: None, frame: None, tab_count: 0 }
+        Window { id, tabs: vec![], active: None, focused: None, zoomed: None, frame: None, tab_count: 0, dock: None }
+    }
+
+    pub fn shown_panes(&self) -> Vec<String> {
+        let ids = pane_ids(self.active_tab().and_then(|t| t.root.as_ref()));
+        match &self.dock {
+            None => ids,
+            Some(dock) if dock.edge == Edge::Left => std::iter::once(dock.pane.clone()).chain(ids).collect(),
+            Some(dock) => ids.into_iter().chain(std::iter::once(dock.pane.clone())).collect(),
+        }
+    }
+
+    fn docks(&self, pane: &str) -> bool {
+        self.dock.as_ref().is_some_and(|d| d.pane == pane)
+    }
+
+    fn settle_focus(&mut self) {
+        let shown = self.shown_panes();
+        if !self.focused.as_ref().is_some_and(|f| shown.contains(f)) {
+            let ids = pane_ids(self.active_tab().and_then(|t| t.root.as_ref()));
+            let last = self.active_tab().and_then(|t| t.last_focus.clone()).filter(|l| ids.contains(l));
+            self.focused = last.or_else(|| ids.first().cloned()).or_else(|| self.dock.as_ref().map(|d| d.pane.clone()));
+        }
+        if self.zoomed.as_ref().is_some_and(|z| !shown.contains(z)) {
+            self.zoomed = None;
+        }
     }
 
     fn active_index(&self) -> Option<usize> {
@@ -240,6 +275,10 @@ fn layout_invalid(message: impl Into<String>) -> KmuxError {
     KmuxError::new("layout_invalid", message)
 }
 
+fn docked(message: impl std::fmt::Display) -> KmuxError {
+    KmuxError::new("docked", format!("docked: {message}"))
+}
+
 impl Model {
     pub fn new() -> Model {
         Model::default()
@@ -262,13 +301,12 @@ impl Model {
     }
 
     pub fn set_focused(&mut self, pane: &str) -> bool {
-        let shows = |w: &Window| pane_ids(w.active_tab().and_then(|t| t.root.as_ref())).iter().any(|p| p == pane);
-        let Some(window) = self.windows.iter_mut().find(|w| shows(w)) else { return false };
+        let Some(window) = self.windows.iter_mut().find(|w| w.shown_panes().iter().any(|p| p == pane)) else { return false };
         if window.focused.as_deref() == Some(pane) {
             return false;
         }
         window.focused = Some(pane.into());
-        if let Some(t) = window.active_index() {
+        if let Some(t) = window.active_index().filter(|_| !window.docks(pane)) {
             window.tabs[t].last_focus = Some(pane.into());
         }
         true
@@ -339,6 +377,34 @@ impl Model {
         window.tabs.len() - 1
     }
 
+    pub fn dock_window(&self, id: &str) -> Option<usize> {
+        self.windows.iter().position(|w| w.docks(id))
+    }
+
+    fn window_containing(&self, id: &str) -> Option<usize> {
+        self.locate(id).map(|l| l.window).or_else(|| self.dock_window(id))
+    }
+
+    fn dock(&mut self, id: &str, w: usize, edge: Edge) {
+        let old = self.windows[w].dock.clone();
+        if let Some(old) = old.as_ref().filter(|old| old.pane != id) {
+            let t = self.make_tab(w, false);
+            self.append(&old.pane, (w, t));
+        }
+        self.windows[w].dock = Some(Dock { pane: id.into(), edge, width: old.map_or(DOCK_WIDTH, |old| old.width) });
+    }
+
+    fn dock_view(&self, w: usize, panes: &Panes) -> Value {
+        match &self.windows[w].dock {
+            None => Value::Null,
+            Some(dock) => Value::Object(reply([
+                ("pane", panes.display(&dock.pane).into()),
+                ("edge", dock.edge.as_str().into()),
+                ("width", fraction::format(dock.width).into()),
+            ])),
+        }
+    }
+
     pub fn locate(&self, id: &str) -> Option<Location> {
         for (w, window) in self.windows.iter().enumerate() {
             for (t, tab) in window.tabs.iter().enumerate() {
@@ -351,6 +417,14 @@ impl Model {
     }
 
     fn detach(&mut self, id: &str) {
+        if let Some(w) = self.dock_window(id) {
+            let window = &mut self.windows[w];
+            window.dock = None;
+            if window.zoomed.as_deref() == Some(id) {
+                window.zoomed = None;
+            }
+            return;
+        }
         let Some(location) = self.locate(id) else { return };
         let window = &mut self.windows[location.window];
         let tab = &mut window.tabs[location.tab];
@@ -411,9 +485,21 @@ impl Model {
     }
 
     fn swap(&mut self, a: &str, b: &str) {
-        let (Some(la), Some(lb)) = (self.locate(a), self.locate(b)) else { return };
-        self.set_leaf(&la, b);
-        self.set_leaf(&lb, a);
+        let (la, lb, da, db) = (self.locate(a), self.locate(b), self.dock_window(a), self.dock_window(b));
+        if (la.is_none() && da.is_none()) || (lb.is_none() && db.is_none()) {
+            return;
+        }
+        let put = |model: &mut Model, location: Option<Location>, dock: Option<usize>, id: &str| match (location, dock) {
+            (Some(location), _) => model.set_leaf(&location, id),
+            (None, Some(w)) => {
+                if let Some(dock) = model.windows[w].dock.as_mut() {
+                    dock.pane = id.into();
+                }
+            }
+            (None, None) => {}
+        };
+        put(self, la, da, b);
+        put(self, lb, db, a);
     }
 
     fn set_leaf(&mut self, location: &Location, id: &str) {
@@ -442,17 +528,13 @@ impl Model {
             if !window.tabs.iter().any(|t| Some(&t.id) == window.active.as_ref()) {
                 window.active = if window.tabs.is_empty() { None } else { Some(window.tabs[at.min(window.tabs.len() - 1)].id.clone()) };
             }
-            let ids = pane_ids(window.active_tab().and_then(|t| t.root.as_ref()));
-            if window.focused.as_ref().is_some_and(|f| ids.contains(f)) {
+            let shown = window.shown_panes();
+            if window.focused.as_ref().is_some_and(|f| shown.contains(f)) {
                 continue;
             }
-            let last = window.active_tab().and_then(|t| t.last_focus.clone()).filter(|l| ids.contains(l));
-            window.focused = last.or_else(|| ids.first().cloned());
-            if window.zoomed.as_ref().is_some_and(|z| !ids.contains(z)) {
-                window.zoomed = None;
-            }
+            window.settle_focus();
         }
-        self.windows.retain(|w| !w.tabs.is_empty());
+        self.windows.retain(|w| !w.tabs.is_empty() || w.dock.is_some());
         if self.key_window().is_none() {
             self.key = self.windows.last().map(|w| w.id.clone());
         }
@@ -474,14 +556,17 @@ impl Model {
     }
 
     fn focus_pane(&mut self, id: &str) {
-        let Some(location) = self.locate(id) else { return };
-        let window = &mut self.windows[location.window];
-        window.active = Some(window.tabs[location.tab].id.clone());
+        let location = self.locate(id);
+        let Some(w) = location.as_ref().map(|l| l.window).or_else(|| self.dock_window(id)) else { return };
+        let window = &mut self.windows[w];
+        if let Some(location) = location {
+            window.active = Some(window.tabs[location.tab].id.clone());
+            window.tabs[location.tab].last_focus = Some(id.into());
+        }
         if window.zoomed.as_ref().is_some_and(|z| z != id) {
             window.zoomed = None;
         }
         window.focused = Some(id.into());
-        window.tabs[location.tab].last_focus = Some(id.into());
         self.key = Some(window.id.clone());
     }
 
@@ -532,7 +617,7 @@ impl Model {
 
     fn zoom(&mut self, args: &Value, panes: &Panes) -> Result<Map, KmuxError> {
         let id = panes.need(string(args, "pane"))?.id.clone();
-        let w = self.locate(&id).ok_or_else(|| not_found(format!("no pane \"{id}\"")))?.window;
+        let w = self.window_containing(&id).ok_or_else(|| not_found(format!("no pane \"{id}\"")))?;
         let was = self.windows[w].zoomed.as_deref() == Some(&id);
         self.focus_pane(&id);
         let window = &mut self.windows[w];
@@ -554,11 +639,30 @@ impl Model {
 
     fn move_pane(&mut self, args: &Value, panes: &Panes) -> Result<Map, KmuxError> {
         let id = panes.need(string(args, "pane"))?.id.clone();
-        let from = self.locate(&id).ok_or_else(|| not_found(format!("no pane \"{id}\"")))?;
-        let from_window = self.windows[from.window].id.clone();
-        let from_tab = self.windows[from.window].tabs[from.tab].id.clone();
+        let from_w = self.window_containing(&id).ok_or_else(|| not_found(format!("no pane \"{id}\"")))?;
+        let from_window = self.windows[from_w].id.clone();
+        let from_tab = self.locate(&id).map(|l| self.windows[l.window].tabs[l.tab].id.clone());
+        if let Some(edge) = Edge::read(args.get("dock"))? {
+            if args.get("to").is_some() || args.get("tab").is_some() {
+                return Err(bad_request("move takes one of to + side, tab, window or dock"));
+            }
+            let w = if args.get("window").is_some() { self.target_window(string(args, "window"))? } else { from_w };
+            match self.windows[w].dock.as_mut() {
+                Some(dock) if dock.pane == id => dock.edge = edge,
+                _ => {
+                    self.detach(&id);
+                    self.dock(&id, w, edge);
+                }
+            }
+            let window = self.windows[w].id.clone();
+            self.focus_pane(&id);
+            self.drop_empty();
+            let w = self.window_index(&window).unwrap_or(w);
+            return Ok(reply([("window", window.into()), ("dock", self.dock_view(w, panes))]));
+        }
         if let Some(reference) = string(args, "to") {
-            let target = panes.need(Some(reference))?.id.clone();
+            let target = panes.need(Some(reference))?;
+            let (target, label) = (target.id.clone(), target.label());
             let side = string(args, "side").unwrap_or("swap");
             if !["left", "right", "top", "bottom", "swap"].contains(&side) {
                 return Err(bad_request("side must be left, right, top, bottom or swap"));
@@ -566,9 +670,12 @@ impl Model {
             if target == id {
                 return Ok(reply([("window", from_window.into())]));
             }
+            if side != "swap" && self.dock_window(&target).is_some() {
+                return Err(docked(format!("{label} is docked and holds one pane; drop on its middle to swap")));
+            }
             if side == "swap" {
                 self.swap(&id, &target);
-                let window = &mut self.windows[from.window];
+                let window = &mut self.windows[from_w];
                 if window.focused.as_deref() == Some(&id) {
                     window.focused = Some(target);
                 }
@@ -584,7 +691,7 @@ impl Model {
                 let (w, t) = self.need_tab(Some(reference))?;
                 self.windows[w].tabs[t].id.clone()
             } else if tab == Some("new") {
-                let w = if args.get("window").is_some() { self.target_window(string(args, "window"))? } else { from.window };
+                let w = if args.get("window").is_some() { self.target_window(string(args, "window"))? } else { from_w };
                 let t = self.make_tab(w, true);
                 self.windows[w].tabs[t].id.clone()
             } else if args.get("window").is_some() {
@@ -597,7 +704,7 @@ impl Model {
             } else {
                 return Err(bad_request("move needs to + side, tab, or window"));
             };
-            if destination == from_tab {
+            if Some(&destination) == from_tab.as_ref() {
                 return Ok(reply([("window", from_window.into())]));
             }
             self.detach(&id);
@@ -606,6 +713,9 @@ impl Model {
         }
         self.focus_pane(&id);
         self.drop_empty();
+        if let Some(w) = self.dock_window(&id) {
+            return Ok(reply([("window", self.windows[w].id.clone().into()), ("dock", self.dock_view(w, panes))]));
+        }
         let Some(location) = self.locate(&id) else { return Ok(Map::new()) };
         let window = &self.windows[location.window];
         let tab = &window.tabs[location.tab];
@@ -646,6 +756,12 @@ impl Model {
         if !(size > 0.0 && size < 1.0) {
             return Err(bad_request("size must be a fraction between 0 and 1"));
         }
+        if let Some(w) = self.dock_window(&pane.id) {
+            if let Some(dock) = self.windows[w].dock.as_mut() {
+                dock.width = size;
+            }
+            return Ok(reply([("window", self.windows[w].id.clone().into()), ("dock", self.dock_view(w, panes))]));
+        }
         let location = self.locate(&pane.id).ok_or_else(|| not_found(format!("no pane \"{}\"", pane.id)))?;
         let Some(path) = &location.parent else {
             return Err(bad_request(format!("{} fills its tab, so there is nothing to resize against", pane.label())));
@@ -665,9 +781,17 @@ impl Model {
     }
 
     fn arrange(&mut self, args: &Value, panes: &Panes) -> Result<Map, KmuxError> {
-        fn build(node: &Value, used: &mut Vec<String>, panes: &Panes) -> Result<Node, KmuxError> {
+        fn build(node: &Value, used: &mut Vec<String>, panes: &Panes, outside: &[String]) -> Result<Node, KmuxError> {
             if let Some(reference) = string(node, "pane") {
-                let id = panes.need(Some(reference))?.id.clone();
+                let pane = panes.need(Some(reference))?;
+                let id = pane.id.clone();
+                if outside.contains(&id) {
+                    return Err(docked(format!(
+                        "{} is docked, outside the tabs; undock it first (move {} --tab new)",
+                        pane.label(),
+                        pane.name.as_deref().unwrap_or(&pane.id)
+                    )));
+                }
                 if used.contains(&id) {
                     return Err(layout_invalid(format!("\"{reference}\" appears more than once")));
                 }
@@ -703,12 +827,13 @@ impl Model {
             let kids = children
                 .iter()
                 .zip(sizes)
-                .map(|(child, size)| Ok(Child { node: build(child, used, panes)?, size: size.unwrap_or(fill) * scale }))
+                .map(|(child, size)| Ok(Child { node: build(child, used, panes, outside)?, size: size.unwrap_or(fill) * scale }))
                 .collect::<Result<Vec<_>, KmuxError>>()?;
             Ok(Node::Split(Split { axis, kids }))
         }
         let mut used = vec![];
-        let root = normalize(build(args.get("layout").unwrap_or(&Value::Null), &mut used, panes)?);
+        let outside: Vec<String> = self.windows.iter().filter_map(|w| w.dock.as_ref().map(|d| d.pane.clone())).collect();
+        let root = normalize(build(args.get("layout").unwrap_or(&Value::Null), &mut used, panes, &outside)?);
         let w = self.target_window(string(args, "window"))?;
         let t = match self.windows[w].active_index() {
             Some(t) => t,
@@ -779,11 +904,19 @@ impl LayoutHost for Model {
     }
 
     fn features(&self) -> &'static [&'static str] {
-        &["windows", "tabs", "fractionalSizing", "zoom"]
+        &["windows", "tabs", "fractionalSizing", "zoom", "dock"]
     }
 
     fn place(&mut self, pane: &str, at: &Placement) -> Result<Option<String>, KmuxError> {
         let w = self.target_window(at.window.as_deref())?;
+        if let Some(edge) = at.dock {
+            self.dock(pane, w, edge);
+            let window = &mut self.windows[w];
+            window.zoomed = None;
+            window.focused = Some(pane.into());
+            self.key = Some(window.id.clone());
+            return Ok(Some(window.id.clone()));
+        }
         let t = if at.new_tab || self.windows[w].tabs.is_empty() { self.make_tab(w, true) } else { self.windows[w].active_index().unwrap() };
         self.windows[w].zoomed = None;
         let tab = &mut self.windows[w].tabs[t];
@@ -809,10 +942,14 @@ impl LayoutHost for Model {
         Ok(Some(window.id.clone()))
     }
 
-    fn location(&self, pane: &str) -> Option<(String, String)> {
+    fn location(&self, pane: &str) -> Option<Spot> {
+        if let Some(w) = self.dock_window(pane) {
+            let window = &self.windows[w];
+            return Some(Spot { window: window.id.clone(), tab: None, dock: window.dock.as_ref().map(|d| d.edge) });
+        }
         let location = self.locate(pane)?;
         let window = &self.windows[location.window];
-        Some((window.id.clone(), window.tabs[location.tab].id.clone()))
+        Some(Spot { window: window.id.clone(), tab: Some(window.tabs[location.tab].id.clone()), dock: None })
     }
 
     fn panes_in(&mut self, scope: &Scope) -> Result<Vec<String>, KmuxError> {
@@ -823,7 +960,8 @@ impl LayoutHost for Model {
             }
             Scope::Window(reference) => {
                 let w = self.target_window(reference.as_deref())?;
-                Ok(self.windows[w].tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).collect())
+                let window = &self.windows[w];
+                Ok(window.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(window.dock.iter().map(|d| d.pane.clone())).collect())
             }
         }
     }
@@ -853,7 +991,8 @@ impl LayoutHost for Model {
         Value::Array(
             self.windows
                 .iter()
-                .map(|window| {
+                .enumerate()
+                .map(|(w, window)| {
                     let tabs = window
                         .tabs
                         .iter()
@@ -866,13 +1005,17 @@ impl LayoutHost for Model {
                             ]))
                         })
                         .collect();
-                    Value::Object(reply([
+                    let mut out = reply([
                         ("id", window.id.clone().into()),
                         ("key", Value::Bool(Some(&window.id) == self.key.as_ref())),
                         ("focused", window.focused.as_ref().map_or(Value::Null, |p| panes.display(p).into())),
                         ("zoomed", window.zoomed.as_ref().map_or(Value::Null, |p| panes.display(p).into())),
                         ("tabs", Value::Array(tabs)),
-                    ]))
+                    ]);
+                    if window.dock.is_some() {
+                        out.insert("dock".into(), self.dock_view(w, panes));
+                    }
+                    Value::Object(out)
                 })
                 .collect(),
         )
@@ -905,6 +1048,9 @@ impl LayoutHost for Model {
                 ]);
                 if let Some(f) = window.frame {
                     out.insert("frame".into(), Value::Object(reply([("x", num(f.x)), ("y", num(f.y)), ("w", num(f.w)), ("h", num(f.h))])));
+                }
+                if let Some(dock) = &window.dock {
+                    out.insert("dock".into(), Value::Object(reply([("pane", dock.pane.clone().into()), ("edge", dock.edge.as_str().into()), ("width", num(dock.width))])));
                 }
                 Value::Object(out)
             })
@@ -989,18 +1135,33 @@ impl LayoutHost for Model {
                 window.tabs.push(tab);
                 counters.0 = counters.0.max(tn);
             }
+            if let Some(saved) = item.get("dock").filter(|d| !d.is_null()) {
+                let pane = string(saved, "pane")
+                    .filter(|p| panes.contains(*p))
+                    .ok_or_else(|| bad(&format!("window {id} docks unknown pane {}", quoted(saved.get("pane")))))?;
+                if !placed.insert(pane.to_string()) {
+                    return Err(bad(&format!("pane {pane} is placed twice")));
+                }
+                let width = saved.get("width").and_then(Value::as_f64).filter(|w| *w > 0.0 && *w < 1.0).unwrap_or(DOCK_WIDTH);
+                let edge = string(saved, "edge").and_then(Edge::parse).unwrap_or(Edge::Left);
+                window.dock = Some(Dock { pane: pane.into(), edge, width });
+            }
             window.tabs.retain(|t| t.root.is_some());
             let active = string(item, "active");
             window.active = if window.tabs.iter().any(|t| Some(t.id.as_str()) == active) { active.map(String::from) } else { window.tabs.first().map(|t| t.id.clone()) };
-            let shown = pane_ids(window.active_tab().and_then(|t| t.root.as_ref()));
+            let shown = window.shown_panes();
+            let first = pane_ids(window.active_tab().and_then(|t| t.root.as_ref())).first().cloned();
             let focused = string(item, "focused").filter(|f| shown.iter().any(|s| s == f)).map(String::from);
-            window.focused = focused.or_else(|| window.active_tab().and_then(|t| t.last_focus.clone())).or_else(|| shown.first().cloned());
+            window.focused = focused
+                .or_else(|| window.active_tab().and_then(|t| t.last_focus.clone()))
+                .or(first)
+                .or_else(|| window.dock.as_ref().map(|d| d.pane.clone()));
             window.zoomed = string(item, "zoomed").filter(|z| shown.iter().any(|s| s == z)).map(String::from);
             window.tab_count = whole(item.get("tabCount")).unwrap_or(0).max(window.tabs.len());
             windows.push(window);
             counters.1 = counters.1.max(n);
         }
-        windows.retain(|w: &Window| !w.tabs.is_empty());
+        windows.retain(|w: &Window| !w.tabs.is_empty() || w.dock.is_some());
         let key = string(state, "key").filter(|k| windows.iter().any(|w| w.id == *k)).map(String::from).or_else(|| windows.last().map(|w| w.id.clone()));
 
         Ok(SavedLayout { placed, layout: Box::new(Restored { windows, key, counters }) })

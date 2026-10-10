@@ -13,6 +13,8 @@ fn with_no_app_terminals_open_unplaced_and_layout_commands_fail_with_no_app() {
     for (cmd, args) in [
         ("open", json!({"type": "term", "name": "split", "split": "right"})),
         ("open", json!({"type": "term", "name": "tabbed", "tab": true})),
+        ("open", json!({"type": "term", "name": "docked", "dock": "left"})),
+        ("move", json!({"pane": "plain", "dock": "right"})),
         ("focus", json!({"pane": "plain"})),
         ("arrange", json!({"layout": {"pane": "plain"}})),
         ("close", json!({"tab": "t1"})),

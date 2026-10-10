@@ -116,7 +116,7 @@ fn with_kanna_socket_set_a_command_that_needs_the_app_fails_with_6_and_starts_no
     let dir = folder("no-app");
     let requests = serve(&dir.join("nothing.sock"), |request| match request["cmd"].as_str() {
         Some("capabilities") => serde_json::json!({ "ok": true, "paneTypes": ["term"] }),
-        _ => serde_json::json!({ "ok": false, "error": { "code": "no_app", "message": "opening a pane with --split, --size, --tab or --window needs Kanna.app, and none is attached to this daemon" } }),
+        _ => serde_json::json!({ "ok": false, "error": { "code": "no_app", "message": "opening a pane with --split, --size, --tab, --window or --dock needs Kanna.app, and none is attached to this daemon" } }),
     });
     let started = Instant::now();
     let output = kanna(&dir, &["open", "--split", "right"]).output().unwrap();

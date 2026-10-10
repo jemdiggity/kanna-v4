@@ -477,7 +477,7 @@ pub fn offline(request: &Value) -> Result<Map, KmuxError> {
             Err(no_app(&format!("opening a {} pane", string(&request["pane"], "type").unwrap_or_default())))
         }
         "place" if request["at"].as_object().is_none_or(Map::is_empty) => Ok(empty(&["window", "tab"])),
-        "place" => Err(no_app("opening a pane with --split, --size, --tab or --window")),
+        "place" => Err(no_app("opening a pane with --split, --size, --tab, --window or --dock")),
         "location" => Ok(empty(&["window", "tab"])),
         "remove" => Ok(Map::new()),
         "windows" => Ok([("windows".to_string(), Value::Array(vec![]))].into_iter().collect()),

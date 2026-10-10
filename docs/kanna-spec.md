@@ -358,8 +358,8 @@ flowchart LR
 
 | Step (`op`) | Used by | The app answers | With no app attached, the daemon answers |
 |---|---|---|---|
-| `place {pane, at}` | `open` (`at` holds only the `split`, `size`, `tab`, `window` given) | places it: `{window, tab}` | with no `at`: `{window: null, tab: null}`, the pane is opened unplaced; with one: `no_app` |
-| `location {pane}` | `open`, once the pane has started | `{window, tab}` | `{window: null, tab: null}` |
+| `place {pane, at}` | `open` (`at` holds only the `split`, `size`, `tab`, `window`, `dock` given) | places it: `{window, tab}`, and `dock` (its edge) for a docked pane, whose `tab` is null | with no `at`: `{window: null, tab: null}`, the pane is opened unplaced; with one: `no_app` |
+| `location {pane}` | `open`, once the pane has started; `close` of a pane, which a docked one refuses ([4.16](#416-docked-pane)) | `{window, tab}`, and `dock` as `place` | `{window: null, tab: null}` |
 | `command {cmd, args}` | `focus`, `zoom`, `rename-tab`, `move`, `move-tab`, `resize`, `arrange` | the command's reply, as kmux | `no_app` |
 | `panes-in {tab}` / `{window}` | `close --tab`, `close --window` | the panes there | `no_app` |
 | `remove {ids, tidy}` | `close`, `debug.restoreState` | removes them (and closes emptied tabs and windows) | nothing to do |
@@ -525,7 +525,7 @@ flowchart LR
 
 | Call | Does | Why it isn't a protocol command |
 |---|---|---|
-| `view` | `{key, windows: [{id, frame, title, tab, tabs: [{id, title, panes}], focused, zoomed, root}]}`: every window, its tabs with the panes in each, and the tree on screen (the zoomed pane alone when zoomed), with exact sizes and pane types | it's what to draw, not what a client sees (`list` shows names and fractions) |
+| `view` | `{key, windows: [{id, frame, title, tab, tabs: [{id, title, panes}], focused, zoomed, root, dock}]}`: every window, its tabs with the panes in each, the tree on screen (the zoomed pane alone when zoomed; nothing when the docked pane is), with exact sizes and pane types, and its docked pane (`{pane, type, edge, width}`, or null) | it's what to draw, not what a client sees (`list` shows names and fractions) |
 | `focused {pane}` | a click: the pane's window remembers it as focused (and its tab as last focused), without making the window key or unzooming; answers whether it changed | kmux's app does the same outside its core (`AppController.focused`); `focus` would also make the window key |
 | `divider {tab, path, index, share}` | a dragged divider: the two panes on either side of it share what they had, the first getting `share` | `resize` gives one pane a fraction and rescales all its siblings; a divider moves only its two neighbours |
 | `frame {window, frame}` | a window moved or was resized; saved with the window | frames are the app's |
@@ -828,7 +828,7 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 ### 4.16 Docked Pane
 
-**[Proposed]** A window's one pane outside its tabs, along its left edge, shown whichever tab is active. A mux-layer primitive the Desk is built from (the agent docked, the docs as tabs); windows without one behave exactly as kmux. Its own spec: [specs/docked-pane.md](specs/docked-pane.md).
+A window's one pane outside its tabs, along its left or right edge, shown whichever tab is active. A mux-layer primitive the Desk is built from (the agent docked, the docs as tabs); windows without one behave exactly as kmux. It needs no layout steps of its own: `open --dock` is a `place` with `dock`, docking, undocking and its width are `move` and `resize` commands ([4.7](#47-the-layout)). Its own spec: [specs/docked-pane.md](specs/docked-pane.md).
 
 ### 4.17 Agent Status
 
