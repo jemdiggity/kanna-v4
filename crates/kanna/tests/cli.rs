@@ -80,6 +80,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert!(daemon.kanna(&["list", "--json"]).json()["panes"][5].get("markup").is_none());
     assert_eq!(daemon.kanna(&["markup", "doc"]).ok(), "comments on in p6 (doc)");
     assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][5]["markup"], json!(true));
+    assert_eq!(daemon.kanna(&["markup", "doc", "--to", "p1"]).ok(), "comments on in p6 (doc), sent to p1");
     assert_eq!(daemon.kanna(&["markup", "doc", "--off"]).ok(), "comments off in p6 (doc)");
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();

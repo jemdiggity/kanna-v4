@@ -524,6 +524,7 @@ mod tests {
         assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(HTML)], &[String::new()], &|_| None), [":files md markdown mdown html htm"]);
         assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(&[])], &[String::new()], &|_| None), [":files"]);
         assert!(words(&at("markup spec -")).contains(&"--off".into()));
+        assert_eq!(at("markup spec --to "), [Want::Panes]);
         assert_eq!(words(&at("resize p1 ")), ["1/2", "1/3", "2/3", "1/4", "3/4"]);
     }
 

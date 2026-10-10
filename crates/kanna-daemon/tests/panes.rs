@@ -60,8 +60,10 @@ fn the_app_lends_its_panes_while_it_is_attached() {
     assert_eq!(navigated["pane"]["url"], "http://localhost:3", "{navigated}");
     let back = instance.call("navigate", json!({"pane": "site", "back": true}));
     assert_eq!(back["pane"]["url"], "http://localhost:1/", "{back}");
-    let marked = instance.call("markup", json!({"pane": "doc", "agent": "p3"}));
-    assert_eq!((marked["pane"]["markup"].clone(), marked["pane"]["agent"].clone()), (json!(true), json!("p3")), "{marked}");
+    let marked = instance.call("markup", json!({"pane": "doc", "agent": "next"}));
+    assert_eq!((marked["pane"]["markup"].clone(), marked["pane"]["agent"].clone()), (json!(true), json!("p9")), "{marked}");
+    let nowhere = instance.call("markup", json!({"pane": "doc", "agent": "nobody"}));
+    assert_eq!(nowhere["error"]["code"], "not_found", "{nowhere}");
     let plain = instance.call("markup", json!({"pane": "doc", "off": true}));
     assert!(plain["pane"]["markup"].is_null(), "{plain}");
     let wrong = instance.call("markup", json!({"pane": "next"}));

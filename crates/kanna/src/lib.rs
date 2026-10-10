@@ -430,6 +430,9 @@ mod tests {
         assert_eq!(parse("kanna markup spec --off").unwrap().1, json!({ "pane": "spec", "off": true }));
         assert_eq!(parse("kanna markup spec").unwrap().1["pane"], json!("spec"));
         assert!(parse("kanna markup spec --tab").is_err());
+        assert_eq!(parse("kanna markup spec --to agent").unwrap().1, json!({ "pane": "spec", "agent": "agent" }));
+        assert_eq!(parse("kanna markup /tmp/notes.md --to p4").unwrap().1["agent"], json!("p4"));
+        assert!(parse("kanna markup spec --to agent --off").is_err());
         assert!(parse("kanna markup /tmp/notes.md --off").is_err());
         let (_, request) = parse("kanna open md /tmp/notes.md").unwrap();
         assert!(request.get("markup").is_none() && request.get("agent").is_none());

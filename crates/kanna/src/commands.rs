@@ -323,8 +323,9 @@ pub static COMMANDS: &[Command] = &[
         name: "markup",
         group: "Panes",
         summary: "Open a markdown file or a local page to comment on, or turn comments on or off in a pane; the comments come to this pane.",
-        usage: "kanna markup FILE.md|FILE.html [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]\n       kanna markup PANE [--off]",
+        usage: "kanna markup FILE.md|FILE.html [--to PANE] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]\n       kanna markup PANE [--to PANE | --off]",
         options: &[
+            ("--to PANE", "The terminal comments go to, e.g. the pane an agent runs in. Default: this one."),
             ("--name NAME", "A name to refer to the pane by in later commands."),
             ("--split right|down|auto", "Where the pane goes relative to the focused pane, as for open."),
             ("--size FRACTION", "Share of the focused pane's space it takes, as for open."),
@@ -339,6 +340,7 @@ pub static COMMANDS: &[Command] = &[
             ("kanna markup references/mockups/desk.html --split right", "Review a mockup beside this pane."),
             ("kanna markup docs/specs/desk.md --tab", "Review a spec in a new tab."),
             ("kanna markup spec", "Turn on comments in the pane named spec; they come to this pane."),
+            ("kanna markup spec --to agent", "Send spec's comments to the pane named agent instead."),
             ("kanna markup spec --off", "Show spec without comments again."),
         ],
         parse: parse_markup,
@@ -366,9 +368,13 @@ fn parse_markup(args: &mut Argv) -> Result<Value, Failure> {
         out.insert("wait".into(), json!(false));
     }
     let off = args.flag("--off");
+    let to = args.option("--to")?;
+    if off && to.is_some() {
+        return Err(usage("markup", "--off sends comments nowhere, so it takes no --to"));
+    }
     let target = args.positional().ok_or_else(|| usage("markup", "say what: kanna markup FILE.md, kanna markup FILE.html or kanna markup PANE"))?;
     let lower = target.to_lowercase();
-    let agent = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty());
+    let agent = to.or_else(|| std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()));
     let page = lower.ends_with(".html") || lower.ends_with(".htm");
     if !is_markdown(&target) && !page {
         if !out.is_empty() {

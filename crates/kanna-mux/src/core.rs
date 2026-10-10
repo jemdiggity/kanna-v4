@@ -481,6 +481,10 @@ impl CoreHandle {
         if args.get("markup").is_some() && !matches!(kind, PaneType::Md | PaneType::Web) {
             return Err(bad_request("markup is only for markdown and web panes"));
         }
+        let agent = match string(args, "agent") {
+            Some(agent) => Some(self.need_pane(Some(agent))?.id),
+            None => None,
+        };
         let name = string(args, "name").map(String::from);
         let taken = |core: &CoreHandle| match &name {
             Some(name) if core.state().panes.pane(name).is_some() => Err(KmuxError::new("name_taken", format!("a pane named \"{name}\" already exists"))),
@@ -522,7 +526,7 @@ impl CoreHandle {
             pane.app = field("app");
             pane.device = field("device");
             pane.path = field("path");
-            pane.agent = field("agent");
+            pane.agent = agent.clone();
             pane.markup = is_true(args, "markup");
             if (kind == PaneType::Web && is_true(args, "history")) || kind == PaneType::Md {
                 pane.history = Some(Default::default());
@@ -723,10 +727,14 @@ impl CoreHandle {
             ));
         }
         let on = !is_true(args, "off");
+        let agent = match string(args, "agent").filter(|_| on) {
+            Some(agent) => Some(self.need_pane(Some(agent))?.id),
+            None => None,
+        };
         if let Some(pane) = self.state().panes.get_mut(&pane.id) {
             pane.markup = on;
-            if let Some(agent) = string(args, "agent").filter(|_| on) {
-                pane.agent = Some(agent.to_string());
+            if agent.is_some() {
+                pane.agent = agent;
             }
         }
         let snapshot = self.reload(&pane.id, false).await;

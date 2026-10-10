@@ -71,7 +71,7 @@ Every doc works the same way; only what you can point at differs.
 
 **A comment is typed into the agent that opened the doc, as `kanna send` would, the moment you post it.** The same for every agent: Claude, Codex or anything else that reads its terminal.
 
-- **Which pane:** the terminal that ran `kanna markup` for the doc, shown in the toolbar. Comments turned on from the menu go to the pane's agent if it had one, else nowhere: they're saved, not sent.
+- **Which pane:** the terminal that ran `kanna markup` for the doc, or the one named by `--to PANE`, shown in the toolbar. `kanna markup PANE --to AGENT` sends a doc's comments somewhere else from then on. Comments turned on from the menu go to the pane's agent if it had one, else nowhere: they're saved, not sent.
 - **What's typed:** one paste, then Enter: a header naming the thread, file and line; what you pointed at, as `>` lines; then your words. For a passage that's the passage:
 
 ```
