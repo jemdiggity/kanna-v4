@@ -1,6 +1,5 @@
 _kanna() {
   local cur=${COMP_WORDS[COMP_CWORD]} line ext path
-  local -a values=()
   COMPREPLY=()
   while IFS= read -r line; do
     case $line in
@@ -13,10 +12,9 @@ _kanna() {
         done < <(compgen -f -- "$cur") ;;
       :dirs) COMPREPLY+=($(compgen -d -- "$cur")) ;;
       :commands) COMPREPLY+=($(compgen -c -- "$cur")) ;;
-      ?*) values+=("${line%%$'\t'*}") ;;
+      ?*) line=${line%%$'\t'*}; [[ $line == "$cur"* ]] && COMPREPLY+=("$line") ;;
     esac
-  done < <("${COMP_WORDS[0]}" __complete -- "${COMP_WORDS[@]:1:COMP_CWORD}" 2>/dev/null)
-  ((${#values[@]})) && COMPREPLY+=($(compgen -W "${values[*]}" -- "$cur"))
+  done < <(command kanna __complete -- "${COMP_WORDS[@]:1:COMP_CWORD}" 2>/dev/null)
 }
 
 complete -o filenames -F _kanna kanna

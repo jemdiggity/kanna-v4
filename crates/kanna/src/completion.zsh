@@ -3,7 +3,7 @@
 _kanna() {
   local line ret=1
   local -a values files
-  for line in "${(@f)$("${(Q)words[1]}" __complete -- "${(@Q)words[2,CURRENT]}" 2>/dev/null)}"; do
+  for line in "${(@f)$(command kanna __complete -- "${(@Q)words[2,CURRENT]}" 2>/dev/null)}"; do
     case $line in
       (:files) _files && ret=0 ;;
       (:files\ *) files=(${=line#:files }); _files -g "*.(${(j:|:)files})" && ret=0 ;;
