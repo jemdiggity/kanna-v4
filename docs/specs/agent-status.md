@@ -1,8 +1,8 @@
 # Agent Status
 
-**Status:** proposed · **Used by:** [Desk](desk.md) (the agent header and the Shelf) · **Mockup:** the Desk's ([`docs/mockups/desk.html`](../mockups/desk.html)), the dots beside each task
+**Status:** proposed · **Used by:** [Desk](desk.md) (the agent header and the Shelf) · **Mockup:** the Desk's ([`docs/mockups/desk.html`](../mockups/desk.html)), the dots beside each task · **From:** kanna v2/v3's detection rules (`kanna3-detect`) and herdr's agent-detection manifests
 
-**Agent status** tells you at a glance whether an agent is busy, waiting for you, or done, so you can leave it running and come back when it needs you. It works the same for every agent, from what its terminal already reports; nothing reads or parses the agent's screen or prompt.
+**Agent status** tells you at a glance whether an agent is busy, waiting for you, or done, so you can leave it running and come back when it needs you. Kanna reads the bottom of the agent's screen and matches it against **rules**: patterns for each agent, kept as data that Kanna updates on its own, so a new Claude Code or Codex release never needs a new Kanna.
 
 ![The dots: the task on the Desk is working (blue); on the Shelf, one needs you (amber) and one is idle (green)](desk.png)
 
@@ -10,10 +10,11 @@
 
 1. [States](#1-states)
 2. [Rules](#2-rules)
-3. [CLI](#3-cli)
-4. [How it's built](#4-how-its-built)
-5. [Open questions](#5-open-questions)
-6. [Glossary](#6-glossary)
+3. [Detection rules](#3-detection-rules)
+4. [CLI](#4-cli)
+5. [How it's built](#5-how-its-built)
+6. [Open questions](#6-open-questions)
+7. [Glossary](#7-glossary)
 
 ## 1. States
 
@@ -21,11 +22,10 @@
 stateDiagram-v2
     direction LR
     [*] --> working: starts
-    working --> idle: quiet for 2 s, no progress
-    idle --> working: prints, or reports progress
-    working --> needs_you: bell or notification
-    idle --> needs_you: bell or notification
-    needs_you --> idle: you look at it
+    working --> needs_you: a question or approval on screen
+    needs_you --> working: answered
+    working --> idle: back at its prompt
+    idle --> working: a new turn
     working --> exited: program ends
     idle --> exited
     needs_you --> exited
@@ -33,39 +33,67 @@ stateDiagram-v2
 
 | Status | When |
 |---|---|
-| working | the terminal printed in the last 2 s, or reports progress (OSC 9;4) |
-| needs you | it rang the bell or posted a notification (OSC 9, OSC 777) since you last looked |
-| idle | neither |
+| working | a busy rule matches (spinner, "esc to interrupt", a busy title or progress) |
+| needs you | a waiting rule matches: an approval, a question or a trust prompt is on screen |
+| idle | the agent is at its prompt, or no rule matches |
 | exited | the program has ended (the pane is `exited`) |
 
 ## 2. Rules
 
-- **Any terminal pane has a status;** the Desk shows its agent's.
-- **Looking clears needs you:** the pane is on screen in the key window. Typing into it does too.
-- **Needs you wins over working:** an agent that asks and keeps printing still shows needs you until you look.
-- **Same for every agent:** Claude Code and Codex ring the bell or notify when they want input (each has a setting for it); anything else that does the same gets the same status.
+- **Known agents only:** a terminal whose foreground program is an agent Kanna has rules for (Claude Code, Codex, …) has a status; other terminals show only `exited`.
+- **Needs you is strict:** it shows only when the screen matches a known question or approval. A prompt Kanna hasn't learned shows as idle, never as needs you by guesswork.
+- **Settled screens only:** Kanna judges a screen once it stops changing mid-frame, so a half-drawn repaint never flips the status.
+- **Same for every agent:** each agent differs only in its rule file.
 
-## 3. CLI
+## 3. Detection rules
+
+```mermaid
+flowchart LR
+    S["the screen's last 10 lines<br/>+ title + progress"] --> E["rule engine"]
+    R["rules for this agent<br/>(override › newer of remote and bundled)"] --> E
+    E --> V["working · needs you · idle"]
+    H["rules site"] -->|"checked every 30 min,<br/>hot-loaded"| R
+```
+
+- **One file per agent**, in JSON: a `version`, and rules each with a status, a priority, the agent versions it applies to, and a test. The highest-priority match wins.
+- **What a test reads:** the screen's last 10 lines by default (or another region: last non-empty lines, lines below a divider), the terminal title and progress reports. It checks with `contains`, `regex`, and `all`/`any`/`not`.
+- **Agent versions:** Kanna asks each agent binary its version once (`claude --version`) and uses only rules whose range includes it, so a team on different releases is each judged right.
+- **Hot-loaded, three sources:**
+  1. **Bundled** in Kanna.
+  2. **Remote:** Kanna checks the rules site, verifies each file's hash against the site's index, and swaps the newer rules in without a restart.
+  3. **Local override** in `~/.config/kanna/agent-rules/<agent>.json`, reloaded when it changes, which always wins.
+- **Proved on a corpus:** recorded screens from real Claude Code and Codex, driven by a mock model so no tokens are spent, each labeled with its status. A rule change ships only when the whole corpus passes.
+
+## 4. CLI
 
 | Command | Does |
 |---|---|
-| `kanna list` | Adds a STATUS column for terminal panes |
-| `kanna list --json` | Adds `status` to each terminal pane |
+| `kanna list` | Adds a STATUS column for agent panes |
+| `kanna list --json` | Adds `status` to each agent pane |
+| `kanna status explain PANE` | The agent, its version, the rules file and its source, the matching rule and the text it matched |
+| `kanna status explain --file SCREEN --agent claude` | The same for a saved screen, for writing rules |
+| `kanna status update` | Check the rules site now |
 
-## 4. How it's built
+## 5. How it's built
 
-- **In the app**, from the terminal events it already gets: output (the daemon's output stream), progress, bell and notifications (Ghostty's actions), and exit (the daemon's `exited`). No new protocol.
-- **`list`** asks the app for it, like the other things only the app knows; with the app closed it reports `working`/`idle` from the daemon's last output time and `exited`, and never `needs you`.
+- **In the daemon**, which already keeps every terminal's screen ([4.5](../kanna-spec.md#45-the-app-link)), so status works with the app closed and `list` reads it directly. The daemon knows each terminal's foreground program, which picks the agent.
+- **The app** gets status changes like the other pane events, to draw the dots.
+- **Rules site:** the rule files and an `index.json` (agent, URL, version, hash), published from the repo's `agent-rules/` with the corpus test as the gate.
+- **The corpus and harness:** `tools/agent-harness` (the mock model, from v3's characterization tools) records sessions; a tool samples their screens into `agent-rules/corpus/`.
+- **Seeded** from v3's rules (the user's own, via v2); herdr (Apache-2.0) is a reference for behaviour only, and none of its rule text is copied.
 
-## 5. Open questions
+## 6. Open questions
 
-1. Is 2 s of quiet right for idle, or should it be longer for agents that think silently?
-2. Should a needs-you agent also badge the Dock icon and post a macOS notification when Kanna isn't frontmost?
+1. Where's the rules site: the repo's GitHub Pages, as v3 planned?
+2. Should a bell or notification also count as needs you? Waiting for the harness to show what Claude Code and Codex actually send.
+3. Should needs you badge the Dock icon and post a macOS notification when Kanna isn't frontmost?
 
-## 6. Glossary
+## 7. Glossary
 
 | Term | Meaning |
 |---|---|
+| **Rule** | A pattern on an agent's screen, title or progress that means one status |
+| **Rules site** | Where Kanna fetches updated rule files from |
+| **Corpus** | Recorded agent screens, each labeled with its true status, that every rule change is tested against |
+| **Mock model** | A local stand-in for the AI provider that drives real Claude Code and Codex without spending tokens |
 | **OSC 9;4** | The escape sequence a program uses to report progress to its terminal |
-| **OSC 9 / OSC 777** | Escape sequences a program uses to post a desktop notification |
-| **Bell** | The terminal's alert character (BEL) |

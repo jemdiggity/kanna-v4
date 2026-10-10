@@ -832,7 +832,7 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 ### 4.17 Agent Status
 
-**[Proposed]** Working, needs you, idle or exited for any terminal pane, from what its terminal already reports (output, progress, bell, notifications, exit), the same for every agent. Its own spec: [specs/agent-status.md](specs/agent-status.md).
+**[Proposed]** Working, needs you, idle or exited for agent panes, judged in the daemon from the bottom of the screen, the title and progress by per-agent rules kept as data and hot-loaded from a rules site, so an agent's new release needs no new Kanna. Its own spec: [specs/agent-status.md](specs/agent-status.md).
 
 ---
 
