@@ -51,18 +51,39 @@ pub fn identify(group: i32, rules: &RuleSet) -> Option<Program> {
     rules.agent(&found.agent).is_some().then_some(found)
 }
 
+pub fn agent_of(executable: &Path) -> Option<&'static str> {
+    let name = |p: &Path| p.file_name().and_then(|n| n.to_str()).map(str::to_owned);
+    if let Some(agent) = name(executable).as_deref().and_then(known_agent) {
+        return Some(agent);
+    }
+    let parent = executable.parent()?;
+    if name(parent).as_deref() != Some("versions") {
+        return None;
+    }
+    name(parent.parent()?).as_deref().and_then(known_agent)
+}
+
+fn resolved(executable: &Path) -> Option<PathBuf> {
+    executable.is_absolute().then(|| std::fs::canonicalize(executable).unwrap_or_else(|_| executable.to_path_buf()))
+}
+
 pub fn recognise(process: &Process) -> Option<Program> {
     let base = |p: &str| Path::new(p).file_name().and_then(|n| n.to_str()).map(str::to_owned);
-    let argv0 = process.argv.first().and_then(|a| base(a));
-    let exe = process.executable.as_ref().and_then(|p| p.to_str()).and_then(base);
+    let executable = process.executable.as_deref().and_then(resolved);
+    let exe = executable.as_ref().and_then(|p| p.to_str()).and_then(base);
     if exe.as_deref().is_some_and(|n| n.starts_with("kanna")) {
         return None;
     }
-    let names = [argv0, exe];
-    if let Some(agent) = names.iter().flatten().find_map(|name| known_agent(name)) {
-        let executable = process.executable.clone().filter(|p| p.is_absolute());
-        return Some(Program { agent: agent.into(), pid: process.pid, executable });
+    if let Some(path) = executable.as_ref() {
+        if let Some(agent) = agent_of(path) {
+            return Some(Program { agent: agent.into(), pid: process.pid, executable: executable.clone() });
+        }
     }
+    let argv0 = process.argv.first().and_then(|a| base(a));
+    if let Some(agent) = argv0.as_deref().and_then(known_agent) {
+        return Some(Program { agent: agent.into(), pid: process.pid, executable: None });
+    }
+    let names = [argv0, exe];
     let interpreter = names.iter().flatten().any(|n| INTERPRETERS.contains(&n.to_ascii_lowercase().trim_end_matches(|c: char| c.is_ascii_digit() || c == '.')));
     if !interpreter {
         return None;
@@ -94,7 +115,10 @@ pub enum Version {
 }
 
 pub fn version(program: &Program, agent: &Agent) -> Version {
-    let (Some(executable), Some(pattern)) = (program.executable.clone(), agent.probe_pattern().cloned()) else { return Version::Known(None) };
+    let (Some(executable), Some(pattern)) = (program.executable.as_deref().and_then(resolved), agent.probe_pattern().cloned()) else { return Version::Known(None) };
+    if agent_of(&executable) != Some(program.agent.as_str()) || agent.name() != program.agent {
+        return Version::Known(None);
+    }
     let modified = std::fs::metadata(&executable).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
     let key = ProbeKey { executable: executable.clone(), modified };
     let mut table = probes().lock().unwrap_or_else(|e| e.into_inner());
@@ -277,6 +301,35 @@ mod tests {
         assert_eq!(found(proc("/usr/bin/vim", &["vim", "claude.md"])), None);
         assert_eq!(found(proc("/x/kanna-keeper", &["claude"])), None);
         assert_eq!(found(proc("/usr/bin/evil", &["evil"])), None);
+    }
+
+    #[test]
+    fn the_agent_is_decided_by_the_path_that_would_run() {
+        let dir = scratch("gate");
+        let ran = dir.join("ran");
+        let evil = script(&dir, "evil", &format!("touch {}; echo 'claude 9.9.9'", ran.display()));
+        let named = recognise(&proc(evil.to_str().unwrap(), &["claude"])).unwrap();
+        assert_eq!((named.agent.as_str(), named.executable.as_ref()), ("claude", None));
+        let link = dir.join("codex");
+        std::os::unix::fs::symlink(&evil, &link).unwrap();
+        assert_eq!(recognise(&proc(link.to_str().unwrap(), &["evil"])), None);
+        let versions = dir.join("claude/versions");
+        std::fs::create_dir_all(&versions).unwrap();
+        let real = script(&versions, "2.1.296", "echo '2.1.296 (Claude Code)'");
+        let found = recognise(&proc(real.to_str().unwrap(), &["claude"])).unwrap();
+        assert_eq!(found.executable, Some(std::fs::canonicalize(&real).unwrap()));
+        let text = r#"{"schema":1,"agent":"claude","version":"1","engine":1,"versionProbe":{"pattern":"(\\d+\\.\\d+\\.\\d+)"},"rules":[]}"#;
+        let agent = Agent::parse(text, Source::Bundled).unwrap();
+        let forged = Program { agent: "claude".into(), pid: 1, executable: Some(evil.clone()) };
+        assert!(matches!(super::version(&forged, &agent), Version::Known(None)));
+        let mut version = super::version(&found, &agent);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while matches!(version, Version::Pending) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+            version = super::version(&found, &agent);
+        }
+        assert!(matches!(version, Version::Known(Some(ref v)) if v == "2.1.296"));
+        assert!(!ran.exists(), "a binary that only claimed the agent's name ran");
     }
 
     #[test]
