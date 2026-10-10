@@ -13,8 +13,7 @@
 3. [Reaching the agent](#3-reaching-the-agent)
 4. [CLI](#4-cli)
 5. [How it's built](#5-how-its-built)
-6. [Open questions](#6-open-questions)
-7. [Glossary](#7-glossary)
+6. [Glossary](#6-glossary)
 
 ## 1. The loop
 
@@ -47,21 +46,21 @@ General remarks that aren't about a passage go straight to the agent's chat, as 
 
 ## 3. Reaching the agent
 
-**A comment is typed into the agent's pane, as `kanna send` would, the moment you post it.** The same for every agent: Claude, Codex or anything else that reads its terminal. There's no button, no waiting and no per-agent connection.
+**A comment is typed into the agent that opened the doc, as `kanna send` would, the moment you post it.** The same for every agent: Claude, Codex or anything else that reads its terminal.
 
-- **Which pane:** the doc's agent, shown in the toolbar. It's the terminal that ran `kanna open md` for the doc, and you can pick another from the list.
-- **What's typed:** one paste, then Enter. It names the thread, file and line, quotes the passage, gives your words, and says how to answer:
+- **Which pane:** the terminal that ran `kanna open md` for the doc, shown in the toolbar. A doc opened any other way (the menu, another doc's link) has no agent.
+- **What's typed:** one paste, then Enter, with a header naming the thread, file and line, then the quoted passage and your words:
 
 ```
 [kanna comment c2 · docs/specs/tab-container.md:18]
 > the strip scrolls, keeping the active tab in view
 Also say what ⌃Tab does when the strip has scrolled.
-Reply: kanna doc reply c2 "…"   Resolve: kanna doc resolve c2
 ```
 
 - **Replies you add to a thread** are sent the same way, under the same header.
-- **Agents queue it themselves.** Claude Code and Codex hold input typed during a turn and take it next. If you have unsent text in the agent's prompt, the comment joins it; that's the price of keeping this simple, and Kanna doesn't try to detect it (v3 did, and it was never reliable).
-- **No agent pane** (none chosen, or it's closed): posting still saves the thread, and the toolbar says it wasn't sent.
+- **Sent at once, never held.** Claude Code and Codex queue input that arrives during a turn and take it next. If you have unsent text in the agent's prompt, the comment joins it; Kanna doesn't try to detect that (v3 did, and it was never reliable).
+- **How to answer is a skill, not part of the message.** A `kanna-doc` skill in kanna-skills tells the agent that a `[kanna comment …]` is a review comment, to fix the doc, then answer with `kanna doc reply` and close it with `kanna doc resolve`.
+- **No agent** (the doc has none, or its pane is closed): posting still saves the thread, and the toolbar says it wasn't sent.
 
 ```mermaid
 stateDiagram-v2
@@ -84,7 +83,6 @@ Inside a pane, the doc is found from the thread ID; elsewhere pass `--doc FILE`.
 | `kanna doc reply cN TEXT` | Answer a thread |
 | `kanna doc resolve cN` / `reopen cN` | Close or reopen a thread |
 | `kanna doc comment FILE --quote TEXT TEXT` | Start a thread from the command line |
-| `kanna doc agent FILE PANE` | Choose the doc's agent pane |
 
 ## 5. How it's built
 
@@ -105,19 +103,15 @@ flowchart LR
 ```
 
 - **Threads live in the daemon**, beside the terminals they're typed into, so `reply` and `resolve` work the same with the app closed. The anchoring and thread logic come from v3's `kanna3-doc` crate, ported as `crates/kanna-doc`; v3's delivery gate and draft tracking are not ported.
-- **Sending** uses the daemon's existing `send`: no new path into a terminal.
+- **Sending** uses the daemon's existing `send`: no new path into a terminal. `kanna open md` passes the pane it runs in (`$KANNA_PANE`, which Kanna sets in every terminal), and the doc remembers it.
 - **The app** adds the thread panel, highlighting and the comment box to the existing markdown pane, and gets thread changes over the app link like any other pane update.
 - **Stored** in `<repo>/.kanna/docs/`, one file per doc, so threads survive restarts.
 
-## 6. Open questions
-
-1. Several comments posted quickly arrive as several messages. Should they be batched into one?
-
-## 7. Glossary
+## 6. Glossary
 
 | Term | Meaning |
 |---|---|
 | **Thread** | A comment and its replies, with an ID like `c2` |
 | **Anchor** | What ties a comment to its passage: the quote and the text around it |
 | **Detached** | A thread whose quote is no longer in the file |
-| **Agent pane** | The terminal a doc's comments are typed into |
+| **Agent** | The terminal that opened the doc; its comments are typed into it |

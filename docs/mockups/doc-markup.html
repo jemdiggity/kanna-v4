@@ -89,7 +89,7 @@ mark.flash { animation: flash .9s; }
 <main>
   <div class="intro">
     <h1>Doc markup: comment on a markdown file, and the agent beside it answers</h1>
-    <p>The markdown pane is a preview. Select text and press ⌘↵, or ⌘-click a word, to comment. Posting types the comment into the agent's pane, then Enter, the same for every agent.</p>
+    <p>The markdown pane is a preview. Select text and press ⌘↵, or ⌘-click a word, to comment. Posting types the comment into the agent that opened the doc, then Enter, the same for every agent.</p>
     <div class="controls">
             <button id="agentReply">Agent replies and resolves c2</button>
       <button id="toggle">Hide / show threads</button>
@@ -185,7 +185,7 @@ function render() {
   renderThreads();
   renderTerm();
   const w = document.getElementById("watch");
-  w.textContent = "Agent: p1 claude ▾";
+  w.textContent = "Agent: p1 claude";
   document.getElementById("threads").classList.toggle("hidden", !s.showThreads);
   document.getElementById("threadsBtn").classList.toggle("on", s.showThreads);
   document.getElementById("threadsBtn").textContent = `Threads ${s.threads.filter(t => t.state === "open").length}`;
@@ -223,7 +223,6 @@ function renderTerm() {
     `<span class="p">&gt;</span> [kanna comment ${t.id} · docs/specs/tab-container.md:${t.line}]`,
     `  &gt; ${t.quote}`,
     `  ${t.messages[0].text}`,
-    `  Reply: kanna doc reply ${t.id} "…"   Resolve: kanna doc resolve ${t.id}`,
   ];
   const lines = [`<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> claude`, ``];
   s.threads.forEach(t => {
