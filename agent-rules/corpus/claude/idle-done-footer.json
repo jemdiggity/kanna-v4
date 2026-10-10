@@ -1,0 +1,10 @@
+{
+  "rows": [
+    "✻ Cooked for 5s · done 12:11 PM",
+    "❯"
+  ],
+  "title": "Claude Code",
+  "cliVersion": "2.1.286",
+  "expected": "idle",
+  "source": "Kanna fixture behavior: completed turn footer"
+}

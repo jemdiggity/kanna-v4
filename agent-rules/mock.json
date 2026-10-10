@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "agent": "mock",
+  "version": "2026.10.10.1",
+  "engine": 1,
+  "programs": [
+    "mock-agent"
+  ],
+  "versionProbe": {
+    "args": [
+      "--version"
+    ],
+    "pattern": "(\\d+\\.\\d+(?:\\.\\d+)*)"
+  },
+  "vocabulary": {
+    "composerPrompts": [
+      "›"
+    ],
+    "claudeStatusMarkers": [
+      "manual mode",
+      "shell",
+      "agents",
+      "for shortcuts"
+    ]
+  },
+  "rules": [
+    {
+      "id": "mock_busy",
+      "status": "working",
+      "priority": 100,
+      "versions": "*",
+      "when": {
+        "anyLineWrapped": {
+          "contains": "esc to interrupt"
+        }
+      }
+    },
+    {
+      "id": "mock_idle",
+      "status": "idle",
+      "priority": 50,
+      "versions": "*",
+      "when": {
+        "lastNonEmptyLine": {
+          "startsWithGlyph": "composerPrompts"
+        }
+      }
+    }
+  ]
+}
