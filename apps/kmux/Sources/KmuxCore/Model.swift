@@ -3,6 +3,7 @@ import Foundation
 public enum PaneType: String, Sendable { case term, web, ios, md }
 public enum PaneState: String, Sendable { case starting, running, exited, failed }
 public enum Axis: String, Sendable { case row, column }
+public enum Edge: String, Sendable { case left, right }
 
 public final class Pane {
     public let id: String
@@ -80,12 +81,32 @@ public final class Window {
     /// Where the window is on screen, in the host's coordinates; saved with
     /// the layout so a restored window comes back in place.
     public var frame: Frame?
+    public var dock: Dock?
     /// Tabs are named "Tab 1", "Tab 2", … in the order the window made them.
     var tabCount = 0
 
     init(id: String) { self.id = id }
 
     public var activeTab: Tab? { tabs.first { $0.id == active } ?? tabs.first }
+
+    public var shownPanes: [String] {
+        let ids = Model.paneIDs(activeTab?.root)
+        guard let dock else { return ids }
+        return dock.edge == .left ? [dock.pane] + ids : ids + [dock.pane]
+    }
+}
+
+public struct Dock: Sendable, Equatable {
+    public static let defaultWidth = 2.0 / 5
+    public var pane: String
+    public var edge: Edge
+    public var width: Double
+
+    public init(pane: String, edge: Edge, width: Double) {
+        self.pane = pane
+        self.edge = edge
+        self.width = width
+    }
 }
 
 public struct Frame: Sendable, Equatable {
@@ -192,6 +213,15 @@ public final class Model {
         }
     }
 
+    public func dockWindow(_ id: String) -> Window? { windows.first { $0.dock?.pane == id } }
+
+    public func window(containing id: String) -> Window? { locate(id)?.window ?? dockWindow(id) }
+
+    func dock(_ id: String, in window: Window, edge: Edge) {
+        if let old = window.dock, old.pane != id { append(old.pane, to: makeTab(in: window, activate: false)) }
+        window.dock = Dock(pane: id, edge: edge, width: window.dock?.width ?? Dock.defaultWidth)
+    }
+
     func locate(_ id: String) -> Location? {
         for window in windows {
             for tab in window.tabs {
@@ -209,6 +239,11 @@ public final class Model {
 
     /// Removes a pane from its tree; its siblings share the freed space.
     func detach(_ id: String) {
+        if let window = dockWindow(id) {
+            window.dock = nil
+            if window.zoomed == id { window.zoomed = nil }
+            return
+        }
         guard let location = locate(id) else { return }
         if let parent = location.parent {
             let gone = parent.kids.remove(at: location.index).size
@@ -255,9 +290,10 @@ public final class Model {
 
     /// Puts pane `b` where pane `a` is, and `a` where `b` is.
     func swap(_ a: String, _ b: String) {
-        guard let la = locate(a), let lb = locate(b) else { return }
-        setLeaf(la, to: b)
-        setLeaf(lb, to: a)
+        let la = locate(a), lb = locate(b), da = dockWindow(a), db = dockWindow(b)
+        guard la != nil || da != nil, lb != nil || db != nil else { return }
+        if let la { setLeaf(la, to: b) } else { da?.dock?.pane = b }
+        if let lb { setLeaf(lb, to: a) } else { db?.dock?.pane = a }
     }
 
     private func setLeaf(_ location: Location, to id: String) {
@@ -282,12 +318,16 @@ public final class Model {
             if !window.tabs.contains(where: { $0.id == window.active }) {
                 window.active = window.tabs.isEmpty ? nil : window.tabs[min(at, window.tabs.count - 1)].id
             }
-            let ids = Self.paneIDs(window.activeTab?.root)
+            let ids = window.shownPanes
             if let focused = window.focused, ids.contains(focused) { continue }
-            if let last = window.activeTab?.lastFocus, ids.contains(last) { window.focused = last } else { window.focused = ids.first }
+            if let last = window.activeTab?.lastFocus, ids.contains(last) {
+                window.focused = last
+            } else {
+                window.focused = Self.paneIDs(window.activeTab?.root).first ?? window.dock?.pane
+            }
             if let zoomed = window.zoomed, !ids.contains(zoomed) { window.zoomed = nil }
         }
-        windows.removeAll { $0.tabs.isEmpty }
+        windows.removeAll { $0.tabs.isEmpty && $0.dock == nil }
         if keyWindow == nil { key = windows.last?.id }
     }
 
@@ -302,6 +342,11 @@ public final class Model {
         }
         if let size, size < 1 - 1e-6 { out["size"] = .string(Fraction.format(size)) }
         return .object(out)
+    }
+
+    public func dockView(_ window: Window) -> JSON {
+        guard let dock = window.dock else { return .null }
+        return ["pane": .string(panes[dock.pane]?.name ?? dock.pane), "edge": .string(dock.edge.rawValue), "width": .string(Fraction.format(dock.width))]
     }
 
     public func summary(_ pane: Pane) -> JSON {

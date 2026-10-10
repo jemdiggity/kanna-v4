@@ -30,13 +30,25 @@ fn brief(text: &str) -> String {
 }
 
 pub fn opened(_: &Value, reply: &Value) -> String {
-    format!(
-        "opened {} in window {}, tab {}: {}",
-        label(&reply["pane"]),
-        reply["window"].as_str().unwrap_or("?"),
-        reply["tab"].as_str().unwrap_or("?"),
-        state(&reply["pane"])
-    )
+    let window = reply["window"].as_str().unwrap_or("?");
+    if let Some(edge) = reply["dock"].as_str() {
+        return format!("opened {} docked {edge} in window {window}: {}", label(&reply["pane"]), state(&reply["pane"]));
+    }
+    format!("opened {} in window {window}, tab {}: {}", label(&reply["pane"]), reply["tab"].as_str().unwrap_or("?"), state(&reply["pane"]))
+}
+
+pub fn moved(reply: &Value) -> String {
+    let dock = &reply["dock"];
+    if dock.is_object() {
+        return format!(
+            "{} is docked {} in {} (width {})",
+            dock["pane"].as_str().unwrap_or("?"),
+            dock["edge"].as_str().unwrap_or("?"),
+            reply["window"].as_str().unwrap_or("?"),
+            dock["width"].as_str().unwrap_or("?")
+        );
+    }
+    layout(reply)
 }
 
 pub fn closed(args: &Value, reply: &Value) -> String {
@@ -109,6 +121,16 @@ pub fn list(reply: &Value) -> String {
             line += &format!("  zoomed: {zoomed}");
         }
         out.push(line);
+        let dock = &window["dock"];
+        if let Some(name) = dock["pane"].as_str() {
+            let pane = reply["panes"].as_array().and_then(|panes| panes.iter().find(|p| p["name"] == name || p["id"] == name));
+            out.push(format!(
+                "  dock: {}  {} {}",
+                pane.map(label).unwrap_or_else(|| name.to_string()),
+                dock["edge"].as_str().unwrap_or("?"),
+                dock["width"].as_str().unwrap_or("?")
+            ));
+        }
         for tab in window["tabs"].as_array().unwrap_or(&empty) {
             out.push(format!(
                 "  {}{} \"{}\"  {}",

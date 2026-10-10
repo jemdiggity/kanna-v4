@@ -71,6 +71,21 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: state.path + ".bad"))
     }
 
+    @Test func aDockedPaneRoundTripsThroughTheFile() async throws {
+        let (core, _) = makeCore()
+        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "a"]])
+        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "agent", "dock": "right"]])
+        _ = await core.handle(["cmd": "resize", "args": ["pane": "agent", "size": "3/10"]])
+        let state = file()
+        try state.write(core.exportState())
+        guard case .state(let saved) = state.load() else { Issue.record("the state should load"); return }
+        let (restored, _) = makeCore()
+        try restored.restoreState(saved)
+        #expect(restored.model.windows.first?.dock == Dock(pane: "p2", edge: .right, width: 0.3))
+        #expect(restored.model.windows.first?.focused == "p2")
+        #expect(restored.exportState() == core.exportState())
+    }
+
     @Test func oldOrBrokenStatesDoNotRestore() async throws {
         let (core, _) = makeCore()
         _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "keep"]])

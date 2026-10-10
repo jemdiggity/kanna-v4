@@ -1,0 +1,199 @@
+[
+  {
+    "name": "open with dock makes the window's docked pane, outside its tabs, 2/5 wide on the left",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } },
+        "expect": { "ok": true, "pane": { "id": "p1", "name": "agent" }, "window": "w1", "tab": null, "dock": "left" } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": true, "focused": "agent", "zoomed": null,
+        "dock": { "pane": "agent", "edge": "left", "width": "2/5" }, "tabs": [] } ] } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } },
+        "expect": { "ok": true, "window": "w1", "tab": "t1", "pane": { "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "md", "path": "docs/spec.md", "name": "doc", "split": "right" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "doc", "dock": { "pane": "agent", "edge": "left", "width": "2/5" },
+        "tabs": [ { "id": "t1", "title": "Tab 1", "layout": { "split": "row", "children": [ { "pane": "a", "size": "1/2" }, { "pane": "doc", "size": "1/2" } ] } } ] } ] } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "right", "dock": "right", "window": "new" } },
+        "expect": { "window": "w2", "tab": null, "dock": "right" } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": false }, { "id": "w2", "key": true, "dock": { "pane": "right", "edge": "right" } } ] } }
+    ]
+  },
+  {
+    "name": "dock refuses a split, size or tab, and edges other than left and right",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "dock": "top" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "dock": "left", "split": "right" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "dock": "left", "size": "1/3" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "dock": "left", "tab": true } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "move", "args": { "pane": "a", "dock": "middle" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "dock": null, "tabs": [ { "layout": { "pane": "a" } } ] } ], "panes": [ { "name": "a" } ] } }
+    ]
+  },
+  {
+    "name": "switching tabs leaves the docked pane; focus goes to the shown tab and back",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "tab": true } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "tabs": [ { "active": false }, { "active": true } ] } ] } },
+      { "send": { "cmd": "focus", "args": { "tab": "t1" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "dock": { "pane": "agent" }, "tabs": [ { "active": true }, { "active": false } ] } ] } },
+      { "send": { "cmd": "focus", "args": { "pane": "agent" } }, "expect": { "window": "w1" } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "tabs": [ { "active": true }, { "active": false } ] } ] } },
+      { "send": { "cmd": "focus", "args": { "tab": "t2" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "b", "dock": { "pane": "agent" }, "tabs": [ { "active": false }, { "active": true } ] } ] } }
+    ]
+  },
+  {
+    "name": "the docked pane closes only with its window; a window keeps it when its last tab closes",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "close", "args": { "pane": "agent" } },
+        "expect": { "ok": false, "error": { "code": "docked", "message": "docked: it closes with its window" } } },
+      { "send": { "cmd": "close", "args": { "pane": "a" } }, "expect": { "closed": [ "p2" ] } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "focused": "agent", "dock": { "pane": "agent" }, "tabs": [] } ], "panes": [ { "name": "agent" } ] } },
+      { "send": { "cmd": "restart", "args": { "pane": "agent" } }, "expect": { "ok": true, "pane": { "name": "agent", "state": "running" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "tab": true } } },
+      { "send": { "cmd": "close", "args": { "tab": "t2" } }, "expect": { "closed": [ "p3" ] } },
+      { "send": { "cmd": "close", "args": { "window": "w1" } }, "expect": { "closed": [ "p1" ] } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [], "panes": [] } }
+    ]
+  },
+  {
+    "name": "moving a tab to another window leaves the docked pane where it is",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "tab": true } } },
+      { "send": { "cmd": "move-tab", "args": { "tab": "t2", "window": "new" } }, "expect": { "window": "w2", "tabs": [ "t2" ] } },
+      { "send": { "cmd": "move-tab", "args": { "tab": "t1", "window": "w2" } }, "expect": { "window": "w2", "tabs": [ "t2", "t1" ] } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [
+        { "id": "w1", "focused": "agent", "dock": { "pane": "agent", "edge": "left" }, "tabs": [] },
+        { "id": "w2", "key": true, "focused": "a", "dock": null, "tabs": [ { "id": "t2" }, { "id": "t1" } ] } ] } }
+    ]
+  },
+  {
+    "name": "move docks a pane, moves the docked pane to the other edge, and undocks it into a tab",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "split": "right" } } },
+      { "send": { "cmd": "move", "args": { "pane": "agent", "dock": "left" } },
+        "expect": { "ok": true, "window": "w1", "dock": { "pane": "agent", "edge": "left", "width": "2/5" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "dock": { "pane": "agent" }, "tabs": [ { "layout": { "pane": "a" } } ] } ] } },
+      { "send": { "cmd": "resize", "args": { "pane": "agent", "size": "1/3" } }, "expect": { "ok": true, "dock": { "pane": "agent", "width": "1/3" } } },
+      { "send": { "cmd": "resize", "args": { "pane": "agent", "size": "1" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "move", "args": { "pane": "agent", "dock": "right" } },
+        "expect": { "ok": true, "window": "w1", "dock": { "pane": "agent", "edge": "right", "width": "1/3" } } },
+      { "send": { "cmd": "move", "args": { "pane": "agent", "tab": "new" } },
+        "expect": { "ok": true, "window": "w1", "tab": "t2", "layout": { "pane": "agent" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "dock": null, "tabs": [ { "id": "t1" }, { "id": "t2", "active": true } ] } ] } },
+      { "send": { "cmd": "close", "args": { "pane": "agent" } }, "expect": { "closed": [ "p2" ] } }
+    ]
+  },
+  {
+    "name": "docking where a pane is docked sends that one to a new tab, not shown",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "resize", "args": { "pane": "agent", "size": "1/4" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent2", "dock": "right" } }, "expect": { "tab": null, "dock": "right" } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent2", "dock": { "pane": "agent2", "edge": "right", "width": "1/4" }, "tabs": [
+        { "id": "t1", "active": true, "layout": { "pane": "a" } }, { "id": "t2", "title": "Tab 2", "active": false, "layout": { "pane": "agent" } } ] } ] } },
+      { "send": { "cmd": "move", "args": { "pane": "a", "dock": "left" } }, "expect": { "dock": { "pane": "a", "edge": "left", "width": "1/4" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "dock": { "pane": "a" }, "tabs": [
+        { "id": "t2", "active": true, "layout": { "pane": "agent" } }, { "id": "t3", "active": false, "layout": { "pane": "agent2" } } ] } ] } }
+    ]
+  },
+  {
+    "name": "moving the docked pane to another window or beside a pane undocks it; dropping on it swaps",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "window": "new" } } },
+      { "send": { "cmd": "move", "args": { "pane": "agent", "to": "b", "side": "right" } },
+        "expect": { "window": "w2", "layout": { "split": "row", "children": [ { "pane": "b", "size": "1/2" }, { "pane": "agent", "size": "1/2" } ] } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "dock": null }, { "id": "w2", "dock": null } ] } },
+      { "send": { "cmd": "move", "args": { "pane": "agent", "dock": "left", "window": "w1" } }, "expect": { "window": "w1", "dock": { "pane": "agent" } } },
+      { "send": { "cmd": "move", "args": { "pane": "b", "to": "agent", "side": "left" } },
+        "expect": { "ok": false, "error": { "code": "docked" } } },
+      { "send": { "cmd": "move", "args": { "pane": "b", "to": "agent" } }, "expect": { "ok": true, "window": "w1", "dock": { "pane": "b" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [
+        { "id": "w1", "focused": "b", "dock": { "pane": "b", "edge": "left" }, "tabs": [ { "layout": { "pane": "a" } } ] },
+        { "id": "w2", "dock": null, "tabs": [ { "layout": { "pane": "agent" } } ] } ] } },
+      { "send": { "cmd": "move", "args": { "pane": "b", "window": "w2" } },
+        "expect": { "window": "w2", "layout": { "split": "row", "children": [ { "pane": "agent", "size": "1/2" }, { "pane": "b", "size": "1/2" } ] } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "dock": null, "focused": "a" }, { "id": "w2" } ] } }
+    ]
+  },
+  {
+    "name": "zoom on a tab's pane leaves the docked pane; zoom on the docked pane fills the window",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } } },
+      { "send": { "cmd": "zoom", "args": { "pane": "agent" } }, "expect": { "zoomed": true } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "zoomed": "agent", "dock": { "pane": "agent" } } ] } },
+      { "send": { "cmd": "focus", "args": { "pane": "a" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": null } ] } },
+      { "send": { "cmd": "zoom", "args": { "pane": "b" } }, "expect": { "zoomed": true } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "b", "zoomed": "b", "dock": { "pane": "agent" } } ] } },
+      { "send": { "cmd": "focus", "args": { "pane": "agent" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "zoomed": null } ] } }
+    ]
+  },
+  {
+    "name": "arrange arranges the shown tab; the docked pane is not part of a layout",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } } },
+      { "send": { "cmd": "arrange", "args": { "layout": { "split": "column", "children": [ { "pane": "b", "size": "1/3" }, { "pane": "a" } ] } } },
+        "expect": { "window": "w1", "layout": { "split": "column", "children": [ { "pane": "b", "size": "1/3" }, { "pane": "a", "size": "2/3" } ] } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "dock": { "pane": "agent" }, "tabs": [ { "id": "t1" } ] } ] } },
+      { "send": { "cmd": "arrange", "args": { "layout": { "split": "row", "children": [ { "pane": "agent" }, { "pane": "a" }, { "pane": "b" } ] } } },
+        "expect": { "ok": false, "error": { "code": "docked" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "dock": { "pane": "agent" }, "tabs": [ { "layout": { "split": "column", "children": [ { "pane": "b", "size": "1/3" }, { "pane": "a", "size": "2/3" } ] } } ] } ] } }
+    ]
+  },
+  {
+    "name": "the docked pane is saved with its window and comes back; a window with only a docked pane too",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a", "cmd": "make test" } } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "cmd": "claude", "dock": "right" } } },
+      { "send": { "cmd": "resize", "args": { "pane": "agent", "size": "1/3" } } },
+      { "send": { "cmd": "open", "args": { "type": "md", "path": "docs/spec.md", "name": "doc", "dock": "left", "window": "new" } } },
+      { "send": { "cmd": "focus", "args": { "pane": "agent" } } },
+      { "send": { "cmd": "zoom", "args": { "pane": "agent" } } },
+      { "send": { "cmd": "debug.saveState" }, "expect": { "ok": true, "state": { "version": 1, "key": "w1", "windows": [
+        { "id": "w1", "active": "t1", "focused": "p2", "zoomed": "p2", "dock": { "pane": "p2", "edge": "right", "width": 0.3333333333333333 },
+          "tabs": [ { "id": "t1", "lastFocus": "p1", "layout": { "pane": "p1" } } ] },
+        { "id": "w2", "active": null, "focused": "p3", "zoomed": null, "dock": { "pane": "p3", "edge": "left", "width": 0.4 }, "tabs": [] } ],
+        "panes": [ { "id": "p1" }, { "id": "p2", "name": "agent", "type": "term", "cmd": "claude" }, { "id": "p3", "name": "doc", "type": "md" } ] } } },
+      { "send": { "cmd": "close", "args": { "window": "w2" } } },
+      { "send": { "cmd": "move", "args": { "pane": "agent", "tab": "new" } } },
+      { "send": { "cmd": "debug.restoreState" }, "expect": { "ok": true, "windows": [ "w1", "w2" ], "panes": [ "p1", "p2", "p3" ] } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [
+        { "id": "w1", "key": true, "focused": "agent", "zoomed": "agent", "dock": { "pane": "agent", "edge": "right", "width": "1/3" },
+          "tabs": [ { "id": "t1", "layout": { "pane": "a" } } ] },
+        { "id": "w2", "key": false, "focused": "doc", "dock": { "pane": "doc", "edge": "left", "width": "2/5" }, "tabs": [] } ] } },
+      { "send": { "cmd": "close", "args": { "pane": "doc" } }, "expect": { "ok": false, "error": { "code": "docked" } } }
+    ]
+  },
+  {
+    "name": "restoring a dock repairs its edge and width, and refuses an unknown or twice-placed pane",
+    "steps": [
+      { "send": { "cmd": "debug.restoreState", "args": { "state": { "version": 1,
+        "panes": [ { "id": "p1", "type": "term" }, { "id": "p2", "name": "agent", "type": "term" } ],
+        "windows": [ { "id": "w1", "focused": "p9", "dock": { "pane": "p2", "edge": "top", "width": 7 }, "tabs": [ { "id": "t1", "layout": { "pane": "p1" } } ] } ] } } },
+        "expect": { "ok": true, "windows": [ "w1" ], "panes": [ "p1", "p2" ] } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "p1", "dock": { "pane": "agent", "edge": "left", "width": "2/5" } } ] } },
+      { "send": { "cmd": "debug.restoreState", "args": { "state": { "version": 1, "panes": [ { "id": "p1", "type": "term" } ],
+        "windows": [ { "id": "w1", "dock": { "pane": "p7" }, "tabs": [ { "id": "t1", "layout": { "pane": "p1" } } ] } ] } } },
+        "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "debug.restoreState", "args": { "state": { "version": 1, "panes": [ { "id": "p1", "type": "term" } ],
+        "windows": [ { "id": "w1", "dock": { "pane": "p1" }, "tabs": [ { "id": "t1", "layout": { "pane": "p1" } } ] } ] } } },
+        "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "dock": { "pane": "agent" } } ], "panes": [ { "id": "p1" }, { "id": "p2" } ] } }
+    ]
+  }
+]

@@ -34,6 +34,10 @@ a new window instead.
 `kmux open md docs/kmux-spec.md` shows a markdown file natively, with Mermaid
 diagrams drawn, and reloads it when it changes. ⌘= ⌘− ⌘0 or a pinch zoom it.
 
+`kmux open --name agent --cmd claude --dock` docks a pane along the window's
+edge, outside its tabs: it stays while you switch tabs (⌘1…⌘9) and closes only
+with its window.
+
 iOS panes need Xcode with an iOS simulator runtime:
 `kmux open ios --app build/MyApp.app --device "iPhone 16"` (or a bundle ID
 such as `com.apple.Preferences`).
