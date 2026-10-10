@@ -50,7 +50,7 @@ Every doc works the same way; only what you can point at differs.
 | ⌘-click | a word (even on a link) | the part of the page under it; holding ⌘ outlines it first |
 | ⌘-drag | a box on an image | a box anywhere on the page |
 | ⌘-click an image | the whole image | the image, as a part |
-| Plain click | follows a link, or opens a thread's mark | uses the page; a thread's dot opens it |
+| Plain click | follows a link, or opens a thread's mark | uses the page, closing an open thread; a thread's dot opens it |
 
 ![A box drawn on an image, with its thread selected in the list](doc-markup-image.png)
 

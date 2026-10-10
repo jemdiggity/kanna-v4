@@ -267,6 +267,11 @@ addEventListener("message", e => {
     if (m.down && m.meta && m.key === "Enter") pageSelectionComment();
   }
   if (m.kind === "move") { page.pointer = [m.x, m.y]; showOver(); }
+  if (m.kind === "down") {
+    closePop();
+    const ta = document.querySelector(".composer:not(.pop) textarea");
+    if (state.composer && ta && !ta.value.trim()) { closeComposer(); anchorAll(); }
+  }
   if (m.kind === "ready" || m.kind === "changed") {
     const was = page.info.hash;
     if (m.kind === "ready" && page.restore) { const [x, y] = page.restore; page.restore = null; ask({ kind: "scroll", x, y }); }

@@ -6,7 +6,7 @@ public final class PageMarkupRelay: NSObject, WKScriptMessageHandler {
     public weak var target: PageMarkupView?
 
     public func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        target?.pageChanged()
+        if message.body as? String == "down" { target?.pageClicked() } else { target?.pageChanged() }
     }
 }
 
@@ -351,6 +351,12 @@ public final class PageMarkupView: NSView {
         }
     }
 
+    func pageClicked() {
+        guard let box else { return }
+        if box.threadID == nil && !box.field.trimmed.isEmpty { return }
+        closeBox()
+    }
+
     func closeBox() {
         guard let box else { return }
         self.box = nil
@@ -552,6 +558,7 @@ public final class PageMarkupView: NSView {
       addEventListener("resize", changed);
       addEventListener("hashchange", changed);
       addEventListener("load", changed);
+      addEventListener("mousedown", e => { if (e.button === 0 && !e.metaKey) window.webkit?.messageHandlers?.kannaMarkup?.postMessage("down"); }, true);
       window.visualViewport?.addEventListener("resize", changed);
       window.visualViewport?.addEventListener("scroll", changed);
       changed();

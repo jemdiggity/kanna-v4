@@ -1049,6 +1049,10 @@ print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
   key return
   check wait_for 5 eval '[[ "$(s39_thread c1 messages)" == 2 ]]' || return 1
   key escape; check wait_for 5 eval '[[ "$(s39_web | field box)" == None ]]' || return 1
+  s39_click "\"at\":$xy"
+  check wait_for 5 eval '[[ "$(s39_web | field box)" == c1 ]]' || return 1
+  s39_click '"at":[150,450]'
+  check wait_for 5 eval '[[ "$(s39_web | field box)" == None ]]' || { s39_web; return 1; }
   kanna markup reply c2 --doc "$dir/page.html" "Filled it." >/dev/null || return 1
   check wait_for 5 eval '[[ "$(s39_thread c2 messages)" == 2 ]]' || return 1
   sed -i '' 's|<p>A page to mark up.</p>|<p>A page to mark up.</p><p>More above the button.</p>|' "$dir/page.html"
