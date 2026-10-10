@@ -5,7 +5,7 @@ description: Use when a message starting with "[kanna comment cN · FILE:LINE]" 
 
 # Kanna markup
 
-The user reviews docs in Kanna (markdown files and HTML mockups) and comments on them. Each comment is typed into your terminal as:
+The user reviews docs in Kanna (markdown files and HTML mockups) and comments on them. Each comment is sent to your terminal as:
 
 ```
 [kanna comment c2 · docs/specs/tab-container.md:18]
