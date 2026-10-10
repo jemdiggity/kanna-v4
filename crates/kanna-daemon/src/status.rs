@@ -1,6 +1,7 @@
 use crate::reader::Feed;
 use crate::Event;
-use kanna_detect::program::{self, Program, Version};
+use kanna_detect::install;
+use kanna_detect::program::{self, Program};
 use kanna_detect::{Screen, Status, Store, Tracker, Verdict};
 use std::collections::HashMap;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -148,11 +149,9 @@ fn tick(shared: &Shared, now: Instant) -> bool {
         let Some(agent) = rules.agent(&program.agent) else { continue };
         any = true;
         if !watch.version_known {
-            if let Version::Known(version) = program::version(&program, agent) {
-                watch.version = version;
-                watch.version_known = true;
-                watch.fresh = true;
-            }
+            watch.version = program.executable.as_deref().and_then(|exe| install::version(&program.agent, exe));
+            watch.version_known = true;
+            watch.fresh = true;
         }
         if watch.generation != generation {
             watch.generation = generation;

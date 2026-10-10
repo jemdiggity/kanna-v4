@@ -45,7 +45,7 @@ stateDiagram-v2
 - **Screen only:** the bell and the agents' own notifications (OSC 9, OSC 777) aren't used. They depend on each agent's settings and, for Codex, on focus reports ([evidence](../research/agent-status-signals.md)); the screen doesn't.
 - **Shown in Kanna only:** status is the dots in Kanna's windows; it doesn't badge the Dock icon or post macOS notifications.
 - **Same for every agent:** each agent differs only in its rule file.
-- **Rules are data: they can't choose what Kanna runs.** Which programs are agents is Kanna's own code; the version probe runs only the agent's own executable, as the OS reports it, with `--version`; a rule file gives only the pattern that reads the answer.
+- **Rules are data: they can't choose what Kanna runs.** Which programs are agents is Kanna's own code; Kanna never runs anything to judge status: the agent's version comes from its install's files (Claude Code's `versions/<version>` file, an npm `package.json`, Codex's release folder), found from the executable the OS reports, read-only and size-capped.
 - **Unread is separate:** an agent that goes from working to idle while you aren't looking at it is **unread** until you do. Unread is the app's mark of what you've seen, not an agent status: the status stays idle, and the dot shows both.
 
 ## 3. Detection rules
@@ -60,7 +60,7 @@ flowchart LR
 
 - **One file per agent**, in JSON: a `version`, and rules each with a status, a priority, the agent versions it applies to, and a test. The highest-priority match wins.
 - **What a test reads:** the screen's last 10 lines by default (or another region: last non-empty lines, lines below a divider), the terminal title and progress reports. It checks with `contains`, `regex`, and `all`/`any`/`not`.
-- **Agent versions:** Kanna asks each agent binary its version once (`<its executable> --version`, nothing from the rule file) and uses only rules whose range includes it, so a team on different releases is each judged right.
+- **Agent versions:** Kanna reads each agent's version from its install, without running it; an unknown version uses only rules for every version. So a team on different releases is each judged right.
 - **Hot-loaded, three sources:**
   1. **Bundled** in Kanna.
   2. **Remote:** Kanna checks the rules site, verifies each file's hash against the site's index, and swaps the newer rules in without a restart.
