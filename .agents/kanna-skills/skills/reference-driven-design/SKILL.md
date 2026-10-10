@@ -22,3 +22,8 @@ Start high level. Scaffold building blocks. Define interfaces and abstractions. 
 
 Iterate this process while comparing behaviour against the reference model.
 
+## Keeping the model
+
+The model is never retired once the product implements it; it stays the reference the product is compared against. When a behaviour or rendering fix lands in the product, port it to the model so both keep behaving alike.
+
+The model is not production code. Don't harden it: security findings in a model (including automated security reviews) get acknowledged in a line and handled in the product, not fixed in the model.
