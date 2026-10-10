@@ -42,6 +42,9 @@ General remarks that aren't about a passage go straight to the agent's chat, as 
 - **Images.** ⌘-drag on an image to box part of it, or ⌘-click it for the whole image. The box is the thread's mark, and stays on the image.
 
 ![A box drawn on an image, with its thread selected in the list](doc-markup-image.png)
+- **Web pages.** A web pane showing a page from the repo (a mockup) takes comments too: ⌘-click a part of the page, or ⌘-drag a box. The box stays on the page, and the thread remembers which view of the page it was on (the part after `#`).
+
+![A mockup in a web pane, with a part and a box marked and both threads listed](doc-markup-page.png)
 - **Threads live beside the file, not in it.** A thread has an ID (`c1`, `c2`, … per doc), the quoted passage, its messages, and whether it's open or resolved.
 - **Anchors follow the text.** A comment remembers its quote with some text either side. When the file changes (the agent, you in another editor, git), it finds the quote again; if it can't, the thread is kept and marked **detached**, never dropped.
 - **Resolved threads stay marked** in the doc, more faintly than open ones, and clicking the mark opens the thread to read or reopen it. The list beside the doc hides them until you ask; resolving can be undone.
@@ -68,6 +71,16 @@ Also say what ⌃Tab does when the strip has scrolled.
 > image desk.png, the box from 5%,20% to 30%,50% (left,top to right,bottom)
 > marked up: .kanna/docs/marks/docs__specs__desk.md-c4.png
 The agent header needs the branch.
+```
+
+- **A comment on a web page** names the part (its CSS path and text) or the box, in page pixels, and a screenshot with it boxed:
+
+```
+[kanna comment c1 · docs/mockups/desk.html:149]
+> the page at #picture,needs, element #win > div:nth-of-type(1) "Kanna Desk · Doc markup reference model"
+> box 0,0 to 1220,44 px in a 1220×816 view, scrolled to 0,0
+> marked up: .kanna/docs/marks/docs__mockups__desk.html-c1.png
+Make the title bar quieter.
 ```
 
 - **Replies you add to a thread** are sent the same way, under the same header.

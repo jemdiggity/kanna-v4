@@ -22,6 +22,8 @@ PAGE = HERE / "page.html"
 STATE = Path(os.environ.get("KANNA_DOC_PROTOTYPE_DIR", Path.home() / ".kanna-doc-prototype"))
 SERVER_FILE = STATE / "server.json"
 IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
+PAGES = {".html", ".htm"}
+RAW = PAGES | IMAGES | {".css", ".js", ".mjs", ".json", ".woff", ".woff2", ".ttf", ".otf", ".ico"}
 
 
 def repo_root(path):
@@ -131,6 +133,10 @@ def with_lines(doc):
     except OSError:
         return doc
     for t in doc["threads"]:
+        if t.get("page"):
+            t["line"], _ = current_line(src, {"quote": t["page"].get("text") or "", "line": t["line"]})
+            t["detached"] = False
+            continue
         t["line"], t["detached"] = image_line(src, t) if t.get("image") else current_line(src, t)
     return doc
 
@@ -198,6 +204,18 @@ def message(doc, t, text):
     header = f"[kanna comment {t['id']} · {one_line(rel_name(Path(doc['file'])))}:{int(t['line'])}]"
     if t.get("detached"):
         return f"{header}\n{text}"
+    if t.get("page"):
+        try:
+            page = clean_page(t["page"])
+        except SystemExit:
+            return f"{header}\n{text}"
+        lines = [f"> {describe_page(page)}"]
+        x, y, w, h = page["box"]
+        lines.append(f"> box {x},{y} to {x + w},{y + h} px in a {page['viewport'][0]}×{page['viewport'][1]} view, scrolled to {page['scroll'][0]},{page['scroll'][1]}")
+        mark = mark_path(Path(doc["file"]), t["id"])
+        if mark:
+            lines.append(f"> marked up: {mark}")
+        return header + "\n" + "\n".join(lines) + "\n" + text
     if t.get("image"):
         image = str(t["image"])
         if one_line(image) != image or len(image) > 500:
@@ -259,7 +277,32 @@ def save_mark(file, tid, data_url):
     return os.path.relpath(path, root)
 
 
-def add_comment(file, quote, text, line, prefix="", suffix="", image=None, region=None, snapshot=None):
+def clean_page(page):
+    if not isinstance(page, dict):
+        raise SystemExit("kanna-doc: page is an object")
+    def numbers(key, n):
+        v = page.get(key)
+        if not (isinstance(v, list) and len(v) == n and all(isinstance(x, (int, float)) for x in v)):
+            raise SystemExit(f"kanna-doc: page.{key} is {n} numbers")
+        return [int(max(0, min(100000, x))) for x in v]
+    def short(key, cap):
+        v = page.get(key) or ""
+        if not isinstance(v, str):
+            raise SystemExit(f"kanna-doc: page.{key} is text")
+        v = one_line(" ".join(v.split()))
+        return v if len(v) <= cap else v[: cap - 1] + "…"
+    return {"selector": short("selector", 200), "text": short("text", 120), "hash": short("hash", 100),
+            "box": numbers("box", 4), "viewport": numbers("viewport", 2), "scroll": numbers("scroll", 2)}
+
+
+def describe_page(page):
+    where = f"the page at {page['hash']}" if page["hash"] else "the page"
+    if page["selector"]:
+        return f"{where}, element {page['selector']}" + (f' "{page["text"]}"' if page["text"] else "")
+    return f"{where}, a box"
+
+
+def add_comment(file, quote, text, line, prefix="", suffix="", image=None, region=None, snapshot=None, page=None):
     with locked(file) as doc:
         tid = f"c{doc['next']}"
         doc["next"] += 1
@@ -268,6 +311,9 @@ def add_comment(file, quote, text, line, prefix="", suffix="", image=None, regio
         if image:
             t["image"] = image
             t["region"] = clean_region(region)
+            t["mark"] = save_mark(file, tid, snapshot)
+        if page is not None:
+            t["page"] = clean_page(page)
             t["mark"] = save_mark(file, tid, snapshot)
         doc["threads"].append(t)
         snapshot = with_lines(json.loads(json.dumps(doc)))
@@ -357,6 +403,7 @@ def ensure_server():
 
 class Handler(BaseHTTPRequestHandler):
     token = ""
+    roots = set()
 
     def log_message(self, fmt, *a):
         pass
@@ -380,16 +427,31 @@ class Handler(BaseHTTPRequestHandler):
         if not f:
             return Path()
         p = Path(f).resolve()
-        if p.suffix.lower() != ".md" or not p.is_file():
-            self.reply(404, {"error": f"not a markdown file: {f}"})
+        if p.suffix.lower() not in {".md"} | PAGES or not p.is_file():
+            self.reply(404, {"error": f"not a markdown file or a page: {f}"})
             return None
+        if p.suffix.lower() in PAGES:
+            Handler.roots.add(repo_root(p).resolve())
         return p
+
+    def raw(self, rest):
+        token, _, path = rest.partition("/")
+        if not secrets.compare_digest(token, self.token):
+            return self.reply(403, {"error": "bad token"})
+        target = Path("/" + urllib.parse.unquote(path)).resolve()
+        inside = [r for r in Handler.roots if r in target.parents]
+        hidden = any(part.startswith(".") for part in target.relative_to(inside[0]).parts) if inside else True
+        if hidden or target.suffix.lower() not in RAW or not target.is_file():
+            return self.reply(404, {"error": "not found"})
+        return self.reply(200, target.read_bytes(), mimetypes.guess_type(str(target))[0] or "application/octet-stream")
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         if u.path == "/ping":
             return self.reply(200, b"pong" if secrets.compare_digest(q.get("token", [""])[0], self.token) else b"no", "text/plain")
+        if u.path.startswith("/raw/"):
+            return self.raw(u.path[len("/raw/"):])
         p = self.guard(q)
         if p is None:
             return
@@ -399,7 +461,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, PAGE.read_text().replace("__NONCE__", nonce).encode(), "text/html")
         if u.path == "/api/doc":
             doc = read_doc(p)
-            return self.reply(200, {"file": str(p), "rel": rel_name(p), "source": p.read_text(errors="replace"),
+            return self.reply(200, {"file": str(p), "rel": rel_name(p), "kind": "page" if p.suffix.lower() in PAGES else "doc",
+                                    "source": "" if p.suffix.lower() in PAGES else p.read_text(errors="replace"),
                                     "mtime": p.stat().st_mtime, "agent": doc.get("agent"), "threads": doc["threads"]})
         if u.path == "/asset":
             target = (p.parent / q.get("path", [""])[0]).resolve()
@@ -422,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/comment":
             image = clean(body["image"]) if body.get("image") else None
             tid, error = add_comment(p, clean(body["quote"]), clean(body["text"]), int(body.get("line", 1)), body.get("prefix", ""), body.get("suffix", ""),
-                                     image, body.get("region"), body.get("snapshot"))
+                                     image, body.get("region"), body.get("snapshot"), body.get("page"))
             return self.reply(200, {"id": tid, "error": error})
         if u.path == "/api/reply":
             return self.reply(200, {"error": add_your_reply(p, body["id"], clean(body["text"]))})
@@ -488,7 +551,11 @@ def cmd_show(args):
     if args.json:
         return print(json.dumps(t, indent=2, ensure_ascii=False))
     print(f"{t['id']} · {rel_name(file)}:{t['line']} · {t['state']}" + (" · detached: the quote is no longer in the file" if t.get("detached") else ""))
-    if t.get("image"):
+    if t.get("page"):
+        page = clean_page(t["page"])
+        x, y, w, h = page["box"]
+        print(f"> {describe_page(page)}\n> box {x},{y} to {x + w},{y + h} px" + (f"\n> marked up: {t['mark']}" if t.get("mark") else ""))
+    elif t.get("image"):
         print(f"> image {t['image']}, {describe_region(t.get('region'))}" + (f"\n> marked up: {t['mark']}" if t.get("mark") else ""))
     else:
         for line in t["quote"].splitlines():

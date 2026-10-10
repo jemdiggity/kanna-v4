@@ -20,7 +20,9 @@ From the agent's terminal in Kanna (so the comments go there):
 prototypes/doc-markup/kanna-doc open docs/specs/doc-markup.md
 ```
 
-It opens the doc to the right. Select text and press ⌘↵ (or ⌘-click a word), write, ⌘↵ to post. On an image, ⌘-drag a box (or ⌘-click for the whole image). The agent learns how to answer from the `kanna-doc` skill.
+It opens the doc to the right. Select text and press ⌘↵ (or ⌘-click a word), write, ⌘↵ to post. On an image, ⌘-drag a box (or ⌘-click for the whole image).
+
+It opens HTML pages too (`kanna-doc open docs/mockups/desk.html`): ⌘-click a part of the page, or ⌘-drag a box. Hold ⌘ to see what a click would pick. The agent learns how to answer from the `kanna-doc` skill.
 
 Put it on your `PATH` so agents can run `kanna-doc` from anywhere:
 
@@ -38,11 +40,14 @@ ln -s "$PWD/prototypes/doc-markup/kanna-doc" ~/.local/bin/kanna-doc
 
 ## Where it differs from the spec
 
-- It's a web pane, not Kanna's markdown pane, and needs the network once to load marked, mermaid and DOMPurify (pinned, with integrity hashes).
+- It's a web pane, not Kanna's markdown pane, and needs the network once to load marked, mermaid, DOMPurify and html2canvas (pinned, with integrity hashes).
+- A page's screenshot is html2canvas's redrawing of it, close to but not exactly what the browser shows; Kanna's web pane would take a real one.
 - The command is `kanna-doc`, not `kanna doc`.
 - Threads are read and written by whichever process needs them (file lock), not owned by the daemon.
 - Sending is two `kanna send`s: the comment as a bracketed paste (plain `send` would submit a multi-line comment at its first newline), then an empty one in case the agent took the paste's Return as part of the paste.
 
 ## Safety
 
-The server listens on 127.0.0.1 only and every request needs the token in the URL. It serves only `.md` files, and images inside the doc's repo. Rendered markdown is sanitised (DOMPurify) and the page's Content-Security-Policy allows only its own script and the three pinned libraries, so a doc can't run script, which could otherwise post comments and so type into the agent's terminal.
+The server listens on 127.0.0.1 only and every request needs the token in the URL. It serves only `.md` and `.html` files, and images inside the doc's repo; an open HTML page may also load files beside it from its repo (not from dot-folders). Rendered markdown is sanitised (DOMPurify) and the page's Content-Security-Policy allows only its own script and the three pinned libraries, so a doc can't run script, which could otherwise post comments and so type into the agent's terminal.
+
+An HTML page is different: it runs its own script, on the same origin as the comment pane, so it could post comments. Open only pages you trust, such as your repo's mockups. Kanna's web pane would keep its comment code in a separate script world that the page can't reach.

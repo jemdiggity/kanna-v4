@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js" integrity="sha384-WmdflGW9aGfoBdHc4rRyWzYuAjEmDwMdGdiPNacbwfGKxBW/SO6guzuQ76qjnSlr" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
 <style>
 :root {
   --bg: #ffffff; --bar: #f4f4f6; --panel: #f7f7f9; --card: #ffffff; --line: #dedfe3; --edge: #c9cbd1;
@@ -96,6 +97,12 @@ body.meta #doc img { cursor: crosshair; }
 .card.on .reply { display: block; }
 .card .reply textarea { width: 100%; height: 28px; resize: none; background: transparent; border: 0; border-top: 1px solid var(--line); color: var(--text); padding: 6px 0 0; font: 12.5px var(--sans); outline: none; }
 #fail { padding: 30px; color: var(--warn); }
+.reader.page { padding: 0; overflow: hidden; }
+.reader.page #doc { display: none; }
+#frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: white; }
+#shield { position: absolute; inset: 0; z-index: 4; display: none; cursor: crosshair; }
+body.meta .reader.page #shield { display: block; }
+.imark.hover { pointer-events: none; z-index: 4; border-style: dashed; background: transparent; }
 </style>
 </head>
 <body>
@@ -226,7 +233,173 @@ function locate(idx, t) {
   return best ? [best.at, best.at + quote.length] : null;
 }
 
+const isPage = () => state.kind === "page";
+const frame = () => document.getElementById("frame");
+const frameWin = () => frame()?.contentWindow;
+const frameDoc = () => { try { return frame()?.contentDocument || null; } catch { return null; } };
+const pageHash = () => (frameWin()?.location.hash || "").slice(0, 100);
+
+function renderPage() {
+  const reader = document.getElementById("reader");
+  reader.classList.add("page");
+  const src = "/raw/" + token + file.split("/").map(encodeURIComponent).join("/");
+  let f = frame();
+  if (f) {
+    const keep = [frameWin().scrollX, frameWin().scrollY];
+    f.onload = () => { watchFrame(); frameWin().scrollTo(keep[0], keep[1]); anchorAll(); };
+    frameWin().location.reload();
+    return;
+  }
+  f = document.createElement("iframe");
+  f.id = "frame";
+  f.onload = () => { watchFrame(); anchorAll(); };
+  f.src = src + location.hash;
+  const shield = document.createElement("div");
+  shield.id = "shield";
+  reader.append(f, shield);
+  shield.addEventListener("mousemove", hoverPage);
+  shield.addEventListener("mouseleave", () => document.querySelectorAll(".imark.hover").forEach(m => m.remove()));
+  shield.addEventListener("mousedown", pickPage);
+}
+function watchFrame() {
+  const w = frameWin();
+  const meta = e => { document.body.classList.toggle("meta", e.metaKey); if (!e.metaKey) document.querySelectorAll(".imark.hover").forEach(m => m.remove()); };
+  w.addEventListener("keydown", meta);
+  w.addEventListener("keyup", meta);
+  w.addEventListener("keydown", e => { if (e.key === "Escape" && state.composer) { closeComposer(); anchorAll(); } });
+  w.addEventListener("scroll", drawPageMarks, { passive: true });
+  w.addEventListener("resize", drawPageMarks);
+  w.addEventListener("hashchange", () => { closePop(); anchorAll(); });
+}
+function selectorOf(el) {
+  const parts = [];
+  for (let n = el; n && n.nodeType === 1 && n.localName !== "html"; n = n.parentElement) {
+    if (n.id && /^[A-Za-z][\w-]*$/.test(n.id)) { parts.unshift("#" + n.id); break; }
+    let part = n.localName;
+    const same = n.parentElement ? [...n.parentElement.children].filter(c => c.localName === n.localName) : [];
+    if (same.length > 1) part += `:nth-of-type(${same.indexOf(n) + 1})`;
+    parts.unshift(part);
+  }
+  return parts.join(" > ");
+}
+function elementAt(cx, cy) {
+  const d = frameDoc();
+  if (!d) return null;
+  const el = d.elementFromPoint(cx, cy);
+  return el && el !== d.documentElement && el !== d.body ? el : null;
+}
+function frameXY(e) {
+  const r = frame().getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+}
+function pageBox(t) {
+  const d = frameDoc(), w = frameWin();
+  if (!d) return null;
+  const p = t.page;
+  if (p.selector) {
+    let el = null;
+    try { el = d.querySelector(p.selector); } catch {}
+    const text = el ? (el.innerText || "").replace(/\s+/g, " ").trim() : "";
+    if (el && (!p.text || text.startsWith(p.text.replace(/…$/, "")))) {
+      const r = el.getBoundingClientRect();
+      if (r.width || r.height) return { left: r.left, top: r.top, width: r.width, height: r.height };
+    }
+  }
+  const [x, y, bw, bh] = p.box;
+  return { left: x - w.scrollX, top: y - w.scrollY, width: bw, height: bh };
+}
+function onPage(t) { return t.page && (t.page.hash || "") === pageHash(); }
+function drawPageMarks() {
+  const reader = document.getElementById("reader");
+  reader.querySelectorAll(".imark:not(.draft):not(.hover)").forEach(m => m.remove());
+  for (const t of state.threads) {
+    if (!onPage(t)) continue;
+    const b = pageBox(t);
+    if (!b) continue;
+    const m = document.createElement("div");
+    m.className = "imark" + (t.state === "open" ? "" : " done") + (t.id === state.active ? " on" : "");
+    m.dataset.id = t.id;
+    placeBox(m, b);
+    m.addEventListener("click", e => { e.stopPropagation(); state.active = t.id; anchorAll(); document.querySelector(".card.on")?.scrollIntoView({ block: "nearest", behavior: "smooth" }); openPop(t.id); });
+    reader.appendChild(m);
+  }
+}
+function hoverPage(e) {
+  const reader = document.getElementById("reader");
+  let m = reader.querySelector(".imark.hover");
+  const el = elementAt(...frameXY(e));
+  if (!el) { m?.remove(); return; }
+  if (!m) { m = document.createElement("div"); m.className = "imark hover"; reader.appendChild(m); }
+  const r = el.getBoundingClientRect();
+  placeBox(m, { left: r.left, top: r.top, width: r.width, height: r.height });
+}
+function pickPage(e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  closePop();
+  closeComposer();
+  const reader = document.getElementById("reader");
+  const [sx, sy] = frameXY(e);
+  const draft = document.createElement("div");
+  draft.className = "imark on draft";
+  reader.appendChild(draft);
+  let drag = null;
+  const move = m => {
+    const [x, y] = frameXY(m);
+    drag = Math.abs(x - sx) < 6 && Math.abs(y - sy) < 6 ? null : { left: Math.min(sx, x), top: Math.min(sy, y), width: Math.abs(x - sx), height: Math.abs(y - sy) };
+    if (drag) placeBox(draft, drag);
+  };
+  const up = m => {
+    removeEventListener("mousemove", move);
+    removeEventListener("mouseup", up);
+    move(m);
+    reader.querySelectorAll(".imark.hover").forEach(h => h.remove());
+    const el = drag ? null : elementAt(sx, sy);
+    if (!drag && !el) { draft.remove(); return; }
+    const r = el ? el.getBoundingClientRect() : null;
+    const box = drag || { left: r.left, top: r.top, width: r.width, height: r.height };
+    placeBox(draft, box);
+    openPageComposer(el, box, draft);
+  };
+  addEventListener("mousemove", move);
+  addEventListener("mouseup", up);
+}
+function openPageComposer(el, box, draft) {
+  const w = frameWin();
+  const text = el ? (el.innerText || el.getAttribute("aria-label") || el.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  const page = {
+    selector: el ? selectorOf(el) : "", text, hash: pageHash(),
+    box: [box.left + w.scrollX, box.top + w.scrollY, box.width, box.height].map(Math.round),
+    viewport: [w.innerWidth, w.innerHeight], scroll: [Math.round(w.scrollX), Math.round(w.scrollY)],
+  };
+  state.composer = { quote: text || page.selector || "a box", prefix: "", suffix: "", line: 1, page, frameBox: box };
+  draft.className = "imark on draft";
+  const reader = document.getElementById("reader");
+  reader.appendChild(draft);
+  showComposer(box.left, Math.min(box.top + box.height, reader.clientHeight - 140));
+}
+async function pageSnapshot(box) {
+  const d = frameDoc(), w = frameWin();
+  if (!d || !window.html2canvas) return null;
+  try {
+    const c = await html2canvas(d.documentElement, { x: w.scrollX, y: w.scrollY, width: w.innerWidth, height: w.innerHeight, windowWidth: w.innerWidth, windowHeight: w.innerHeight, scrollX: -w.scrollX, scrollY: -w.scrollY, scale: Math.min(2, w.devicePixelRatio || 1), logging: false, useCORS: true });
+    const g = c.getContext("2d"), k = c.width / w.innerWidth;
+    const line = Math.max(3, Math.round(c.width / 400));
+    g.lineWidth = line;
+    g.strokeStyle = "#ff3b30";
+    g.strokeRect(box.left * k + line / 2, box.top * k + line / 2, box.width * k - line, box.height * k - line);
+    return c.toDataURL("image/png");
+  } catch { return null; }
+}
+
 function anchorAll() {
+  if (isPage()) {
+    state.anchors = {};
+    for (const t of state.threads) state.anchors[t.id] = t.page ? "page" : null;
+    drawPageMarks();
+    renderThreads();
+    return;
+  }
   const idx = textIndex();
   const all = [], done = [], active = [];
   state.anchors = {};
@@ -278,6 +451,10 @@ function drawImageMarks() {
 function anchorBox(id) {
   const t = state.threads.find(x => x.id === id);
   const reader = document.getElementById("reader"), host = reader.getBoundingClientRect();
+  if (t && t.page) {
+    const b = onPage(t) && pageBox(t);
+    return b ? { left: b.left, bottom: Math.min(b.top + b.height, reader.clientHeight - 140) } : null;
+  }
   if (t && t.image) {
     const img = imageFor(t);
     if (!img) return null;
@@ -348,6 +525,7 @@ function note(t) {
   if (t.state !== "open") return "";
   if (t.status === "unsent") return `not sent${t.error ? ": " + esc(t.error) : ""}`;
   if (state.anchors[t.id] === null) return t.image ? "its image is no longer in the doc" : "its text is no longer in the doc";
+  if (t.page && !onPage(t)) return `on the page at ${esc(t.page.hash || "its start")}`;
   return "";
 }
 
@@ -363,7 +541,7 @@ function renderThreads() {
   const resolved = state.threads.filter(t => t.state === "resolved");
   panel.innerHTML = `<div class="top"><span></span>${resolved.length ? `<a id="showResolved">${state.showResolved ? "Hide" : "Show"} resolved (${resolved.length})</a>` : ""}</div>`;
   const shown = [...open, ...(state.showResolved ? resolved : [])];
-  if (!shown.length) panel.insertAdjacentHTML("beforeend", `<div class="empty">No comments yet. Select text and press ⌘↵, or ⌘-click a word.</div>`);
+  if (!shown.length) panel.insertAdjacentHTML("beforeend", `<div class="empty">No comments yet. ${isPage() ? "⌘-click a part of the page, or ⌘-drag a box." : "Select text and press ⌘↵, or ⌘-click a word."}</div>`);
   for (const t of shown) {
     const card = document.createElement("div");
     card.className = "card" + (t.id === state.active ? " on" : "") + (t.state === "resolved" ? " resolved" : "");
@@ -398,6 +576,17 @@ function reveal(id) {
   anchorAll();
   const span = state.anchors[id];
   if (!span) return;
+  if (span === "page") {
+    const t = state.threads.find(x => x.id === id), w = frameWin();
+    if (!w) return;
+    if ((t.page.hash || "") !== pageHash()) w.location.hash = t.page.hash || "";
+    requestAnimationFrame(() => {
+      const b = pageBox(t);
+      if (b && (b.top < 0 || b.top + b.height > w.innerHeight)) w.scrollBy({ top: b.top - w.innerHeight / 3, behavior: "smooth" });
+      anchorAll();
+    });
+    return;
+  }
   if (span === "image") {
     const at = anchorBox(id), reader = document.getElementById("reader");
     reader.scrollTo({ top: Math.max(0, at.bottom - reader.clientHeight / 2), behavior: "smooth" });
@@ -485,8 +674,9 @@ function showComposer(left, bottom) {
   const post = async () => {
     const text = ta.value.trim();
     if (!text) return;
-    const { img, ...c } = state.composer;
+    const { img, frameBox, ...c } = state.composer;
     if (img) c.snapshot = snapshot(img, c.region);
+    if (frameBox) c.snapshot = await pageSnapshot(frameBox);
     closeComposer();
     const r = await api("/api/comment", { ...c, text });
     state.active = r.id;
@@ -567,6 +757,7 @@ document.getElementById("doc").addEventListener("mousedown", e => {
 }, true);
 addEventListener("keydown", e => document.body.classList.toggle("meta", e.metaKey));
 addEventListener("keyup", e => document.body.classList.toggle("meta", e.metaKey));
+addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== frame()) document.body.classList.remove("meta"); }));
 document.getElementById("doc").addEventListener("click", e => {
   if (e.target.closest(".composer")) return;
   if (e.metaKey && e.target.closest("#doc img")) { e.preventDefault(); e.stopPropagation(); return; }
@@ -610,6 +801,8 @@ async function poll() {
   agent.textContent = d.agent ? `Agent: ${d.agent}` : "No agent: comments are saved, not sent";
   agent.classList.toggle("warn", !d.agent);
   state.agent = d.agent;
+  state.kind = d.kind || "doc";
+  document.getElementById("commentBtn").hidden = isPage();
   const key = JSON.stringify(d.threads);
   const changedDoc = d.mtime !== state.mtime;
   const changedThreads = key !== state.threadsKey;
@@ -619,7 +812,7 @@ async function poll() {
     state.mtime = d.mtime;
     state.source = d.source;
     const pending = state.composer;
-    if (!pending) renderDoc();
+    if (!pending) isPage() ? renderPage() : renderDoc();
   } else if (changedThreads) {
     anchorAll();
   }
