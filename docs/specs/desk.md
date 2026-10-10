@@ -47,7 +47,7 @@ flowchart LR
 - **The agent pane** is the agent in its terminal, untouched, with a header: the task's name, folder, branch, [status](agent-status.md) and **Park ↓**. It's the only chat: you talk to the agent there, and doc comments arrive there ([doc markup](doc-markup.md)).
 - **Docs are the window's tabs.** Each is an ordinary tab: markdown (with comments), a web page, an image, video or PDF (shown in a web pane), or a terminal (tests, a server), and a tab can hold splits.
   - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, a markdown link, or **+**.
-  - **⌘1 … ⌘9** show the 1st … 9th tab. Opening a file that's already open shows its tab.
+  - Opening a file that's already open shows its tab.
 - **The Kanna bar** (top) names the Desk and its task.
 - **Empty Desk:** the parked tasks grouped by folder, each with **Pull →**.
 - **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
@@ -55,7 +55,7 @@ flowchart LR
 ## 3. The Shelf
 
 - **Every task not on a Desk**, in the order they were parked, each with its [agent status](agent-status.md) and how long ago it was parked. **Needs you** moves a task to the front.
-- **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step.
+- **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘9** swap in the Shelf's 1st … 9th task the same way.
 - **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one and scroll positions come back as they were.
 
 ## 4. CLI

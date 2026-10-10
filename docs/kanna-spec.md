@@ -570,7 +570,7 @@ sequenceDiagram
 | Kanna | New Instance, Quit Kanna ⌘Q |
 | Edit | Undo ⌘Z, Redo ⇧⌘Z, Cut ⌘X, Copy ⌘C, Paste ⌘V, Select All ⌘A (sent to whatever has focus) |
 | Pane | Split Right ⌘D, Split Down ⇧⌘D, New Web / iOS Pane Right and Below, New Markdown Pane Right… and Below…, Open URL… ⌘L, Back, Forward, Home ⇧⌘H, Next Pane ⌘], Previous Pane ⌘[, Zoom ⇧⌘↩, Move Pane to New Window, Restart ⌘R, Close Pane ⌘W |
-| View | New Tab ⌘T, Next Tab ⇧⌘], Previous Tab ⇧⌘[, Show Tab ▸ Tab 1 ⌘1 … Tab 9 ⌘9, Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 (a markdown or web pane's magnification, which scales the page without re-laying it out, or a terminal's font size; a pinch magnifies markdown and web panes too) |
+| View | New Tab ⌘T, Next Tab ⇧⌘], Previous Tab ⇧⌘[, Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 (a markdown or web pane's magnification, which scales the page without re-laying it out, or a terminal's font size; a pinch magnifies markdown and web panes too) |
 | Window | New Window ⌘N, Close Window ⇧⌘W, Move Tab to New Window, Next Window ⌘\`, Previous Window ⇧⌘\`, and the list of windows |
 
 - Every item acts on the key window and its focused pane. Pane, tab and window cycling go in reading order and wrap; moving focus cancels a zoom. A new web pane starts with its URL selected for editing; a new markdown pane asks for a file; a new iOS pane opens Settings.

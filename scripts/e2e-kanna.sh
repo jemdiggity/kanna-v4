@@ -915,12 +915,12 @@ S38() {
   [[ "$(kanna list)" == *"dock: p3 (agent)  left 2/5"* ]] || { echo "list should show the dock on its own line: $(kanna list)"; return 1; }
   sleep 1
   check drawn "$(snap w1 s38-docked)" 2 || return 1
-  key cmd+1
+  key "cmd+shift+["
   check test "$(win w1 tabs.0.active)" == True || return 1
   check test "$(win w1 dock.pane)" == agent || return 1
   sleep 0.5
   check drawn "$(snap w1 s38-first-tab)" 2 || return 1
-  key cmd+2; check test "$(win w1 tabs.1.active)" == True || return 1
+  key "cmd+shift+]"; check test "$(win w1 tabs.1.active)" == True || return 1
   refused="$(kanna close agent 2>&1)" && { echo "close on the docked pane should fail"; return 1; }
   [[ "$refused" == *"docked: it closes with its window"* ]] || { echo "close on the docked pane should say why: $refused"; return 1; }
   kanna focus agent >/dev/null || return 1

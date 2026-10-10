@@ -51,7 +51,6 @@ The right side needs nothing new: the window's own tabs already are a group of t
 
 | Action | Does |
 |---|---|
-| ⌘1 … ⌘9 | Show the window's 1st … 9th tab (a Kanna addition, for every window) |
 | drag the divider | Resize |
 
 ## 4. CLI
@@ -84,7 +83,7 @@ The right side needs nothing new: the window's own tabs already are a group of t
 - **The app** splits the window's content view: the docked pane's view on its edge, the tab bar and the shown tab beside it. The model's `view` gives each window its `dock {pane, type, edge, width}`; with the docked pane zoomed, `root` is empty and the docked pane fills the window. The divider drag is a layout-only action, `command resize` on the app's own model, as focus is.
 - **Saved** in `layout.json` on the window; a file without one loads as before, and a dock whose pane the daemon no longer has is dropped on attach.
 - **kmux parity** holds: both have docked panes, and a window without one behaves as before in both.
-- **Checked by** kmux's 12 dock protocol cases, run three ways as all of kmux's ([kanna spec 4.7](../kanna-spec.md#47-the-layout)), the layout owner's tests (drawing, saving, a dock whose pane is gone), the CLI's tests against kmux's own, and S38 of `scripts/e2e-kanna.sh`: `open --dock`, ⌘1–⌘9, `close` refused, ⌘W, focus, zoom, `move --dock right`, the divider, moving a tab away, undocking, a window with only its docked pane, and `layout.json` across a relaunch, with screenshots.
+- **Checked by** kmux's 12 dock protocol cases, run three ways as all of kmux's ([kanna spec 4.7](../kanna-spec.md#47-the-layout)), the layout owner's tests (drawing, saving, a dock whose pane is gone), the CLI's tests against kmux's own, and S38 of `scripts/e2e-kanna.sh`: `open --dock`, ⇧⌘[ and ⇧⌘], `close` refused, ⌘W, focus, zoom, `move --dock right`, the divider, moving a tab away, undocking, a window with only its docked pane, and `layout.json` across a relaunch, with screenshots.
 
 ## 6. Glossary
 

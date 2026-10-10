@@ -52,8 +52,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .content { flex: 1; display: flex; min-height: 0; }
 .agent { flex: 0 0 38%; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
 .agent .head { flex: none; padding: 12px 14px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.agent .kind { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
-.agent .title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 650; margin: 4px 0 6px; }
+.agent .title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 650; margin: 0 0 6px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .dot.working { background: var(--accent); box-shadow: 0 0 0 3px var(--tint); }
 .dot.needs { background: var(--warn); }
@@ -98,7 +97,6 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .dtab.on { background: var(--bg); color: var(--text); border-color: var(--line); }
 .dtab .ic { width: 14px; text-align: center; font-size: 11px; opacity: .8; }
 .dtab .nm { overflow: hidden; text-overflow: ellipsis; }
-.dtab .kb { color: var(--muted); font-size: 11px; }
 .dtab .x { color: var(--muted); font-size: 11px; visibility: hidden; }
 .dtab.on .x, .dtab:hover .x { visibility: visible; }
 .dtabs .add { color: var(--muted); padding: 0 8px; cursor: pointer; font-size: 15px; }
@@ -126,6 +124,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .shelf .item { display: flex; align-items: center; gap: 7px; padding: 3px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
 .shelf .item:hover { background: var(--panel2); }
 .shelf .item .meta { color: var(--muted); }
+.shelf .item .kb { color: var(--muted); font-size: 11px; }
 .shelf .spacer { flex: 1; }
 .shelf .hint { color: var(--muted); white-space: nowrap; }
 
@@ -225,7 +224,7 @@ function viewHTML(f) {
 function docsHTML(t) {
   const list = opened[t.id], cur = active[t.id];
   return `<div class="docs">
-    <div class="dtabs">${list.map((f, i) => `<div class="dtab ${f === cur ? "on" : ""}" data-tab="${f}"><span class="ic">${icon[kindOf(f)]}</span><span class="nm">${label(f)}</span><span class="kb">⌘${i + 1}</span><span class="x" data-close="${f}">×</span></div>`).join("")}<span class="add" title="New tab">+</span></div>
+    <div class="dtabs">${list.map((f, i) => `<div class="dtab ${f === cur ? "on" : ""}" data-tab="${f}"><span class="ic">${icon[kindOf(f)]}</span><span class="nm">${label(f)}</span><span class="x" data-close="${f}">×</span></div>`).join("")}<span class="add" title="New tab">+</span></div>
     <div class="dbody"><div class="view">${viewHTML(cur)}</div></div></div>`;
 }
 
@@ -233,8 +232,7 @@ function deskHTML(t) {
   return `<div class="content">
     <div class="agent">
       <div class="head">
-        <div class="kind"><span>${t.agent}</span><span class="pill" data-park>Park ↓</span></div>
-        <div class="title"><span class="dot ${t.status}" title="${statusText[t.status]}"></span>${t.title}</div>
+        <div class="title"><span class="dot ${t.status}" title="${statusText[t.status]}"></span>${t.title}<span style="flex:1"></span><span class="pill" data-park>Park ↓</span></div>
         <div class="tags"><span class="tag">~/work/${t.repo}</span><span class="tag dim">·</span><span class="tag">${t.branch}</span><span class="tag dim">· ${statusText[t.status]}</span></div>
       </div>
       <div class="term">${agentTerm(t)}</div>
@@ -262,10 +260,9 @@ document.addEventListener("click", e => {
   const tab = e.target.closest("[data-tab]"); if (tab) return openDoc(tab.dataset.tab);
 });
 document.addEventListener("keydown", e => {
-  const t = task(s.desk);
-  if (!t || !e.metaKey || !/^[1-9]$/.test(e.key)) return;
-  const f = opened[t.id][Number(e.key) - 1];
-  if (f) { e.preventDefault(); openDoc(f); }
+  if (!e.metaKey || !/^[1-9]$/.test(e.key)) return;
+  const t = s.tasks.filter(t => t.id !== s.desk)[Number(e.key) - 1];
+  if (t) { e.preventDefault(); pull(t.id); }
 });
 
 function emptyHTML() {
@@ -280,7 +277,7 @@ function emptyHTML() {
 function renderShelf() {
   const shelf = document.getElementById("shelf");
   const parked = s.tasks.filter(t => t.id !== s.desk);
-  shelf.innerHTML = `<span class="label">SHELF</span>` + parked.map(t => `<span class="item" data-pull="${t.id}"><span class="dot ${t.status}"></span>${t.title}<span class="meta">· ${t.status === "needs" ? "needs you" : "parked " + (t.parked || "now")}</span></span>`).join("") + `<span class="spacer"></span><span class="hint">Desk holds one. Click to swap.</span>`;
+  shelf.innerHTML = `<span class="label">SHELF</span>` + parked.map((t, i) => `<span class="item" data-pull="${t.id}"><span class="dot ${t.status}"></span>${t.title}<span class="meta">· ${t.status === "needs" ? "needs you" : "parked " + (t.parked || "now")}</span>${i < 9 ? `<span class="kb">⌘${i + 1}</span>` : ""}</span>`).join("") + `<span class="spacer"></span><span class="hint">Desk holds one. Click or ⌘1–⌘9 to swap.</span>`;
   shelf.querySelectorAll("[data-pull]").forEach(el => el.onclick = () => pull(el.dataset.pull));
   document.querySelectorAll("[data-park]").forEach(el => el.onclick = park);
 }
