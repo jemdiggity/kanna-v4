@@ -1,6 +1,6 @@
 # Doc Markup
 
-**Status:** proposed · **Mockup:** [`docs/mockups/doc-markup.html`](../mockups/doc-markup.html) · **Reference model:** [`prototypes/doc-markup`](../../prototypes/doc-markup/README.md) · **From:** kanna v3 slice 6b, "spec markup"
+**Status:** proposed · **Mockup:** [`references/mockups/doc-markup.html`](../../references/mockups/doc-markup.html) · **Reference model:** [`references/prototypes/doc-markup`](../../references/prototypes/doc-markup/README.md) · **From:** kanna v3 slice 6b, "spec markup"
 
 **Doc markup** lets you comment on a doc in Kanna, a markdown file or an HTML page (a mockup), and have the agent working beside it read, answer and resolve those comments. You review a spec or a mockup with an agent the way you would with a colleague: point at something, say what's wrong, see it fixed.
 
@@ -88,10 +88,10 @@ The agent header needs the branch.
 - On a page: the view, then the part (its CSS path and text), the selected text (`the text "…" in PATH`) or `a box`, then where it is in page pixels:
 
 ```
-[kanna comment c1 · docs/mockups/desk.html:149]
+[kanna comment c1 · references/mockups/desk.html:149]
 > the page at #picture,needs, element #win > div:nth-of-type(1) "Kanna Desk · Doc markup reference model"
 > box 0,0 to 1220,44 px in a 1220×816 view, scrolled to 0,0
-> marked up: .kanna/docs/marks/docs__mockups__desk.html-c1.png
+> marked up: .kanna/docs/marks/references__mockups__desk.html-c1.png
 Make the title bar quieter.
 ```
 

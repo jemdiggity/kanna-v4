@@ -1,6 +1,6 @@
 # Doc markup prototype
 
-The reference model for [doc markup](../../docs/specs/doc-markup.md): comment on a markdown file in a Kanna pane, and the agent that opened it gets each comment in its terminal and answers with `kanna-doc`. It works with today's Kanna, as a web pane; nothing in the app or daemon changes.
+The reference model for [doc markup](../../../docs/specs/doc-markup.md): comment on a markdown file in a Kanna pane, and the agent that opened it gets each comment in its terminal and answers with `kanna-doc`. It works with today's Kanna, as a web pane; nothing in the app or daemon changes.
 
 ```mermaid
 flowchart LR
@@ -17,17 +17,17 @@ flowchart LR
 From the agent's terminal in Kanna (so the comments go there):
 
 ```
-prototypes/doc-markup/kanna-doc open docs/specs/doc-markup.md
+references/prototypes/doc-markup/kanna-doc open docs/specs/doc-markup.md
 ```
 
 It opens the doc to the right. Select text and press ⌘↵ (or ⌘-click a word), write, ⌘↵ to post. On an image, ⌘-drag a box (or ⌘-click for the whole image).
 
-It opens HTML pages too (`kanna-doc open docs/mockups/desk.html`): select text and press ⌘↵, ⌘-click a part of the page, or ⌘-drag a box. Hold ⌘ to see what a click would pick. The agent learns how to answer from the `kanna-doc` skill.
+It opens HTML pages too (`kanna-doc open references/mockups/desk.html`): select text and press ⌘↵, ⌘-click a part of the page, or ⌘-drag a box. Hold ⌘ to see what a click would pick. The agent learns how to answer from the `kanna-doc` skill.
 
 Put it on your `PATH` so agents can run `kanna-doc` from anywhere:
 
 ```
-ln -s "$PWD/prototypes/doc-markup/kanna-doc" ~/.local/bin/kanna-doc
+ln -s "$PWD/references/prototypes/doc-markup/kanna-doc" ~/.local/bin/kanna-doc
 ```
 
 ## What it is

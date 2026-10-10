@@ -821,7 +821,7 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 ### 4.13 Doc Markup
 
-**[Proposed]** Comment on a markdown file in its pane and have the agent beside it answer and resolve the comments, as in kanna v3. Its own spec: [specs/doc-markup.md](specs/doc-markup.md), with a mockup in [mockups/doc-markup.html](mockups/doc-markup.html).
+**[Proposed]** Comment on a markdown file in its pane and have the agent beside it answer and resolve the comments, as in kanna v3. Its own spec: [specs/doc-markup.md](specs/doc-markup.md), with a mockup in [references/mockups/doc-markup.html](../references/mockups/doc-markup.html).
 
 ### 4.14 Markdown Pane Keys
 
@@ -829,7 +829,7 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 ### 4.15 Desk
 
-**[Proposed]** A window that shows one task: its agent docked on the left as the single chat, everything else it opens as the window's tabs, every other task parked on the Shelf below with its agent still running; the look of kanna v3's Desk. Its own spec: [specs/desk.md](specs/desk.md), with a mockup in [mockups/desk.html](mockups/desk.html).
+**[Proposed]** A window that shows one task: its agent docked on the left as the single chat, everything else it opens as the window's tabs, every other task parked on the Shelf below with its agent still running; the look of kanna v3's Desk. Its own spec: [specs/desk.md](specs/desk.md), with a mockup in [references/mockups/desk.html](../references/mockups/desk.html).
 
 ### 4.16 Docked Pane
 

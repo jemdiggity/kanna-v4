@@ -336,7 +336,7 @@ pub static COMMANDS: &[Command] = &[
         ],
         notes: "A markdown or web pane like `kanna open md FILE` or `kanna open web FILE`, with a thread list and a comment box: select text and press ⌘↵, ⌘-click a part, or ⌘-drag a box. Each comment is typed into the terminal that ran markup, with the part or box and, for a page or an image, a screenshot with it marked up. `kanna open` shows the doc without comments; `kanna markup PANE` turns them on there.",
         examples: &[
-            ("kanna markup docs/mockups/desk.html --split right", "Review a mockup beside this pane."),
+            ("kanna markup references/mockups/desk.html --split right", "Review a mockup beside this pane."),
             ("kanna markup docs/specs/desk.md --tab", "Review a spec in a new tab."),
             ("kanna markup spec", "Turn on comments in the pane named spec; they come to this pane."),
             ("kanna markup spec --off", "Show spec without comments again."),

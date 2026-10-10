@@ -51,11 +51,11 @@ struct DocThreadsTests {
         var t = thread("claude")
         t.line = 161
         t.page = PageSpot(selector: "#desk > div > span:nth-of-type(1)", text: "claude", hash: "#picture,needs", box: [35, 194, 38, 17], viewport: [1232, 799], scroll: [0, 73])
-        #expect(DocStore.message(t, file: "docs/mockups/desk.html", text: "No name", mark: ".kanna/docs/marks/docs__mockups__desk.html-c1.png") == """
-        [kanna comment c1 · docs/mockups/desk.html:161]
+        #expect(DocStore.message(t, file: "references/mockups/desk.html", text: "No name", mark: ".kanna/docs/marks/references__mockups__desk.html-c1.png") == """
+        [kanna comment c1 · references/mockups/desk.html:161]
         > the page at #picture,needs, element #desk > div > span:nth-of-type(1) "claude"
         > box 35,194 to 73,211 px in a 1232×799 view, scrolled to 0,73
-        > marked up: .kanna/docs/marks/docs__mockups__desk.html-c1.png
+        > marked up: .kanna/docs/marks/references__mockups__desk.html-c1.png
         No name
         """)
         t.page = PageSpot(selector: "", text: "", hash: "", box: [1, 2, 3, 4], viewport: [10, 10], scroll: [0, 0])

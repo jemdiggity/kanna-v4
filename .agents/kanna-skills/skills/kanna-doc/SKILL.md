@@ -27,10 +27,10 @@ The agent header needs the branch.
 A comment on a web page (an HTML mockup) names the part of the page, by CSS path and text, the text selected in it (`the text "…" in PATH`), or a box drawn on it, and a screenshot with it boxed:
 
 ```
-[kanna comment c1 · docs/mockups/desk.html:149]
+[kanna comment c1 · references/mockups/desk.html:149]
 > the page at #picture,needs, element #win > div:nth-of-type(1) "Kanna Desk · Doc markup reference model"
 > box 0,0 to 1220,44 px in a 1220×816 view, scrolled to 0,0
-> marked up: .kanna/docs/marks/docs__mockups__desk.html-c1.png
+> marked up: .kanna/docs/marks/references__mockups__desk.html-c1.png
 Make the title bar quieter.
 ```
 
@@ -57,4 +57,4 @@ Reply in the thread, not only in the chat: the user reads replies beside the doc
 
 Run them from your own terminal: the doc is found from the thread ID and the pane you're in. Pass `--doc FILE` if that's ambiguous.
 
-`kanna-doc` is the prototype of `kanna doc` (Kanna v4's `prototypes/doc-markup/kanna-doc`); once Kanna has `kanna doc`, use that with the same subcommands.
+`kanna-doc` is the prototype of `kanna doc` (Kanna v4's `references/prototypes/doc-markup/kanna-doc`); once Kanna has `kanna doc`, use that with the same subcommands.

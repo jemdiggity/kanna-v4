@@ -855,7 +855,7 @@ S37() {
   start_daemon && start_app || return 1
   kanna open --name agent --cmd "$(probe '\033[?2004h' x 0)" >/dev/null || return 1
   check wait_for 5 shows agent READY || return 1
-  local dir="$KANNA_STATE_DIR/doc" fixture="$repo_root/prototypes/doc-markup/fixture" agent_id at xy
+  local dir="$KANNA_STATE_DIR/doc" fixture="$repo_root/references/prototypes/doc-markup/fixture" agent_id at xy
   mkdir -p "$dir/.git" "$dir/.kanna/docs"
   cp "$fixture/review.md" "$dir/review.md"
   sed "s|FILE|$dir/review.md|" "$fixture/review.threads.json" >"$dir/.kanna/docs/review.md.json"
@@ -898,9 +898,9 @@ print(len(v) if isinstance(v, list) else v)' "$1" "$2"; }
   check test "$(s37_md | field box)" == new || return 1
   key escape; check test "$(s37_md | field box)" == None || return 1
   check test "$(s37_count)" == 4 || return 1
-  "$repo_root/prototypes/doc-markup/kanna-doc" reply c4 --doc "$dir/review.md" "Fixed the wording." >/dev/null || return 1
+  "$repo_root/references/prototypes/doc-markup/kanna-doc" reply c4 --doc "$dir/review.md" "Fixed the wording." >/dev/null || return 1
   check wait_for 5 eval '[[ "$(s37_thread c4 messages)" == 2 ]]' || return 1
-  "$repo_root/prototypes/doc-markup/kanna-doc" resolve c4 --doc "$dir/review.md" >/dev/null || return 1
+  "$repo_root/references/prototypes/doc-markup/kanna-doc" resolve c4 --doc "$dir/review.md" >/dev/null || return 1
   check wait_for 5 eval '[[ "$(s37_thread c4 state)" == resolved ]]' || return 1
   raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
   sleep 0.5; s37_shot s37-dark
@@ -1049,7 +1049,7 @@ print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
   key return
   check wait_for 5 eval '[[ "$(s39_thread c1 messages)" == 2 ]]' || return 1
   key escape; check wait_for 5 eval '[[ "$(s39_web | field box)" == None ]]' || return 1
-  "$repo_root/prototypes/doc-markup/kanna-doc" reply c2 --doc "$dir/page.html" "Filled it." >/dev/null || return 1
+  "$repo_root/references/prototypes/doc-markup/kanna-doc" reply c2 --doc "$dir/page.html" "Filled it." >/dev/null || return 1
   check wait_for 5 eval '[[ "$(s39_thread c2 messages)" == 2 ]]' || return 1
   sed -i '' 's|<p>A page to mark up.</p>|<p>A page to mark up.</p><p>More above the button.</p>|' "$dir/page.html"
   check wait_for 5 eval 's39_web | field text | grep -q "More above"' || return 1
