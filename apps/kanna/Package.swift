@@ -17,11 +17,13 @@ let package = Package(
                 linkerSettings: ["AppKit"].map { .linkedFramework($0) }),
         .testTarget(name: "KannaMarkdownTests", dependencies: ["KannaMarkdown"]),
         .target(name: "KannaLinks"),
+        .target(name: "KannaDrop"),
+        .testTarget(name: "KannaDropTests", dependencies: ["KannaDrop"]),
         .testTarget(name: "KannaLinksTests", dependencies: ["KannaLinks"]),
         .target(name: "SimBridge", linkerSettings: ["AppKit", "IOSurface", "QuartzCore"].map { .linkedFramework($0) }),
         .executableTarget(
             name: "Kanna",
-            dependencies: ["GhosttyKit", "KannaLayoutC", "KannaDiagram", "KannaMarkdown", "KannaLinks", "SimBridge"],
+            dependencies: ["GhosttyKit", "KannaLayoutC", "KannaDiagram", "KannaMarkdown", "KannaLinks", "KannaDrop", "SimBridge"],
             linkerSettings: [.linkedLibrary("c++"), .unsafeFlags(["-L", rustLibraries])]
                 + ["AppKit", "Carbon", "CoreText", "IOSurface", "Metal", "QuartzCore", "UniformTypeIdentifiers", "WebKit"].map { .linkedFramework($0) }
         ),

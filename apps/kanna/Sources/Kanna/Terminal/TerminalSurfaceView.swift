@@ -27,6 +27,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         Self.lastSurfaceID += 1
         surfaceID = Self.lastSurfaceID
         super.init(frame: frameRect)
+        registerForDraggedTypes(Self.dropTypes)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -211,6 +212,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         defer { ghostty_surface_free_text(surface, &result) }
         return result.text.map { String(cString: $0) } ?? ""
     }
+
+    func insertDropped(_ text: String) { sendText(text) }
 
     private func sendText(_ text: String) {
         guard let surface else { return }

@@ -17,8 +17,15 @@ final class PaneSlot: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        paint()
     }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
+    private func paint() { layer?.backgroundColor = resolved(.windowBackgroundColor) }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }

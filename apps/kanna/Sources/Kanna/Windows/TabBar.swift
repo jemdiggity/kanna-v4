@@ -17,8 +17,17 @@ final class TabBar: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        paint()
     }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+        needsDisplay = true
+        subviews.forEach { $0.needsDisplay = true }
+    }
+
+    private func paint() { layer?.backgroundColor = resolved(.windowBackgroundColor) }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 

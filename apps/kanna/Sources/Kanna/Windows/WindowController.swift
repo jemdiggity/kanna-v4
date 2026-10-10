@@ -27,7 +27,6 @@ final class WindowController: NSObject, NSWindowDelegate {
         window.title = "Kanna"
         window.delegate = self
         stage.wantsLayer = true
-        stage.layer?.backgroundColor = NSColor.separatorColor.cgColor
         let size = window.contentLayoutRect.size
         let content = NSView(frame: NSRect(origin: .zero, size: size))
         content.wantsLayer = true
@@ -132,6 +131,15 @@ final class WindowController: NSObject, NSWindowDelegate {
 
 private final class StageView: NSView {
     var onLayout: (() -> Void)?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        paint()
+    }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+    private func paint() { layer?.backgroundColor = resolved(.separatorColor) }
     override func layout() {
         super.layout()
         onLayout?()

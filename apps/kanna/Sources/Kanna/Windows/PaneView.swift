@@ -27,7 +27,7 @@ final class PaneView: NSView {
 
         outline.wantsLayer = true
         outline.layer?.borderWidth = 2
-        outline.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.8).cgColor
+        outline.paint()
         outline.isHidden = true
         addSubview(outline)
 
@@ -60,4 +60,9 @@ final class PaneView: NSView {
 
 private final class Outline: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+    func paint() { layer?.borderColor = resolved(NSColor.controlAccentColor.withAlphaComponent(0.8)) }
 }

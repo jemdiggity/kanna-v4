@@ -555,6 +555,8 @@ sequenceDiagram
     Note over W: view → draw, saved ½ s later
 ```
 
+**Light and dark.** The window's own parts (the tab bar, the gaps between panes, an empty slot, the focus outline) follow the app's appearance as it changes: a colour given to a layer is resolved for the view's current appearance and given again when it changes, since a layer keeps the colour it was handed. `debug.snapshot` reports the tab bar's drawn colour, and S36 checks it in dark, light and dark again.
+
 **Terminal views.** A terminal's surface is made the first time its pane is on screen, and stays (attached to the daemon, drawing its output) until the pane leaves the layout, so switching tabs shows a live screen at once; a terminal in a tab never shown since launch keeps the size its pty has. Web, markdown and iOS views start when the daemon says `start` ([4.9](#49-web-markdown-and-ios-panes)) and are placed when shown.
 
 **Menus and shortcuts** are kmux's (its spec §5), with the shortcut the user's Ghostty config binds to the same action where there is one (`new_split:right`, `goto_split:next`, `toggle_split_zoom`, `new_tab`, `next_tab`, `increase_font_size:1`, `copy_to_clipboard`, …):
@@ -581,6 +583,7 @@ sequenceDiagram
 | `debug.drag {pane, to}`, `{tab, to}`, `{divider: pane, at}` | kmux's: a drag replayed along scripted points, with no hint shown; `to` is `{pane, x, y}` (fractions from the top left), `{tab}`, `{plus: window}` or `{outside: true}`; `divider` is the divider after that pane, moved to `at` of the pair |
 | `debug.menu` | every menu item: `{menu, item, shortcut}` |
 | `debug.pinch {pane, steps?}` | a trackpad pinch over a markdown pane; the zoom after each step |
+| `debug.drop {pane, files \| image \| text}` | a drop on a terminal: file paths, a PNG or TIFF file's data, or text, as a drag would bring them |
 | `debug.stats` | the app's pid and memory footprint |
 | `debug.snapshot {window?, path?, marker?}` | any window (default: the key one), with each pane's `notice` and the window's tab titles |
 | `debug.text {pane?}` | also the surface's `columns` and `rows` |
@@ -766,6 +769,7 @@ sequenceDiagram
 | Synchronized output (mode 2026) | Ghostty's | Ghostty's; a snapshot taken mid-update ends it after Ghostty's timeout | by hand |
 | Scrollback | Ghostty's `scrollback-limit` (10 MB default) | the daemon keeps 10 MB, no line limit; `read --lines` | kanna-vt tests, S34 |
 | Search | none | none, as kmux | — |
+| Dropping files, images or text | Ghostty's: file paths, shell-escaped and space-separated, or the text, pasted | the same, plus what Ghostty drops: a file promise (a screenshot's thumbnail, Mail, Photos) is saved and an image with no file (a browser's) is written as a PNG, both in `$TMPDIR/kanna-drops`, and its path pasted, so an agent in the pane gets the image | KannaDrop tests, S36 (`debug.drop`) |
 
 **Links** come from terminal output, which any program (or a file being `cat`ed) writes, so a click on one is treated as untrusted. Ghostty opens a link only on a click with ⌘ held; the app then decides, in `KannaLinks` (`UntrustedURL`, started from Ghostty's macOS app's rules for OSC 8 links and made stricter):
 
@@ -805,7 +809,7 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 **Not done:** OSC 5522 (kitty's clipboard protocol) gets only part of its replies; kitty graphics aren't in a snapshot, so images go when the app relaunches; an empty OSC 7 is ignored; a title isn't shown again after a relaunch until the program sets it.
 
-**Checked by** `crates/kanna-vt/tests/terminal.rs` (colour answers, scheme reports, cursor defaults, title and cwd changes, snapshots after widening), `crates/kanna-daemon/tests/terminal_behaviour.rs` (colour queries from the app's theme, also after a restart; scheme reports; the shell's folder in `list`), `apps/kanna/Tests/KannaLinksTests` (every link rule), and S30–S35 of `scripts/e2e-kanna.sh`: theme and light/dark with screenshots (S30), cwd and title (S31), paste, OSC 52 and selection (S32), kitty keys, mouse and focus reports after a relaunch (S33), font size and the pty, scrollback (S34), links, bell, notifications and progress (S35).
+**Checked by** `crates/kanna-vt/tests/terminal.rs` (colour answers, scheme reports, cursor defaults, title and cwd changes, snapshots after widening), `crates/kanna-daemon/tests/terminal_behaviour.rs` (colour queries from the app's theme, also after a restart; scheme reports; the shell's folder in `list`), `apps/kanna/Tests/KannaLinksTests` (every link rule), `apps/kanna/Tests/KannaDropTests` (escaping dropped paths), and S30–S36 of `scripts/e2e-kanna.sh`: theme and light/dark with screenshots (S30), cwd and title (S31), paste, OSC 52 and selection (S32), kitty keys, mouse and focus reports after a relaunch (S33), font size and the pty, scrollback (S34), links, bell, notifications and progress (S35), dropped files and images (S36).
 
 ### 4.13 Doc Markup
 

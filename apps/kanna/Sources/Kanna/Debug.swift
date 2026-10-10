@@ -40,6 +40,24 @@ extension AppController {
         commands["debug.stats"] = { _ in
             ["pid": .number(Double(ProcessInfo.processInfo.processIdentifier)), "footprint": .number(Double(memoryFootprint()))]
         }
+        commands["debug.drop"] = { [weak self] args in
+            guard let self else { return [:] }
+            let view = try terminal(args["pane"]?.string)
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name("dev.kanna.debug-drop.\(UUID().uuidString)"))
+            defer { pasteboard.releaseGlobally() }
+            pasteboard.clearContents()
+            if case .array(let list)? = args["files"] {
+                pasteboard.writeObjects(list.compactMap { $0.string.map { NSURL(fileURLWithPath: $0) } })
+            } else if let image = args["image"]?.string {
+                guard let data = FileManager.default.contents(atPath: image) else { throw KannaError("bad_request", "no such image: \(image)") }
+                pasteboard.setData(data, forType: image.lowercased().hasSuffix(".png") ? .png : .tiff)
+            } else if let text = args["text"]?.string {
+                pasteboard.setString(text, forType: .string)
+            } else {
+                throw KannaError("bad_request", "debug.drop needs files, image or text")
+            }
+            return ["dropped": .bool(view.drop(pasteboard))]
+        }
         commands["debug.pinch"] = { [weak self] args in try await self?.pinch(args) ?? [:] }
         commands["debug.text"] = { [weak self] args in
             guard let self else { return [:] }
@@ -61,7 +79,7 @@ extension AppController {
                 guard let view = panes[pane], view.window != nil else { return nil }
                 return (pane, view.terminal ?? view)
             }
-            var reply = try Snapshot.run(controller.window, id: id, panes: shown, path: args["path"]?.string, marker: args["marker"]?.string)
+            var reply = try Snapshot.run(controller.window, id: id, panes: shown, tabBar: controller.tabBar, path: args["path"]?.string, marker: args["marker"]?.string)
             if case .array(let list)? = reply["panes"] {
                 reply["panes"] = .array(list.map { entry in
                     guard case .object(var fields) = entry, let pane = entry["id"]?.string, let message = panes[pane]?.message else { return entry }

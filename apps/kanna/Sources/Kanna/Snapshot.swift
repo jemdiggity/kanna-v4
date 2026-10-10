@@ -10,7 +10,7 @@ enum Snapshot {
         return unsafeBitCast(symbol, to: CreateImage.self)
     }()
 
-    static func run(_ window: NSWindow, id: String, panes: [(id: String, view: NSView)], path: String?, marker: String?) throws -> [String: JSON] {
+    static func run(_ window: NSWindow, id: String, panes: [(id: String, view: NSView)], tabBar: NSView? = nil, path: String?, marker: String?) throws -> [String: JSON] {
         guard let image = createImage?(.null, CGWindowListOption.optionIncludingWindow.rawValue, UInt32(window.windowNumber), CGWindowImageOption([.boundsIgnoreFraming, .bestResolution]).rawValue)?.takeRetainedValue(),
               let data = image.dataProvider?.data else {
             throw KannaError("bad_request", "window capture unavailable")
@@ -26,7 +26,7 @@ enum Snapshot {
         }
         let scale = CGFloat(image.width) / window.frame.width
         let reader = Pixels(bytes: [UInt8](data as Data), image: image)
-        out["panes"] = .array(panes.map { id, view in
+        func measure(_ view: NSView) -> (rect: CGRect, background: RGB, fields: [String: JSON]) {
             let inWindow = view.convert(view.bounds, to: nil)
             let rect = CGRect(x: inWindow.minX * scale, y: (window.frame.height - inWindow.maxY) * scale, width: inWindow.width * scale, height: inWindow.height * scale)
             let background = reader.dominant(in: rect)
@@ -35,12 +35,18 @@ enum Snapshot {
                 total += 1
                 if $0.distance(to: background) > 60 { inked += 1 }
             }
-            var result: [String: JSON] = ["id": .string(id), "background": .string(background.description), "ink": .number(total == 0 ? 0 : (Double(inked) / Double(total) * 10000).rounded() / 10000)]
+            return (rect, background, ["background": .string(background.description), "ink": .number(total == 0 ? 0 : (Double(inked) / Double(total) * 10000).rounded() / 10000)])
+        }
+        out["panes"] = .array(panes.map { id, view in
+            let (rect, background, fields) = measure(view)
+            var result = fields
+            result["id"] = .string(id)
             if let marker, let terminal = view as? TerminalSurfaceView, let surface = terminal.surface {
                 result["marker"] = markerCheck(marker, terminal, surface, rect: rect, scale: scale, reader: reader, background: background)
             }
             return .object(result)
         })
+        if let tabBar { out["tabBar"] = .object(measure(tabBar).fields) }
         return out
     }
 

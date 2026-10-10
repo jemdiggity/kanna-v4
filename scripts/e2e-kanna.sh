@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S36) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -14,7 +14,7 @@ usage: scripts/e2e-kanna.sh [--through M0|M1|M2|M3|M4] [S1 S4 …]
                later ones are listed as not due
   S…           only these scenarios
 
-Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app
+Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app (or $KANNA_E2E_APP)
 (cargo build --workspace --release, scripts/build-kanna-app.sh). The private instance gets:
   KANNA_SOCKET     the daemon's socket (the CLI and the app connect to it)
   KANNA_STATE_DIR  where the daemon, keeper and app keep their files
@@ -25,7 +25,7 @@ USAGE
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin="$repo_root/target/release"
-app="$repo_root/target/Kanna.app/Contents/MacOS/Kanna"
+app="${KANNA_E2E_APP:-$repo_root/target/Kanna.app}/Contents/MacOS/Kanna"
 out="$repo_root/target/e2e-kanna"
 mkdir -p "$out"
 
@@ -801,10 +801,40 @@ deny:unsafeFile $dir/run.command" || { echo "$links"; return 1; }
   check test "$(terminal progress.value '{"pane":"s35"}')" == 40
 }
 
+lum() { python3 -c 'import sys
+r, g, b = bytes.fromhex(sys.argv[1].lstrip("#"))
+print(int(0.2126 * r + 0.7152 * g + 0.0722 * b))' "$1"; }
+tabbar() { raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$1.png\"}}" | field tabBar.background; cp "$KANNA_STATE_DIR/$1.png" "$out/$1.png" 2>/dev/null; }
+
+S36() {
+  start_daemon && start_app || return 1
+  kanna open --name s36 --cmd "$(probe '\033[?2004h' x 0)" >/dev/null || return 1
+  check wait_for 5 shows s36 READY || return 1
+  local shade n=0
+  for look in dark light dark; do
+    n=$((n + 1))
+    terminal background "{\"appearance\":\"$look\"}" >/dev/null 2>&1
+    sleep 0.5
+    shade="$(lum "$(tabbar "s36-$n-$look")")"
+    if [[ $look == dark ]]; then check test "$shade" -lt 96 || return 1; else check test "$shade" -gt 160 || return 1; fi
+  done
+  local file="$KANNA_STATE_DIR/Screen Shot (1).png"
+  printf '\x89PNG\r\n\x1a\n' >"$file"
+  raw "{\"id\":1,\"cmd\":\"debug.drop\",\"args\":{\"pane\":\"s36\",\"files\":[\"$file\",\"/tmp\"]}}" >/dev/null
+  check wait_for 5 eval 'kanna read s36 | tr -d "\\n" | sed "s/IN //g" | grep -qF "^[200~${KANNA_STATE_DIR}/Screen\\ Shot\\ \\(1\\).png /tmp^[201~"' || { kanna read s36; return 1; }
+  raw "{\"id\":1,\"cmd\":\"debug.drop\",\"args\":{\"pane\":\"s36\",\"image\":\"$file\"}}" >/dev/null
+  check wait_for 5 eval 'kanna read s36 | tr -d "\\n" | sed "s/IN //g" | grep -qE "kanna-drops/image-[0-9-]+-[0-9A-F]{8}\\.png\\^\\[201~"' || { kanna read s36; return 1; }
+  local dropped
+  dropped="$(kanna read s36 | tr -d "\n" | sed "s/IN //g" | grep -oE "/[^~]*kanna-drops/image-[0-9-]+-[0-9A-F]{8}\.png" | tail -1)"
+  check cmp -s "$file" "$dropped" || return 1
+  raw '{"id":1,"cmd":"debug.drop","args":{"pane":"s36","text":"S36 TEXT"}}' >/dev/null
+  check wait_for 5 eval 'kanna read s36 | tr -d "\\n" | sed "s/IN //g" | grep -qF "^[200~S36 TEXT^[201~"'
+}
+
 due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-6]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
