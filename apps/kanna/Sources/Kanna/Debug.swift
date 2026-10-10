@@ -134,6 +134,7 @@ extension AppController {
                 return .object(fields)
             })
             reply["marks"] = .object(markup.markRects.mapValues(point))
+            reply["badges"] = .array(markup.badges.map { .string($0) })
             reply["box"] = markup.commentBoxThread.map { .string($0) } ?? .null
             reply["active"] = markup.activeThread.map { .string($0) } ?? .null
             reply["agent"] = markup.agent.map { .string($0) } ?? .null

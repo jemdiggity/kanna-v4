@@ -1130,6 +1130,17 @@ PY
   check test "$(s39_thread c4 page.text)" == "A page to mark up." || return 1
   check wait_for 5 eval 'kanna read agent | sed "s/^IN //" | tr -d "\n " | grep -qF "[kannacommentc4·page.html:5]>thepage,thetext\"Apagetomarkup.\"inbody>p:nth-of-type(1)>box"' || { kanna read agent; return 1; }
   check wait_for 5 eval 's39_web | field marks | grep -q c4' || { s39_web; return 1; }
+  local size
+  size="$(raw '{"id":1,"cmd":"debug.web","args":{"pane":"page","js":"[innerWidth, innerHeight]"}}' | field value)"
+  s39_click "\"command\":true,\"at\":[4,38],\"to\":$(python3 -c 'import json, sys; w, h = json.loads(sys.argv[1]); print(json.dumps([w - 4, h + 30]))' "$size")"
+  check wait_for 5 eval '[[ "$(s39_web | field box)" == new ]]' || { s39_web; return 1; }
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Too busy overall"}}' >/dev/null
+  key cmd+return
+  check wait_for 5 eval '[[ "$(s39_thread c5 status)" == sent ]]' || { s39_web; return 1; }
+  key escape
+  check wait_for 5 eval '[[ "$(s39_web | field badges)" == "[\"c5\"]" ]]' || { echo "a comment on the whole view should be a badge"; s39_web; return 1; }
+  check test "$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])[0] < 60)' "$(s39_web | field marks.c5)")" == True || { s39_web; return 1; }
+  sleep 0.3; s39_shot s39-badge
   raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
   sleep 0.5; s39_shot s39-dark
 }

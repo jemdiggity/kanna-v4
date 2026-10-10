@@ -102,6 +102,11 @@ body.meta #doc img { cursor: crosshair; }
 #shield { position: absolute; inset: 0; z-index: 4; display: none; cursor: crosshair; }
 body.meta .reader.page #shield { display: block; }
 .imark.hover { pointer-events: none; z-index: 4; border-style: dashed; background: transparent; }
+.imark.region { pointer-events: none; z-index: 4; background: transparent; }
+.imark.region.done { background: transparent; }
+.badge { position: absolute; z-index: 6; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: var(--accent); color: white; font: 600 11.5px/22px var(--sans); text-align: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+.badge.done { background: rgba(128, 128, 128, 0.85); }
+.badge.on { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -299,18 +304,41 @@ function frameXY(e) {
   const r = frame().getBoundingClientRect();
   return [e.clientX - r.left, e.clientY - r.top];
 }
+function isLarge(b) {
+  const [w, h] = page.info.viewport;
+  return w > 0 && h > 0 && b.width * b.height > w * h / 2;
+}
 function drawPageMarks() {
   const reader = document.getElementById("reader");
-  reader.querySelectorAll(".imark:not(.draft):not(.hover)").forEach(m => m.remove());
+  reader.querySelectorAll(".imark:not(.draft):not(.hover), .badge").forEach(m => m.remove());
   for (const t of state.threads) {
     if (!onPage(t)) continue;
     const b = pageBox(t);
     if (!b) continue;
+    const kind = (t.state === "open" ? "" : " done") + (t.id === state.active ? " on" : "");
+    const open = e => { e.stopPropagation(); state.active = t.id; anchorAll(); document.querySelector(".card.on")?.scrollIntoView({ block: "nearest", behavior: "smooth" }); openPop(t.id); };
+    if (isLarge(b)) {
+      const [w, h] = page.info.viewport;
+      const region = document.createElement("div");
+      region.className = "imark region" + kind;
+      placeBox(region, b);
+      region.hidden = t.id !== state.active;
+      const badge = document.createElement("div");
+      badge.className = "badge" + kind;
+      badge.dataset.id = t.id;
+      badge.textContent = t.id;
+      Object.assign(badge.style, { left: Math.min(Math.max(b.left, 0), w - 40) + 6 + "px", top: Math.min(Math.max(b.top, 0), h - 30) + 6 + "px" });
+      badge.addEventListener("mouseenter", () => { region.hidden = false; });
+      badge.addEventListener("mouseleave", () => { region.hidden = t.id !== state.active; });
+      badge.addEventListener("click", open);
+      reader.append(region, badge);
+      continue;
+    }
     const m = document.createElement("div");
-    m.className = "imark" + (t.state === "open" ? "" : " done") + (t.id === state.active ? " on" : "");
+    m.className = "imark" + kind;
     m.dataset.id = t.id;
     placeBox(m, b);
-    m.addEventListener("click", e => { e.stopPropagation(); state.active = t.id; anchorAll(); document.querySelector(".card.on")?.scrollIntoView({ block: "nearest", behavior: "smooth" }); openPop(t.id); });
+    m.addEventListener("click", open);
     reader.appendChild(m);
   }
 }

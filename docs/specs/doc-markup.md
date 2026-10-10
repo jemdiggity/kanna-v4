@@ -56,6 +56,10 @@ Every doc works the same way; only what you can point at differs.
 
 ![A mockup in a web pane, with a part and a box marked and both threads listed](doc-markup-page.png)
 
+- **A comment on most of the view is a badge.** A mark covering more than half the view would hide the page under its tint, so it's drawn as a badge with the thread's ID at its top-left corner instead. Hovering the badge, or selecting the thread, outlines what it covers, untinted.
+
+![A comment on the whole window shown as a c1 badge, beside an ordinary mark](doc-markup-badge.png)
+
 - **Marks stay on what you pointed at.** A passage or selected text is found again by its words and the text around them; a part of a page by its place in the page and its text; a box by where it is on the image or page. They follow edits, reloads and zoom. Anything that can't be found again is kept and marked **detached**, never dropped.
 - **A page's view.** A thread on a page remembers which view of it it was on (the part of the URL after `#`), shows its mark only there, and takes you there when you open it from the list.
 - **Threads live beside the file, not in it.** A thread has an ID (`c1`, `c2`, … per doc), what it points at, its messages, and whether it's open or resolved.

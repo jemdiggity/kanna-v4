@@ -156,6 +156,7 @@ public final class PageMarkupView: NSView {
     public var markRects: [String: NSRect] {
         Dictionary(uniqueKeysWithValues: overlay.marks.compactMap { mark in mark.thread.map { ($0, overlay.convert(mark.frame, to: self)) } })
     }
+    public var badges: [String] { overlay.marks.filter { $0.label != nil }.compactMap(\.thread) }
     public var pageHash: String { pageHashValue }
 
     public func rect(of selector: String) async -> NSRect? {
@@ -195,20 +196,38 @@ public final class PageMarkupView: NSView {
     func drawMarks() {
         overlay.marks.forEach { $0.removeFromSuperview() }
         overlay.marks = []
+        let view = overlay.bounds
         for thread in record.threads where onPage(thread) {
             guard let rect = boxes[thread.id] else { continue }
-            let mark = MarkBox(kind: thread.id == active ? .active : thread.isOpen ? .open : .resolved)
-            mark.thread = thread.id
-            mark.frame = rect
-            mark.onPress = { [weak self] in
+            let kind: MarkBox.Kind = thread.id == active ? .active : thread.isOpen ? .open : .resolved
+            let press = { [weak self] in
                 guard let self else { return }
                 active = thread.id
                 drawMarks()
                 panel.reveal(thread.id)
                 openPop(thread.id)
             }
-            overlay.addSubview(mark, positioned: .below, relativeTo: nil)
-            overlay.marks.append(mark)
+            guard rect.width * rect.height > view.width * view.height / 2 else {
+                let mark = MarkBox(kind: kind)
+                mark.thread = thread.id
+                mark.frame = rect
+                mark.onPress = press
+                overlay.addSubview(mark, positioned: .below, relativeTo: nil)
+                overlay.marks.append(mark)
+                continue
+            }
+            let region = MarkBox(kind: .outline)
+            region.frame = rect
+            region.isHidden = thread.id != active
+            let badge = MarkBox(kind: kind, label: thread.id)
+            badge.thread = thread.id
+            let size = badge.badgeSize
+            badge.frame = NSRect(x: min(max(rect.minX, 0), view.width - size.width - 12) + 6, y: min(max(rect.minY, 0), view.height - size.height - 12) + 6, width: size.width, height: size.height)
+            badge.onPress = press
+            badge.onHover = { [weak self, weak region] inside in region?.isHidden = !inside && thread.id != self?.active }
+            overlay.addSubview(region, positioned: .below, relativeTo: nil)
+            overlay.addSubview(badge)
+            overlay.marks.append(contentsOf: [region, badge])
         }
         panel.show(record.threads, active: active, notes: notes())
         bar.threads.set("Threads \(record.threads.filter(\.isOpen).count)")
@@ -628,13 +647,16 @@ final class PageLayer: FlippedView {
 
 @MainActor
 final class MarkBox: FlippedView {
-    enum Kind { case open, resolved, active, hover, draft }
+    enum Kind { case open, resolved, active, hover, draft, outline }
     let kind: Kind
+    let label: String?
     var thread: String?
     var onPress: (() -> Void)?
+    var onHover: ((Bool) -> Void)?
 
-    init(kind: Kind) {
+    init(kind: Kind, label: String? = nil) {
         self.kind = kind
+        self.label = label
         super.init(frame: .zero)
         radius = 3
         paint()
@@ -642,12 +664,22 @@ final class MarkBox: FlippedView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    private var text: NSAttributedString? {
+        label.map { NSAttributedString(string: $0, attributes: [.font: NSFont.systemFont(ofSize: 11.5, weight: .semibold), .foregroundColor: NSColor.white]) }
+    }
+
+    var badgeSize: NSSize {
+        let width = ceil(text?.size().width ?? 0) + 14
+        return NSSize(width: max(22, width), height: 22)
+    }
+
     private func paint() {
+        guard label == nil else { fill = nil; return }
         switch kind {
         case .open: fill = DocTheme.tint
         case .active, .draft: fill = DocTheme.tintOn
         case .resolved: fill = DocTheme.resolvedTint
-        case .hover: fill = nil
+        case .hover, .outline: fill = nil
         }
     }
 
@@ -657,13 +689,41 @@ final class MarkBox: FlippedView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let grey = NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 0.7)
+        if let text {
+            let pill = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: bounds.height / 2 - 2, yRadius: bounds.height / 2 - 2)
+            (kind == .resolved ? grey : DocTheme.accent).setFill()
+            pill.fill()
+            if kind == .active {
+                let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75), xRadius: bounds.height / 2, yRadius: bounds.height / 2)
+                ring.lineWidth = 1.5
+                DocTheme.accent.setStroke()
+                ring.stroke()
+            }
+            let size = text.size()
+            text.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2))
+            return
+        }
         super.draw(dirtyRect)
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: radius, yRadius: radius)
         path.lineWidth = 2
         if kind == .hover || kind == .resolved { path.setLineDash([4, 3], count: 2, phase: 0) }
-        (kind == .resolved ? NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 0.7) : DocTheme.accent).setStroke()
+        (kind == .resolved ? grey : DocTheme.accent).setStroke()
         path.stroke()
     }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        kind == .outline ? nil : super.hitTest(point)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        if onHover != nil { addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self)) }
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
 
     override func mouseDown(with event: NSEvent) {
         if let onPress { onPress() } else { super.mouseDown(with: event) }
