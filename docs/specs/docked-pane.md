@@ -49,8 +49,6 @@ The right side needs nothing new: the window's own tabs already are a group of t
 | Action | Does |
 |---|---|
 | ⌘1 … ⌘9 | Show the window's 1st … 9th tab (a Kanna addition, for every window) |
-| Pane ▸ Dock Pane | Make the focused pane the window's docked pane (the previous one goes to a new tab) |
-| Pane ▸ Undock Pane | Move the docked pane into a new tab |
 | drag the divider | Resize |
 
 ## 4. CLI
