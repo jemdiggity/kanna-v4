@@ -141,7 +141,8 @@ def add_comment(file, quote, text, line, prefix="", suffix=""):
         t = {"id": tid, "quote": quote, "prefix": prefix, "suffix": suffix, "line": line, "state": "open",
              "status": "sent", "messages": [{"who": "you", "text": text, "at": now()}], "error": None}
         doc["threads"].append(t)
-        snapshot = json.loads(json.dumps(doc))
+        snapshot = with_lines(json.loads(json.dumps(doc)))
+        t = find_thread(snapshot, tid)
     error = send_to_agent(snapshot, message(snapshot, t, text))
     with locked(file) as doc:
         t2 = find_thread(doc, tid)
