@@ -26,6 +26,7 @@
    - 4.12 [Terminal Behaviour](#412-terminal-behaviour)
    - 4.13 [Doc Markup](#413-doc-markup)
    - 4.14 [Markdown Pane Keys](#414-markdown-pane-keys)
+   - 4.15 [Desk](#415-desk)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -818,6 +819,10 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 ### 4.14 Markdown Pane Keys
 
 **[Proposed]** Vim's scrolling and search keys in a focused markdown pane. Its own spec: [specs/markdown-keys.md](specs/markdown-keys.md).
+
+### 4.15 Desk
+
+**[Proposed]** A window that shows one task (an agent, its folder and its panes), with every other task parked on the Shelf below, agents still running; the look of kanna v3's Desk. Its own spec: [specs/desk.md](specs/desk.md), with a mockup in [mockups/desk.html](mockups/desk.html).
 
 ---
 

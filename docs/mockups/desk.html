@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desk Mockup</title>
+<style>
+:root {
+  --bg: #14161a; --panel: #1b1e24; --panel2: #22262d; --line: #2c313a; --text: #e6e8eb; --muted: #8b93a0;
+  --accent: #7aa2ff; --ok: #5fcf93; --warn: #f0b35a; --bad: #ef6b6b; --machine: #b48cff; --term: #16181c;
+  --tint: rgba(122, 162, 255, .18); --page: #0d0e10; --shadow: 0 20px 50px rgba(0,0,0,.5);
+  --mono: "SF Mono", ui-monospace, Menlo, monospace; --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+:root[data-theme="light"] {
+  --bg: #ffffff; --panel: #f4f5f7; --panel2: #eaecf0; --line: #d8dce2; --text: #1d2026; --muted: #6b7280;
+  --accent: #2f63d8; --ok: #1f9d5c; --warn: #b7791f; --bad: #cf3f3f; --machine: #7c4dcc; --term: #fbfbfc;
+  --tint: rgba(47, 99, 216, .14); --page: #dfe2e7; --shadow: 0 20px 50px rgba(0,0,0,.18);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 var(--sans); }
+main { padding: 20px; max-width: 1500px; margin: 0 auto; }
+body.picture main { padding: 0; max-width: none; }
+body.picture .intro { display: none; }
+.intro h1 { font-size: 15px; margin: 0 0 4px; }
+.intro p { color: var(--muted); margin: 0 0 12px; max-width: 920px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+button { font: 12px var(--sans); color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.ghost { background: transparent; }
+
+.window { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: var(--shadow); background: var(--bg); height: 720px; display: flex; flex-direction: column; }
+body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 100vh; }
+
+.bar { height: 44px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); display: block; }
+.brand { font-weight: 700; font-size: 14px; }
+.where { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.where b { color: var(--text); font-weight: 600; }
+.bar .spacer { flex: 1; }
+.pill { border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; color: var(--text); background: transparent; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.pill:hover { border-color: var(--accent); }
+.pill.accent { color: var(--accent); }
+
+.tabs { height: 32px; flex: none; display: flex; align-items: stretch; padding-left: 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.tab { display: flex; align-items: center; gap: 8px; padding: 0 14px; color: var(--muted); border-bottom: 2px solid transparent; cursor: default; }
+.tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.tab .x { color: var(--muted); font-size: 11px; }
+.tabs .plus { color: var(--muted); padding: 0 12px; display: flex; align-items: center; }
+
+.content { flex: 1; display: flex; min-height: 0; }
+.agent { flex: 0 0 34%; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.agent .head { flex: none; padding: 12px 14px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.agent .kind { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+.agent .title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 650; margin: 4px 0 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dot.working { background: var(--accent); box-shadow: 0 0 0 3px var(--tint); }
+.dot.needs { background: var(--warn); }
+.dot.idle { background: var(--ok); }
+.dot.exited { background: var(--muted); }
+.agent .tags { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.tag { color: var(--accent); }
+.tag.dim { color: var(--muted); }
+.term { flex: 1; min-height: 0; background: var(--term); font: 12px/1.6 var(--mono); padding: 10px 12px; white-space: pre-wrap; overflow: hidden; color: var(--text); }
+.term .c { color: var(--accent); } .term .p { color: var(--warn); } .term .g { color: var(--muted); } .term .m { color: var(--machine); } .term .ok { color: var(--ok); }
+.term .box { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin-top: 8px; }
+
+.work { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.work .split { flex: 1; display: flex; min-height: 0; }
+.pane { flex: 1; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.pane:last-child { border-right: 0; }
+.pane .strip { height: 32px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.pane .strip .path { font: 11.5px var(--mono); color: var(--text); }
+.pane .strip .spacer { flex: 1; }
+.pane .strip .chip { border: 1px solid var(--line); border-radius: 5px; padding: 1px 8px; color: var(--text); }
+.doc { flex: 1; overflow: auto; padding: 26px 32px; }
+.doc h2 { font-size: 24px; margin: 0 0 6px; }
+.doc .sub { color: var(--muted); margin: 0 0 18px; }
+.doc h3 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 20px 0 8px; }
+.doc p, .doc li { color: var(--text); opacity: .92; }
+.doc ul { padding-left: 18px; }
+.doc mark { background: var(--tint); color: inherit; border-bottom: 1.5px solid var(--accent); }
+.threads { flex: 0 0 260px; background: var(--panel); border-left: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.card { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; }
+.card .h { color: var(--muted); font: 11px var(--mono); margin-bottom: 4px; }
+.card .q { color: var(--muted); border-left: 2px solid var(--accent); padding-left: 7px; margin-bottom: 4px; }
+.card b.agent { color: var(--machine); }
+.web { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); background: var(--bg); }
+.web .site { width: 78%; max-width: 520px; border: 1px solid var(--line); border-radius: 10px; padding: 18px; background: var(--panel); }
+.web .site .row { height: 10px; border-radius: 5px; background: var(--panel2); margin: 10px 0; }
+.web .site .row.short { width: 55%; } .web .site .row.acc { background: var(--tint); width: 35%; height: 26px; }
+
+.empty { flex: 1; overflow: auto; padding: 40px 48px; }
+.empty h2 { margin: 0 0 4px; font-size: 22px; }
+.empty .sub { color: var(--muted); margin: 0 0 22px; }
+.group { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); margin-bottom: 14px; max-width: 760px; }
+.group .gh { padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+.group .gh b { color: var(--text); }
+.row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.row .t { flex: 1; min-width: 0; }
+.row .t .n { font-weight: 600; }
+.row .t .s { color: var(--muted); font-size: 12px; }
+.row .go { color: var(--accent); cursor: pointer; white-space: nowrap; }
+
+.shelf { height: 34px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 10px; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; }
+.shelf .label { font-weight: 700; letter-spacing: .06em; font-size: 11px; margin-right: 8px; }
+.shelf .item { display: flex; align-items: center; gap: 7px; padding: 3px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.shelf .item:hover { background: var(--panel2); }
+.shelf .item .meta { color: var(--muted); }
+.shelf .spacer { flex: 1; }
+.shelf .hint { color: var(--muted); white-space: nowrap; }
+
+.sheet { position: absolute; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: flex-start; justify-content: center; padding-top: 80px; }
+.sheet.on { display: flex; }
+.sheet .box { width: 440px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); }
+.sheet h3 { margin: 0 0 14px; font-size: 15px; }
+.field { margin-bottom: 12px; }
+.field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.field input, .field select { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: 13px var(--sans); }
+.field .note { color: var(--muted); font-size: 11.5px; margin-top: 4px; font-family: var(--mono); }
+.check { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+.sheet .row2 { display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="intro">
+    <h1>Desk: one task per window, the rest on the Shelf</h1>
+    <p>A task is a piece of work with its own agent, folder and panes. The Desk shows one; the Shelf below holds the others, their agents still running. Click a Shelf item to swap, Park to clear the Desk, + New Task to start one.</p>
+    <div class="controls">
+      <button id="theme">Light / dark</button>
+      <button id="park">Park</button>
+      <button id="new">New Task…</button>
+      <button id="ring">Shelf agent asks for you</button>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+  <div class="window" id="win">
+    <div class="bar">
+      <span class="lights"><i></i><i></i><i></i></span>
+      <span class="brand">Kanna</span>
+      <span class="where" id="where"></span>
+      <span class="spacer"></span>
+      <span class="pill accent" id="newBtn">+ New Task</span>
+    </div>
+    <div id="desk" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>
+    <div class="shelf" id="shelf"></div>
+    <div class="sheet" id="sheet">
+      <div class="box">
+        <h3>New Task</h3>
+        <div class="field"><label>Title</label><input id="ntTitle" value="Desk: one task per window"></div>
+        <div class="field"><label>Repository</label><select><option>~/work/kanna-v4</option><option>~/work/kmux</option><option>Choose…</option></select></div>
+        <div class="field"><label>Agent</label><select id="ntAgent"><option>claude</option><option>codex</option><option>shell only</option></select></div>
+        <label class="check"><input type="checkbox" checked> Work in its own worktree</label>
+        <div class="field"><div class="note" id="ntNote"></div></div>
+        <div class="row2"><button class="ghost" id="ntCancel">Cancel</button><button class="primary" id="ntCreate">Create ⏎</button></div>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+const slug = t => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
+const initial = () => ({
+  desk: "doc-markup",
+  tasks: [
+    { id: "doc-markup", title: "Doc markup reference model", repo: "kanna-v4", agent: "claude", status: "working", parked: null, kind: "doc" },
+    { id: "tab-bar-light", title: "Tab bar follows light mode", repo: "kanna-v4", agent: "codex", status: "idle", parked: "12m", kind: "web" },
+    { id: "s30-colours", title: "S30 colour queries fail", repo: "kanna-v4", agent: "claude", status: "idle", parked: "1h", kind: "doc" },
+  ],
+});
+let s = initial();
+const statusText = { working: "working", needs: "needs you", idle: "idle", exited: "exited" };
+const task = id => s.tasks.find(t => t.id === id);
+
+function render() {
+  const t = task(s.desk);
+  document.getElementById("where").innerHTML = t ? `Desk · <b>${t.title}</b> · ${t.repo} · task/${t.id}` : "Desk · empty";
+  const desk = document.getElementById("desk");
+  desk.innerHTML = t ? deskHTML(t) : emptyHTML();
+  desk.querySelectorAll("[data-pull]").forEach(el => el.onclick = () => pull(el.dataset.pull));
+  const newHere = desk.querySelector("[data-new]");
+  if (newHere) newHere.onclick = openSheet;
+  renderShelf();
+}
+
+function agentTerm(t) {
+  if (t.id === "doc-markup") return [
+    `<span class="c">~/work/kanna-v4/.kanna/worktrees/doc-markup</span> <span class="p">❯</span> claude`,
+    ``,
+    `<span class="p">&gt;</span> [kanna comment c2 · docs/specs/doc-markup.md:58]`,
+    `  &gt; Sent at once, never held.`,
+    `  Say what happens when the agent pane is closed.`,
+    ``,
+    `<span class="m">●</span> Updated docs/specs/doc-markup.md`,
+    `  kanna-doc reply c2 "Added: the toolbar says it wasn't sent."`,
+    `  kanna-doc resolve c2`,
+    ``,
+    `<span class="m">✻</span> <span class="g">Working… reading the prototype README</span>`,
+    `<div class="box"><span class="p">&gt;</span> <span class="g">Try "add a test for detached threads"</span></div>`,
+  ].join("\n");
+  return [
+    `<span class="c">~/work/kanna-v4/.kanna/worktrees/${t.id}</span> <span class="p">❯</span> ${t.agent}`,
+    ``,
+    `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : "Done. S36 passes; screenshots in light and dark attached."}`,
+    `<div class="box"><span class="p">&gt;</span> <span class="g">…</span></div>`,
+  ].join("\n");
+}
+
+function workHTML(t) {
+  if (t.kind === "doc") return `<div class="split"><div class="pane"><div class="strip"><span class="path">docs/specs/doc-markup.md</span><span class="spacer"></span><span>Agent: this task's</span><span class="chip">Comment ⌘↵</span><span class="chip">Threads 1</span></div>
+    <div style="flex:1;display:flex;min-height:0"><div class="doc"><h2>Doc Markup</h2><p class="sub">Comment on a markdown file in its pane, and the agent that opened it answers.</p>
+    <h3>Reaching the agent</h3><ul><li><mark>A comment is typed into the agent that opened the doc</mark>, as kanna send would, the moment you post it.</li><li>Sent at once, never held. Claude Code and Codex queue input that arrives during a turn.</li><li>No agent: posting still saves the thread, and the toolbar says it wasn't sent.</li></ul>
+    <h3>How it's built</h3><p>Threads live in the daemon, beside the terminals they're typed into, so reply and resolve work the same with the app closed.</p></div>
+    <div class="threads"><div class="card"><div class="h">c3 · line 54</div><div class="q">A comment is typed into the agent that opened the doc</div><div><b>you</b> What if that pane was restarted?</div></div></div></div></div></div>`;
+  return `<div class="split"><div class="pane"><div class="strip"><span class="path">localhost:5173</span><span class="spacer"></span><span>web</span></div><div class="web"><div class="site"><div class="row acc"></div><div class="row"></div><div class="row short"></div><div class="row"></div></div></div></div></div>`;
+}
+
+function deskHTML(t) {
+  const tabs = t.kind === "doc" ? ["Review", "Tests"] : ["Preview", "Logs"];
+  return `<div class="tabs">${tabs.map((n, i) => `<div class="tab ${i === 0 ? "on" : ""}">${n}<span class="x">×</span></div>`).join("")}<span class="plus">+</span></div>
+  <div class="content">
+    <div class="agent">
+      <div class="head">
+        <div class="kind"><span>${t.agent} · task</span><span class="pill" data-park>Park ↓</span></div>
+        <div class="title"><span class="dot ${t.status}" title="${statusText[t.status]}"></span>${t.title}</div>
+        <div class="tags"><span class="tag">${t.repo}</span><span class="tag dim">·</span><span class="tag">task/${t.id}</span><span class="tag dim">· ${statusText[t.status]}</span></div>
+      </div>
+      <div class="term">${agentTerm(t)}</div>
+    </div>
+    <div class="work">${workHTML(t)}</div>
+  </div>`;
+}
+
+function emptyHTML() {
+  const waiting = s.tasks.filter(t => t.id !== s.desk);
+  const byRepo = {};
+  waiting.forEach(t => (byRepo[t.repo] = byRepo[t.repo] || []).push(t));
+  return `<div class="empty"><h2>Desk is empty</h2><p class="sub">One thing at a time. Pull a task from the Shelf, or start a new one.</p>
+    ${Object.entries(byRepo).map(([repo, list]) => `<div class="group"><div class="gh"><span><b>${repo}</b></span><span>${list.length} parked</span></div>
+      ${list.map(t => `<div class="row"><span class="dot ${t.status}"></span><div class="t"><div class="n">${t.title}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${t.parked || "now"} · task/${t.id}</div></div><span class="go" data-pull="${t.id}">Pull →</span></div>`).join("")}</div>`).join("")}
+    <button class="primary" data-new>+ New Task</button></div>`;
+}
+
+function renderShelf() {
+  const shelf = document.getElementById("shelf");
+  const parked = s.tasks.filter(t => t.id !== s.desk);
+  shelf.innerHTML = `<span class="label">SHELF</span>` + parked.map(t => `<span class="item" data-pull="${t.id}"><span class="dot ${t.status}"></span>${t.title}<span class="meta">· ${t.status === "needs" ? "needs you" : "parked " + (t.parked || "now")}</span></span>`).join("") + `<span class="spacer"></span><span class="hint">Desk holds one. Click to swap.</span>`;
+  shelf.querySelectorAll("[data-pull]").forEach(el => el.onclick = () => pull(el.dataset.pull));
+  document.querySelectorAll("[data-park]").forEach(el => el.onclick = park);
+}
+
+function pull(id) {
+  const cur = task(s.desk);
+  if (cur) cur.parked = "now";
+  s.desk = id;
+  const t = task(id);
+  t.parked = null;
+  if (t.status === "needs") t.status = "idle";
+  render();
+}
+function park() { const cur = task(s.desk); if (cur) { cur.parked = "now"; s.desk = null; } render(); }
+
+function openSheet() { document.getElementById("sheet").classList.add("on"); note(); document.getElementById("ntTitle").focus(); }
+function note() {
+  const id = slug(document.getElementById("ntTitle").value) || "task";
+  document.getElementById("ntNote").textContent = `~/work/kanna-v4/.kanna/worktrees/${id}  ·  branch task/${id}`;
+}
+document.getElementById("ntTitle").oninput = note;
+document.getElementById("ntCancel").onclick = () => document.getElementById("sheet").classList.remove("on");
+document.getElementById("ntCreate").onclick = () => {
+  const title = document.getElementById("ntTitle").value.trim() || "Untitled";
+  const id = slug(title);
+  s.tasks.push({ id, title, repo: "kanna-v4", agent: document.getElementById("ntAgent").value.split(" ")[0], status: "working", parked: null, kind: "web" });
+  document.getElementById("sheet").classList.remove("on");
+  pull(id);
+};
+document.getElementById("newBtn").onclick = openSheet;
+document.getElementById("new").onclick = openSheet;
+document.getElementById("park").onclick = park;
+document.getElementById("ring").onclick = () => { const t = s.tasks.find(t => t.id !== s.desk); if (t) { t.status = "needs"; render(); } };
+document.getElementById("theme").onclick = () => { const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "" : "light"; };
+document.getElementById("reset").onclick = () => { s = initial(); render(); };
+if (location.hash.includes("picture")) document.body.classList.add("picture");
+if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
+if (location.hash.includes("empty")) { s.desk = null; }
+if (location.hash.includes("needs")) s.tasks[1].status = "needs";
+render();
+</script>
+</body>
+</html>
