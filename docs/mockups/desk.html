@@ -233,7 +233,7 @@ function deskHTML(t) {
   return `<div class="content">
     <div class="agent">
       <div class="head">
-        <div class="kind"><span>${t.agent} · docked</span><span class="pill" data-park>Park ↓</span></div>
+        <div class="kind"><span>${t.agent}</span><span class="pill" data-park>Park ↓</span></div>
         <div class="title"><span class="dot ${t.status}" title="${statusText[t.status]}"></span>${t.title}</div>
         <div class="tags"><span class="tag">~/work/${t.repo}</span><span class="tag dim">·</span><span class="tag">${t.branch}</span><span class="tag dim">· ${statusText[t.status]}</span></div>
       </div>
