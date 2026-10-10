@@ -150,7 +150,7 @@ fn run() -> Result<(), String> {
     };
 
     let mut env = vec![("KANNA_SOCKET".to_string(), socket_path.clone()), ("KANNA_INSTANCE".to_string(), instance.clone())];
-    env.extend(shell::env(&state_dir, std::env::var("ZDOTDIR").ok()));
+    env.extend(shell::env(&state_dir, &kanna_keeper::login_shell(), std::env::var("ZDOTDIR").ok()));
     let terminals = Rc::new(Terminals::new(keeper.clone(), store, events.clone(), env));
     *terminals.core.borrow_mut() = Some(core.weak());
     let rules = kanna_detect::Store::new(status_command::rules_config(&state_dir));

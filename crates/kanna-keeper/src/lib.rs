@@ -8,6 +8,13 @@ mod sig;
 
 use serde_json::{json, Value};
 
+pub fn login_shell() -> std::ffi::OsString {
+    std::env::var_os("SHELL")
+        .filter(|s| !s.is_empty())
+        .or_else(|| ghostty_env::current_user().map(|u| u.shell).filter(|s| !s.is_empty()))
+        .unwrap_or_else(|| "/bin/sh".into())
+}
+
 pub const PROTOCOL_VERSION: u64 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
