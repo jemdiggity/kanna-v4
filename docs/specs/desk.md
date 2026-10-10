@@ -44,11 +44,11 @@ flowchart LR
 ```
 
 - **One task per Desk.** Pulling a task onto a Desk parks the one it held; a task on another Desk brings that window forward instead. Closing a Desk window parks its task.
-- **The agent pane** is the agent in its terminal, untouched, with a header: the task's name, folder, branch, [status](agent-status.md) and **Park ↓**. It's the only chat: you talk to the agent there, and doc comments arrive there ([doc markup](doc-markup.md)).
+- **The agent pane** is the agent in its terminal, untouched, with a header: the task's name, folder, branch, [status](agent-status.md) and Park, an icon named in its tooltip. It's the only chat: you talk to the agent there, and doc comments arrive there ([doc markup](doc-markup.md)).
 - **Docs are the window's tabs.** Each is an ordinary tab: markdown (with comments), a web page, an image, video or PDF (shown in a web pane), or a terminal (tests, a server), and a tab can hold splits.
   - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, a markdown link, or **+**.
   - Opening a file that's already open shows its tab.
-- **The Kanna bar** (top) names the Desk and its task.
+- **The title bar** (top) shows only the task's title (or Shelf, with no task on the Desk).
 - **With no task on it, the Desk shows the Shelf in full:** every task grouped by folder, each with **Pull →**, under a short encouraging line that changes each time the Shelf comes up.
 - **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
 
@@ -78,7 +78,7 @@ flowchart TB
     end
     subgraph desk["Desk layer (app)"]
         T["Shelf: parked docks and tabs"]
-        C["Desk chrome<br/>Kanna bar · agent header · Shelf"]
+        C["Desk chrome<br/>title bar · agent header · Shelf"]
     end
     T <-->|"park / pull"| W
     C --> W
@@ -86,7 +86,7 @@ flowchart TB
 ```
 
 - **The mux layer does the layout.** A Desk is an ordinary window with a [docked pane](docked-pane.md) and tabs. Nothing in the mux layer knows about tasks.
-- **The Desk layer is chrome and the Shelf.** The app keeps parked tasks (their dock and tabs, and when they were parked), saved with the windows ([4.7](../kanna-spec.md#47-the-layout)). The Kanna bar, agent header and Shelf are app views around the window's content.
+- **The Desk layer is chrome and the Shelf.** The app keeps parked tasks (their dock and tabs, and when they were parked), saved with the windows ([4.7](../kanna-spec.md#47-the-layout)). The title bar, agent header and Shelf are app views around the window's content.
 - **Parking** moves the task's dock and tabs off the window; the panes keep their IDs, and their terminals never notice.
 - **`kanna task` commands** are layout commands: they go to the app like `open --split`, and start it if it's closed.
 

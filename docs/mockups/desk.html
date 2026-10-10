@@ -35,12 +35,13 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .bar { height: 44px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .lights { display: flex; gap: 8px; }
 .lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); display: block; }
-.brand { font-weight: 700; font-size: 14px; }
 .where { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .where b { color: var(--text); font-weight: 600; }
 .bar .spacer { flex: 1; }
 .pill { border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; color: var(--text); background: transparent; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .pill:hover { border-color: var(--accent); }
+.pill.icon { padding: 4px 6px; display: inline-flex; color: var(--muted); }
+.pill.icon:hover { color: var(--text); }
 .pill.accent { color: var(--accent); }
 
 .tabs { height: 32px; flex: none; display: flex; align-items: stretch; padding-left: 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
@@ -145,7 +146,6 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
   <div class="window" id="win">
     <div class="bar">
       <span class="lights"><i></i><i></i><i></i></span>
-      <span class="brand">Kanna</span>
       <span class="where" id="where"></span>
       <span class="spacer"></span>
     </div>
@@ -168,7 +168,7 @@ const task = id => s.tasks.find(t => t.id === id);
 
 function render() {
   const t = task(s.desk);
-  document.getElementById("where").innerHTML = t ? `Desk · <b>${t.title}</b> · ~/work/${t.repo} · ${t.branch}` : "Desk · Shelf";
+  document.getElementById("where").innerHTML = t ? `<b>${t.title}</b>` : "<b>Shelf</b>";
   const desk = document.getElementById("desk");
   desk.innerHTML = t ? deskHTML(t) : emptyHTML();
   desk.querySelectorAll("[data-pull]").forEach(el => el.onclick = () => pull(el.dataset.pull));
@@ -232,7 +232,7 @@ function deskHTML(t) {
   return `<div class="content">
     <div class="agent">
       <div class="head">
-        <div class="title"><span class="dot ${t.status}" title="${statusText[t.status]}"></span>${t.title}<span style="flex:1"></span><span class="pill" data-park>Park ↓</span></div>
+        <div class="title"><span class="dot ${t.status}" title="${statusText[t.status]}"></span>${t.title}<span style="flex:1"></span><span class="pill icon" data-park title="Park"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v7M5 6.5 8 9.5l3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2"/></svg></span></div>
         <div class="tags"><span class="tag">~/work/${t.repo}</span><span class="tag dim">·</span><span class="tag">${t.branch}</span><span class="tag dim">· ${statusText[t.status]}</span></div>
       </div>
       <div class="term">${agentTerm(t)}</div>
