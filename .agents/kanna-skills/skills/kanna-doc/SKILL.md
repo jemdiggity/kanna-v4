@@ -15,6 +15,17 @@ what they want
 
 `c2` is the comment's thread in that doc. Later messages with the same header are the user's replies in that thread.
 
+A comment on an image says which image and which part of it, and where a copy with that part boxed in red is:
+
+```
+[kanna comment c4 · docs/specs/desk.md:9]
+> image desk.png, the box from 5%,20% to 30%,50% (left,top to right,bottom)
+> marked up: .kanna/docs/marks/docs__specs__desk.md-c4.png
+The agent header needs the branch.
+```
+
+Open the marked-up copy (it's relative to the repo root) to see what they mean before you answer.
+
 ## Answering a comment
 
 1. Read the passage in the file (the line is where it is now) and do what the comment asks: change the doc, or answer the question.
