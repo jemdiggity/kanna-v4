@@ -1,4 +1,5 @@
 import AppKit
+import KannaDocs
 import WebKit
 
 @MainActor
@@ -11,10 +12,15 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
     private let notice = NSTextField(wrappingLabelWithString: "")
     private var editor: NSTextField?
     private var retry: Timer?
+    private let relay: PageMarkupRelay
+    private(set) var markup: PageMarkupView?
+    var agent: String? { didSet { markup?.agent = agent } }
+    var onSend: ((String, String, @escaping (String?) -> Void) -> Void)? { didSet { markup?.onSend = onSend } }
 
     init(url: String) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        relay = PageMarkupView.install(on: configuration)
         webView = FocusReportingWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
         webView.navigationDelegate = self
@@ -37,7 +43,27 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
             return
         }
         self.url = url
+        markUp(url)
         webView.load(URLRequest(url: url))
+    }
+
+    private func markUp(_ url: URL?) {
+        let page = PageMarkupView.page(for: url)
+        guard page != markup?.path else { return }
+        markup?.stop()
+        markup?.removeFromSuperview()
+        markup = nil
+        if let page {
+            let view = PageMarkupView(path: page, webView: webView)
+            view.agent = agent
+            view.onSend = onSend
+            addSubview(view, positioned: .below, relativeTo: notice)
+            markup = view
+        } else {
+            addSubview(webView, positioned: .below, relativeTo: notice)
+        }
+        relay.target = markup
+        needsLayout = true
     }
 
     var zoom: CGFloat { webView.magnification }
@@ -52,12 +78,13 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
 
     func stop() {
         retry?.invalidate()
+        markup?.stop()
         webView.stopLoading()
     }
 
     override func layout() {
         super.layout()
-        webView.frame = bounds
+        if let markup { markup.frame = bounds } else { webView.frame = bounds }
         let width = min(bounds.width - 40, 420)
         let size = notice.sizeThatFits(NSSize(width: width, height: .greatestFiniteMagnitude))
         notice.frame = NSRect(x: (bounds.width - width) / 2, y: (bounds.height - size.height) / 2, width: width, height: size.height)
@@ -76,6 +103,7 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
             url = current
             onURLChange?(current.absoluteString)
         }
+        markUp(webView.url)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

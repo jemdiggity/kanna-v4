@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import KannaDocs
 
 extension AppController {
     func installCommands() {
@@ -109,7 +110,30 @@ extension AppController {
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
             let text = try? await web.webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
-            return ["url": web.webView.url.map { .string($0.absoluteString) } ?? .null, "text": .string(text ?? ""), "zoom": .number(Double(web.zoom))]
+            var reply: [String: JSON] = ["url": web.webView.url.map { .string($0.absoluteString) } ?? .null, "text": .string(text ?? ""), "zoom": .number(Double(web.zoom))]
+            guard let markup = web.markup else { return reply }
+            let point = { (rect: NSRect) -> JSON in [.number(Double(rect.midX)), .number(Double(markup.bounds.height - rect.midY))] }
+            if let selector = args["find"]?.string {
+                guard let rect = await markup.rect(of: selector) else { throw KannaError("not_found", "nothing matches \(selector)") }
+                return ["at": point(rect), "width": .number(Double(rect.width)), "height": .number(Double(rect.height))]
+            }
+            reply["threads"] = .array(markup.threads.map { thread in
+                var fields: [String: JSON] = ["id": .string(thread.id), "quote": .string(thread.quote), "line": .number(Double(thread.line)), "state": .string(thread.state),
+                                              "status": thread.status.map { .string($0) } ?? .null, "error": thread.error.map { .string($0) } ?? .null,
+                                              "mark": thread.mark.map { .string($0) } ?? .null,
+                                              "messages": .array(thread.messages.map { .string("\($0.who): \($0.text)") })]
+                if let page = thread.page {
+                    fields["page"] = ["selector": .string(page.selector), "text": .string(page.text), "hash": .string(page.hash),
+                                      "box": .array(page.box.map { .number(Double($0)) })]
+                }
+                return .object(fields)
+            })
+            reply["marks"] = .object(markup.markRects.mapValues(point))
+            reply["box"] = markup.commentBoxThread.map { .string($0) } ?? .null
+            reply["active"] = markup.activeThread.map { .string($0) } ?? .null
+            reply["agent"] = markup.agent.map { .string($0) } ?? .null
+            reply["hash"] = .string(markup.pageHash)
+            return reply
         }
         commands["debug.md"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let markdown = contents.markdown(id) else { throw KannaError("wrong_type", "not a running md pane") }
@@ -223,13 +247,28 @@ extension AppController {
             window.sendEvent(down)
             return [:]
         }
+        PageMarkupView.scriptedCommand = args["command"]?.bool == true
+        var drag: NSPoint?
+        if case .array(let list)? = args["to"], let reference = args["pane"]?.string, let view = panes[try resolve(reference)] {
+            let to = list.compactMap(\.number).map { CGFloat($0) }
+            guard to.count == 2 else { throw KannaError("bad_request", "to is [x, y]") }
+            drag = view.convert(NSPoint(x: to[0], y: view.bounds.height - to[1]), to: nil)
+        }
         for count in 1...max(1, Int(args["clicks"]?.number ?? 1)) {
-            func event(_ type: NSEvent.EventType) -> NSEvent? {
-                NSEvent.mouseEvent(with: type, location: point, modifierFlags: args["command"]?.bool == true ? [.command] : [],
+            func event(_ type: NSEvent.EventType, at location: NSPoint? = nil) -> NSEvent? {
+                NSEvent.mouseEvent(with: type, location: location ?? point, modifierFlags: args["command"]?.bool == true ? [.command] : [],
                                    timestamp: ProcessInfo.processInfo.systemUptime,
                                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1)
             }
-            guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { continue }
+            guard let down = event(.leftMouseDown), let up = event(.leftMouseUp, at: drag) else { continue }
+            if let drag {
+                for step in 1...4 {
+                    let t = CGFloat(step) / 4
+                    if let moved = event(.leftMouseDragged, at: NSPoint(x: point.x + (drag.x - point.x) * t, y: point.y + (drag.y - point.y) * t)) {
+                        NSApp.postEvent(moved, atStart: false)
+                    }
+                }
+            }
             NSApp.postEvent(up, atStart: false)
             if window.isKeyWindow {
                 NSApp.sendEvent(down)

@@ -159,6 +159,45 @@ public struct DocStore {
         return result
     }
 
+    var marksFolder: String { (path as NSString).deletingLastPathComponent + "/marks" }
+
+    func markFile(_ id: String) -> String {
+        marksFolder + "/" + ((path as NSString).lastPathComponent as NSString).deletingPathExtension + "-\(id).png"
+    }
+
+    static let png = Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+    public func mark(_ id: String) -> String? {
+        guard Self.isThreadID(id), let data = Self.readNoFollow(markFile(id)), data.starts(with: Self.png) else { return nil }
+        return Self.relative(markFile(id), to: Self.repoRoot(of: file))
+    }
+
+    @discardableResult
+    public func saveMark(_ id: String, png data: Data) throws -> String {
+        guard Self.isThreadID(id), data.starts(with: Self.png) else { throw CocoaError(.fileWriteInvalidFileName) }
+        let docs = (path as NSString).deletingLastPathComponent
+        try Self.realFolder((docs as NSString).deletingLastPathComponent)
+        try Self.realFolder(docs)
+        try Self.realFolder(marksFolder)
+        let target = markFile(id)
+        let temporary = target + ".\(UUID().uuidString).tmp"
+        let fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
+        guard fd >= 0 else { throw CocoaError(.fileWriteNoPermission) }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            unlink(temporary)
+            throw error
+        }
+        guard rename(temporary, target) == 0 else {
+            unlink(temporary)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return Self.relative(target, to: Self.repoRoot(of: file))
+    }
+
     public static func isThreadID(_ id: String) -> Bool {
         id.count > 1 && id.count < 12 && id.first == "c" && id.dropFirst().allSatisfy(\.isASCII) && id.dropFirst().allSatisfy(\.isNumber)
     }
@@ -185,11 +224,31 @@ public struct DocStore {
         }))
     }
 
-    public static func message(_ thread: DocThread, file: String, text: String, quoted: Bool = true) -> String {
+    public static func message(_ thread: DocThread, file: String, text: String, quoted: Bool = true, mark: String? = nil) -> String {
         let header = "[kanna comment \(oneLine(thread.id)) · \(oneLine(file)):\(thread.line)]"
+        if let page = thread.page {
+            var lines = ["> " + describe(page)]
+            if page.box.count == 4, page.viewport.count == 2, page.scroll.count == 2 {
+                let b = page.box
+                lines.append("> box \(b[0]),\(b[1]) to \(b[0] + b[2]),\(b[1] + b[3]) px in a \(page.viewport[0])×\(page.viewport[1]) view, scrolled to \(page.scroll[0]),\(page.scroll[1])")
+            }
+            if let mark { lines.append("> marked up: " + oneLine(mark)) }
+            return "\(header)\n\(lines.joined(separator: "\n"))\n\(text)"
+        }
         guard quoted else { return "\(header)\n\(text)" }
         let lines = clean(thread.quote).components(separatedBy: "\n").map { "> " + oneLine($0) }
         return "\(header)\n\(lines.joined(separator: "\n"))\n\(text)"
+    }
+
+    public static func describe(_ page: PageSpot) -> String {
+        let flat = { (text: String, cap: Int) -> String in
+            let one = oneLine(text.split(whereSeparator: \.isWhitespace).joined(separator: " "))
+            return one.count <= cap ? one : String(one.prefix(cap - 1)) + "…"
+        }
+        let hash = flat(page.hash, 100), selector = flat(page.selector, 200), text = flat(page.text, 120)
+        let place = hash.isEmpty ? "the page" : "the page at \(hash)"
+        guard !selector.isEmpty else { return "\(place), a box" }
+        return "\(place), element \(selector)" + (text.isEmpty ? "" : " \"\(text)\"")
     }
 
     public static func line(of quote: String, in source: String, near hint: Int) -> Int {

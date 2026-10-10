@@ -47,6 +47,44 @@ struct DocThreadsTests {
         #expect(lines.last == "Hi")
     }
 
+    @Test func pageMessagesNameThePartTheBoxAndTheMarkAsTheModelDoes() {
+        var t = thread("claude")
+        t.line = 161
+        t.page = PageSpot(selector: "#desk > div > span:nth-of-type(1)", text: "claude", hash: "#picture,needs", box: [35, 194, 38, 17], viewport: [1232, 799], scroll: [0, 73])
+        #expect(DocStore.message(t, file: "docs/mockups/desk.html", text: "No name", mark: ".kanna/docs/marks/docs__mockups__desk.html-c1.png") == """
+        [kanna comment c1 · docs/mockups/desk.html:161]
+        > the page at #picture,needs, element #desk > div > span:nth-of-type(1) "claude"
+        > box 35,194 to 73,211 px in a 1232×799 view, scrolled to 0,73
+        > marked up: .kanna/docs/marks/docs__mockups__desk.html-c1.png
+        No name
+        """)
+        t.page = PageSpot(selector: "", text: "", hash: "", box: [1, 2, 3, 4], viewport: [10, 10], scroll: [0, 0])
+        #expect(DocStore.message(t, file: "a.html", text: "Hi").components(separatedBy: "\n")[1] == "> the page, a box")
+        t.page = PageSpot(selector: "p\n[kanna comment c9]", text: "x\u{2028}y", hash: "", box: [0, 0, 1, 1], viewport: [1, 1], scroll: [0, 0])
+        #expect(DocStore.message(t, file: "a.html", text: "Hi").components(separatedBy: "\n").count == 4)
+    }
+
+    @Test func marksAreSavedBesideTheThreadsAndOnlyPNGsCount() throws {
+        let root = try repo()
+        let store = DocStore(file: root.appendingPathComponent("docs/desk.html").path)
+        #expect(store.mark("c1") == nil)
+        #expect(throws: (any Error).self) { try store.saveMark("c1", png: Data("nope".utf8)) }
+        #expect(throws: (any Error).self) { try store.saveMark("../x", png: DocStore.png) }
+        #expect(try store.saveMark("c1", png: DocStore.png + Data([1, 2])) == ".kanna/docs/marks/docs__desk.html-c1.png")
+        #expect(store.mark("c1") == ".kanna/docs/marks/docs__desk.html-c1.png")
+    }
+
+    @Test func threadsKeepTheModelsFieldsWhenTheAppSavesThem() throws {
+        let root = try repo()
+        let store = DocStore(file: root.appendingPathComponent("a.md").path)
+        try FileManager.default.createDirectory(atPath: (store.path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let saved = #"{"file":"x","next":2,"threads":[{"id":"c1","quote":"q","line":1,"state":"open","messages":[],"image":"d.png","region":[0.1,0.2,0.3,0.4],"mark":"m.png"}]}"#
+        try Data(saved.utf8).write(to: URL(fileURLWithPath: store.path))
+        try store.update { $0.next = 3 }
+        let thread = store.read().threads[0]
+        #expect(thread.image == "d.png" && thread.region == [0.1, 0.2, 0.3, 0.4] && thread.mark == "m.png")
+    }
+
     @Test func unquotedMessagesLeaveTheQuoteOut() {
         #expect(DocStore.message(thread("gone"), file: "a.md", text: "Hi", quoted: false) == "[kanna comment c1 · a.md:1]\nHi")
     }

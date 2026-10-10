@@ -105,6 +105,7 @@ package final class DocBar: FlippedView {
     package let agent = Chip("")
     package let comment = Chip("Comment ⌘↵")
     package let threads = Chip("Threads")
+    package var showsComment = true { didSet { comment.isHidden = !showsComment; needsLayout = true } }
 
     package init() {
         super.init(frame: .zero)
@@ -122,7 +123,7 @@ package final class DocBar: FlippedView {
     package override func layout() {
         super.layout()
         var x = bounds.width - 10
-        for chip in [threads, comment, agent] {
+        for chip in [threads, comment, agent] where !chip.isHidden {
             x -= chip.frame.width
             chip.frame.origin = NSPoint(x: x, y: 6)
             x -= 10
@@ -395,6 +396,7 @@ package final class ThreadPanel: FlippedView {
     package var onAct: ((DocThread) -> Void)?
     package var onReply: ((String, String) -> Void)?
     package var showResolved = false
+    package var emptyText = "No comments yet. Select text and press ⌘↵, or ⌘-click a word."
     private(set) var cards: [ThreadCard] = []
     private var last: (threads: [DocThread], active: String?, notes: [String: String], showResolved: Bool, width: CGFloat)?
 
@@ -451,7 +453,7 @@ package final class ThreadPanel: FlippedView {
         y += 16
         let shown = open + (showResolved ? resolved : [])
         if shown.isEmpty {
-            let empty = NSTextField(wrappingLabelWithString: "No comments yet. Select text and press ⌘↵, or ⌘-click a word.")
+            let empty = NSTextField(wrappingLabelWithString: emptyText)
             empty.font = DocTheme.small
             empty.textColor = DocTheme.dim
             empty.frame = NSRect(x: 10, y: y + 8, width: width - 20, height: ceil(empty.sizeThatFits(NSSize(width: width - 20, height: .greatestFiniteMagnitude)).height))

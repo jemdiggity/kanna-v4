@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S38, S40) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S40) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-8]|S40) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S40) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -976,6 +976,86 @@ assert lone["dock"]["edge"] == "left" and lone["tabs"] == [], lone' "$KANNA_STAT
   check drawn "$(snap "$main" s38-restored)" 2
 }
 
+S39() {
+  start_daemon && start_app || return 1
+  kanna open --name agent --cmd "$(probe '\033[?2004h' x 0)" >/dev/null || return 1
+  check wait_for 5 shows agent READY || return 1
+  local dir="$KANNA_STATE_DIR/page" agent_id xy mark
+  mkdir -p "$dir/.git"
+  cat >"$dir/page.html" <<'HTML'
+<!doctype html>
+<html><head><meta charset="utf-8"><style>body { font: 16px sans-serif; margin: 40px; } button { font-size: 22px; padding: 10px 24px; }</style></head>
+<body>
+<h1>Mockup</h1>
+<p>A page to mark up.</p>
+<button id="go">Ship it</button>
+</body></html>
+HTML
+  agent_id="$(pane agent id)"
+  KANNA_PANE="$agent_id" kanna open web --name page --tab "$dir/page.html" >/dev/null || return 1
+  s39_web() { raw "{\"id\":1,\"cmd\":\"debug.web\",\"args\":{\"pane\":\"page\"${1:-}}}"; }
+  s39_thread() { s39_web | field threads | python3 -c 'import json, sys
+t = [t for t in json.load(sys.stdin) if t["id"] == sys.argv[1]][0]
+for k in sys.argv[2].split("."): t = t[k]
+print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
+  s39_click() { raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"pane\":\"page\",$1}}" >/dev/null; }
+  s39_shot() { raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$1.png\"}}" >/dev/null; cp "$KANNA_STATE_DIR/$1.png" "$out/$1.png" 2>/dev/null; }
+  check wait_for 5 eval '[[ "$(s39_web | field agent)" == "$agent_id" ]]' || { kanna list --json; s39_web; return 1; }
+  check test "$(pane page url)" == "file://$dir/page.html" || return 1
+  check wait_for 5 eval 's39_web ",\"find\":\"#go\"" | grep -q at' || return 1
+  xy="$(s39_web ',"find":"#go"' | field at)"
+  s39_click "\"command\":true,\"at\":$xy"
+  check wait_for 5 eval '[[ "$(s39_web | field box)" == new ]]' || { s39_web; return 1; }
+  sleep 0.3; s39_shot s39-composer
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Bigger"}}' >/dev/null
+  key cmd+return
+  check wait_for 5 eval '[[ "$(s39_thread c1 status)" == sent ]]' || { s39_web; return 1; }
+  check test "$(s39_thread c1 page.selector)" == "#go" || return 1
+  check test "$(s39_thread c1 page.text)" == "Ship it" || return 1
+  check test "$(s39_thread c1 line)" == 6 || return 1
+  mark="$(s39_thread c1 mark)"
+  check test "$mark" == ".kanna/docs/marks/page.html-c1.png" || return 1
+  [[ "$(head -c 4 "$dir/$mark" | tail -c 3)" == PNG ]] || { echo "the mark should be a PNG: $dir/$mark"; return 1; }
+  cp "$dir/$mark" "$out/s39-mark-c1.png"
+  check wait_for 5 eval 'kanna read agent | sed "s/^IN //" | tr -d "\\n " | grep -qF "^[200~[kannacommentc1·page.html:6]>thepage,element#go\"Shipit\">box"' || { kanna read agent; return 1; }
+  check wait_for 5 eval 'kanna read agent | sed "s/^IN //" | tr -d "\\n " | grep -qF ">markedup:.kanna/docs/marks/page.html-c1.pngBigger^[201~"' || { kanna read agent; return 1; }
+  s39_click '"command":true,"at":[300,330],"to":[500,420]'
+  check wait_for 5 eval '[[ "$(s39_web | field box)" == new ]]' || return 1
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Too empty"}}' >/dev/null
+  key cmd+return
+  check wait_for 5 eval '[[ "$(s39_thread c2 status)" == sent ]]' || { s39_web; return 1; }
+  check test "$(s39_thread c2 page.selector)" == "" || return 1
+  check wait_for 5 eval 'kanna read agent | sed "s/^IN //" | tr -d "\\n " | grep -qF "[kannacommentc2·page.html:1]>thepage,abox>box"' || { kanna read agent; return 1; }
+  check wait_for 5 eval '[[ "$(s39_web | field marks | python3 -c "import json, sys; print(sorted(json.load(sys.stdin)))")" == "['"'"'c1'"'"', '"'"'c2'"'"']" ]]' || { s39_web; return 1; }
+  sleep 0.3; s39_shot s39-marks
+  xy="$(s39_web | field marks.c1)"
+  s39_click "\"at\":$xy"
+  check wait_for 5 eval '[[ "$(s39_web | field box)" == c1 ]]' || { s39_web; return 1; }
+  check test "$(s39_web | field active)" == c1 || return 1
+  sleep 0.3; s39_shot s39-thread
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Thanks"}}' >/dev/null
+  key return
+  check wait_for 5 eval '[[ "$(s39_thread c1 messages)" == 2 ]]' || return 1
+  key escape; check wait_for 5 eval '[[ "$(s39_web | field box)" == None ]]' || return 1
+  "$repo_root/prototypes/doc-markup/kanna-doc" reply c2 --doc "$dir/page.html" "Filled it." >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(s39_thread c2 messages)" == 2 ]]' || return 1
+  sed -i '' 's|<p>A page to mark up.</p>|<p>A page to mark up.</p><p>More above the button.</p>|' "$dir/page.html"
+  check wait_for 5 eval 's39_web | field text | grep -q "More above"' || return 1
+  check wait_for 5 eval '[[ "$(s39_web | field marks | python3 -c "import json, sys; print(len(json.load(sys.stdin)))")" == 2 ]]' || return 1
+  kanna focus page >/dev/null || return 1
+  key cmd+=; key cmd+=
+  check wait_for 5 eval '[[ "$(s39_web | field zoom)" == 1.25 ]]' || { s39_web; return 1; }
+  sleep 0.3
+  check test "$(python3 -c 'import json, sys; a, b = json.loads(sys.argv[1]), json.loads(sys.argv[2]); print(abs(a[0] - b[0]) < 2 and abs(a[1] - b[1]) < 2)' "$(s39_web | field marks.c1)" "$(s39_web ',"find":"#go"' | field at)")" == True || { s39_web; s39_web ',"find":"#go"'; return 1; }
+  s39_shot s39-zoomed
+  key cmd+0
+  kanna navigate page "file://$dir/page.html#later" >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(s39_web | field hash)" == "#later" ]]' || { s39_web; return 1; }
+  check wait_for 5 eval '[[ "$(s39_web | field marks)" == "{}" ]]' || { s39_web; return 1; }
+  raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
+  sleep 0.5; s39_shot s39-dark
+}
+
 S40() {
   start_daemon && start_app || return 1
   kanna open --name s40shell >/dev/null || return 1
@@ -1002,9 +1082,9 @@ S40() {
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-8]|S40) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S40) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S40)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

@@ -67,7 +67,7 @@ extension AppController {
             ("Restart", #selector(restartPane), nil, .cmd("r")),
             ("Close Pane", #selector(closeFocusedPane), "close_surface", .cmd("w")),
         ])
-        let view = menu("View", [
+        _ = menu("View", [
             ("New Tab", #selector(newTabInKeyWindow), "new_tab", .cmd("t")),
             ("Next Tab", #selector(nextTab), "next_tab", .shiftCmd("]")),
             ("Previous Tab", #selector(previousTab), "previous_tab", .shiftCmd("[")),

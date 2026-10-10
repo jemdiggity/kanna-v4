@@ -42,7 +42,7 @@ General remarks that aren't about a passage go straight to the agent's chat, as 
 - **Images.** ⌘-drag on an image to box part of it, or ⌘-click it for the whole image. The box is the thread's mark, and stays on the image.
 
 ![A box drawn on an image, with its thread selected in the list](doc-markup-image.png)
-- **Web pages.** A web pane showing a page from the repo (a mockup) takes comments too: ⌘-click a part of the page, or ⌘-drag a box. The box stays on the page, and the thread remembers which view of the page it was on (the part after `#`).
+- **Web pages.** A web pane showing a local page (a mockup, opened with `kanna open web FILE`) takes comments too: ⌘-click a part of the page, or ⌘-drag a box. The box stays on the page, and the thread remembers which view of the page it was on (the part after `#`).
 
 ![A mockup in a web pane, with a part and a box marked and both threads listed](doc-markup-page.png)
 - **Threads live beside the file, not in it.** A thread has an ID (`c1`, `c2`, … per doc), the quoted passage, its messages, and whether it's open or resolved.
@@ -55,7 +55,7 @@ General remarks that aren't about a passage go straight to the agent's chat, as 
 
 **A comment is typed into the agent that opened the doc, as `kanna send` would, the moment you post it.** The same for every agent: Claude, Codex or anything else that reads its terminal.
 
-- **Which pane:** the terminal that ran `kanna open md` for the doc, shown in the toolbar. A doc opened any other way (the menu, another doc's link) has no agent.
+- **Which pane:** the terminal that ran `kanna open md` (or `kanna open web` for a page) for the doc, shown in the toolbar. A doc opened any other way (the menu, another doc's link) has no agent.
 - **What's typed:** one paste, then Enter, with a header naming the thread, file and line, then the quoted passage and your words:
 
 ```
@@ -132,7 +132,7 @@ flowchart LR
 - **Sending** uses the daemon's existing `send`, wrapped as a bracketed paste so a multi-line comment arrives whole (plain `send` would submit it at its first newline). `kanna open md` passes the pane it runs in (`$KANNA_PANE`, which Kanna sets in every terminal), and the doc remembers it.
 - **The app** adds the thread panel, highlighting and the comment box to the existing markdown pane, and gets thread changes over the app link like any other pane update.
 - **Stored** in `<repo>/.kanna/docs/`, one file per doc, so threads survive restarts.
-- **Built so far:** the markdown pane has the native comment UI, matching the reference model (e2e S37 drives it and screenshots it). Until the daemon's doc store lands, the app reads and writes the reference model's files directly, so the prototype's `kanna-doc reply` and `resolve` (and the skill) work with it unchanged.
+- **Built so far:** the markdown pane has the native comment UI, matching the reference model (e2e S37 drives it and screenshots it), and so does a web pane showing a local page (S39). The page is worked from a script world of its own (`WKContentWorld`), which the page's scripts can't see or call, and the marked-up copy is the web view's own screenshot. Until the daemon's doc store lands, the app reads and writes the reference model's files directly, so the prototype's `kanna-doc reply` and `resolve` (and the skill) work with it unchanged.
 
 ## 6. Glossary
 
