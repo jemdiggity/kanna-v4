@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doc</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js" integrity="sha384-WmdflGW9aGfoBdHc4rRyWzYuAjEmDwMdGdiPNacbwfGKxBW/SO6guzuQ76qjnSlr" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+<style>
+:root {
+  --bg: #ffffff; --bar: #f4f4f6; --panel: #f7f7f9; --card: #ffffff; --line: #dedfe3; --edge: #c9cbd1;
+  --text: #1d1f23; --soft: #3a3d44; --dim: #7a7e87; --accent: #2f6fe4; --code: #f0f1f3;
+  --tint: rgba(47, 111, 228, 0.16); --tint-on: rgba(47, 111, 228, 0.34);
+  --ok: #2f9a63; --warn: #b9801b; --agent: #9a45c4;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace; --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181c; --bar: #202226; --panel: #1c1d22; --card: #23252b; --line: #2c2e34; --edge: #3a3d44;
+    --text: #e6e6e6; --soft: #c9ccd3; --dim: #8b8f98; --accent: #3478f6; --code: #23252b;
+    --tint: rgba(52, 120, 246, 0.2); --tint-on: rgba(52, 120, 246, 0.42);
+    --ok: #4cb782; --warn: #d9a441; --agent: #d18ae6;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.55 var(--sans); display: flex; flex-direction: column; overflow: hidden; }
+.toolbar { height: 34px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--bar); border-bottom: 1px solid var(--line); font-size: 12px; }
+.toolbar .path { font: 11.5px var(--mono); color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toolbar .spacer { flex: 1; }
+.chip { border: 1px solid var(--edge); border-radius: 5px; padding: 2px 8px; color: var(--soft); white-space: nowrap; cursor: default; user-select: none; }
+.chip.button { cursor: pointer; }
+.chip.on { border-color: var(--accent); color: var(--text); }
+.chip.warn { border-color: var(--warn); color: var(--warn); }
+.split { flex: 1; display: flex; min-height: 0; }
+.reader { flex: 1; min-width: 0; overflow: auto; padding: 26px 34px 40vh; }
+#doc { max-width: 760px; }
+#doc h1, #doc h2, #doc h3, #doc h4 { line-height: 1.25; margin: 1.3em 0 .5em; }
+#doc h1 { font-size: 26px; } #doc h2 { font-size: 21px; } #doc h3 { font-size: 17px; }
+#doc > .block:first-child > :first-child { margin-top: 0; }
+#doc p, #doc li { color: var(--soft); }
+#doc a { color: var(--accent); }
+#doc code { font: 12.5px var(--mono); background: var(--code); padding: 1px 5px; border-radius: 4px; }
+#doc pre { background: var(--code); padding: 10px 12px; border-radius: 6px; overflow: auto; }
+#doc pre code { padding: 0; background: none; }
+#doc table { border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+#doc th, #doc td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+#doc blockquote { margin: 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--dim); }
+#doc img { max-width: 100%; border-radius: 4px; }
+#doc .mermaid { margin: 10px 0; }
+::highlight(threads) { background-color: var(--tint); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 1.5px; }
+::highlight(active) { background-color: var(--tint-on); }
+::highlight(flash) { background-color: var(--accent); color: white; }
+.composer { margin: 8px 0 14px; background: var(--card); border: 1px solid var(--accent); border-radius: 8px; padding: 8px; font-size: 13px; }
+.composer .q { color: var(--dim); border-left: 2px solid var(--accent); padding-left: 7px; font-size: 12px; margin-bottom: 4px; white-space: pre-wrap; max-height: 5.5em; overflow: hidden; }
+.composer textarea { width: 100%; min-height: 54px; resize: vertical; background: transparent; color: var(--text); border: 0; outline: none; font: 13px var(--sans); }
+.composer .row { display: flex; justify-content: flex-end; gap: 6px; color: var(--dim); font-size: 11.5px; align-items: center; }
+button { font: 12px var(--sans); color: var(--text); background: var(--card); border: 1px solid var(--edge); border-radius: 5px; padding: 3px 9px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+.threads { flex: 0 0 300px; background: var(--panel); border-left: 1px solid var(--line); overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.threads.hidden { display: none; }
+.threads .top { color: var(--dim); font-size: 11.5px; display: flex; justify-content: space-between; }
+.threads .top a { color: var(--dim); cursor: pointer; text-decoration: underline; }
+.threads .empty { color: var(--dim); font-size: 12px; padding: 8px 2px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.card.on { border-color: var(--accent); }
+.card.resolved { opacity: .6; }
+.card .head { display: flex; justify-content: space-between; color: var(--dim); font: 11px var(--mono); margin-bottom: 4px; }
+.card .head .act { cursor: pointer; }
+.card .head .act:hover { color: var(--accent); }
+.card .quote { color: var(--dim); border-left: 2px solid var(--accent); padding-left: 7px; margin: 2px 0 6px; font-size: 12px; cursor: pointer; white-space: pre-wrap; max-height: 4.6em; overflow: hidden; }
+.card .msg { margin: 4px 0; color: var(--soft); white-space: pre-wrap; }
+.card .msg b { color: var(--text); font-weight: 600; }
+.card .msg b.agent { color: var(--agent); }
+.state { display: inline-block; font-size: 11px; border-radius: 10px; padding: 0 7px; border: 1px solid; margin: 2px 6px 6px 0; }
+.state.sent { color: var(--ok); } .state.replied { color: var(--agent); } .state.unsent, .state.detached { color: var(--warn); } .state.resolved { color: var(--dim); }
+.card .reply { display: flex; gap: 6px; margin-top: 4px; }
+.card .reply textarea { flex: 1; min-width: 0; height: 28px; resize: vertical; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; color: var(--text); padding: 4px 6px; font: 12px var(--sans); }
+.error { color: var(--warn); font-size: 11.5px; }
+#fail { padding: 30px; color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span class="path" id="path"></span>
+  <span class="spacer"></span>
+  <span class="chip" id="agent"></span>
+  <span class="chip button" id="commentBtn" title="Select text, then ⌘↵. Or ⌘-click a word.">Comment ⌘↵</span>
+  <span class="chip button on" id="threadsBtn">Threads</span>
+</div>
+<div class="split">
+  <div class="reader" id="reader"><div id="doc"></div></div>
+  <div class="threads" id="threads"></div>
+</div>
+<script nonce="__NONCE__">
+const params = new URLSearchParams(location.search);
+const token = params.get("token");
+const file = params.get("file");
+const q = extra => "?" + new URLSearchParams({ token, file, ...extra }).toString();
+const state = { mtime: null, threadsKey: "", threads: [], agent: null, source: "", showThreads: true, showResolved: false, active: null, composer: null, anchors: {} };
+const dark = matchMedia("(prefers-color-scheme: dark)");
+mermaid.initialize({ startOnLoad: false, theme: dark.matches ? "dark" : "default", securityLevel: "strict" });
+
+async function api(path, body) {
+  const r = await fetch(path + q(), body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+}
+
+function dirOf(p) { return p.slice(0, p.lastIndexOf("/") + 1); }
+function resolvePath(href) { return decodeURIComponent(new URL(href, "file://" + dirOf(file)).pathname); }
+
+function renderDoc() {
+  const reader = document.getElementById("reader");
+  const keep = reader.scrollTop;
+  const docEl = document.getElementById("doc");
+  docEl.innerHTML = "";
+  const tokens = marked.lexer(state.source);
+  let line = 1;
+  for (const tok of tokens) {
+    const block = document.createElement("div");
+    block.className = "block";
+    block.dataset.line = line;
+    block.dataset.raw = tok.raw;
+    line += (tok.raw.match(/\n/g) || []).length;
+    if (tok.type === "space") continue;
+    if (tok.type === "code" && tok.lang === "mermaid") {
+      const m = document.createElement("div");
+      m.className = "mermaid";
+      m.textContent = tok.text;
+      block.appendChild(m);
+    } else {
+      const list = [tok];
+      list.links = tokens.links;
+      block.innerHTML = DOMPurify.sanitize(marked.parser(list), { FORBID_TAGS: ["style", "form", "input", "button", "textarea"] });
+    }
+    docEl.appendChild(block);
+  }
+  docEl.querySelectorAll("img").forEach(img => {
+    const src = img.getAttribute("src") || "";
+    if (src && !/^[a-z]+:/i.test(src)) img.src = "/asset" + q({ path: src });
+  });
+  docEl.querySelectorAll("a[href]").forEach(a => {
+    const href = a.getAttribute("href");
+    if (/^[a-z]+:/i.test(href) || href.startsWith("#")) return;
+    const [path, hash] = href.split("#");
+    if (/\.md$/i.test(path)) a.href = "/" + q({ file: resolvePath(path) }).replace(/^\?/, "?") + (hash ? "#" + hash : "");
+  });
+  mermaid.run({ nodes: docEl.querySelectorAll(".mermaid") }).catch(() => {}).finally(() => { anchorAll(); });
+  anchorAll();
+  reader.scrollTop = keep;
+}
+
+function textIndex() {
+  const docEl = document.getElementById("doc");
+  const walker = document.createTreeWalker(docEl, NodeFilter.SHOW_TEXT, {
+    acceptNode: n => n.parentElement.closest(".mermaid, .composer") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+  });
+  const nodes = [];
+  let text = "";
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push({ node: n, start: text.length }); text += n.data; }
+  return { nodes, text };
+}
+
+function rangeAt(idx, start, end) {
+  const find = off => {
+    let lo = 0, hi = idx.nodes.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (idx.nodes[mid].start <= off) lo = mid; else hi = mid - 1; }
+    const n = idx.nodes[lo];
+    return [n.node, Math.min(off - n.start, n.node.data.length)];
+  };
+  const r = document.createRange();
+  r.setStart(...find(start));
+  r.setEnd(...find(end));
+  return r;
+}
+
+function offsetOf(idx, node, off) {
+  if (node.nodeType !== 3) {
+    const probe = document.createRange();
+    probe.setStart(node, off);
+    const n = idx.nodes.find(x => probe.comparePoint(x.node, 0) >= 0);
+    return n ? n.start : idx.text.length;
+  }
+  const n = idx.nodes.find(x => x.node === node);
+  return n ? n.start + off : null;
+}
+
+function locate(idx, t) {
+  const norm = s => s.replace(/\s+/g, " ");
+  const hay = idx.text;
+  const quote = t.quote;
+  let best = null;
+  for (let at = hay.indexOf(quote); at >= 0; at = hay.indexOf(quote, at + 1)) {
+    const before = hay.slice(Math.max(0, at - 32), at), after = hay.slice(at + quote.length, at + quote.length + 32);
+    let score = 0;
+    for (let i = 1; i <= Math.min(before.length, (t.prefix || "").length) && before.at(-i) === t.prefix.at(-i); i++) score++;
+    for (let i = 0; i < Math.min(after.length, (t.suffix || "").length) && after[i] === t.suffix[i]; i++) score++;
+    if (!best || score > best.score) best = { at, score };
+  }
+  if (!best && norm(quote) !== quote) {
+    const at = norm(hay).indexOf(norm(quote));
+    if (at >= 0) best = { at, score: 0, approx: true };
+  }
+  return best ? [best.at, best.at + quote.length] : null;
+}
+
+function anchorAll() {
+  if (!window.CSS || !CSS.highlights) return;
+  const idx = textIndex();
+  const all = [], active = [];
+  state.anchors = {};
+  for (const t of state.threads) {
+    if (t.state !== "open") continue;
+    const span = locate(idx, t);
+    state.anchors[t.id] = span;
+    if (!span) continue;
+    const r = rangeAt(idx, ...span);
+    all.push(r);
+    if (t.id === state.active) active.push(r);
+  }
+  CSS.highlights.set("threads", new Highlight(...all));
+  CSS.highlights.set("active", new Highlight(...active));
+  renderThreads();
+}
+
+function chip(t) {
+  if (t.state === "resolved") return `<span class="state resolved">resolved</span>`;
+  const out = [];
+  if (state.anchors[t.id] === null) out.push(`<span class="state detached">detached</span>`);
+  if (t.status === "unsent") out.push(`<span class="state unsent">not sent</span>`);
+  else if (t.status === "replied") out.push(`<span class="state replied">agent replied</span>`);
+  else out.push(`<span class="state sent">sent to ${state.agent || "agent"}</span>`);
+  return out.join("");
+}
+
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function renderThreads() {
+  const panel = document.getElementById("threads");
+  const focused = document.activeElement && panel.contains(document.activeElement) ? document.activeElement : null;
+  const drafts = {};
+  panel.querySelectorAll(".card textarea").forEach(ta => { if (ta.value) drafts[ta.dataset.id] = ta.value; });
+  const focusId = focused && focused.dataset ? focused.dataset.id : null;
+  const open = state.threads.filter(t => t.state === "open");
+  const resolved = state.threads.filter(t => t.state === "resolved");
+  panel.innerHTML = `<div class="top"><span>Threads</span>${resolved.length ? `<a id="showResolved">${state.showResolved ? "Hide" : "Show"} resolved (${resolved.length})</a>` : ""}</div>`;
+  const shown = [...open, ...(state.showResolved ? resolved : [])];
+  if (!shown.length) panel.insertAdjacentHTML("beforeend", `<div class="empty">No comments yet. Select text and press ⌘↵, or ⌘-click a word.</div>`);
+  for (const t of shown) {
+    const card = document.createElement("div");
+    card.className = "card" + (t.id === state.active ? " on" : "") + (t.state === "resolved" ? " resolved" : "");
+    card.innerHTML = `<div class="head"><span>${t.id} · ${state.anchors[t.id] === null ? "not found" : "line " + t.line}</span><span class="act">${t.state === "open" ? "Resolve" : "Reopen"}</span></div>
+      <div class="quote">${esc(t.quote)}</div>
+      ${t.messages.map(m => `<div class="msg"><b class="${m.who}">${m.who}</b> ${esc(m.text)}</div>`).join("")}
+      <div>${chip(t)}</div>
+      ${t.error ? `<div class="error">${esc(t.error)}</div>` : ""}
+      <div class="reply"><textarea data-id="${t.id}" placeholder="Reply (⌘↵)"></textarea></div>`;
+    card.querySelector(".quote").onclick = () => reveal(t.id);
+    card.querySelector(".act").onclick = async () => { await api(t.state === "open" ? "/api/resolve" : "/api/reopen", { id: t.id }); poll(); };
+    const ta = card.querySelector("textarea");
+    ta.value = drafts[t.id] || "";
+    ta.onkeydown = async e => {
+      if (e.key === "Enter" && e.metaKey && ta.value.trim()) {
+        e.preventDefault();
+        const text = ta.value; ta.value = ""; ta.disabled = true;
+        await api("/api/reply", { id: t.id, text });
+        await poll();
+      }
+    };
+    panel.appendChild(card);
+    if (focusId === t.id) { ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length; }
+  }
+  const sr = panel.querySelector("#showResolved");
+  if (sr) sr.onclick = () => { state.showResolved = !state.showResolved; renderThreads(); };
+  document.getElementById("threadsBtn").textContent = `Threads ${open.length}`;
+}
+
+function reveal(id) {
+  state.active = id;
+  anchorAll();
+  const span = state.anchors[id];
+  if (!span) return;
+  const idx = textIndex();
+  const r = rangeAt(idx, ...span);
+  const rect = r.getBoundingClientRect(), reader = document.getElementById("reader");
+  reader.scrollBy({ top: rect.top - reader.getBoundingClientRect().top - reader.clientHeight / 3, behavior: "smooth" });
+  CSS.highlights.set("flash", new Highlight(r));
+  setTimeout(() => CSS.highlights.delete("flash"), 700);
+}
+
+function lineFor(block, quote) {
+  const base = Number(block.dataset.line);
+  const raw = block.dataset.raw || "";
+  const words = quote.trim().split(/\s+/).slice(0, 3).join(" ");
+  const at = raw.indexOf(words);
+  return at >= 0 ? base + (raw.slice(0, at).match(/\n/g) || []).length : base;
+}
+
+function openComposer(range) {
+  const idx = textIndex();
+  const start = offsetOf(idx, range.startContainer, range.startOffset);
+  const end = offsetOf(idx, range.endContainer, range.endOffset);
+  if (start === null || end === null || end <= start) return;
+  const quote = idx.text.slice(start, end).trim();
+  if (!quote) return;
+  const lead = idx.text.slice(start, end).indexOf(quote);
+  const s = start + lead, e = s + quote.length;
+  const node = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer;
+  const block = node.closest(".block");
+  if (!block) return;
+  closeComposer();
+  state.composer = { quote, prefix: idx.text.slice(Math.max(0, s - 32), s), suffix: idx.text.slice(e, e + 32), line: lineFor(block, quote) };
+  CSS.highlights.set("active", new Highlight(rangeAt(idx, s, e)));
+  const box = document.createElement("div");
+  box.className = "composer";
+  box.innerHTML = `<div class="q"></div><textarea placeholder="Comment"></textarea><div class="row"><span>⌘↵ posts · Esc cancels</span><button class="primary">Post</button></div>`;
+  box.querySelector(".q").textContent = quote;
+  block.after(box);
+  const ta = box.querySelector("textarea");
+  ta.focus();
+  const post = async () => {
+    const text = ta.value.trim();
+    if (!text) return;
+    const c = state.composer;
+    closeComposer();
+    const r = await api("/api/comment", { ...c, text });
+    state.active = r.id;
+    await poll();
+  };
+  ta.onkeydown = e => {
+    if (e.key === "Enter" && e.metaKey) { e.preventDefault(); post(); }
+    if (e.key === "Escape") { closeComposer(); anchorAll(); }
+  };
+  box.querySelector("button").onclick = post;
+  window.getSelection().removeAllRanges();
+}
+
+function closeComposer() {
+  document.querySelectorAll(".composer").forEach(b => b.remove());
+  state.composer = null;
+}
+
+function selectionComment() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return;
+  const r = sel.getRangeAt(0);
+  if (!document.getElementById("doc").contains(r.commonAncestorContainer)) return;
+  openComposer(r);
+}
+
+function wordAt(x, y) {
+  const r = document.caretRangeFromPoint(x, y);
+  if (!r || r.startContainer.nodeType !== 3) return null;
+  const t = r.startContainer.data;
+  let a = r.startOffset, b = r.startOffset;
+  const w = /[\p{L}\p{N}_’'-]/u;
+  while (a > 0 && w.test(t[a - 1])) a--;
+  while (b < t.length && w.test(t[b])) b++;
+  if (a === b) return null;
+  const range = document.createRange();
+  range.setStart(r.startContainer, a);
+  range.setEnd(r.startContainer, b);
+  return range;
+}
+
+function threadAt(x, y) {
+  const r = document.caretRangeFromPoint(x, y);
+  if (!r) return null;
+  const idx = textIndex();
+  const off = offsetOf(idx, r.startContainer, r.startOffset);
+  if (off === null) return null;
+  return Object.entries(state.anchors).find(([, s]) => s && off >= s[0] && off <= s[1])?.[0] || null;
+}
+
+document.getElementById("doc").addEventListener("click", e => {
+  if (e.target.closest(".composer")) return;
+  if (e.metaKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    const r = wordAt(e.clientX, e.clientY);
+    if (r) openComposer(r);
+    return;
+  }
+  if (!window.getSelection().isCollapsed) return;
+  const id = threadAt(e.clientX, e.clientY);
+  if (id) {
+    state.active = id;
+    anchorAll();
+    if (!state.showThreads) toggleThreads();
+    document.querySelector(".card.on")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+}, true);
+document.addEventListener("keydown", e => {
+  if (e.metaKey && e.key === "Enter" && !e.target.closest("textarea")) { e.preventDefault(); selectionComment(); }
+});
+document.getElementById("commentBtn").addEventListener("mousedown", e => { e.preventDefault(); selectionComment(); });
+function toggleThreads() {
+  state.showThreads = !state.showThreads;
+  document.getElementById("threads").classList.toggle("hidden", !state.showThreads);
+  document.getElementById("threadsBtn").classList.toggle("on", state.showThreads);
+}
+document.getElementById("threadsBtn").onclick = toggleThreads;
+
+async function poll() {
+  let d;
+  try { d = await api("/api/doc"); }
+  catch (err) { document.getElementById("doc").innerHTML = `<div id="fail">${esc(String(err.message || err))}</div>`; return; }
+  document.getElementById("path").textContent = d.rel;
+  document.title = d.rel.split("/").pop();
+  const agent = document.getElementById("agent");
+  agent.textContent = d.agent ? `Agent: ${d.agent}` : "No agent: comments are saved, not sent";
+  agent.classList.toggle("warn", !d.agent);
+  state.agent = d.agent;
+  const key = JSON.stringify(d.threads);
+  const changedDoc = d.mtime !== state.mtime;
+  const changedThreads = key !== state.threadsKey;
+  state.threads = d.threads;
+  state.threadsKey = key;
+  if (changedDoc) {
+    state.mtime = d.mtime;
+    state.source = d.source;
+    const pending = state.composer;
+    if (!pending) renderDoc();
+  } else if (changedThreads) {
+    anchorAll();
+  }
+}
+dark.addEventListener("change", () => location.reload());
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>

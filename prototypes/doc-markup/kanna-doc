@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+import argparse
+import fcntl
+import json
+import mimetypes
+import os
+import secrets
+import subprocess
+import sys
+import threading
+import time
+import urllib.parse
+import urllib.request
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+PAGE = HERE / "page.html"
+STATE = Path(os.environ.get("KANNA_DOC_PROTOTYPE_DIR", Path.home() / ".kanna-doc-prototype"))
+SERVER_FILE = STATE / "server.json"
+IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
+
+
+def repo_root(path):
+    start = path if path.is_dir() else path.parent
+    try:
+        out = subprocess.run(["git", "-C", str(start), "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True)
+        return Path(out.stdout.strip())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return start
+
+
+def store_dir(root):
+    d = root / ".kanna" / "docs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def store_path(file):
+    root = repo_root(file)
+    rel = os.path.relpath(file, root)
+    return store_dir(root) / (rel.replace(os.sep, "__") + ".json")
+
+
+@contextmanager
+def locked(file):
+    path = store_path(file)
+    lock = open(str(path) + ".lock", "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        doc = json.loads(path.read_text()) if path.exists() else {"file": str(file), "agent": None, "socket": None, "next": 1, "threads": []}
+        yield doc
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
+        tmp.replace(path)
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        lock.close()
+
+
+def read_doc(file):
+    path = store_path(file)
+    if not path.exists():
+        return {"file": str(file), "agent": None, "socket": None, "next": 1, "threads": []}
+    return with_lines(json.loads(path.read_text()))
+
+
+def now():
+    return time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def current_line(src, t):
+    words = t["quote"].split()
+    for probe in (t["quote"], " ".join(words[:3]), " ".join(words[:1])):
+        if not probe:
+            continue
+        hits = []
+        at = src.find(probe)
+        while at >= 0:
+            hits.append(src.count("\n", 0, at) + 1)
+            at = src.find(probe, at + 1)
+        if hits:
+            return min(hits, key=lambda n: abs(n - t["line"])), False
+    return t["line"], True
+
+
+def with_lines(doc):
+    try:
+        src = Path(doc["file"]).read_text(errors="replace")
+    except OSError:
+        return doc
+    for t in doc["threads"]:
+        t["line"], t["detached"] = current_line(src, t)
+    return doc
+
+
+def find_thread(doc, tid):
+    for t in doc["threads"]:
+        if t["id"] == tid:
+            return t
+    raise SystemExit(f"kanna-doc: no thread {tid} in {doc['file']}")
+
+
+def rel_name(file):
+    return os.path.relpath(file, repo_root(file))
+
+
+def message(doc, t, text):
+    quote = "\n".join("> " + line for line in t["quote"].splitlines()) or "> "
+    return f"[kanna comment {t['id']} · {rel_name(Path(doc['file']))}:{t['line']}]\n{quote}\n{text}"
+
+
+def send_to_agent(doc, text):
+    if not doc.get("agent"):
+        return "no agent"
+    env = dict(os.environ)
+    if doc.get("socket"):
+        env["KANNA_SOCKET"] = doc["socket"]
+    paste = "\x1b[200~" + text + "\x1b[201~"
+    r = subprocess.run(["kanna", "send", doc["agent"], "--", paste], env=env, capture_output=True, text=True)
+    if r.returncode != 0:
+        return (r.stderr or r.stdout).strip() or f"kanna send exited {r.returncode}"
+    time.sleep(0.4)
+    subprocess.run(["kanna", "send", doc["agent"], "--", ""], env=env, capture_output=True, text=True)
+    return None
+
+
+def add_comment(file, quote, text, line, prefix="", suffix=""):
+    with locked(file) as doc:
+        tid = f"c{doc['next']}"
+        doc["next"] += 1
+        t = {"id": tid, "quote": quote, "prefix": prefix, "suffix": suffix, "line": line, "state": "open",
+             "status": "sent", "messages": [{"who": "you", "text": text, "at": now()}], "error": None}
+        doc["threads"].append(t)
+        snapshot = json.loads(json.dumps(doc))
+    error = send_to_agent(snapshot, message(snapshot, t, text))
+    with locked(file) as doc:
+        t2 = find_thread(doc, tid)
+        t2["status"] = "unsent" if error else "sent"
+        t2["error"] = error
+    return tid, error
+
+
+def add_your_reply(file, tid, text):
+    with locked(file) as doc:
+        t = find_thread(doc, tid)
+        t["messages"].append({"who": "you", "text": text, "at": now()})
+        t["state"] = "open"
+        snapshot = with_lines(json.loads(json.dumps(doc)))
+        t = find_thread(snapshot, tid)
+    error = send_to_agent(snapshot, message(snapshot, t, text))
+    with locked(file) as doc:
+        t2 = find_thread(doc, tid)
+        t2["status"] = "unsent" if error else "sent"
+        t2["error"] = error
+    return error
+
+
+def set_state(file, tid, state):
+    with locked(file) as doc:
+        find_thread(doc, tid)["state"] = state
+
+
+def docs_in(root):
+    d = root / ".kanna" / "docs"
+    if not d.is_dir():
+        return []
+    out = []
+    for p in d.glob("*.json"):
+        try:
+            out.append((p.stat().st_mtime, json.loads(p.read_text())))
+        except (OSError, json.JSONDecodeError):
+            pass
+    return [doc for _, doc in sorted(out, key=lambda x: -x[0])]
+
+
+def resolve_doc(args, tid=None):
+    if args.doc:
+        return Path(args.doc).resolve()
+    docs = docs_in(repo_root(Path.cwd()))
+    pane = os.environ.get("KANNA_PANE")
+    mine = [d for d in docs if pane and d.get("agent") == pane]
+    for group in (mine, docs):
+        for d in group:
+            if tid is None or any(t["id"] == tid for t in d["threads"]):
+                return Path(d["file"])
+    raise SystemExit("kanna-doc: no doc found here" + (f" with thread {tid}" if tid else "") + "; pass --doc FILE")
+
+
+def server_alive():
+    try:
+        info = json.loads(SERVER_FILE.read_text())
+        with urllib.request.urlopen(f"http://127.0.0.1:{info['port']}/ping?token={info['token']}", timeout=1) as r:
+            if r.read() == b"pong":
+                return info
+    except Exception:
+        pass
+    return None
+
+
+def ensure_server():
+    info = server_alive()
+    if info:
+        return info
+    STATE.mkdir(parents=True, exist_ok=True)
+    log = open(STATE / "server.log", "a")
+    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "serve"], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+    for _ in range(50):
+        time.sleep(0.1)
+        info = server_alive()
+        if info:
+            return info
+    raise SystemExit(f"kanna-doc: the server didn't start; see {STATE / 'server.log'}")
+
+
+class Handler(BaseHTTPRequestHandler):
+    token = ""
+
+    def log_message(self, fmt, *a):
+        pass
+
+    def reply(self, code, body, ctype="application/json"):
+        data = body if isinstance(body, bytes) else (json.dumps(body, ensure_ascii=False) if ctype == "application/json" else body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith(("text", "application/json")) else ""))
+        self.send_header("Cache-Control", "no-store")
+        if getattr(self, "csp", None):
+            self.send_header("Content-Security-Policy", self.csp)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def guard(self, q):
+        if q.get("token", [""])[0] != self.token:
+            self.reply(403, {"error": "bad token"})
+            return None
+        f = q.get("file", [""])[0]
+        if not f:
+            return Path()
+        p = Path(f).resolve()
+        if p.suffix.lower() != ".md" or not p.is_file():
+            self.reply(404, {"error": f"not a markdown file: {f}"})
+            return None
+        return p
+
+    def do_GET(self):
+        u = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(u.query)
+        if u.path == "/ping":
+            return self.reply(200, b"pong" if q.get("token", [""])[0] == self.token else b"no", "text/plain")
+        p = self.guard(q)
+        if p is None:
+            return
+        if u.path == "/":
+            nonce = secrets.token_urlsafe(16)
+            self.csp = f"default-src 'self'; script-src 'nonce-{nonce}' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+            return self.reply(200, PAGE.read_text().replace("__NONCE__", nonce).encode(), "text/html")
+        if u.path == "/api/doc":
+            doc = read_doc(p)
+            return self.reply(200, {"file": str(p), "rel": rel_name(p), "source": p.read_text(errors="replace"),
+                                    "mtime": p.stat().st_mtime, "agent": doc.get("agent"), "threads": doc["threads"]})
+        if u.path == "/asset":
+            target = (p.parent / q.get("path", [""])[0]).resolve()
+            root = repo_root(p).resolve()
+            if target.suffix.lower() not in IMAGES or root not in target.parents or not target.is_file():
+                return self.reply(404, {"error": "no such image"})
+            return self.reply(200, target.read_bytes(), mimetypes.guess_type(str(target))[0] or "application/octet-stream")
+        self.reply(404, {"error": "not found"})
+
+    def do_POST(self):
+        u = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(u.query)
+        p = self.guard(q)
+        if p is None:
+            return
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+        if u.path == "/api/comment":
+            tid, error = add_comment(p, body["quote"], body["text"], int(body.get("line", 1)), body.get("prefix", ""), body.get("suffix", ""))
+            return self.reply(200, {"id": tid, "error": error})
+        if u.path == "/api/reply":
+            return self.reply(200, {"error": add_your_reply(p, body["id"], body["text"])})
+        if u.path in ("/api/resolve", "/api/reopen"):
+            set_state(p, body["id"], "resolved" if u.path == "/api/resolve" else "open")
+            return self.reply(200, {})
+        self.reply(404, {"error": "not found"})
+
+
+def cmd_serve(args):
+    token = secrets.token_hex(12)
+    Handler.token = token
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    SERVER_FILE.write_text(json.dumps({"port": server.server_address[1], "token": token, "pid": os.getpid()}))
+    print(f"kanna-doc: serving on 127.0.0.1:{server.server_address[1]}", flush=True)
+    server.serve_forever()
+
+
+def cmd_open(args):
+    file = Path(args.file).resolve()
+    if not file.is_file():
+        raise SystemExit(f"kanna-doc: no such file: {args.file}")
+    with locked(file) as doc:
+        doc["agent"] = os.environ.get("KANNA_PANE")
+        doc["socket"] = os.environ.get("KANNA_SOCKET")
+    info = ensure_server()
+    url = f"http://127.0.0.1:{info['port']}/?" + urllib.parse.urlencode({"token": info["token"], "file": str(file)})
+    if args.print_url:
+        print(url)
+        return
+    placement = ["--tab"] if args.tab else ["--split", args.split]
+    r = subprocess.run(["kanna", "open", "web", url, *placement])
+    if r.returncode == 0 and not os.environ.get("KANNA_PANE"):
+        print("kanna-doc: not run from a Kanna terminal, so comments won't be sent anywhere", file=sys.stderr)
+    sys.exit(r.returncode)
+
+
+def describe(t):
+    return f"{t['id']}  {'detached' if t.get('detached') else 'line ' + str(t['line'])}  {t['state']}{'  (agent replied)' if t['messages'][-1]['who'] == 'agent' else ''}  “{t['quote'][:50]}”"
+
+
+def cmd_comments(args):
+    file = resolve_doc(args)
+    doc = read_doc(file)
+    shown = [t for t in doc["threads"] if args.all or t["state"] == "open"]
+    if args.json:
+        return print(json.dumps(shown, indent=2, ensure_ascii=False))
+    print(rel_name(file))
+    for t in shown:
+        print("  " + describe(t))
+    if not shown:
+        print("  (no open comments)")
+
+
+def cmd_show(args):
+    file = resolve_doc(args, args.id)
+    t = find_thread(read_doc(file), args.id)
+    if args.json:
+        return print(json.dumps(t, indent=2, ensure_ascii=False))
+    print(f"{t['id']} · {rel_name(file)}:{t['line']} · {t['state']}" + (" · detached: the quote is no longer in the file" if t.get("detached") else ""))
+    for line in t["quote"].splitlines():
+        print("> " + line)
+    for m in t["messages"]:
+        print(f"{m['who']}: {m['text']}")
+
+
+def cmd_reply(args):
+    file = resolve_doc(args, args.id)
+    with locked(file) as doc:
+        t = find_thread(doc, args.id)
+        t["messages"].append({"who": "agent", "text": " ".join(args.text), "at": now()})
+        t["status"] = "replied"
+    print(f"replied to {args.id}")
+
+
+def cmd_state(args, state):
+    file = resolve_doc(args, args.id)
+    set_state(file, args.id, state)
+    print(f"{args.id} {state}")
+
+
+def cmd_comment(args):
+    file = Path(args.file).resolve()
+    src = file.read_text(errors="replace")
+    line, _ = current_line(src, {"quote": args.quote, "line": 1})
+    tid, error = add_comment(file, args.quote, " ".join(args.text), line)
+    print(f"{tid}" + (f" (not sent: {error})" if error else ""))
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="kanna-doc", description="Prototype of `kanna doc`: comment on markdown files with the agent that opened them.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("open", help="show FILE with its comments beside this pane; comments go to this pane")
+    s.add_argument("file")
+    s.add_argument("--split", default="right", choices=["right", "down", "auto"])
+    s.add_argument("--tab", action="store_true")
+    s.add_argument("--print-url", action="store_true")
+    for name, helptext in (("comments", "list the doc's open comments"),):
+        s = sub.add_parser(name, help=helptext)
+        s.add_argument("--all", action="store_true")
+        s.add_argument("--doc")
+        s.add_argument("--json", action="store_true")
+    s = sub.add_parser("show", help="one comment and its replies")
+    s.add_argument("id")
+    s.add_argument("--doc")
+    s.add_argument("--json", action="store_true")
+    s = sub.add_parser("reply", help="answer a comment")
+    s.add_argument("id")
+    s.add_argument("text", nargs="+")
+    s.add_argument("--doc")
+    for name in ("resolve", "reopen"):
+        s = sub.add_parser(name, help=f"{name} a comment")
+        s.add_argument("id")
+        s.add_argument("--doc")
+    s = sub.add_parser("comment", help="start a comment from the command line")
+    s.add_argument("file")
+    s.add_argument("--quote", required=True)
+    s.add_argument("text", nargs="+")
+    s = sub.add_parser("serve", help=argparse.SUPPRESS)
+    s.add_argument("--port", type=int, default=0)
+    args = ap.parse_args()
+    {"open": cmd_open, "comments": cmd_comments, "show": cmd_show, "reply": cmd_reply,
+     "resolve": lambda a: cmd_state(a, "resolved"), "reopen": lambda a: cmd_state(a, "open"),
+     "comment": cmd_comment, "serve": cmd_serve}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    main()
