@@ -10,7 +10,8 @@ const USAGE: &str = "usage: kanna-corpus RECORDING.jsonl --version VERSION --out
 Replays a tools/agent-harness recording through libghostty-vt, samples the
 settled screen every quarter second, labels each sample by the phase the
 harness marked (idle, working, needs-you) and writes the distinct ones to
-DIR as corpus cases. Samples near a phase's edges are left out.";
+DIR as corpus cases. Samples near a phase's edges, and phases whose end
+the harness never saw (a timeout), are left out.";
 
 const STEP: f64 = 0.25;
 const SETTLE: f64 = 0.06;
@@ -59,7 +60,8 @@ fn windows(events: &[Event]) -> Result<Vec<(&'static str, f64, f64)>, String> {
         (mark("startup")?, mark("plain")?, mark("plain_end")?, mark("tool")?, mark("asking")?, mark("approve")?, mark("idle")?, mark("end")?);
     let ready = matched_after(startup)?;
     let (plain_enter, tool_enter) = (enter_after(plain)?, enter_after(tool)?);
-    Ok(vec![
+    let timed_out = |from: f64, to: f64| events.iter().any(|e| e.kind == "timeout" && e.t >= from && e.t <= to + 0.6);
+    let all = vec![
         ("idle", ready + 2.0, plain - 0.3),
         ("working", plain_enter + 0.6, plain_end - 0.3),
         ("idle", plain_end + 3.0, tool_enter - 0.3),
@@ -67,7 +69,8 @@ fn windows(events: &[Event]) -> Result<Vec<(&'static str, f64, f64)>, String> {
         ("needs-you", asking + 0.5, approve - 0.2),
         ("working", approve + 0.6, idle - 0.5),
         ("idle", idle + 3.0, end - 0.5),
-    ])
+    ];
+    Ok(all.into_iter().filter(|(_, from, to)| !timed_out(*from, *to)).collect())
 }
 
 fn sample(recording: &Path, version: &str, out: &Path, per_phase: usize) -> Result<usize, String> {
