@@ -521,6 +521,18 @@ S11() {
   check python3 -c 'import json, sys; z = json.loads(sys.argv[1])["zooms"]; assert z and z[-1] > 1.2, z' "$pinched" || return 1
   check test "$(raw '{"id":1,"cmd":"debug.stats"}' | field pid)" == "$app_pid" || return 1
   kanna close doc >/dev/null || return 1
+  printf '<title>S11 PAGE</title><p>S11 WEB</p>\n' >"$KANNA_STATE_DIR/s11.html"
+  kanna open web --name page --split right "file://$KANNA_STATE_DIR/s11.html" >/dev/null || return 1
+  webzoom() { raw '{"id":1,"cmd":"debug.web","args":{"pane":"page"}}' | field "$1"; }
+  check wait_for 5 eval 'webzoom text | grep -q "S11 WEB"' || return 1
+  raw '{"id":1,"cmd":"debug.click","args":{"pane":"page","at":[4,200]}}' >/dev/null; sleep 0.3
+  check test "$(win w1 focused)" == page || return 1
+  key cmd+shift+=; check python3 -c 'import sys; assert float(sys.argv[1]) > 1' "$(webzoom zoom)" || return 1
+  key cmd+-; check python3 -c 'import sys; assert float(sys.argv[1]) == 1' "$(webzoom zoom)" || return 1
+  pinched="$(raw '{"id":1,"cmd":"debug.pinch","args":{"pane":"page"}}')"
+  check python3 -c 'import json, sys; z = json.loads(sys.argv[1])["zooms"]; assert z and z[-1] > 1.2, z' "$pinched" || return 1
+  key cmd+0; check python3 -c 'import sys; assert float(sys.argv[1]) == 1' "$(webzoom zoom)" || return 1
+  kanna close page >/dev/null || return 1
   key cmd+t; check test "$(win w1 tabs | count)" == 2 || return 1
   key "cmd+shift+["; check test "$(win w1 tabs.0.active)" == True || return 1
   key "cmd+shift+]"; check test "$(win w1 tabs.1.active)" == True || return 1

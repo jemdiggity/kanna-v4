@@ -96,7 +96,7 @@ extension AppController {
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
             let text = try? await web.webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
-            return ["url": web.webView.url.map { .string($0.absoluteString) } ?? .null, "text": .string(text ?? "")]
+            return ["url": web.webView.url.map { .string($0.absoluteString) } ?? .null, "text": .string(text ?? ""), "zoom": .number(Double(web.zoom))]
         }
         commands["debug.md"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let markdown = contents.markdown(id) else { throw KannaError("wrong_type", "not a running md pane") }
@@ -219,7 +219,8 @@ extension AppController {
         if args["outline"]?.bool == true { panes[id]?.focused = true }
         var steps = [0.1, 0.1, 0.1, 0.1, 0.1]
         if case .array(let list)? = args["steps"] { steps = list.compactMap(\.number) }
-        let point = view.convert(NSPoint(x: view.visibleRect.midX, y: view.visibleRect.midY), to: nil)
+        let area = view.visibleRect.intersection(view.bounds)
+        let point = view.convert(NSPoint(x: area.midX, y: area.midY), to: nil)
         let height = NSScreen.screens.first?.frame.height ?? 0
         let gesture = CGEventType(rawValue: 29)!
         let gestureKind = CGEventField(rawValue: 110)!
@@ -241,6 +242,8 @@ extension AppController {
             if phase == 2, let markdown = contents.markdown(id) {
                 zooms.append(.number(Double(markdown.zoom)))
                 renders.append(.number(markdown.renderMs))
+            } else if phase == 2, let web = contents.web(id) {
+                zooms.append(.number(Double(web.zoom)))
             }
         }
         return ["zooms": .array(zooms), "render_ms": .array(renders)]

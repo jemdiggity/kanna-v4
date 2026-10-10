@@ -40,6 +40,15 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
         webView.load(URLRequest(url: url))
     }
 
+    var zoom: CGFloat { webView.pageZoom }
+
+    func zoom(by step: Int) {
+        let steps = Self.zoomSteps, now = webView.pageZoom
+        webView.pageZoom = step == 0 ? 1 : step > 0 ? (steps.first { $0 > now + 0.001 } ?? steps.last!) : (steps.last { $0 < now - 0.001 } ?? steps.first!)
+    }
+
+    static let zoomSteps: [CGFloat] = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+
     func stop() {
         retry?.invalidate()
         webView.stopLoading()
@@ -146,6 +155,11 @@ final class FocusReportingWebView: WKWebView {
             extra.removeItem(item)
             menu.addItem(item)
         }
+    }
+
+    override func magnify(with event: NSEvent) {
+        let steps = WebPaneView.zoomSteps
+        pageZoom = min(max(pageZoom * (1 + event.magnification), steps.first!), steps.last!)
     }
 
     override func becomeFirstResponder() -> Bool {

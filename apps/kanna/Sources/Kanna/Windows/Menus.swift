@@ -163,6 +163,8 @@ extension AppController {
         guard let pane = focusedPane else { return }
         if let markdown = contents.markdown(pane) {
             markdown.zoom(by: step)
+        } else if let web = contents.web(pane) {
+            web.zoom(by: step)
         } else if let surface = panes.terminal(pane)?.surface {
             _ = ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
         }
@@ -171,7 +173,7 @@ extension AppController {
     @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let pane = focusedPane ?? ""
         switch item.action {
-        case #selector(zoomIn), #selector(zoomOut), #selector(actualSize): return panes.terminal(pane) != nil || contents.markdown(pane) != nil
+        case #selector(zoomIn), #selector(zoomOut), #selector(actualSize): return panes.terminal(pane) != nil || contents.markdown(pane) != nil || contents.web(pane) != nil
         case #selector(pressHome): return contents.ios(pane)?.screen != nil
         case #selector(openURL): return contents.web(pane) != nil
         case #selector(goBack), #selector(goForward): return contents.web(pane) != nil || contents.markdown(pane) != nil
