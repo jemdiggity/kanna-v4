@@ -50,6 +50,7 @@ body { background: var(--bg); color: var(--text); font: 14px/1.55 var(--sans); d
 #doc img { max-width: 100%; border-radius: 4px; }
 #doc .mermaid { margin: 10px 0; }
 ::highlight(threads) { background-color: var(--tint); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 1.5px; }
+::highlight(resolved) { background-color: rgba(128, 128, 128, 0.16); }
 ::highlight(active) { background-color: var(--tint-on); }
 ::highlight(flash) { background-color: var(--accent); color: white; }
 .composer { position: absolute; z-index: 10; width: 360px; background: var(--card); border: 1px solid var(--accent); border-radius: 8px; padding: 8px; font-size: 13px; box-shadow: 0 8px 28px rgba(0,0,0,.28); }
@@ -85,6 +86,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .pop textarea { min-height: 0; height: 28px; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; resize: none; }
 .mark { position: absolute; pointer-events: none; background: var(--tint); border-bottom: 1.5px solid var(--accent); }
 .mark.on { background: var(--tint-on); }
+.mark.done { background: rgba(128, 128, 128, 0.16); border-bottom: 0; }
 .card.on .reply { display: block; }
 .card .reply textarea { width: 100%; height: 28px; resize: none; background: transparent; border: 0; border-top: 1px solid var(--line); color: var(--text); padding: 6px 0 0; font: 12.5px var(--sans); outline: none; }
 #fail { padding: 30px; color: var(--warn); }
@@ -217,34 +219,34 @@ function locate(idx, t) {
 
 function anchorAll() {
   const idx = textIndex();
-  const all = [], active = [];
+  const all = [], done = [], active = [];
   state.anchors = {};
   for (const t of state.threads) {
-    if (t.state !== "open") continue;
     const span = locate(idx, t);
     state.anchors[t.id] = span;
     if (!span) continue;
     const r = rangeAt(idx, ...span);
-    all.push(r);
+    (t.state === "open" ? all : done).push(r);
     if (t.id === state.active) active.push(r);
   }
   if (window.CSS && CSS.highlights && window.Highlight) {
     CSS.highlights.set("threads", new Highlight(...all));
+    CSS.highlights.set("resolved", new Highlight(...done));
     CSS.highlights.set("active", new Highlight(...active));
   } else {
-    drawMarks(all, active);
+    drawMarks(all, done, active);
   }
   renderThreads();
 }
 
-function drawMarks(all, active) {
+function drawMarks(all, done, active) {
   const reader = document.getElementById("reader");
   reader.querySelectorAll(".mark").forEach(m => m.remove());
   const host = reader.getBoundingClientRect();
-  for (const r of all) {
+  for (const r of [...all, ...done]) {
     for (const rect of r.getClientRects()) {
       const m = document.createElement("div");
-      m.className = "mark" + (active.includes(r) ? " on" : "");
+      m.className = "mark" + (done.includes(r) ? " done" : "") + (active.includes(r) ? " on" : "");
       Object.assign(m.style, { left: rect.left - host.left + reader.scrollLeft + "px", top: rect.top - host.top + reader.scrollTop + "px", width: rect.width + "px", height: rect.height + "px" });
       reader.appendChild(m);
     }
@@ -271,7 +273,8 @@ function openPop(id) {
   box.className = "composer pop";
   box.dataset.id = id;
   const n = note(t);
-  box.innerHTML = `<span class="act" title="Resolve">✓</span>${threadMessages(t)}${n ? `<div class="note">${n}</div>` : ""}<textarea placeholder="Reply"></textarea>`;
+  const open = t.state === "open";
+  box.innerHTML = `<span class="act" title="${open ? "Resolve" : "Reopen"}">${open ? "✓" : "↺"}</span>${threadMessages(t)}${n ? `<div class="note">${n}</div>` : ""}<textarea placeholder="Reply"></textarea>`;
   reader.appendChild(box);
   box.style.left = Math.max(8, Math.min(rect.left - host.left + reader.scrollLeft, reader.scrollLeft + reader.clientWidth - box.offsetWidth - 8)) + "px";
   box.style.top = (rect.bottom - host.top + reader.scrollTop + 6) + "px";
@@ -288,7 +291,7 @@ function openPop(id) {
       openPop(id);
     }
   };
-  box.querySelector(".act").onclick = async () => { closePop(); await api("/api/resolve", { id }); poll(); };
+  box.querySelector(".act").onclick = async () => { closePop(); await api(open ? "/api/resolve" : "/api/reopen", { id }); poll(); };
 }
 
 function note(t) {
@@ -439,7 +442,8 @@ function threadAt(x, y) {
   const idx = textIndex();
   const off = offsetOf(idx, r.startContainer, r.startOffset);
   if (off === null) return null;
-  return Object.entries(state.anchors).find(([, s]) => s && off >= s[0] && off <= s[1])?.[0] || null;
+  const hits = Object.entries(state.anchors).filter(([, s]) => s && off >= s[0] && off <= s[1]).map(([id]) => id);
+  return hits.find(id => state.threads.find(t => t.id === id)?.state === "open") || hits[0] || null;
 }
 
 document.getElementById("doc").addEventListener("click", e => {
