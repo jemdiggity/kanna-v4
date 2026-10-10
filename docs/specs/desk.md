@@ -32,7 +32,7 @@ stateDiagram-v2
     shelf --> [*]: Done
 ```
 
-- **A window with a docked pane is a Desk**, and what it holds is its task. You make one with the mux commands you already have (`kanna open --dock --cmd claude`, then tabs); starting tasks from Kanna's own UI comes later.
+- **A window with a docked pane is a Desk**; its contents are its task. Make one with `kanna open --dock --cmd claude`, then open tabs. A UI for starting tasks comes later.
 - **Its name** is the docked pane's name, else its terminal's title. **Its folder and branch** are the docked pane's working directory and that folder's git branch, shown, never changed.
 - **Done** closes the task's panes, ending its agent and terminals.
 
