@@ -41,7 +41,7 @@ Every doc works the same way; only what you can point at differs.
 
 - **Two kinds of doc.** A markdown file, opened with `kanna open md FILE`, and an HTML page, opened with `kanna markup FILE.html`. (`kanna open web` shows a page without comments.)
 - **Preview only.** The pane shows the file and reloads when it changes; you don't edit in it. Comments are the only thing you add.
-- **Commenting.** Select text and press ⌘↵ (or **Comment**), in either kind. ⌘ adds what the kind offers:
+- **Commenting.** Select text and press ⌘↵, in either kind. ⌘ adds what the kind offers:
 
 | You | In a markdown file | In a page |
 |---|---|---|

@@ -109,7 +109,6 @@ body.meta .reader.page #shield { display: block; }
   <span class="path" id="path"></span>
   <span class="spacer"></span>
   <span class="chip" id="agent"></span>
-  <span class="chip button" id="commentBtn" title="Select text, then ⌘↵. Or ⌘-click a word.">Comment ⌘↵</span>
   <span class="chip button on" id="threadsBtn">Threads</span>
 </div>
 <div class="split">
@@ -778,7 +777,6 @@ document.getElementById("doc").addEventListener("click", e => {
 document.addEventListener("keydown", e => {
   if (e.metaKey && e.key === "Enter" && !e.target.closest("textarea")) { e.preventDefault(); isPage() ? pageSelectionComment() : selectionComment(); }
 });
-document.getElementById("commentBtn").addEventListener("mousedown", e => { e.preventDefault(); isPage() ? pageSelectionComment() : selectionComment(); });
 function toggleThreads() {
   state.showThreads = !state.showThreads;
   document.getElementById("threads").classList.toggle("hidden", !state.showThreads);
@@ -798,7 +796,6 @@ async function poll() {
   state.agent = d.agent;
   state.kind = d.kind || "doc";
   state.pages = d.pages;
-  document.getElementById("commentBtn").title = isPage() ? "Select text, then ⌘↵. Or ⌘-click a part of the page, or ⌘-drag a box." : "Select text, then ⌘↵. Or ⌘-click a word.";
   const key = JSON.stringify(d.threads);
   const changedDoc = d.mtime !== state.mtime;
   const changedThreads = key !== state.threadsKey;

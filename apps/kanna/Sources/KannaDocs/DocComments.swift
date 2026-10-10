@@ -103,7 +103,6 @@ package final class Chip: FlippedView {
 package final class DocBar: FlippedView {
     package let path = NSTextField(labelWithString: "")
     package let agent = Chip("")
-    package let comment = Chip("Comment ⌘↵")
     package let threads = Chip("Threads")
 
     package init() {
@@ -112,8 +111,7 @@ package final class DocBar: FlippedView {
         path.font = DocTheme.mono
         path.textColor = DocTheme.soft
         path.lineBreakMode = .byTruncatingTail
-        for view in [path, agent, comment, threads] { addSubview(view) }
-        comment.toolTip = "Select text, then ⌘↵. Or ⌘-click a word."
+        for view in [path, agent, threads] { addSubview(view) }
         threads.on = true
     }
 
@@ -122,7 +120,7 @@ package final class DocBar: FlippedView {
     package override func layout() {
         super.layout()
         var x = bounds.width - 10
-        for chip in [threads, comment, agent] {
+        for chip in [threads, agent] {
             x -= chip.frame.width
             chip.frame.origin = NSPoint(x: x, y: 6)
             x -= 10

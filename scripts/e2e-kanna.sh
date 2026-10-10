@@ -1124,10 +1124,6 @@ PY
   check test "$(s39_thread c4 page.text)" == "A page to mark up." || return 1
   check wait_for 5 eval 'kanna read agent | sed "s/^IN //" | tr -d "\n " | grep -qF "[kannacommentc4·page.html:5]>thepage,thetext\"Apagetomarkup.\"inbody>p:nth-of-type(1)>box"' || { kanna read agent; return 1; }
   check wait_for 5 eval 's39_web | field marks | grep -q c4' || { s39_web; return 1; }
-  raw '{"id":1,"cmd":"debug.web","args":{"pane":"page","js":"(() => { const r = document.createRange(); r.selectNodeContents(document.querySelector(\"h1\")); getSelection().removeAllRanges(); getSelection().addRange(r); return 1; })()"}}' >/dev/null
-  s39_click "\"at\":$(s39_web | field comment_at)"
-  check wait_for 5 eval '[[ "$(s39_web | field box)" == new ]]' || { s39_web; return 1; }
-  key escape; check wait_for 5 eval '[[ "$(s39_web | field box)" == None ]]' || return 1
   raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
   sleep 0.5; s39_shot s39-dark
 }

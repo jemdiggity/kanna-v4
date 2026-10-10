@@ -107,7 +107,6 @@ mark.flash { animation: flash .9s; }
           <span class="path">docs/specs/tab-container.md</span>
           <span class="spacer"></span>
           <span class="watch" id="watch"></span>
-          <span class="chip" id="commentBtn">Comment ⌘↵</span>
           <span class="chip on" id="threadsBtn">Threads 2</span>
         </div>
         <div class="split">
@@ -277,7 +276,6 @@ document.getElementById("doc").addEventListener("keydown", e => {
   if (!s.composer && e.metaKey && e.key === "Enter") { e.preventDefault(); selectionComment(); }
 });
 document.getElementById("doc").addEventListener("mousedown", e => { if (!e.target.closest("textarea, input")) document.getElementById("doc").focus({ preventScroll: true }); });
-document.getElementById("commentBtn").onclick = selectionComment;
 document.getElementById("agentReply").onclick = () => {
   const t = s.threads.find(t => t.id === "c2");
   if (!t || t.state !== "open") return;

@@ -4,7 +4,6 @@ import KannaDocs
 extension MarkdownPaneView {
     func setUpComments() {
         bar.path.stringValue = store.relativeName
-        bar.comment.onPress = { [weak self] in _ = self?.commentOnSelection() }
         bar.threads.onPress = { [weak self] in self?.toggleThreads() }
         panel.onSelect = { [weak self] id in self?.reveal(id) }
         panel.onAct = { [weak self] thread in self?.setState(thread.id, open: !thread.isOpen) }
