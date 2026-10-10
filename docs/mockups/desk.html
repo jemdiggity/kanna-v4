@@ -168,7 +168,7 @@ const task = id => s.tasks.find(t => t.id === id);
 
 function render() {
   const t = task(s.desk);
-  document.getElementById("where").innerHTML = t ? `Desk · <b>${t.title}</b> · ~/work/${t.repo} · ${t.branch}` : "Desk · empty";
+  document.getElementById("where").innerHTML = t ? `Desk · <b>${t.title}</b> · ~/work/${t.repo} · ${t.branch}` : "Desk · Shelf";
   const desk = document.getElementById("desk");
   desk.innerHTML = t ? deskHTML(t) : emptyHTML();
   desk.querySelectorAll("[data-pull]").forEach(el => el.onclick = () => pull(el.dataset.pull));
@@ -269,7 +269,7 @@ function emptyHTML() {
   const waiting = s.tasks.filter(t => t.id !== s.desk);
   const byRepo = {};
   waiting.forEach(t => (byRepo[t.repo] = byRepo[t.repo] || []).push(t));
-  return `<div class="empty"><h2>Desk is empty</h2><p class="sub">One thing at a time. Pull a task from the Shelf.</p>
+  return `<div class="empty"><h2>Shelf</h2><p class="sub">Every task, by folder. Pull one onto the Desk.</p>
     ${Object.entries(byRepo).map(([repo, list]) => `<div class="group"><div class="gh"><span><b>~/work/${repo}</b></span><span>${list.length} parked</span></div>
       ${list.map(t => `<div class="row"><span class="dot ${t.status}"></span><div class="t"><div class="n">${t.title}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${t.parked || "now"} · ${t.branch}</div></div><span class="go" data-pull="${t.id}">Pull →</span></div>`).join("")}</div>`).join("")}</div>`;
 }

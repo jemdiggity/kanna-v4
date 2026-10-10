@@ -6,7 +6,7 @@ The **Desk** is Kanna's window for working with an agent. It shows one **task**:
 
 ![A Desk: the agent docked on the left, the task's docs as tabs on the right, the Shelf below with a task that needs you](desk.png)
 
-![An empty Desk listing parked tasks, in light mode](desk-empty.png)
+![The Shelf in full on a Desk with no task, in light mode](desk-empty.png)
 
 ## Contents
 
@@ -49,7 +49,7 @@ flowchart LR
   - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, a markdown link, or **+**.
   - Opening a file that's already open shows its tab.
 - **The Kanna bar** (top) names the Desk and its task.
-- **Empty Desk:** the parked tasks grouped by folder, each with **Pull →**.
+- **With no task on it, the Desk shows the Shelf in full:** every task grouped by folder, each with **Pull →**.
 - **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
 
 ## 3. The Shelf
