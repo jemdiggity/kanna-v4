@@ -81,7 +81,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .doc p, .doc li { color: var(--text); opacity: .92; }
 .doc ul { padding-left: 18px; }
 .doc mark { background: var(--tint); color: inherit; border-bottom: 1.5px solid var(--accent); }
-.threads { flex: 0 0 220px; background: var(--panel); border-left: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.threads { flex: 0 0 260px; background: var(--panel); border-left: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
 .card { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; }
 .card .h { color: var(--muted); font: 11px var(--mono); margin-bottom: 4px; }
 .card .q { color: var(--muted); border-left: 2px solid var(--accent); padding-left: 7px; margin-bottom: 4px; }
@@ -102,20 +102,8 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .dtab .x { color: var(--muted); font-size: 11px; visibility: hidden; }
 .dtab.on .x, .dtab:hover .x { visibility: visible; }
 .dtabs .add { color: var(--muted); padding: 0 8px; cursor: pointer; font-size: 15px; }
-.pathbar { height: 36px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
-.crumbs { display: flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 14px; padding: 3px 10px; white-space: nowrap; overflow: hidden; }
-.crumbs b { color: var(--text); font-weight: 600; }
-.pathbar .spacer { flex: 1; }
 .dbody { flex: 1; display: flex; min-height: 0; }
 .view { flex: 1; min-width: 0; display: flex; }
-.tree { flex: 0 0 210px; border-left: 1px solid var(--line); background: var(--panel); padding: 8px 6px; overflow: auto; font-size: 12.5px; }
-.tree.hidden { display: none; }
-.tree .filter { margin: 0 4px 8px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; color: var(--muted); }
-.tree .f { padding: 3px 8px; border-radius: 5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tree .f:hover { background: var(--panel2); }
-.tree .f.open { color: var(--accent); }
-.tree .f.on { background: var(--tint); color: var(--text); }
-.tree .d { color: var(--muted); padding: 3px 8px; }
 .imgview { flex: 1; display: flex; align-items: center; justify-content: center; background: var(--bg); }
 .imgview .shot { width: 70%; aspect-ratio: 16/10; border-radius: 8px; border: 1px solid var(--line); background: linear-gradient(135deg, var(--panel2), var(--panel)); display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .tterm { flex: 1; background: var(--term); font: 12px/1.6 var(--mono); padding: 10px 12px; white-space: pre-wrap; color: var(--text); }
@@ -141,27 +129,16 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .shelf .spacer { flex: 1; }
 .shelf .hint { color: var(--muted); white-space: nowrap; }
 
-.sheet { position: absolute; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: flex-start; justify-content: center; padding-top: 80px; }
-.sheet.on { display: flex; }
-.sheet .box { width: 440px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); }
-.sheet h3 { margin: 0 0 14px; font-size: 15px; }
-.field { margin-bottom: 12px; }
-.field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-.field input, .field select { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: 13px var(--sans); }
-.field .note { color: var(--muted); font-size: 11.5px; margin-top: 4px; font-family: var(--mono); }
-.check { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
-.sheet .row2 { display: flex; justify-content: flex-end; gap: 8px; }
 </style>
 </head>
 <body>
 <main>
   <div class="intro">
     <h1>Desk: one task per window, the rest on the Shelf</h1>
-    <p>A task is a piece of work with its own agent, folder and panes. The Desk shows one; the Shelf below holds the others, their agents still running. Click a Shelf item to swap, Park to clear the Desk, + New Task to start one.</p>
+    <p>A task is what a Desk holds: its agent, docked on the left, and its tabs. The Desk shows one; the Shelf below holds the others, their agents still running. Click a Shelf item to swap, or Park to clear the Desk.</p>
     <div class="controls">
       <button id="theme">Light / dark</button>
       <button id="park">Park</button>
-      <button id="new">New Task…</button>
       <button id="ring">Shelf agent asks for you</button>
       <button id="reset">Reset</button>
     </div>
@@ -172,31 +149,18 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
       <span class="brand">Kanna</span>
       <span class="where" id="where"></span>
       <span class="spacer"></span>
-      <span class="pill accent" id="newBtn">+ New Task</span>
     </div>
     <div id="desk" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>
     <div class="shelf" id="shelf"></div>
-    <div class="sheet" id="sheet">
-      <div class="box">
-        <h3>New Task</h3>
-        <div class="field"><label>Title</label><input id="ntTitle" value="Desk: one task per window"></div>
-        <div class="field"><label>Repository</label><select><option>~/work/kanna-v4</option><option>~/work/kmux</option><option>Choose…</option></select></div>
-        <div class="field"><label>Agent</label><select id="ntAgent"><option>claude</option><option>codex</option><option>shell only</option></select></div>
-        <label class="check"><input type="checkbox" checked> Work in its own worktree</label>
-        <div class="field"><div class="note" id="ntNote"></div></div>
-        <div class="row2"><button class="ghost" id="ntCancel">Cancel</button><button class="primary" id="ntCreate">Create ⏎</button></div>
-      </div>
-    </div>
   </div>
 </main>
 <script>
-const slug = t => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
 const initial = () => ({
   desk: "doc-markup",
   tasks: [
-    { id: "doc-markup", title: "Doc markup reference model", repo: "kanna-v4", agent: "claude", status: "working", parked: null, kind: "doc" },
-    { id: "tab-bar-light", title: "Tab bar follows light mode", repo: "kanna-v4", agent: "codex", status: "idle", parked: "12m", kind: "web" },
-    { id: "s30-colours", title: "S30 colour queries fail", repo: "kanna-v4", agent: "claude", status: "idle", parked: "1h", kind: "doc" },
+    { id: "doc-markup", title: "Doc markup reference model", repo: "kanna-v4", branch: "main", agent: "claude", status: "working", parked: null, kind: "doc" },
+    { id: "tab-bar-light", title: "Tab bar follows light mode", repo: "kanna-v4", branch: "tab-bar-light", agent: "codex", status: "idle", parked: "12m", kind: "web" },
+    { id: "s30-colours", title: "S30 colour queries fail", repo: "kanna-v4", branch: "s30-colours", agent: "claude", status: "idle", parked: "1h", kind: "doc" },
   ],
 });
 let s = initial();
@@ -205,18 +169,16 @@ const task = id => s.tasks.find(t => t.id === id);
 
 function render() {
   const t = task(s.desk);
-  document.getElementById("where").innerHTML = t ? `Desk · <b>${t.title}</b> · ${t.repo} · task/${t.id}` : "Desk · empty";
+  document.getElementById("where").innerHTML = t ? `Desk · <b>${t.title}</b> · ~/work/${t.repo} · ${t.branch}` : "Desk · empty";
   const desk = document.getElementById("desk");
   desk.innerHTML = t ? deskHTML(t) : emptyHTML();
   desk.querySelectorAll("[data-pull]").forEach(el => el.onclick = () => pull(el.dataset.pull));
-  const newHere = desk.querySelector("[data-new]");
-  if (newHere) newHere.onclick = openSheet;
   renderShelf();
 }
 
 function agentTerm(t) {
   if (t.id === "doc-markup") return [
-    `<span class="c">~/work/kanna-v4/.kanna/worktrees/doc-markup</span> <span class="p">❯</span> claude`,
+    `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> claude`,
     ``,
     `<span class="p">&gt;</span> [kanna comment c2 · docs/specs/doc-markup.md:58]`,
     `  &gt; Sent at once, never held.`,
@@ -230,25 +192,19 @@ function agentTerm(t) {
     `<div class="box"><span class="p">&gt;</span> <span class="g">Try "add a test for detached threads"</span></div>`,
   ].join("\n");
   return [
-    `<span class="c">~/work/kanna-v4/.kanna/worktrees/${t.id}</span> <span class="p">❯</span> ${t.agent}`,
+    `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> ${t.agent}`,
     ``,
     `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : "Done. S36 passes; screenshots in light and dark attached."}`,
     `<div class="box"><span class="p">&gt;</span> <span class="g">…</span></div>`,
   ].join("\n");
 }
 
-const files = {
-  "doc-markup": ["docs/specs/doc-markup.md", "docs/specs/desk.md", "docs/mockups/doc-markup.html", "docs/specs/doc-markup.png", "prototypes/doc-markup/README.md", "prototypes/doc-markup/kanna-doc", "tests"],
-  "tab-bar-light": ["apps/kanna/Sources/Kanna/Windows/TabBar.swift", "target/tmp/s36-2-light.png", "localhost:5173", "tests"],
-  "s30-colours": ["scripts/e2e-kanna.sh", "docs/kanna-spec.md", "tests"],
-};
 const opened = {
   "doc-markup": ["docs/specs/doc-markup.md", "docs/mockups/doc-markup.html", "docs/specs/doc-markup.png", "tests"],
   "tab-bar-light": ["localhost:5173", "target/tmp/s36-2-light.png"],
   "s30-colours": ["docs/kanna-spec.md", "tests"],
 };
 const active = { "doc-markup": "docs/specs/doc-markup.md", "tab-bar-light": "localhost:5173", "s30-colours": "tests" };
-let showTree = true;
 const kindOf = f => f === "tests" ? "term" : f.startsWith("localhost") || f.endsWith(".html") ? "web" : f.endsWith(".png") ? "img" : f.endsWith(".md") ? "md" : "text";
 const icon = { md: "¶", web: "◎", img: "▣", term: "›_", text: "≡" };
 const label = f => f === "tests" ? "tests" : f.split("/").pop();
@@ -268,23 +224,18 @@ function viewHTML(f) {
 
 function docsHTML(t) {
   const list = opened[t.id], cur = active[t.id];
-  const parts = cur === "tests" ? ["kanna-v4", "terminal", "tests"] : cur.startsWith("localhost") ? ["web", cur] : ["kanna-v4", ...cur.split("/")];
   return `<div class="docs">
-    <div class="dtabs">${list.map((f, i) => `<div class="dtab ${f === cur ? "on" : ""}" data-tab="${f}"><span class="ic">${icon[kindOf(f)]}</span><span class="nm">${label(f)}</span><span class="kb">⌘${i + 1}</span><span class="x" data-close="${f}">×</span></div>`).join("")}<span class="add" title="Open a file, page or terminal">+</span></div>
-    <div class="pathbar"><span class="crumbs">${parts.map((p, i) => i === parts.length - 1 ? `<b>${p}</b>` : `${p} ›`).join(" ")}</span><span class="spacer"></span><span class="pill">Open ▾</span><span class="pill" data-tree>${showTree ? "Files ▸" : "Files ◂"}</span></div>
-    <div class="dbody"><div class="view">${viewHTML(cur)}</div>
-      <div class="tree ${showTree ? "" : "hidden"}"><div class="filter">Filter files…</div><div class="d">▾ ${t.id === "doc-markup" ? ".kanna/worktrees/doc-markup" : t.repo}</div>
-        ${files[t.id].map(f => `<div class="f ${f === cur ? "on" : list.includes(f) ? "open" : ""}" data-file="${f}">${"&nbsp;".repeat(3)}${icon[kindOf(f)]} ${f === "tests" ? "tests (terminal)" : f}</div>`).join("")}</div>
-    </div></div>`;
+    <div class="dtabs">${list.map((f, i) => `<div class="dtab ${f === cur ? "on" : ""}" data-tab="${f}"><span class="ic">${icon[kindOf(f)]}</span><span class="nm">${label(f)}</span><span class="kb">⌘${i + 1}</span><span class="x" data-close="${f}">×</span></div>`).join("")}<span class="add" title="New tab">+</span></div>
+    <div class="dbody"><div class="view">${viewHTML(cur)}</div></div></div>`;
 }
 
 function deskHTML(t) {
   return `<div class="content">
     <div class="agent">
       <div class="head">
-        <div class="kind"><span>${t.agent} · task</span><span class="pill" data-park>Park ↓</span></div>
+        <div class="kind"><span>${t.agent} · docked</span><span class="pill" data-park>Park ↓</span></div>
         <div class="title"><span class="dot ${t.status}" title="${statusText[t.status]}"></span>${t.title}</div>
-        <div class="tags"><span class="tag">${t.repo}</span><span class="tag dim">·</span><span class="tag">task/${t.id}</span><span class="tag dim">· ${statusText[t.status]}</span></div>
+        <div class="tags"><span class="tag">~/work/${t.repo}</span><span class="tag dim">·</span><span class="tag">${t.branch}</span><span class="tag dim">· ${statusText[t.status]}</span></div>
       </div>
       <div class="term">${agentTerm(t)}</div>
     </div>
@@ -309,8 +260,6 @@ document.addEventListener("click", e => {
   const close = e.target.closest("[data-close]");
   if (close) { e.stopPropagation(); return closeDoc(close.dataset.close); }
   const tab = e.target.closest("[data-tab]"); if (tab) return openDoc(tab.dataset.tab);
-  const file = e.target.closest("[data-file]"); if (file) return openDoc(file.dataset.file);
-  if (e.target.closest("[data-tree]")) { showTree = !showTree; render(); }
 });
 document.addEventListener("keydown", e => {
   const t = task(s.desk);
@@ -323,10 +272,9 @@ function emptyHTML() {
   const waiting = s.tasks.filter(t => t.id !== s.desk);
   const byRepo = {};
   waiting.forEach(t => (byRepo[t.repo] = byRepo[t.repo] || []).push(t));
-  return `<div class="empty"><h2>Desk is empty</h2><p class="sub">One thing at a time. Pull a task from the Shelf, or start a new one.</p>
-    ${Object.entries(byRepo).map(([repo, list]) => `<div class="group"><div class="gh"><span><b>${repo}</b></span><span>${list.length} parked</span></div>
-      ${list.map(t => `<div class="row"><span class="dot ${t.status}"></span><div class="t"><div class="n">${t.title}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${t.parked || "now"} · task/${t.id}</div></div><span class="go" data-pull="${t.id}">Pull →</span></div>`).join("")}</div>`).join("")}
-    <button class="primary" data-new>+ New Task</button></div>`;
+  return `<div class="empty"><h2>Desk is empty</h2><p class="sub">One thing at a time. Pull a task from the Shelf.</p>
+    ${Object.entries(byRepo).map(([repo, list]) => `<div class="group"><div class="gh"><span><b>~/work/${repo}</b></span><span>${list.length} parked</span></div>
+      ${list.map(t => `<div class="row"><span class="dot ${t.status}"></span><div class="t"><div class="n">${t.title}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${t.parked || "now"} · ${t.branch}</div></div><span class="go" data-pull="${t.id}">Pull →</span></div>`).join("")}</div>`).join("")}</div>`;
 }
 
 function renderShelf() {
@@ -348,22 +296,6 @@ function pull(id) {
 }
 function park() { const cur = task(s.desk); if (cur) { cur.parked = "now"; s.desk = null; } render(); }
 
-function openSheet() { document.getElementById("sheet").classList.add("on"); note(); document.getElementById("ntTitle").focus(); }
-function note() {
-  const id = slug(document.getElementById("ntTitle").value) || "task";
-  document.getElementById("ntNote").textContent = `~/work/kanna-v4/.kanna/worktrees/${id}  ·  branch task/${id}`;
-}
-document.getElementById("ntTitle").oninput = note;
-document.getElementById("ntCancel").onclick = () => document.getElementById("sheet").classList.remove("on");
-document.getElementById("ntCreate").onclick = () => {
-  const title = document.getElementById("ntTitle").value.trim() || "Untitled";
-  const id = slug(title);
-  s.tasks.push({ id, title, repo: "kanna-v4", agent: document.getElementById("ntAgent").value.split(" ")[0], status: "working", parked: null, kind: "web" });
-  document.getElementById("sheet").classList.remove("on");
-  pull(id);
-};
-document.getElementById("newBtn").onclick = openSheet;
-document.getElementById("new").onclick = openSheet;
 document.getElementById("park").onclick = park;
 document.getElementById("ring").onclick = () => { const t = s.tasks.find(t => t.id !== s.desk); if (t) { t.status = "needs"; render(); } };
 document.getElementById("theme").onclick = () => { const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "" : "light"; };

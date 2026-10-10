@@ -27,7 +27,8 @@
    - 4.13 [Doc Markup](#413-doc-markup)
    - 4.14 [Markdown Pane Keys](#414-markdown-pane-keys)
    - 4.15 [Desk](#415-desk)
-   - 4.16 [Tab Groups](#416-tab-groups)
+   - 4.16 [Docked Pane](#416-docked-pane)
+   - 4.17 [Agent Status](#417-agent-status)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -823,11 +824,15 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 ### 4.15 Desk
 
-**[Proposed]** A window that shows one task: its agent as the single chat on the left, everything else it opens as tabs on the right, every other task parked on the Shelf below with its agent still running; the look of kanna v3's Desk. Its own spec: [specs/desk.md](specs/desk.md), with a mockup in [mockups/desk.html](mockups/desk.html).
+**[Proposed]** A window that shows one task: its agent docked on the left as the single chat, everything else it opens as the window's tabs, every other task parked on the Shelf below with its agent still running; the look of kanna v3's Desk. Its own spec: [specs/desk.md](specs/desk.md), with a mockup in [mockups/desk.html](mockups/desk.html).
 
-### 4.16 Tab Groups
+### 4.16 Docked Pane
 
-**[Proposed]** A layout node beside splits and panes: one slot holding several panes as tabs, showing one. A mux-layer primitive the Desk is built from; windows that don't use it behave exactly as kmux. Its own spec: [specs/tab-groups.md](specs/tab-groups.md).
+**[Proposed]** A window's one pane outside its tabs, along its left edge, shown whichever tab is active. A mux-layer primitive the Desk is built from (the agent docked, the docs as tabs); windows without one behave exactly as kmux. Its own spec: [specs/docked-pane.md](specs/docked-pane.md).
+
+### 4.17 Agent Status
+
+**[Proposed]** Working, needs you, idle or exited for any terminal pane, from what its terminal already reports (output, progress, bell, notifications, exit), the same for every agent. Its own spec: [specs/agent-status.md](specs/agent-status.md).
 
 ---
 
