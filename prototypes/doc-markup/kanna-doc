@@ -32,10 +32,44 @@ def repo_root(path):
         return start
 
 
+def real_folder(path):
+    try:
+        path.mkdir(mode=0o755)
+    except FileExistsError:
+        pass
+    if path.is_symlink() or not path.is_dir():
+        raise SystemExit(f"kanna-doc: {path} is not a plain folder; refusing to write through it")
+
+
 def store_dir(root):
     d = root / ".kanna" / "docs"
-    d.mkdir(parents=True, exist_ok=True)
+    real_folder(root / ".kanna")
+    real_folder(d)
     return d
+
+
+def read_no_follow(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as f:
+        return f.read()
+
+
+def write_no_follow(path, data):
+    tmp = f"{path}.{secrets.token_hex(8)}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def store_path(file):
@@ -47,24 +81,23 @@ def store_path(file):
 @contextmanager
 def locked(file):
     path = store_path(file)
-    lock = open(str(path) + ".lock", "w")
+    lock = os.open(str(path) + ".lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     fcntl.flock(lock, fcntl.LOCK_EX)
     try:
-        doc = json.loads(path.read_text()) if path.exists() else {"file": str(file), "agent": None, "socket": None, "next": 1, "threads": []}
+        raw = read_no_follow(path)
+        doc = json.loads(raw) if raw else {"file": str(file), "agent": None, "socket": None, "next": 1, "threads": []}
         yield doc
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
-        tmp.replace(path)
+        write_no_follow(path, json.dumps(doc, indent=2, ensure_ascii=False).encode())
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
-        lock.close()
+        os.close(lock)
 
 
 def read_doc(file):
-    path = store_path(file)
-    if not path.exists():
+    raw = read_no_follow(store_path(file))
+    if not raw:
         return {"file": str(file), "agent": None, "socket": None, "next": 1, "threads": []}
-    return with_lines(json.loads(path.read_text()))
+    return with_lines(json.loads(raw))
 
 
 def now():
@@ -114,9 +147,17 @@ def clean(text):
     return CONTROL.sub("", text.replace("\r\n", "\n").replace("\r", "\n"))
 
 
+THREAD_ID = re.compile(r"c[0-9]{1,10}")
+
+
 def message(doc, t, text):
+    if not THREAD_ID.fullmatch(t["id"]):
+        raise SystemExit(f"kanna-doc: refusing to send thread id {t['id']!r}")
+    header = f"[kanna comment {t['id']} · {rel_name(Path(doc['file']))}:{t['line']}]"
+    if t.get("detached"):
+        return f"{header}\n{text}"
     quote = "\n".join("> " + line for line in t["quote"].splitlines()) or "> "
-    return f"[kanna comment {t['id']} · {rel_name(Path(doc['file']))}:{t['line']}]\n{quote}\n{text}"
+    return f"{header}\n{quote}\n{text}"
 
 
 def send_to_agent(doc, text):
@@ -178,7 +219,9 @@ def docs_in(root):
     out = []
     for p in d.glob("*.json"):
         try:
-            out.append((p.stat().st_mtime, json.loads(p.read_text())))
+            raw = None if p.is_symlink() else read_no_follow(p)
+            if raw:
+                out.append((p.stat().st_mtime, json.loads(raw)))
         except (OSError, json.JSONDecodeError):
             pass
     return [doc for _, doc in sorted(out, key=lambda x: -x[0])]
