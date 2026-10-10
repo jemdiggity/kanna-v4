@@ -34,7 +34,7 @@ body { background: var(--bg); color: var(--text); font: 14px/1.55 var(--sans); d
 .chip.on { border-color: var(--accent); color: var(--text); }
 .chip.warn { border-color: var(--warn); color: var(--warn); }
 .split { flex: 1; display: flex; min-height: 0; }
-.reader { flex: 1; min-width: 0; overflow: auto; padding: 26px 34px 40vh; }
+.reader { flex: 1; min-width: 0; overflow: auto; padding: 26px 34px 40vh; position: relative; }
 #doc { max-width: 760px; }
 #doc h1, #doc h2, #doc h3, #doc h4 { line-height: 1.25; margin: 1.3em 0 .5em; }
 #doc h1 { font-size: 26px; } #doc h2 { font-size: 21px; } #doc h3 { font-size: 17px; }
@@ -52,8 +52,7 @@ body { background: var(--bg); color: var(--text); font: 14px/1.55 var(--sans); d
 ::highlight(threads) { background-color: var(--tint); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 1.5px; }
 ::highlight(active) { background-color: var(--tint-on); }
 ::highlight(flash) { background-color: var(--accent); color: white; }
-.composer { margin: 8px 0 14px; background: var(--card); border: 1px solid var(--accent); border-radius: 8px; padding: 8px; font-size: 13px; }
-.composer .q { color: var(--dim); border-left: 2px solid var(--accent); padding-left: 7px; font-size: 12px; margin-bottom: 4px; white-space: pre-wrap; max-height: 5.5em; overflow: hidden; }
+.composer { position: absolute; z-index: 10; width: 360px; background: var(--card); border: 1px solid var(--accent); border-radius: 8px; padding: 8px; font-size: 13px; box-shadow: 0 8px 28px rgba(0,0,0,.28); }
 .composer textarea { width: 100%; min-height: 54px; resize: vertical; background: transparent; color: var(--text); border: 0; outline: none; font: 13px var(--sans); }
 .composer .row { display: flex; justify-content: flex-end; gap: 6px; color: var(--dim); font-size: 11.5px; align-items: center; }
 button { font: 12px var(--sans); color: var(--text); background: var(--card); border: 1px solid var(--edge); border-radius: 5px; padding: 3px 9px; cursor: pointer; }
@@ -313,13 +312,19 @@ function openComposer(range) {
   closeComposer();
   state.composer = { quote, prefix: idx.text.slice(Math.max(0, s - 32), s), suffix: idx.text.slice(e, e + 32), line: lineFor(block, quote) };
   CSS.highlights.set("active", new Highlight(rangeAt(idx, s, e)));
+  const reader = document.getElementById("reader");
+  const rect = range.getBoundingClientRect(), host = reader.getBoundingClientRect();
+  window.getSelection().removeAllRanges();
   const box = document.createElement("div");
   box.className = "composer";
-  box.innerHTML = `<div class="q"></div><textarea placeholder="Comment"></textarea><div class="row"><span>⌘↵ posts · Esc cancels</span><button class="primary">Post</button></div>`;
-  box.querySelector(".q").textContent = quote;
-  block.after(box);
+  box.innerHTML = `<textarea placeholder="Comment"></textarea><div class="row"><span>⌘↵ posts · Esc cancels</span><button class="primary">Post</button></div>`;
+  reader.appendChild(box);
+  const left = Math.max(8, Math.min(rect.left - host.left + reader.scrollLeft, reader.scrollLeft + reader.clientWidth - box.offsetWidth - 8));
+  box.style.left = left + "px";
+  box.style.top = (rect.bottom - host.top + reader.scrollTop + 6) + "px";
   const ta = box.querySelector("textarea");
   ta.focus();
+  requestAnimationFrame(() => ta.focus());
   const post = async () => {
     const text = ta.value.trim();
     if (!text) return;
@@ -334,7 +339,6 @@ function openComposer(range) {
     if (e.key === "Escape") { closeComposer(); anchorAll(); }
   };
   box.querySelector("button").onclick = post;
-  window.getSelection().removeAllRanges();
 }
 
 function closeComposer() {
@@ -376,6 +380,7 @@ function threadAt(x, y) {
 
 document.getElementById("doc").addEventListener("click", e => {
   if (e.target.closest(".composer")) return;
+  if (state.composer && !e.metaKey) { const ta = document.querySelector(".composer textarea"); if (ta && !ta.value.trim()) { closeComposer(); anchorAll(); } return; }
   if (e.metaKey) {
     e.preventDefault();
     e.stopPropagation();
