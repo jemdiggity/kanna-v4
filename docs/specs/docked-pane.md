@@ -38,10 +38,10 @@ The right side needs nothing new: the window's own tabs already are a group of t
 ## 2. Rules
 
 - **One per window**, on the left.
-- **Any pane kind:** terminal, web, markdown or iOS. It's an ordinary pane with its ID and name, so `send`, `read`, `navigate`, `close` and `restart` work on it unchanged.
+- **Any pane kind:** terminal, web, markdown or iOS. It's an ordinary pane with its ID and name, so `send`, `read`, `navigate` and `restart` work on it unchanged.
 - **Width** is a fraction of the window, dragged at its divider and saved with the window. Default 2/5.
 - **Always shown:** switching tabs leaves it alone. The tab bar spans only the tabs' side.
-- **Closing it** gives its space back to the tabs; closing the window's last tab leaves the window with just its docked pane.
+- **It closes only with its window.** Close Pane (⌘W) and `kanna close` don't close it: ⌘W in the docked pane does nothing, and `kanna close` on it fails with `docked: it closes with its window`. If its program exits, it stays on screen as `exited`, and Restart (⌘R) starts it again. Closing the window's last tab leaves the window with just its docked pane.
 - **Focus:** Next/Previous Pane go from the docked pane into the shown tab's panes and back. Zoom on a tab's pane fills the tabs' side; zoom on the docked pane fills the window.
 
 ## 3. Keys and mouse
