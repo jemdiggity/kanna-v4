@@ -45,6 +45,7 @@ stateDiagram-v2
 - **Settled screens only:** Kanna judges a screen once it stops changing mid-frame, so a half-drawn repaint never flips the status.
 - **Screen only:** the bell and the agents' own notifications (OSC 9, OSC 777) aren't used. They depend on each agent's settings and, for Codex, on focus reports ([evidence](../research/agent-status-signals.md)); the screen doesn't.
 - **Same for every agent:** each agent differs only in its rule file.
+- **Unread is separate:** an agent that goes from working to idle while you aren't looking at it is **unread** until you do. Unread is the app's mark of what you've seen, not an agent status: the status stays idle, and the dot shows both.
 
 ## 3. Detection rules
 
@@ -86,13 +87,13 @@ flowchart LR
 ## 6. Open questions
 
 1. Where's the rules site: the repo's GitHub Pages, as v3 planned?
-2. Should an agent that finished a turn while you weren't looking show **done** until you look, as herdr does? It needs only the screen: working, then idle, while unseen.
-3. Should needs you badge the Dock icon and post a macOS notification when Kanna isn't frontmost?
+2. Should needs you badge the Dock icon and post a macOS notification when Kanna isn't frontmost?
 
 ## 7. Glossary
 
 | Term | Meaning |
 |---|---|
+| **Unread** | An idle agent you haven't looked at since it finished; kept by the app, apart from the status |
 | **Rule** | A pattern on an agent's screen, title or progress that means one status |
 | **Rules site** | Where Kanna fetches updated rule files from |
 | **Corpus** | Recorded agent screens, each labeled with its true status, that every rule change is tested against |
