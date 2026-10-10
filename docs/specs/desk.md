@@ -44,12 +44,12 @@ flowchart LR
 ```
 
 - **One task per Desk.** Pulling a task onto a Desk parks the one it held; a task on another Desk brings that window forward instead. Closing a Desk window parks its task.
-- **The agent pane** is the agent in its terminal, untouched, with a header: the task's name, folder, branch, [status](agent-status.md) and Park, an icon named in its tooltip. It's the only chat: you talk to the agent there, and doc comments arrive there ([doc markup](doc-markup.md)).
+- **The agent pane** is the agent in its terminal, untouched, with a one-line header: its folder, branch and Park, an icon named in its tooltip. No name (the title bar has it) and no [status](agent-status.md) (you can see the agent; the Shelf shows the others' status). It's the only chat: you talk to the agent there, and doc comments arrive there ([doc markup](doc-markup.md)).
 - **Docs are the window's tabs.** Each is an ordinary tab: markdown (with comments), a web page, an image, video or PDF (shown in a web pane), or a terminal (tests, a server), and a tab can hold splits.
   - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, a markdown link, or **+**.
   - Opening a file that's already open shows its tab.
 - **The title bar** (top) shows only the task's title (or Shelf, with no task on the Desk).
-- **With no task on it, the Desk shows the Shelf in full:** every task grouped by folder, each with **Pull →**, under a short encouraging line that changes each time the Shelf comes up.
+- **With no task on it, the Desk shows the Shelf in full** in place of the strip: every task grouped by folder (click one to pull it), under a short encouraging line that changes each time the Shelf comes up.
 - **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
 
 ## 3. The Shelf

@@ -32,7 +32,7 @@ button.ghost { background: transparent; }
 .window { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: var(--shadow); background: var(--bg); height: 720px; display: flex; flex-direction: column; }
 body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 100vh; }
 
-.bar { height: 44px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar { height: 36px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--bg); }
 .lights { display: flex; gap: 8px; }
 .lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); display: block; }
 .where { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -52,16 +52,14 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 
 .content { flex: 1; display: flex; min-height: 0; }
 .agent { flex: 0 0 38%; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
-.agent .head { flex: none; padding: 12px 14px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.agent .title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 650; margin: 0 0 6px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.dot.working { background: var(--accent); box-shadow: 0 0 0 3px var(--tint); }
+.agent .head { flex: none; height: 34px; padding: 0 8px 0 14px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+.agent .head .spacer { flex: 1; }
+.agent .head .pill.icon { border-color: transparent; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.working { background: var(--accent); }
 .dot.needs { background: var(--warn); }
 .dot.idle { background: var(--ok); }
 .dot.exited { background: var(--muted); }
-.agent .tags { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
-.tag { color: var(--accent); }
-.tag.dim { color: var(--muted); }
 .term { flex: 1; min-height: 0; background: var(--term); font: 12px/1.6 var(--mono); padding: 10px 12px; white-space: pre-wrap; overflow: hidden; color: var(--text); }
 .term .c { color: var(--accent); } .term .p { color: var(--warn); } .term .g { color: var(--muted); } .term .m { color: var(--machine); } .term .ok { color: var(--ok); }
 .term .box { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin-top: 8px; }
@@ -81,8 +79,8 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .doc p, .doc li { color: var(--text); opacity: .92; }
 .doc ul { padding-left: 18px; }
 .doc mark { background: var(--tint); color: inherit; border-bottom: 1.5px solid var(--accent); }
-.threads { flex: 0 0 260px; background: var(--panel); border-left: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
-.card { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; }
+.threads { flex: 0 0 240px; padding: 26px 14px 10px 0; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+.card { padding: 0 0 0 10px; font-size: 12.5px; }
 .card .h { color: var(--muted); font: 11px var(--mono); margin-bottom: 4px; }
 .card .q { color: var(--muted); border-left: 2px solid var(--accent); padding-left: 7px; margin-bottom: 4px; }
 .card b.agent { color: var(--machine); }
@@ -92,11 +90,11 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .web .site .row.short { width: 55%; } .web .site .row.acc { background: var(--tint); width: 35%; height: 26px; }
 
 .docs { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.dtabs { height: 38px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: var(--panel); border-bottom: 1px solid var(--line); overflow: hidden; }
-.dtab { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 7px; color: var(--muted); cursor: pointer; white-space: nowrap; max-width: 230px; border: 1px solid transparent; }
-.dtab:hover { background: var(--panel2); }
-.dtab.on { background: var(--bg); color: var(--text); border-color: var(--line); }
-.dtab .ic { width: 14px; text-align: center; font-size: 11px; opacity: .8; }
+.dtabs { height: 34px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; overflow: hidden; border-bottom: 1px solid var(--line); }
+.dtab { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; color: var(--muted); cursor: pointer; white-space: nowrap; max-width: 230px; }
+.dtab:hover { color: var(--text); }
+.dtab.on { color: var(--text); }
+.dtab .ic { display: none; }
 .dtab .nm { overflow: hidden; text-overflow: ellipsis; }
 .dtab .x { color: var(--muted); font-size: 11px; visibility: hidden; }
 .dtab.on .x, .dtab:hover .x { visibility: visible; }
@@ -110,22 +108,25 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .empty { flex: 1; overflow: auto; padding: 40px 48px; }
 .empty h2 { margin: 0 0 4px; font-size: 22px; }
 .empty .sub { color: var(--muted); margin: 0 0 22px; }
-.group { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); margin-bottom: 14px; max-width: 760px; }
-.group .gh { padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+.group { margin-bottom: 22px; max-width: 760px; }
+.group .gh { padding: 0 0 6px; color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
 .group .gh b { color: var(--text); }
-.row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
-.row:last-child { border-bottom: 0; }
+.row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin: 0 -10px; border-radius: 8px; cursor: pointer; }
+.row:hover { background: var(--panel); }
+.row .go { visibility: hidden; }
+.row:hover .go { visibility: visible; }
 .row .t { flex: 1; min-width: 0; }
 .row .t .n { font-weight: 600; }
 .row .t .s { color: var(--muted); font-size: 12px; }
 .row .go { color: var(--accent); cursor: pointer; white-space: nowrap; }
 
-.shelf { height: 34px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 10px; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; }
-.shelf .label { font-weight: 700; letter-spacing: .06em; font-size: 11px; margin-right: 8px; }
-.shelf .item { display: flex; align-items: center; gap: 7px; padding: 3px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
-.shelf .item:hover { background: var(--panel2); }
-.shelf .item .meta { color: var(--muted); }
-.shelf .item .kb { color: var(--muted); font-size: 11px; }
+.shelf { height: 30px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.shelf[hidden] { display: none; }
+.shelf .item { display: flex; align-items: center; gap: 7px; padding: 3px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.shelf .item:hover { color: var(--text); background: var(--panel); }
+.shelf .item .meta, .shelf .item .kb { display: none; color: var(--muted); }
+.shelf .item:hover .meta, .shelf .item:hover .kb { display: inline; }
+.shelf .item .kb { font-size: 11px; }
 .shelf .spacer { flex: 1; }
 .shelf .hint { color: var(--muted); white-space: nowrap; }
 
@@ -231,10 +232,7 @@ function docsHTML(t) {
 function deskHTML(t) {
   return `<div class="content">
     <div class="agent">
-      <div class="head">
-        <div class="title"><span class="dot ${t.status}" title="${statusText[t.status]}"></span>${t.title}<span style="flex:1"></span><span class="pill icon" data-park title="Park"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v7M5 6.5 8 9.5l3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2"/></svg></span></div>
-        <div class="tags"><span class="tag">~/work/${t.repo}</span><span class="tag dim">·</span><span class="tag">${t.branch}</span><span class="tag dim">· ${statusText[t.status]}</span></div>
-      </div>
+      <div class="head">~/work/${t.repo} · ${t.branch}<span class="spacer"></span><span class="pill icon" data-park title="Park"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v7M5 6.5 8 9.5l3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2"/></svg></span></div>
       <div class="term">${agentTerm(t)}</div>
     </div>
     ${docsHTML(t)}
@@ -280,15 +278,16 @@ function emptyHTML() {
   const waiting = s.tasks.filter(t => t.id !== s.desk);
   const byRepo = {};
   waiting.forEach(t => (byRepo[t.repo] = byRepo[t.repo] || []).push(t));
-  return `<div class="empty"><h2>Shelf</h2><p class="sub">${cheer()}</p>
+  return `<div class="empty"><p class="sub">${cheer()}</p>
     ${Object.entries(byRepo).map(([repo, list]) => `<div class="group"><div class="gh"><span><b>~/work/${repo}</b></span><span>${list.length} parked</span></div>
-      ${list.map(t => `<div class="row"><span class="dot ${t.status}"></span><div class="t"><div class="n">${t.title}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${t.parked || "now"} · ${t.branch}</div></div><span class="go" data-pull="${t.id}">Pull →</span></div>`).join("")}</div>`).join("")}</div>`;
+      ${list.map(t => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${t.title}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${t.parked || "now"} · ${t.branch}</div></div><span class="go">Pull →</span></div>`).join("")}</div>`).join("")}</div>`;
 }
 
 function renderShelf() {
   const shelf = document.getElementById("shelf");
+  shelf.hidden = !task(s.desk);
   const parked = s.tasks.filter(t => t.id !== s.desk);
-  shelf.innerHTML = `<span class="label">SHELF</span>` + parked.map((t, i) => `<span class="item" data-pull="${t.id}"><span class="dot ${t.status}"></span>${t.title}<span class="meta">· ${t.status === "needs" ? "needs you" : "parked " + (t.parked || "now")}</span>${i < 9 ? `<span class="kb">⌘${i + 1}</span>` : ""}</span>`).join("") + `<span class="spacer"></span><span class="hint">Desk holds one. Click or ⌘1–⌘9 to swap.</span>`;
+  shelf.innerHTML = parked.map((t, i) => `<span class="item" data-pull="${t.id}" title="${t.status === "needs" ? "needs you" : "parked " + (t.parked || "now")}"><span class="dot ${t.status}"></span>${t.title}<span class="meta">· ${t.status === "needs" ? "needs you" : "parked " + (t.parked || "now")}</span>${i < 9 ? `<span class="kb">⌘${i + 1}</span>` : ""}</span>`).join("");
   shelf.querySelectorAll("[data-pull]").forEach(el => el.onclick = () => pull(el.dataset.pull));
   document.querySelectorAll("[data-park]").forEach(el => el.onclick = park);
 }
