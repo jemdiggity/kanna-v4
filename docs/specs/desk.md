@@ -49,7 +49,7 @@ flowchart LR
   - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, a markdown link, or **+**.
   - Opening a file that's already open shows its tab.
 - **The Kanna bar** (top) names the Desk and its task.
-- **With no task on it, the Desk shows the Shelf in full:** every task grouped by folder, each with **Pull →**.
+- **With no task on it, the Desk shows the Shelf in full:** every task grouped by folder, each with **Pull →**, under a short encouraging line that changes each time the Shelf comes up.
 - **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
 
 ## 3. The Shelf

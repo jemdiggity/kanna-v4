@@ -265,11 +265,22 @@ document.addEventListener("keydown", e => {
   if (t) { e.preventDefault(); pull(t.id); }
 });
 
+const cheers = [
+  "Clear desk, clear mind. Pick what's next.",
+  "Nice work. What's next?",
+  "One thing at a time, and you're doing great.",
+  "Fresh start. Pull a task when you're ready.",
+  "Good progress today. Keep it going.",
+  "Breathe. Then pick the next one.",
+];
+let cheerAt = location.hash.includes("picture") ? 0 : Math.floor(Math.random() * cheers.length);
+const cheer = () => cheers[cheerAt];
+
 function emptyHTML() {
   const waiting = s.tasks.filter(t => t.id !== s.desk);
   const byRepo = {};
   waiting.forEach(t => (byRepo[t.repo] = byRepo[t.repo] || []).push(t));
-  return `<div class="empty"><h2>Shelf</h2><p class="sub">Every task, by folder. Pull one onto the Desk.</p>
+  return `<div class="empty"><h2>Shelf</h2><p class="sub">${cheer()}</p>
     ${Object.entries(byRepo).map(([repo, list]) => `<div class="group"><div class="gh"><span><b>~/work/${repo}</b></span><span>${list.length} parked</span></div>
       ${list.map(t => `<div class="row"><span class="dot ${t.status}"></span><div class="t"><div class="n">${t.title}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${t.parked || "now"} · ${t.branch}</div></div><span class="go" data-pull="${t.id}">Pull →</span></div>`).join("")}</div>`).join("")}</div>`;
 }
@@ -291,7 +302,7 @@ function pull(id) {
   if (t.status === "needs") t.status = "idle";
   render();
 }
-function park() { const cur = task(s.desk); if (cur) { cur.parked = "now"; s.desk = null; } render(); }
+function park() { const cur = task(s.desk); if (cur) { cur.parked = "now"; s.desk = null; cheerAt = (cheerAt + 1) % cheers.length; } render(); }
 
 document.getElementById("park").onclick = park;
 document.getElementById("ring").onclick = () => { const t = s.tasks.find(t => t.id !== s.desk); if (t) { t.status = "needs"; render(); } };
