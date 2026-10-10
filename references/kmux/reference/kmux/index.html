@@ -63,6 +63,11 @@
   .drop-hint.new-win { border-style: dashed; border-radius: 10px; }
   .drop-hint[hidden], .drag-tip[hidden] { display: none; }
 
+  .win-body { flex: 1; display: flex; min-height: 0; min-width: 0; }
+  .win-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .win-body > .pane.docked { flex: none; }
+  .dock-divider { flex: 0 0 4px; cursor: col-resize; background: var(--border); touch-action: none; }
+  .dock-divider:hover, .dock-divider.dragging { background: var(--accent); }
   .stage { flex: 1; display: flex; min-height: 0; min-width: 0; }
   .stage > * { flex: 1; }
   .split { display: flex; min-width: 0; min-height: 0; }
@@ -75,7 +80,7 @@
   .drag-tip { position: fixed; z-index: 20; padding: 2px 6px; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 4px; font: 11px var(--mono); color: var(--accent); pointer-events: none; }
 
   .pane { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden; }
-  .win.key .stage.multi .pane.focused::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--accent); pointer-events: none; z-index: 3; }
+  .win.key.multi .pane.focused::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--accent); pointer-events: none; z-index: 3; }
   .pane-grip { position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 4; padding: 0 10px; height: 14px; line-height: 10px; border-radius: 0 0 6px 6px; background: rgba(0,0,0,.55); color: #fff; font-size: 14px; letter-spacing: 1px; cursor: grab; opacity: 0; transition: opacity .12s; user-select: none; }
   /* Only the handle itself shows it, so a pane's top edge stays clear. */
   .pane-grip:hover, .pane-grip:active { opacity: 1; background: var(--accent); }
@@ -265,6 +270,7 @@ function toRequest(line) {
     if (k === 'tab') flags.tab = ['focus', 'close'].includes(cmd) && hasValue ? rest[++i] : true;
     else if (['no-wait', 'json'].includes(k)) flags[k] = true;
     else if (k === 'split') flags.split = ['right', 'down', 'auto'].includes(rest[i + 1]) ? rest[++i] : 'auto';
+    else if (k === 'dock') flags.dock = ['left', 'right'].includes(rest[i + 1]) ? rest[++i] : 'left';
     else if (['name', 'cmd', 'cwd', 'app', 'device', 'size', 'mux', 'to', 'side', 'to-tab', 'to-window', 'window', 'index'].includes(k)) {
       if (!hasValue) throw usage(`--${k} needs a value`);
       flags[k] = rest[++i];
@@ -287,6 +293,7 @@ function toRequest(line) {
       for (const k of ['name', 'cmd', 'cwd', 'app', 'device', 'size', 'window']) if (flags[k] != null) args[k] = flags[k];
       args.split = flags.split || 'auto';
       if (flags.tab) { args.tab = true; delete args.split; }
+      if (flags.dock) { args.dock = flags.dock; delete args.split; }
       if (flags['no-wait']) args.wait = false;
       return { cmd: 'open', args };
     }
@@ -298,6 +305,7 @@ function toRequest(line) {
     }
     case 'move':
       needPos(1, 'a pane');
+      if (flags.dock) return { cmd, args: { pane: pos[0], dock: flags.dock, ...(flags.window ? { window: flags.window } : {}) } };
       if (flags['to-tab']) return { cmd, args: { pane: pos[0], tab: flags['to-tab'], ...(flags.window ? { window: flags.window } : {}) } };
       if (flags['to-window']) return { cmd, args: { pane: pos[0], window: flags['to-window'] } };
       if (!flags.to) throw usage('move needs --to PANE [--side …], --to-tab TAB|new or --to-window WIN|new');
@@ -324,10 +332,11 @@ function toRequest(line) {
 const EXIT = { bad_request: 2, layout_invalid: 2, not_found: 4, name_taken: 1, wrong_type: 1, start_failed: 1 };
 const HELP = `commands (the "kanna" prefix is optional; raw JSON requests work too):
   open term [--cmd CMD] [--cwd DIR]        open web URL        open ios --app APP [--device NAME]
-      shared: --name N  --split [right|down]  --size 1/3  --tab  --window WIN|new  --no-wait
+      shared: --name N  --split [right|down]  --size 1/3  --tab  --window WIN|new  --no-wait  --dock [left|right]
   arrange 'a:2/3 | (b / c:1/3)' [--window WIN]     "|" side by side, "/" stacked, ( ) group, :size
   move PANE --to OTHER [--side left|right|top|bottom|swap]
   move PANE --to-tab TAB|new [--window WIN]        move PANE --to-window WIN|new
+  move PANE --dock [left|right]  (dock it, or move the docked pane to the other edge; --to-tab new undocks it)
   move-tab TAB [--to-window WIN|new] [--index N]
   focus PANE | --tab TAB | --window WIN            close PANE | --tab TAB | --window WIN
   resize PANE 1/3    zoom PANE    restart PANE    send PANE TEXT    navigate PANE URL    list    mux`;
@@ -412,8 +421,9 @@ function activateWin(w) {
 
 function renderWindow(w) {
   const t = activeTabOf(w);
+  const shown = w.zoomed && shownIds(w).includes(w.zoomed) ? 1 : shownIds(w).length;
   const el = h('div', {
-    class: 'win' + (w.id === S.key ? ' key' : ''), dataset: { win: w.id },
+    class: 'win' + (w.id === S.key ? ' key' : '') + (shown > 1 ? ' multi' : ''), dataset: { win: w.id },
     style: `left:${w.x}px;top:${w.y}px;width:${w.w}px;height:${w.h}px;z-index:${w.z}`,
     onpointerdown: () => activateWin(w),
   });
@@ -422,12 +432,60 @@ function renderWindow(w) {
       h('span', { class: 'lights' },
         h('button', { class: 'light close', title: 'Close window', onclick: () => ui({ cmd: 'close', args: { window: w.id } }) }),
         h('span', { class: 'light min' }), h('span', { class: 'light max' })),
-      h('span', { class: 'win-title' }, `${tabTitle(t)} — ${w.id}`)),
-    renderTabs(w));
+      h('span', { class: 'win-title' }, `${t ? tabTitle(t) : label(S.panes[w.dock.pane])} — ${w.id}`)));
   const root = w.zoomed && locate(t?.root, w.zoomed) ? { t: 'pane', id: w.zoomed } : t?.root;
-  el.append(h('div', { class: 'stage' + (root?.t === 'split' ? ' multi' : '') }, root ? renderNode(root, w) : null));
+  const side = () => h('div', { class: 'win-side' }, renderTabs(w), h('div', { class: 'stage' }, root ? renderNode(root, w) : null));
+  if (!w.dock) el.append(side());
+  else if (w.zoomed === w.dock.pane) el.append(h('div', { class: 'stage' }, renderPane(S.panes[w.dock.pane], w)));
+  else {
+    const dock = renderPane(S.panes[w.dock.pane], w);
+    dock.classList.add('docked');
+    const rest = side();
+    const parts = [dock, dockDivider(w, dock, rest), rest];
+    if (w.dock.edge === 'right') parts.reverse();
+    el.append(h('div', { class: 'win-body' }, parts));
+    sizeDock(w, dock, rest);
+  }
   el.append(h('div', { class: 'win-resize', onpointerdown: e => startWinResize(e, w, el) }));
   return el;
+}
+
+function sizeDock(w, dock, rest) {
+  dock.style.width = `calc((100% - 4px) * ${w.dock.width})`;
+  rest.style.flex = '1 1 0px';
+}
+
+function dockDivider(w, dock, rest) {
+  const d = h('div', { class: 'dock-divider' });
+  d.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    d.setPointerCapture(e.pointerId);
+    d.classList.add('dragging');
+    const box = d.parentElement.getBoundingClientRect();
+    const span = box.width - 4, min = Math.min(MIN_PX, span / 2);
+    const tip = h('div', { class: 'drag-tip' });
+    document.body.append(tip);
+    const move = ev => {
+      const x = w.dock.edge === 'left' ? ev.clientX - box.left : box.right - ev.clientX;
+      let s = clamp(x, min, span - min) / span;
+      const snap = NICE.find(f => Math.abs(s - f) < 0.015) ?? (Math.abs(s - DOCK_WIDTH) < 0.015 ? DOCK_WIDTH : null);
+      if (snap) s = snap;
+      w.dock.width = s;
+      sizeDock(w, dock, rest);
+      tip.textContent = w.dock.edge === 'left' ? `${fmtFrac(s)} | ${fmtFrac(1 - s)}` : `${fmtFrac(1 - s)} | ${fmtFrac(s)}`;
+      tip.style.left = `${ev.clientX + 12}px`;
+      tip.style.top = `${ev.clientY + 12}px`;
+    };
+    const up = () => {
+      tip.remove();
+      d.removeEventListener('pointermove', move);
+      d.removeEventListener('pointerup', up);
+      render();
+    };
+    d.addEventListener('pointermove', move);
+    d.addEventListener('pointerup', up);
+  });
+  return d;
 }
 
 // Renaming a tab: double-click its title; Enter or clicking away saves, Escape cancels.
@@ -551,6 +609,7 @@ function paneMenu(p) {
     ['New markdown pane', () => splitFrom(null, 'auto', 'md')],
   ];
   const zoomed = findPane(p.id).win.zoomed === p.id;
+  const docked = !!dockOf(p.id);
   return [
     ['Split right', () => splitFrom(p, 'right', 'term'), '⌘D'],
     ['Split down', () => splitFrom(p, 'down', 'term'), '⇧⌘D'],
@@ -571,7 +630,7 @@ function paneMenu(p) {
     [zoomed ? 'Unzoom' : 'Zoom', () => ui({ cmd: 'zoom', args: { pane: p.id } }), '⇧⌘↩'],
     ['Move to new window', () => ui({ cmd: 'move', args: { pane: p.id, window: 'new' } })],
     ['Restart', () => ui({ cmd: 'restart', args: { pane: p.id } }), '⌘R'],
-    ['Close', () => ui({ cmd: 'close', args: { pane: p.id } }), '⌘W'],
+    docked ? null : ['Close', () => ui({ cmd: 'close', args: { pane: p.id } }), '⌘W'],
   ].filter(Boolean);
 }
 const newTab = () => ui({ cmd: 'open', args: { type: 'term', tab: true, ...(keyWin() ? { window: keyWin().id } : {}) } });
@@ -606,7 +665,7 @@ function renderPane(p, w) {
     onmousedown: () => {
       if (w.focused === p.id) return;
       w.focused = p.id;
-      activeTabOf(w).lastFocus = p.id;
+      if (!dockOf(p.id)) activeTabOf(w).lastFocus = p.id;
       document.querySelectorAll(`.win[data-win="${w.id}"] .pane`).forEach(x => x.classList.toggle('focused', x.dataset.id === p.id));
     },
     oncontextmenu: e => { e.preventDefault(); w.focused = p.id; raise(w); render(); showMenuAt(e.clientX, e.clientY, paneMenu(p)); },
@@ -779,6 +838,10 @@ function switchTab(w, t) {
   render();
   focusInput(w.focused);
 }
+function showTab(n) {
+  const w = keyWin();
+  if (w?.tabs[n - 1]) switchTab(w, w.tabs[n - 1]);
+}
 function cycleTab(d) {
   const w = keyWin();
   if (!w || w.tabs.length < 2) return;
@@ -787,7 +850,7 @@ function cycleTab(d) {
 }
 async function cyclePane(d) {
   const w = keyWin();
-  const ids = paneIds(activeTabOf(w)?.root), n = ids.length;
+  const ids = w ? shownIds(w) : [], n = ids.length;
   if (n < 2) return;
   const next = ids[(ids.indexOf(w.focused) + d + n) % n];
   await ui({ cmd: 'focus', args: { pane: next } });
@@ -936,7 +999,7 @@ function startPaneDrag(e, p, el) {
     const r = target.getBoundingClientRect();
     const fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
     let side = 'swap';
-    if (!(fx > .3 && fx < .7 && fy > .3 && fy < .7)) {
+    if (!dockOf(target.dataset.id) && !(fx > .3 && fx < .7 && fy > .3 && fy < .7)) {
       const dist = { left: fx, right: 1 - fx, top: fy, bottom: 1 - fy };
       side = Object.keys(dist).reduce((a, b) => dist[a] <= dist[b] ? a : b);
     }
@@ -983,7 +1046,7 @@ $('#menu-window').addEventListener('click', e => showMenu(e.currentTarget, windo
 
 // kmux binds these to ⌘. The browser never hands ⌘N, ⌘T, ⌘W or ⌘` to a page,
 // so every shortcut also works with ⌥ in place of ⌘.
-const BROWSER_OWNED = ['KeyN', 'KeyT', 'KeyW', 'Backquote', 'Equal', 'Minus', 'Digit0'];
+const BROWSER_OWNED = ['KeyN', 'KeyT', 'KeyW', 'Backquote', 'Equal', 'Minus', 'Digit0', ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `Digit${n}`)];
 document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey === e.altKey) return;
   if (e.metaKey && BROWSER_OWNED.includes(e.code)) return;
@@ -992,7 +1055,7 @@ document.addEventListener('keydown', e => {
     KeyD: () => splitFrom(p, e.shiftKey ? 'down' : 'right', 'term'),
     KeyT: newTab,
     KeyN: newWindow,
-    KeyW: () => e.shiftKey ? keyWin() && ui({ cmd: 'close', args: { window: S.key } }) : p && ui({ cmd: 'close', args: { pane: p.id } }),
+    KeyW: () => e.shiftKey ? keyWin() && ui({ cmd: 'close', args: { window: S.key } }) : p && !dockOf(p.id) && ui({ cmd: 'close', args: { pane: p.id } }),
     KeyR: () => p && ui({ cmd: 'restart', args: { pane: p.id } }),
     KeyL: () => editUrl(p),
     Enter: () => e.shiftKey && p && ui({ cmd: 'zoom', args: { pane: p.id } }),
@@ -1002,6 +1065,7 @@ document.addEventListener('keydown', e => {
     Equal: () => zoomPane(p, 1),
     Minus: () => zoomPane(p, -1),
     Digit0: () => zoomPane(p, 0),
+    ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => [`Digit${n}`, () => showTab(n)])),
   };
   if (actions[e.code]) { e.preventDefault(); hideMenu(); actions[e.code](); }
 });
@@ -1030,7 +1094,7 @@ function reset(withShell = true) {
   }
   render();
   log('info', 'kmux mockup ready. Type help, or press "Run demo".');
-  log('info', 'In kmux: menus in the menu bar, right-click a pane or tab. ⌘D / ⇧⌘D split · ⌘[ ⌘] panes · ⇧⌘[ ⇧⌘] tabs · ⌘` windows · ⌘T tab · ⌘N window · ⌘W close pane · ⇧⌘W close window · ⌘R restart · ⇧⌘↩ zoom · ⌘L open URL · ⌘= ⌘− ⌘0 magnify a markdown pane (or pinch). ⌥ works in place of ⌘.');
+  log('info', 'In kmux: menus in the menu bar, right-click a pane or tab. ⌘D / ⇧⌘D split · ⌘[ ⌘] panes · ⇧⌘[ ⇧⌘] tabs · ⌘` windows · ⌘T tab · ⌘N window · ⌘W close pane · ⇧⌘W close window · ⌘R restart · ⇧⌘↩ zoom · ⌘1…⌘9 show a tab · ⌘L open URL · ⌘= ⌘− ⌘0 magnify a markdown pane (or pinch). ⌥ works in place of ⌘.');
   log('info', 'Drag a window by its title bar, resize from its corner. Drag tabs within or between windows, or onto the desktop. Drag a pane by the ⋯ handle at its top onto a pane edge, a pane centre (swap), a tab, + or the desktop.');
 }
 
@@ -1041,6 +1105,7 @@ const DEMO = [
   "arrange 'site:1/4 | server:1/2 | phone'",
   'open term --name logs --window new',
   'move phone --to-window w2',
+  'open term --name agent --dock',
   'list',
 ];
 let demoRunning = false;

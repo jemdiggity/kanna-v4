@@ -14,17 +14,35 @@ extension Core {
 
     func move(_ args: JSON) throws -> [String: JSON] {
         let pane = try needPane(args["pane"]?.string)
-        guard let from = model.locate(pane.id) else { throw KmuxError("not_found", "no pane \"\(pane.id)\"") }
+        guard let fromWindow = model.window(containing: pane.id) else { throw KmuxError("not_found", "no pane \"\(pane.id)\"") }
+        let from = model.locate(pane.id)
+        if let edge = try Self.edge(args["dock"]) {
+            if args["to"] != nil || args["tab"] != nil { throw KmuxError("bad_request", "move takes one of to + side, tab, window or dock") }
+            let window = args["window"] != nil ? try targetWindow(args["window"]) : fromWindow
+            if window.dock?.pane == pane.id {
+                window.dock?.edge = edge
+            } else {
+                model.detach(pane.id)
+                model.dock(pane.id, in: window, edge: edge)
+            }
+            focusPane(pane)
+            model.dropEmpty()
+            onChange()
+            return ["window": .string(window.id), "dock": model.dockView(window)]
+        }
         if let ref = args["to"]?.string {
             let target = try needPane(ref)
             let side = args["side"]?.string ?? "swap"
             guard ["left", "right", "top", "bottom", "swap"].contains(side) else {
                 throw KmuxError("bad_request", "side must be left, right, top, bottom or swap")
             }
-            if target.id == pane.id { return ["window": .string(from.window.id)] }
+            if target.id == pane.id { return ["window": .string(fromWindow.id)] }
+            if side != "swap", model.dockWindow(target.id) != nil {
+                throw Self.docked("\(target.label) is docked and holds one pane; drop on its middle to swap")
+            }
             if side == "swap" {
                 model.swap(pane.id, target.id)
-                if from.window.focused == pane.id { from.window.focused = target.id }
+                if fromWindow.focused == pane.id { fromWindow.focused = target.id }
             } else {
                 model.detach(pane.id)
                 guard let tab = model.locate(target.id)?.tab else { throw KmuxError("not_found", "no pane \"\(ref)\"") }
@@ -36,20 +54,21 @@ extension Core {
             if let ref = args["tab"]?.string, ref != "new" {
                 destination = try needTab(ref)
             } else if args["tab"]?.string == "new" {
-                destination = model.makeTab(in: args["window"] != nil ? try targetWindow(args["window"]) : from.window)
+                destination = model.makeTab(in: args["window"] != nil ? try targetWindow(args["window"]) : fromWindow)
             } else if args["window"] != nil {
                 let window = try targetWindow(args["window"])
                 destination = window.activeTab ?? model.makeTab(in: window)
             } else {
                 throw KmuxError("bad_request", "move needs to + side, tab, or window")
             }
-            if destination === from.tab { return ["window": .string(from.window.id)] }
+            if destination === from?.tab { return ["window": .string(fromWindow.id)] }
             model.detach(pane.id)
             model.append(pane.id, to: destination)
         }
         focusPane(pane)
         model.dropEmpty()
         onChange()
+        if let window = model.dockWindow(pane.id) { return ["window": .string(window.id), "dock": model.dockView(window)] }
         guard let location = model.locate(pane.id) else { return [:] }
         return ["window": .string(location.window.id), "tab": .string(location.tab.id), "layout": model.tree(location.tab.root)]
     }
@@ -80,6 +99,11 @@ extension Core {
         let pane = try needPane(args["pane"]?.string)
         let size = try fraction(args["size"] ?? .null)
         guard size > 0, size < 1 else { throw KmuxError("bad_request", "size must be a fraction between 0 and 1") }
+        if let window = model.dockWindow(pane.id) {
+            window.dock?.width = size
+            onChange()
+            return ["window": .string(window.id), "dock": model.dockView(window)]
+        }
         guard let location = model.locate(pane.id) else { throw KmuxError("not_found", "no pane \"\(pane.id)\"") }
         guard let parent = location.parent else {
             throw KmuxError("bad_request", "\(pane.label) fills its tab, so there is nothing to resize against")
@@ -96,6 +120,9 @@ extension Core {
         func build(_ node: JSON) throws -> Node {
             if let ref = node["pane"]?.string {
                 let pane = try needPane(ref)
+                if model.dockWindow(pane.id) != nil {
+                    throw Self.docked("\(pane.label) is docked, outside the tabs; undock it first (move \(pane.name ?? pane.id) --tab new)")
+                }
                 if used.contains(pane.id) { throw KmuxError("layout_invalid", "\"\(ref)\" appears more than once") }
                 used.append(pane.id)
                 return .pane(pane.id)

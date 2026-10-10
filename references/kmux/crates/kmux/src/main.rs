@@ -389,6 +389,15 @@ mod tests {
             ("kmux navigate site --back", json!({ "pane": "site", "back": true })),
             ("kmux open md /tmp/a.md", json!({ "type": "md", "path": "/tmp/a.md" })),
             ("kmux navigate spec /tmp/b.md", json!({ "pane": "spec", "path": "/tmp/b.md" })),
+            ("kmux open --name agent --dock", json!({ "type": "term", "name": "agent", "dock": "left" })),
+            ("kmux open --dock right --cmd claude", json!({ "type": "term", "dock": "right", "cmd": "claude" })),
+            ("kmux open --dock md /tmp/a.md", json!({ "type": "md", "dock": "left", "path": "/tmp/a.md" })),
+            ("kmux open web a.test --dock=right --window new", json!({ "type": "web", "url": "a.test", "dock": "right", "window": "new" })),
+            ("kmux move agent --dock", json!({ "pane": "agent", "dock": "left" })),
+            ("kmux move agent --dock right --window w2", json!({ "pane": "agent", "dock": "right", "window": "w2" })),
+            ("kmux move agent --tab", json!({ "pane": "agent", "tab": "new" })),
+            ("kmux move agent --tab t3", json!({ "pane": "agent", "tab": "t3" })),
+            ("kmux move agent --tab --window w2", json!({ "pane": "agent", "tab": "new", "window": "w2" })),
         ];
         for (line, expected) in cases {
             let (_, request) = parse(line).unwrap_or_else(|f| panic!("{line}: {}", f.message));
@@ -411,6 +420,10 @@ mod tests {
             ("kmux navigate site --back x", "one of URL"),
             ("kmux lsit", "Did you mean: list"),
             ("kmux rename t1 x", "Did you mean: rename-tab"),
+            ("kmux open --dock --split right", "--dock goes on its own"),
+            ("kmux open --dock --tab", "--dock goes on its own"),
+            ("kmux move agent --dock --tab", "--dock goes on its own"),
+            ("kmux move agent --dock --to b", "--dock goes on its own"),
         ] {
             let failure = parse(line).expect_err(line);
             assert_eq!(failure.code, exit::USAGE, "{line}");
@@ -425,5 +438,20 @@ mod tests {
             { "split": "column", "size": "1/3", "children": [{ "pane": "b", "size": "1/2" }, { "pane": "c", "size": "1/2" }] }
         ] });
         assert_eq!(output::expression(&layout, true), "a:2/3 | (b:1/2 / c:1/2):1/3");
+    }
+
+    #[test]
+    fn docked_panes_print_on_their_own_line() {
+        let reply = json!({
+            "windows": [{ "id": "w1", "key": true, "focused": "agent", "dock": { "pane": "agent", "edge": "left", "width": "2/5" },
+                          "tabs": [{ "id": "t1", "title": "Tab 1", "active": true, "layout": { "pane": "p2" } }] }],
+            "panes": [{ "id": "p1", "name": "agent", "type": "term", "state": "running", "cmd": "claude" }, { "id": "p2", "name": null, "type": "term", "state": "running" }]
+        });
+        let text = output::list(&reply);
+        assert!(text.contains("\n  dock: p1 (agent)  left 2/5\n  *t1 \"Tab 1\"  p2"), "{text}");
+        let opened = json!({ "pane": { "id": "p1", "name": "agent", "state": "running" }, "window": "w1", "tab": null, "dock": "left" });
+        assert_eq!(output::opened(&json!({}), &opened), "opened p1 (agent) docked left in window w1: running");
+        let moved = json!({ "window": "w1", "dock": { "pane": "agent", "edge": "right", "width": "1/3" } });
+        assert_eq!(output::moved(&moved), "agent is docked right in w1 (width 1/3)");
     }
 }

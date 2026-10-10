@@ -86,7 +86,7 @@ public final class Core {
     private func run(_ cmd: String, _ args: JSON) async throws -> [String: JSON] {
         switch cmd {
         case "capabilities":
-            return ["mux": "kmux", "instance": .string(instance.name), "paneTypes": ["term", "web", "ios", "md"], "commands": .array(Self.commands.sorted().map(JSON.string)), "features": ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle"]]
+            return ["mux": "kmux", "instance": .string(instance.name), "paneTypes": ["term", "web", "ios", "md"], "commands": .array(Self.commands.sorted().map(JSON.string)), "features": ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle", "dock"]]
         case "open": return try await open(args)
         case "list": return list()
         case "close": return try close(args)
@@ -155,6 +155,10 @@ public final class Core {
         guard ["right", "down", "auto"].contains(split) else { throw KmuxError("bad_request", "split must be right, down or auto") }
         let size = try args["size"].map { try fraction($0) } ?? 0.5
         guard size > 0, size < 1 else { throw KmuxError("bad_request", "size must be a fraction between 0 and 1") }
+        let dock = try Self.edge(args["dock"])
+        if dock != nil, args["split"] != nil || args["size"] != nil || args["tab"]?.bool == true {
+            throw KmuxError("bad_request", "a docked pane takes no split, size or tab")
+        }
 
         let window = try targetWindow(args["window"])
         let pane = model.makePane(type: type, name: name)
@@ -165,16 +169,24 @@ public final class Core {
         pane.device = args["device"]?.string
         pane.path = args["path"]?.string
         if (type == .web && args["history"] == true) || type == .md { pane.history = History() }
-        place(pane.id, in: window, split: split, size: size, newTab: args["tab"]?.bool ?? false)
+        if let dock {
+            model.dock(pane.id, in: window, edge: dock)
+            window.zoomed = nil
+        } else {
+            place(pane.id, in: window, split: split, size: size, newTab: args["tab"]?.bool ?? false)
+            window.activeTab?.lastFocus = pane.id
+        }
         window.focused = pane.id
-        window.activeTab?.lastFocus = pane.id
         model.key = window.id
         onChange()
         host?.start(pane)
 
         let reply = { [model] () -> [String: JSON] in
             let location = model.locate(pane.id)
-            return ["pane": model.summary(pane), "window": .string(location?.window.id ?? window.id), "tab": location.map { .string($0.tab.id) } ?? nil]
+            var out: [String: JSON] = ["pane": model.summary(pane), "window": .string(model.window(containing: pane.id)?.id ?? window.id),
+                                       "tab": location.map { .string($0.tab.id) } ?? nil]
+            if let edge = model.dockWindow(pane.id)?.dock?.edge { out["dock"] = .string(edge.rawValue) }
+            return out
         }
         if args["wait"]?.bool == false { return reply() }
         await settled(pane)
@@ -202,7 +214,7 @@ public final class Core {
     private func list() -> [String: JSON] {
         [
             "windows": .array(model.windows.map { window in
-                [
+                var out: [String: JSON] = [
                     "id": .string(window.id), "key": .bool(window.id == model.key),
                     "focused": window.focused.map { .string(model.panes[$0]?.name ?? $0) } ?? nil,
                     "zoomed": window.zoomed.map { .string(model.panes[$0]?.name ?? $0) } ?? nil,
@@ -210,6 +222,8 @@ public final class Core {
                         ["id": .string(tab.id), "title": .string(tab.title), "active": .bool(tab.id == window.active), "layout": model.tree(tab.root)]
                     }),
                 ]
+                if window.dock != nil { out["dock"] = model.dockView(window) }
+                return .object(out)
             }),
             "panes": .array(model.paneOrder.compactMap { model.panes[$0] }.map(model.summary)),
         ]
@@ -218,13 +232,15 @@ public final class Core {
     private func close(_ args: JSON) throws -> [String: JSON] {
         let victims: [Pane]
         if let ref = args["pane"]?.string {
-            victims = [try needPane(ref)]
+            let pane = try needPane(ref)
+            if model.dockWindow(pane.id) != nil { throw Self.docked("it closes with its window") }
+            victims = [pane]
         } else if let ref = args["tab"]?.string {
             guard let tab = model.tab(ref) else { throw KmuxError("not_found", "no tab \"\(ref)\"") }
             victims = Model.paneIDs(tab.root).compactMap { model.panes[$0] }
         } else if args["window"] != nil {
             let window = try targetWindow(args["window"])
-            victims = window.tabs.flatMap { Model.paneIDs($0.root) }.compactMap { model.panes[$0] }
+            victims = (window.tabs.flatMap { Model.paneIDs($0.root) } + [window.dock?.pane].compactMap { $0 }).compactMap { model.panes[$0] }
         } else {
             throw KmuxError("bad_request", "close needs a pane, tab or window")
         }
@@ -256,12 +272,13 @@ public final class Core {
     }
 
     func focusPane(_ pane: Pane) {
-        guard let location = model.locate(pane.id) else { return }
-        let window = location.window
-        window.active = location.tab.id
+        guard let window = model.window(containing: pane.id) else { return }
+        if let location = model.locate(pane.id) {
+            window.active = location.tab.id
+            location.tab.lastFocus = pane.id
+        }
         if let zoomed = window.zoomed, zoomed != pane.id { window.zoomed = nil }
         window.focused = pane.id
-        location.tab.lastFocus = pane.id
         model.key = window.id
     }
 
@@ -277,7 +294,7 @@ public final class Core {
 
     private func zoom(_ args: JSON) throws -> [String: JSON] {
         let pane = try needPane(args["pane"]?.string)
-        guard let window = model.locate(pane.id)?.window else { throw KmuxError("not_found", "no pane \"\(pane.id)\"") }
+        guard let window = model.window(containing: pane.id) else { throw KmuxError("not_found", "no pane \"\(pane.id)\"") }
         let was = window.zoomed == pane.id
         focusPane(pane)
         window.zoomed = was ? nil : pane.id
@@ -300,7 +317,7 @@ public final class Core {
 
     /// The pane `step` places after the focused one in reading order, wrapping.
     public func cyclePane(in window: Window, by step: Int) -> String? {
-        let ids = Model.paneIDs(window.activeTab?.root)
+        let ids = window.shownPanes
         guard !ids.isEmpty else { return nil }
         let at = window.focused.flatMap { ids.firstIndex(of: $0) } ?? 0
         return ids[((at + step) % ids.count + ids.count) % ids.count]
@@ -320,6 +337,14 @@ public final class Core {
         host?.stop(pane)
         waiters.removeValue(forKey: pane.id)?.forEach { $0.resume() }
     }
+
+    static func edge(_ value: JSON?) throws -> Edge? {
+        guard let value, value != .null else { return nil }
+        guard let edge = value.string.flatMap(Edge.init(rawValue:)) else { throw KmuxError("bad_request", "dock must be left or right") }
+        return edge
+    }
+
+    static func docked(_ message: String) -> KmuxError { KmuxError("docked", "docked: \(message)") }
 
     func fraction(_ value: JSON) throws -> Double {
         guard let result = Fraction.parse(value) else { throw KmuxError("bad_request", "\"\(value)\" is not a fraction") }

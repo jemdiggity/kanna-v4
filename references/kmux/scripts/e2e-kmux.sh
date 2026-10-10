@@ -163,7 +163,7 @@ win() { # win ID FIELD: a field of one window in `kmux list --json`
   "$cli" list --json | python3 -c 'import json, sys
 w = next(w for w in json.load(sys.stdin)["windows"] if w["id"] == sys.argv[1])
 v = w
-for k in sys.argv[2].split("."): v = v[int(k)] if k.isdigit() else v[k]
+for k in sys.argv[2].split("."): v = v[int(k)] if k.isdigit() else v.get(k)
 print(json.dumps(v, sort_keys=True))' "$1" "$2"
 }
 count_windows() { "$cli" list --json | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["windows"]))'; }
@@ -190,6 +190,55 @@ drag '{"pane":"db","to":{"outside":true}}'
 [[ "$(count_windows)" == $((before + 1)) ]] || fail "the last pane leaving its window should move the window, not add one"
 sleep 0.5
 drawn dragged "*"
+
+# 7b. A docked pane: outside the window's tabs, on its left or right edge,
+# shown whichever tab is; it closes only with its window.
+dkw="$(field window <<<"$("$cli" open --window new --name dt1 --cmd "printf 'DOCK TAB ONE\n'; exec sleep 600" --json)")"
+"$cli" open --window "$dkw" --name dt2 --tab --cmd "printf 'DOCK TAB TWO\n'; exec sleep 600" >/dev/null
+opened="$("$cli" open --window "$dkw" --name agent --dock --cmd "printf 'DOCK AGENT\n'; exec sleep 600")"
+[[ "$opened" == *"(agent) docked left in window $dkw: running" ]] || fail "open --dock should say where it docked: $opened"
+[[ "$(win "$dkw" dock)" == '{"edge": "left", "pane": "agent", "width": "2/5"}' ]] || fail "open --dock: $(win "$dkw" dock)"
+[[ "$("$cli" list)" == *"dock: p"*" (agent)  left 2/5"* ]] || fail "list should show the dock on its own line: $("$cli" list)"
+sleep 1
+drawn docked "DOCK AGENT"
+drawn docked-tab "DOCK TAB TWO"
+key "cmd+1"
+[[ "$(win "$dkw" tabs.0.active)" == true && "$(win "$dkw" dock.pane)" == '"agent"' ]] || fail "cmd+1 should show the first tab and leave the dock: $(win "$dkw" tabs)"
+sleep 0.5
+drawn docked-tab1 "DOCK AGENT"
+drawn docked-tab1-tab "DOCK TAB ONE"
+key "cmd+2"
+[[ "$(win "$dkw" tabs.1.active)" == true ]] || fail "cmd+2 should show the second tab"
+refused="$("$cli" close agent 2>&1)" && fail "close on the docked pane should fail"
+[[ "$refused" == *"docked: it closes with its window"* ]] || fail "close on the docked pane should say why: $refused"
+"$cli" focus agent >/dev/null
+key "cmd+w"
+[[ "$(win "$dkw" dock.pane)" == '"agent"' ]] || fail "cmd+w should do nothing in the docked pane"
+key "cmd+]"; [[ "$(win "$dkw" focused)" == '"dt2"' ]] || fail "cmd+] should go from the dock into the shown tab: $(win "$dkw" focused)"
+key "cmd+]"; [[ "$(win "$dkw" focused)" == '"agent"' ]] || fail "cmd+] should come back to the dock: $(win "$dkw" focused)"
+key "cmd+shift+return"
+[[ "$(win "$dkw" zoomed)" == '"agent"' ]] || fail "zoom on the docked pane"
+[[ "$(field panes <<<"$(raw '{"id":1,"cmd":"debug.snapshot"}')" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 1 ]] || fail "a zoomed docked pane should fill the window"
+key "cmd+shift+return"
+"$cli" move agent --dock right >/dev/null
+[[ "$(win "$dkw" dock)" == '{"edge": "right", "pane": "agent", "width": "2/5"}' ]] || fail "move --dock right: $(win "$dkw" dock)"
+drag '{"divider":"agent","at":0.34}'
+[[ "$(win "$dkw" dock.width)" == '"1/3"' ]] || fail "dragging the dock's divider should snap to 1/3: $(win "$dkw" dock) ($last_drag)"
+sleep 0.5
+drawn docked-right "DOCK AGENT"
+dt1tab="$(win "$dkw" tabs.0.id | tr -d '"')"
+"$cli" move-tab "$dt1tab" --window new >/dev/null
+[[ "$(win "$dkw" dock.pane)" == '"agent"' && "$(win "$dkw" tabs | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 1 ]] \
+  || fail "moving a tab to another window should leave the dock: $(win "$dkw" tabs)"
+"$cli" close dt1 >/dev/null
+[[ "$(field pane.state <<<"$("$cli" restart agent --json)")" == running ]] || fail "restart should work on the docked pane"
+"$cli" move agent --tab >/dev/null
+[[ "$(win "$dkw" dock)" == null && "$(win "$dkw" tabs | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 2 ]] || fail "move --tab should undock into a new tab: $(win "$dkw" tabs)"
+"$cli" move agent --dock >/dev/null
+"$cli" close dt2 >/dev/null
+[[ "$(win "$dkw" tabs)" == '[]' && "$(win "$dkw" dock.pane)" == '"agent"' ]] || fail "closing the last tab should leave the window with its docked pane"
+"$cli" close --window "$dkw" >/dev/null
+[[ "$("$cli" list)" != *agent* ]] || fail "closing the window should close its docked pane"
 
 # 8. Instances: a second kmux beside this one, with its own socket and
 # windows. kmux run inside one of its panes controls that instance.
@@ -415,6 +464,35 @@ sleep 1
 p_stop
 rm -f "$p_state" "$p_state.bad"
 
+# A docked pane comes back with its window: edge, width, focus, and a window
+# with only a docked pane.
+p_start
+p_cli open --name tab1 >/dev/null
+p_cli open --name agent --dock right --cmd "printf 'DOCK BACK\n'; exec sleep 600" >/dev/null
+p_cli resize agent 1/4 >/dev/null
+p_cli open --name lone --dock --window new >/dev/null
+sleep 1.5
+python3 - "$p_state" <<'PY' || fail "the state file should hold the docks: $(cat "$p_state")"
+import json, sys
+s = json.load(open(sys.argv[1]))
+docks = [w.get("dock") for w in s["windows"]]
+assert docks[0]["edge"] == "right" and docks[0]["width"] == 0.25, docks
+assert docks[1]["edge"] == "left" and s["windows"][1]["tabs"] == [], s["windows"][1]
+PY
+before="$(p_layout)"
+p_stop
+p_start
+sleep 1.5
+after="$(p_layout)"
+[[ "$after" == "$before" ]] || fail "the docked panes should come back:
+before: $before
+after:  $after"
+for _ in $(seq 20); do [[ "$(field text <<<"$(p_raw '{"id":1,"cmd":"debug.text","args":{"pane":"agent"}}')")" == *"DOCK BACK"* ]] && break; sleep 0.25; done
+[[ "$(field text <<<"$(p_raw '{"id":1,"cmd":"debug.text","args":{"pane":"agent"}}')")" == *"DOCK BACK"* ]] || fail "the docked terminal should run its command again"
+p_raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"window\":\"w1\",\"path\":\"$out/docked-restored.png\"}}" >/dev/null
+p_stop
+rm -f "$p_state" "$p_state.bad"
+
 # A product's terminal wrapper (Kanna's keeper): every terminal runs through
 # it, and terminals brought back after a restart are told so (KMUX_RESTORED).
 wrapper="$out/wrapper.sh"; wrap_log="$out/wrapper.log"; rm -f "$wrap_log"
@@ -442,7 +520,7 @@ python3 - "$wrap_log" <<'PY' || fail "the wrapper should run every terminal, tol
 import sys
 lines = open(sys.argv[1]).read().splitlines()
 assert len(lines) == 4, lines
-first, cmd, again, cmd_again = lines
+first, cmd = sorted(lines[:2]); again, cmd_again = sorted(lines[2:])
 assert first == "p1 restored=0 args=", first
 assert cmd.startswith("p2 restored=0 args=-- ") and "-c echo WRAPPED" in cmd, cmd
 assert again == "p1 restored=1 args=", again

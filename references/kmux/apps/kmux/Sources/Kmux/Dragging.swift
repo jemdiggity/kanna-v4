@@ -149,6 +149,69 @@ final class DividerView: NSView {
     }
 }
 
+@MainActor
+final class DockDividerView: NSView {
+    let state: Window
+    private let span: CGFloat
+    private let extent: CGFloat
+    var onChange: (() -> Void)?
+
+    init(window: Window, line: NSRect, span: CGFloat, extent: CGFloat) {
+        state = window
+        self.span = span
+        self.extent = extent
+        super.init(frame: line.insetBy(dx: -DividerView.grab, dy: 0))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    var paneID: String? { state.dock?.pane }
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let content = superview else { return }
+        drag(in: content)
+    }
+
+    func position(_ fraction: CGFloat) -> NSPoint {
+        let left = state.dock?.edge != .right
+        let offset = span * fraction + (left ? 0 : WindowController.divider)
+        return NSPoint(x: left ? offset : extent - offset, y: frame.midY)
+    }
+
+    func width(at point: NSPoint) -> Double {
+        let left = state.dock?.edge != .right
+        let offset = left ? point.x : extent - WindowController.divider - point.x
+        let low = min(DividerView.minimum, span / 2)
+        let width = Double(min(max(offset, low), span - low) / span)
+        return (DividerView.nice + [Dock.defaultWidth]).first { abs(width - $0) < 0.015 } ?? width
+    }
+
+    func drag(in content: NSView) {
+        let tip = NSTextField(labelWithString: "")
+        tip.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        tip.textColor = .white
+        tip.drawsBackground = true
+        tip.backgroundColor = NSColor.black.withAlphaComponent(0.75)
+        content.addSubview(tip)
+        let move = { [self] (point: NSPoint) in
+            guard let window = content.window, state.dock != nil else { return }
+            let local = content.convert(window.convertPoint(fromScreen: point), from: nil)
+            let width = width(at: local)
+            state.dock?.width = width
+            onChange?()
+            let left = state.dock?.edge != .right
+            tip.stringValue = " \(Fraction.format(left ? width : 1 - width)) | \(Fraction.format(left ? 1 - width : width)) "
+            tip.sizeToFit()
+            tip.frame.origin = NSPoint(x: local.x + 12, y: local.y - 12 - tip.frame.height)
+            content.addSubview(tip)
+        }
+        move(trackMouse(move))
+        tip.removeFromSuperview()
+    }
+}
+
 /// The ⋯ handle at the top of a pane, shown while the mouse is over the pane.
 /// Dragging it moves the pane.
 @MainActor

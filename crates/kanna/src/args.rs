@@ -23,6 +23,10 @@ impl Argv {
         self.options.option(name)
     }
 
+    pub fn optional(&mut self, name: &str, takes: impl Fn(&str) -> bool) -> Option<Option<String>> {
+        self.options.optional(name, takes)
+    }
+
     pub fn positional(&mut self) -> Option<String> {
         self.options.positional().or_else(|| self.rest.pop_front())
     }
