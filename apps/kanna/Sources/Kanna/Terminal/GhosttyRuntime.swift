@@ -204,7 +204,7 @@ final class GhosttyRuntime {
     }
 
     private func readClipboard(_ id: UInt, _ location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) -> ghostty_clipboard_read_result_e {
-        guard let surface = live[id]?.surface, let string = effects.read(location) else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
+        guard let view = live[id], let surface = view.surface, let string = view.takeDropped() ?? effects.read(location) else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
         let mime = strdup("text/plain")!
         let text = strdup(string)!
         defer { free(mime); free(text) }

@@ -769,7 +769,7 @@ sequenceDiagram
 | Synchronized output (mode 2026) | Ghostty's | Ghostty's; a snapshot taken mid-update ends it after Ghostty's timeout | by hand |
 | Scrollback | Ghostty's `scrollback-limit` (10 MB default) | the daemon keeps 10 MB, no line limit; `read --lines` | kanna-vt tests, S34 |
 | Search | none | none, as kmux | — |
-| Dropping files, images or text | Ghostty's: file paths, shell-escaped and space-separated, or the text, pasted | the same, plus what Ghostty drops: a file promise (a screenshot's thumbnail, Mail, Photos) is saved and an image with no file (a browser's) is written as a PNG, both in `$TMPDIR/kanna-drops`, and its path pasted, so an agent in the pane gets the image | KannaDrop tests, S36 (`debug.drop`) |
+| Dropping files, images or text | Ghostty's: file paths, shell-escaped and space-separated, or the text, pasted | the same, plus what Ghostty drops: a file promise (a screenshot's thumbnail, Mail, Photos) is saved and an image with no file (a browser's) is written as a PNG, both in `$TMPDIR/kanna-drops`, and its path pasted, so an agent in the pane gets the image. A drop is a paste: it goes through Ghostty's paste, so bracketed paste and the unsafe-paste question apply as for ⌘V, and a path with a control character in its name (a newline, ESC) is written as `$'…'` with `\xHH` escapes, so no name can run a command | KannaDrop tests, S36 (`debug.drop`) |
 
 **Links** come from terminal output, which any program (or a file being `cat`ed) writes, so a click on one is treated as untrusted. Ghostty opens a link only on a click with ⌘ held; the app then decides, in `KannaLinks` (`UntrustedURL`, started from Ghostty's macOS app's rules for OSC 8 links and made stricter):
 

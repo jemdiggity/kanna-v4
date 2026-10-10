@@ -827,6 +827,8 @@ S36() {
   local dropped
   dropped="$(kanna read s36 | tr -d "\n" | sed "s/IN //g" | grep -oE "/[^~]*kanna-drops/image-[0-9-]+-[0-9A-F]{8}\.png" | tail -1)"
   check cmp -s "$file" "$dropped" || return 1
+  raw "{\"id\":1,\"cmd\":\"debug.drop\",\"args\":{\"pane\":\"s36\",\"files\":[\"/tmp/a\\nb\"]}}" >/dev/null
+  check wait_for 5 eval 'kanna read s36 | tr -d "\\n" | sed "s/IN //g" | grep -qF "^[200~\$'"'"'/tmp/a\\x0ab'"'"'^[201~"' || { kanna read s36; return 1; }
   raw '{"id":1,"cmd":"debug.drop","args":{"pane":"s36","text":"S36 TEXT"}}' >/dev/null
   check wait_for 5 eval 'kanna read s36 | tr -d "\\n" | sed "s/IN //g" | grep -qF "^[200~S36 TEXT^[201~"'
 }

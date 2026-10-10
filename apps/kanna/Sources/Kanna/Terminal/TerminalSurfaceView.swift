@@ -6,6 +6,7 @@ import QuartzCore
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     var surface: ghostty_surface_t? { didSet { if surface != nil { syncSurfaceGeometry(); updateVisibility() } } }
     var isHandlingInputEvent = false
+    private var dropped: String?
     var focused: (() -> Void)?
     var contextMenu: (() -> NSMenu?)?
     var title = ""
@@ -213,7 +214,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return result.text.map { String(cString: $0) } ?? ""
     }
 
-    func insertDropped(_ text: String) { sendText(text) }
+    func insertDropped(_ text: String) {
+        dropped = text
+        perform("paste_from_clipboard")
+        dropped = nil
+    }
+
+    func takeDropped() -> String? {
+        defer { dropped = nil }
+        return dropped
+    }
 
     private func sendText(_ text: String) {
         guard let surface else { return }

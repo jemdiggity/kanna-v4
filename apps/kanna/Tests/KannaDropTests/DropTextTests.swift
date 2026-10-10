@@ -14,6 +14,12 @@ struct DropTextTests {
         #expect(DropText.escape("a\tb") == "a\\\tb")
     }
 
+    @Test func controlCharactersCannotRunCommands() {
+        #expect(DropText.escape("/tmp/a\nrm -rf ~") == #"$'/tmp/a\x0arm -rf ~'"#)
+        #expect(DropText.escape("/tmp/\u{1b}[201~x'y\\z\r") == #"$'/tmp/\x1b[201~x\'y\\z\x0d'"#)
+        #expect(DropText.escape("/tmp/a\u{85}b") == #"$'/tmp/a\xc2\x85b'"#)
+    }
+
     @Test func severalPathsAreJoinedBySpaces() {
         #expect(DropText.paths(["/a b", "/c"]) == #"/a\ b /c"#)
     }
