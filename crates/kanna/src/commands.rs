@@ -319,7 +319,62 @@ pub static COMMANDS: &[Command] = &[
         parse: parse_status,
         show: output::status,
     },
+    Command {
+        name: "markup",
+        group: "Panes",
+        summary: "Open a local page (a mockup) in a web pane you can comment on; the comments come to this pane.",
+        usage: "kanna markup FILE.html [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]",
+        options: &[
+            ("--name NAME", "A name to refer to the pane by in later commands."),
+            ("--split right|down|auto", "Where the pane goes relative to the focused pane, as for open."),
+            ("--size FRACTION", "Share of the focused pane's space it takes, as for open."),
+            ("--tab", "Open in a new tab instead of splitting."),
+            ("--window ID|new", "Open in that window, or a new one."),
+            ("--dock [left|right]", "Make it the window's docked pane, as for open."),
+            ("--no-wait", "Return as soon as the pane exists."),
+        ],
+        notes: "A web pane like `kanna open web FILE`, with a thread list and a comment box: ⌘-click a part of the page or ⌘-drag a box to comment. Each comment is typed into the terminal that ran markup, with the part or box and a screenshot with it marked up. `kanna open web` shows the page without comments.",
+        examples: &[
+            ("kanna markup docs/mockups/desk.html --split right", "Review a mockup beside this pane."),
+            ("kanna markup docs/mockups/desk.html --tab", "The same, in a new tab."),
+        ],
+        parse: parse_markup,
+        show: output::opened,
+    },
 ];
+
+fn parse_markup(args: &mut Argv) -> Result<Value, Failure> {
+    let mut out = Map::new();
+    for (flag, key) in [("--name", "name"), ("--split", "split"), ("--size", "size"), ("--window", "window")] {
+        if let Some(value) = args.option(flag)? {
+            out.insert(key.into(), json!(value));
+        }
+    }
+    if let Some(edge) = args.optional("--dock", is_edge) {
+        out.insert("dock".into(), json!(edge.unwrap_or_else(|| "left".into())));
+    }
+    if args.flag("--tab") {
+        out.insert("tab".into(), json!(true));
+    }
+    if out.contains_key("dock") && ["split", "size", "tab"].iter().any(|k| out.contains_key(*k)) {
+        return Err(usage("markup", "--dock goes on its own: no --split, --size or --tab"));
+    }
+    if args.flag("--no-wait") {
+        out.insert("wait".into(), json!(false));
+    }
+    let file = args.positional().ok_or_else(|| usage("markup", "say which page: kanna markup FILE.html"))?;
+    let lower = file.to_lowercase();
+    if !(lower.ends_with(".html") || lower.ends_with(".htm")) {
+        return Err(usage("markup", &format!("{file} is not an HTML page (.html or .htm)")));
+    }
+    out.insert("type".into(), json!("web"));
+    out.insert("url".into(), json!(file_url(&absolute(&file))));
+    out.insert("markup".into(), json!(true));
+    if let Some(agent) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
+        out.insert("agent".into(), json!(agent));
+    }
+    Ok(Value::Object(out))
+}
 
 fn parse_status(args: &mut Argv) -> Result<Value, Failure> {
     let file = args.option("--file")?;
@@ -398,9 +453,10 @@ fn local_page(target: &str) -> Option<String> {
         return None;
     }
     let path = absolute(target);
-    if !std::path::Path::new(&path).is_file() {
-        return None;
-    }
+    std::path::Path::new(&path).is_file().then(|| file_url(&path))
+}
+
+fn file_url(path: &str) -> String {
     let encoded: String = path
         .bytes()
         .map(|b| match b {
@@ -408,7 +464,7 @@ fn local_page(target: &str) -> Option<String> {
             _ => format!("%{b:02X}"),
         })
         .collect();
-    Some(format!("file://{encoded}"))
+    format!("file://{encoded}")
 }
 
 pub fn absolute(path: &str) -> String {
@@ -476,9 +532,6 @@ fn parse_open(args: &mut Argv) -> Result<Value, Failure> {
     if kind == "web" {
         let url = args.positional().ok_or_else(|| usage("open", "web panes need a URL: kanna open web URL"))?;
         out.insert("url".into(), json!(local_page(&url).unwrap_or(url)));
-        if let Some(agent) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
-            out.insert("agent".into(), json!(agent));
-        }
     }
     if kind == "md" {
         let file = args.positional().ok_or_else(|| usage("open", "markdown panes need a file: kanna open md FILE"))?;

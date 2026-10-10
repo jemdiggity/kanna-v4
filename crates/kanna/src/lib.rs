@@ -93,7 +93,7 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         return Err(commands::usage(command.name, &format!("unexpected argument \"{extra}\"")));
     }
     let mut mux = Session::connect(&target, env)?;
-    let reply = match mux.call(command.name, request.clone()) {
+    let reply = match mux.call(wire(command), request.clone()) {
         Ok(reply) => reply,
         Err(failure) => return Err(explain(command, failure, &mut mux, &target)),
     };
@@ -129,6 +129,10 @@ fn explain(command: &Command, mut failure: Failure, mux: &mut Session, target: &
     failure
 }
 
+fn wire(command: &Command) -> &'static str {
+    if command.name == "markup" { "open" } else { command.name }
+}
+
 fn supported(target: &Target) -> Option<Vec<String>> {
     let reply = target::capabilities(target)?;
     Some(reply["commands"].as_array()?.iter().filter_map(|c| c.as_str().map(String::from)).collect())
@@ -140,7 +144,7 @@ fn unsupported_mark(target: &Target) -> String {
 
 fn mark(command: &Command, supported: Option<&[String]>, target: &Target) -> String {
     match supported {
-        Some(names) if !names.iter().any(|n| n == command.name) => unsupported_mark(target),
+        Some(names) if !names.iter().any(|n| n == wire(command)) => unsupported_mark(target),
         _ => String::new(),
     }
 }
@@ -394,6 +398,14 @@ mod tests {
         assert_eq!(request["url"], json!(format!("file://{}", page.display().to_string().replace(' ', "%20"))));
         let (_, request) = parse("kanna open web a.test").unwrap();
         assert_eq!(request["url"], json!("a.test"));
+        assert!(request.get("markup").is_none());
+        let (name, request) = parse(&format!("kanna markup '{}' --tab", page.display())).unwrap();
+        assert_eq!(name, "markup");
+        assert_eq!(request["type"], json!("web"));
+        assert_eq!(request["markup"], json!(true));
+        assert_eq!(request["tab"], json!(true));
+        assert!(parse("kanna markup notes.md").is_err());
+        assert_eq!(parse("kanna markup /tmp/m.html").unwrap().1["url"], json!("file:///tmp/m.html"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

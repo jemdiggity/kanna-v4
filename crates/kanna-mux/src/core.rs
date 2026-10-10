@@ -477,6 +477,9 @@ impl CoreHandle {
         if args.get("agent").is_some() && !matches!(kind, PaneType::Md | PaneType::Web) {
             return Err(bad_request("agent is only for markdown and web panes"));
         }
+        if args.get("markup").is_some() && kind != PaneType::Web {
+            return Err(bad_request("markup is only for web panes"));
+        }
         let name = string(args, "name").map(String::from);
         let taken = |core: &CoreHandle| match &name {
             Some(name) if core.state().panes.pane(name).is_some() => Err(KmuxError::new("name_taken", format!("a pane named \"{name}\" already exists"))),
@@ -519,6 +522,7 @@ impl CoreHandle {
             pane.device = field("device");
             pane.path = field("path");
             pane.agent = field("agent");
+            pane.markup = is_true(args, "markup");
             if (kind == PaneType::Web && is_true(args, "history")) || kind == PaneType::Md {
                 pane.history = Some(Default::default());
             }

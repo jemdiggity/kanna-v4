@@ -49,7 +49,7 @@ Reply in the thread, not only in the chat: the user reads replies beside the doc
 
 | Command | Does |
 |---|---|
-| `kanna open md FILE`, `kanna open web FILE.html` | Show a markdown file or a local page (a mockup) in Kanna's own pane, with its comments. Comments on it come to you. |
+| `kanna open md FILE`, `kanna markup FILE.html` | Show a markdown file, or a local page (a mockup), in a Kanna pane with its comments. Comments on it come to you. (`kanna open web` shows a page without comments.) |
 | `kanna-doc open FILE` | The same in the reference model's web pane |
 | `kanna-doc comments [--all]` | The doc's open comments (`--all`: resolved too) |
 | `kanna-doc show cN` | One thread: quote, line, every message |

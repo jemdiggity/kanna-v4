@@ -17,7 +17,10 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
     var agent: String? { didSet { markup?.agent = agent } }
     var onSend: ((String, String, @escaping (String?) -> Void) -> Void)? { didSet { markup?.onSend = onSend } }
 
-    init(url: String) {
+    private let markable: Bool
+
+    init(url: String, markup: Bool = false) {
+        markable = markup
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         relay = PageMarkupView.install(on: configuration)
@@ -48,7 +51,7 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
     }
 
     private func markUp(_ url: URL?) {
-        let page = PageMarkupView.page(for: url)
+        let page = markable ? PageMarkupView.page(for: url) : nil
         guard page != markup?.path else { return }
         markup?.stop()
         markup?.removeFromSuperview()

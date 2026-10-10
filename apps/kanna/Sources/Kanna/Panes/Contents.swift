@@ -103,7 +103,7 @@ final class Contents {
                 content = markdown
             }
         case "web":
-            let web = WebPaneView(url: pane["url"]?.string ?? "about:blank")
+            let web = WebPaneView(url: pane["url"]?.string ?? "about:blank", markup: pane["markup"]?.bool == true)
             web.onFocus = { [weak self] in self?.onFocus?(id) }
             web.webView.contextMenu = { [weak self] in self?.contextMenu?() }
             web.onNavigate = { [weak self] url in self?.onRequest?("navigate", ["pane": .string(id), "url": .string(url)]) }

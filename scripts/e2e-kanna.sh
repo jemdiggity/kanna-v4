@@ -992,7 +992,12 @@ S39() {
 </body></html>
 HTML
   agent_id="$(pane agent id)"
-  KANNA_PANE="$agent_id" kanna open web --name page --tab "$dir/page.html" >/dev/null || return 1
+  KANNA_PANE="$agent_id" kanna open web --name plain --tab "$dir/page.html" >/dev/null || return 1
+  check test "$(pane plain url)" == "file://$dir/page.html" || return 1
+  check wait_for 5 eval 'raw "{\"id\":1,\"cmd\":\"debug.web\",\"args\":{\"pane\":\"plain\"}}" | grep -q "Ship it"' || return 1
+  [[ "$(raw '{"id":1,"cmd":"debug.web","args":{"pane":"plain"}}')" != *threads* ]] || { echo "open web should show the page without comments"; return 1; }
+  kanna close plain >/dev/null || return 1
+  KANNA_PANE="$agent_id" kanna markup --name page --tab "$dir/page.html" >/dev/null || return 1
   s39_web() { raw "{\"id\":1,\"cmd\":\"debug.web\",\"args\":{\"pane\":\"page\"${1:-}}}"; }
   s39_thread() { s39_web | field threads | python3 -c 'import json, sys
 t = [t for t in json.load(sys.stdin) if t["id"] == sys.argv[1]][0]
@@ -1001,7 +1006,7 @@ print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
   s39_click() { raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"pane\":\"page\",$1}}" >/dev/null; }
   s39_shot() { raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$1.png\"}}" >/dev/null; cp "$KANNA_STATE_DIR/$1.png" "$out/$1.png" 2>/dev/null; }
   check wait_for 5 eval '[[ "$(s39_web | field agent)" == "$agent_id" ]]' || { kanna list --json; s39_web; return 1; }
-  check test "$(pane page url)" == "file://$dir/page.html" || return 1
+  check test "$(pane page markup)" == True || return 1
   check wait_for 5 eval 's39_web ",\"find\":\"#go\"" | grep -q at' || return 1
   xy="$(s39_web ',"find":"#go"' | field at)"
   s39_click "\"command\":true,\"at\":$xy"

@@ -71,6 +71,7 @@ pub struct Pane {
     pub device: Option<String>,
     pub path: Option<String>,
     pub agent: Option<String>,
+    pub markup: bool,
     pub history: Option<History>,
     pub zoom: Option<f64>,
     pub session: Option<String>,
@@ -94,6 +95,7 @@ impl Pane {
             device: None,
             path: None,
             agent: None,
+            markup: false,
             history: None,
             zoom: None,
             session: None,
@@ -134,6 +136,9 @@ impl Pane {
             PaneType::Web => {
                 out.insert("url".into(), opt(self.url.as_deref()));
                 out.insert("history".into(), Value::Bool(self.history.is_some()));
+                if self.markup {
+                    out.insert("markup".into(), Value::Bool(true));
+                }
                 if let Some(agent) = &self.agent {
                     out.insert("agent".into(), Value::String(agent.clone()));
                 }
