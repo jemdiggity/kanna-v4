@@ -1154,7 +1154,7 @@ S40() {
 }
 
 S41() {
-  start_daemon && start_app || return 1
+  PATH="$bin:$PATH" start_daemon && start_app || return 1
   local dir="$KANNA_STATE_DIR/s41"
   mkdir -p "$dir/sub" && touch "$dir/alpha-notes.md" "$dir/alpha.html" "$dir/alpha.txt"
   kanna open --name s41 --cwd "$dir" --cmd "zsh -f -i" >/dev/null || return 1
@@ -1180,7 +1180,12 @@ S41() {
   check s41_tab "kanna close " 2 's41-web +-- p[0-9]+ · web · alpha\.html' s41-panes || return 1
   check s41_tab "kanna focus --tab " 2 't[0-9]+ +-- "' || return 1
   check s41_tab "kanna open --split " 2 'right' || return 1
-  check s41_tab "kanna open md alpha-notes.md --sp" "" '--split *$'
+  check s41_tab "kanna open md alpha-notes.md --sp" "" '--split *$' || return 1
+  kanna open --name s41-login --tab --cwd "$dir" >/dev/null || return 1
+  check wait_for 10 eval '[[ -n "$(kanna read s41-login | tr -d "[:space:]")" ]]' || return 1
+  sleep 2
+  kanna send s41-login 'print -r -- "s41:$_comps[kanna]:${ZDOTDIR-home}:${KANNA_ZSH_ZDOTDIR-gone}"' || return 1
+  check wait_for 5 shows s41-login 's41:_kanna:home:gone'
 }
 
 due() {

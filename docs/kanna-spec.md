@@ -841,7 +841,7 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 ### 4.18 Tab Completion
 
-**[Built]** Tab completes every `kanna` command, option and value in zsh and bash: pane names and IDs, tabs and windows from the running Kanna (never starting one), and only the files a command takes. Generated from the CLI's command table, so a new command or option completes with no extra work. Its own spec: [specs/tab-completion.md](specs/tab-completion.md). In `crates/kanna/src/complete.rs` with the shell scripts beside it; checked by its unit tests and S41.
+**[Built]** Tab completes every `kanna` command, option and value in zsh and bash: pane names and IDs, tabs and windows from the running Kanna (never starting one), and only the files a command takes. On in Kanna's zsh terminals with no setup (the daemon gives them a `ZDOTDIR` of its own that hands over to yours). Generated from the CLI's command table, so a new command or option completes with no extra work. Its own spec: [specs/tab-completion.md](specs/tab-completion.md). In `crates/kanna/src/complete.rs` with the shell scripts beside it, and `crates/kanna-daemon/src/shell.rs`; checked by their unit tests and S41.
 
 ---
 
