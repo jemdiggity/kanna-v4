@@ -163,18 +163,57 @@ def describe_region(region):
     return f"the box from {x}%,{y}% to {x + w}%,{y + h}% (left,top to right,bottom)"
 
 
+MARKUP = re.compile(r"[`*_\[\]()<>#|\\]")
+
+
+def plain(s):
+    return " ".join(MARKUP.sub(" ", s).split())
+
+
+def quote_in_doc(doc, quote):
+    try:
+        src = Path(doc["file"]).read_text(errors="replace")
+    except OSError:
+        return False
+    return len(quote) <= 2000 and bool(plain(quote)) and plain(quote) in plain(src)
+
+
+def mark_path(file, tid):
+    root = repo_root(file)
+    path = root / ".kanna" / "docs" / "marks" / f"{store_path(file).stem}-{tid}.png"
+    raw = read_no_follow(path)
+    return os.path.relpath(path, root) if raw and raw.startswith(PNG) else None
+
+
+BREAKS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def one_line(s):
+    return BREAKS.sub("?", str(s))
+
+
 def message(doc, t, text):
     if not THREAD_ID.fullmatch(t["id"]):
         raise SystemExit(f"kanna-doc: refusing to send thread id {t['id']!r}")
-    header = f"[kanna comment {t['id']} · {rel_name(Path(doc['file']))}:{t['line']}]"
+    header = f"[kanna comment {t['id']} · {one_line(rel_name(Path(doc['file'])))}:{int(t['line'])}]"
     if t.get("detached"):
         return f"{header}\n{text}"
     if t.get("image"):
-        lines = [f"> image {t['image']}, {describe_region(t.get('region'))}"]
-        if t.get("mark"):
-            lines.append(f"> marked up: {t['mark']}")
+        image = str(t["image"])
+        if one_line(image) != image or len(image) > 500:
+            return f"{header}\n{text}"
+        try:
+            region = clean_region(t.get("region"))
+        except SystemExit:
+            return f"{header}\n{text}"
+        lines = [f"> image {image}, {describe_region(region)}"]
+        mark = mark_path(Path(doc["file"]), t["id"])
+        if mark:
+            lines.append(f"> marked up: {mark}")
         return header + "\n" + "\n".join(lines) + "\n" + text
-    quote = "\n".join("> " + line for line in t["quote"].splitlines()) or "> "
+    if not quote_in_doc(doc, t["quote"]):
+        return f"{header}\n{text}"
+    quote = "\n".join("> " + one_line(line) for line in clean(t["quote"]).split("\n")) or "> "
     return f"{header}\n{quote}\n{text}"
 
 

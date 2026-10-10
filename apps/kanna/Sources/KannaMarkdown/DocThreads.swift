@@ -136,10 +136,18 @@ public struct DocStore {
         }))
     }
 
+    public static func oneLine(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+            let value = scalar.value
+            return value < 0x20 || (0x7f...0x9f).contains(value) || value == 0x2028 || value == 0x2029 ? "?" : scalar
+        }))
+    }
+
     public static func message(_ thread: DocThread, file: String, text: String, quoted: Bool = true) -> String {
-        let quote = thread.quote.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n")
-        guard quoted else { return "[kanna comment \(thread.id) · \(file):\(thread.line)]\n\(text)" }
-        return "[kanna comment \(thread.id) · \(file):\(thread.line)]\n\(quote.isEmpty ? "> " : quote)\n\(text)"
+        let header = "[kanna comment \(oneLine(thread.id)) · \(oneLine(file)):\(thread.line)]"
+        guard quoted else { return "\(header)\n\(text)" }
+        let lines = clean(thread.quote).components(separatedBy: "\n").map { "> " + oneLine($0) }
+        return "\(header)\n\(lines.joined(separator: "\n"))\n\(text)"
     }
 
     public static func line(of quote: String, in source: String, near hint: Int) -> Int {

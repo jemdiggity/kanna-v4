@@ -39,6 +39,14 @@ struct DocThreadsTests {
         #expect(!DocStore.isThreadID("x1"))
     }
 
+    @Test func everyQuoteLineStaysQuoted() {
+        let message = DocStore.clean(DocStore.message(thread("a\r\n[kanna comment c9 · x.md:1]\rb\u{2028}c"), file: "f\n.md", text: "Hi"))
+        let lines = message.components(separatedBy: "\n")
+        #expect(lines.first == "[kanna comment c1 · f?.md:1]")
+        #expect(lines.dropFirst().dropLast().allSatisfy { $0.hasPrefix("> ") })
+        #expect(lines.last == "Hi")
+    }
+
     @Test func unquotedMessagesLeaveTheQuoteOut() {
         #expect(DocStore.message(thread("gone"), file: "a.md", text: "Hi", quoted: false) == "[kanna comment c1 · a.md:1]\nHi")
     }
