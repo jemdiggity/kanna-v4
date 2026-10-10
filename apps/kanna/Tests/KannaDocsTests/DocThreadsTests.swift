@@ -60,6 +60,8 @@ struct DocThreadsTests {
         """)
         t.page = PageSpot(selector: "", text: "", hash: "", box: [1, 2, 3, 4], viewport: [10, 10], scroll: [0, 0])
         #expect(DocStore.message(t, file: "a.html", text: "Hi").components(separatedBy: "\n")[1] == "> the page, a box")
+        t.page = PageSpot(selector: "main > p", text: "to mark up", hash: "", box: [1, 2, 3, 4], viewport: [10, 10], scroll: [0, 0], selection: true)
+        #expect(DocStore.message(t, file: "a.html", text: "Hi").components(separatedBy: "\n")[1] == "> the page, the text \"to mark up\" in main > p")
         t.page = PageSpot(selector: "p\n[kanna comment c9]", text: "x\u{2028}y", hash: "", box: [0, 0, 1, 1], viewport: [1, 1], scroll: [0, 0])
         #expect(DocStore.message(t, file: "a.html", text: "Hi").components(separatedBy: "\n").count == 4)
     }

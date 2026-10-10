@@ -256,6 +256,7 @@ addEventListener("message", e => {
     document.body.classList.toggle("meta", !!m.meta);
     if (!m.meta) document.querySelectorAll(".imark.hover").forEach(h => h.remove());
     if (m.key === "Escape" && state.composer) { closeComposer(); anchorAll(); }
+    if (m.down && m.meta && m.key === "Enter") pageSelectionComment();
   }
   if (m.kind === "ready" || m.kind === "changed") {
     const was = page.info.hash;
@@ -286,7 +287,7 @@ function renderPage() {
   shield.addEventListener("mousedown", pickPage);
 }
 async function refreshPage() {
-  const items = state.threads.filter(t => t.page).map(t => ({ id: t.id, selector: t.page.selector, text: t.page.text, box: t.page.box }));
+  const items = state.threads.filter(t => t.page).map(t => ({ id: t.id, selector: t.page.selector, text: t.page.text, box: t.page.box, selection: !!t.page.selection }));
   const r = await ask({ kind: "locate", items });
   if (r.info) page.info = r.info;
   page.boxes = r.boxes || {};
@@ -356,7 +357,17 @@ function pickPage(e) {
   addEventListener("mousemove", move);
   addEventListener("mouseup", up);
 }
-async function openPageComposer(hit, box, draft) {
+async function pageSelectionComment() {
+  const { hit } = await ask({ kind: "selection" });
+  if (!hit) return;
+  closePop();
+  closeComposer();
+  const draft = document.createElement("div");
+  draft.className = "imark on draft";
+  placeBox(draft, hit.rect);
+  openPageComposer(hit, hit.rect, draft, true);
+}
+async function openPageComposer(hit, box, draft, selection = false) {
   const { info } = await ask({ kind: "info" });
   if (info) page.info = info;
   const [sx, sy] = page.info.scroll;
@@ -364,7 +375,7 @@ async function openPageComposer(hit, box, draft) {
   const p = {
     selector: hit ? String(hit.selector || "").slice(0, 200) : "", text, hash: page.info.hash,
     box: [box.left + sx, box.top + sy, box.width, box.height].map(Math.round),
-    viewport: page.info.viewport, scroll: page.info.scroll,
+    viewport: page.info.viewport, scroll: page.info.scroll, ...(selection ? { selection: true } : {}),
   };
   state.composer = { quote: text || p.selector || "a box", prefix: "", suffix: "", line: 1, page: p, frameBox: box };
   draft.className = "imark on draft";
@@ -526,7 +537,7 @@ function renderThreads() {
   const resolved = state.threads.filter(t => t.state === "resolved");
   panel.innerHTML = `<div class="top"><span></span>${resolved.length ? `<a id="showResolved">${state.showResolved ? "Hide" : "Show"} resolved (${resolved.length})</a>` : ""}</div>`;
   const shown = [...open, ...(state.showResolved ? resolved : [])];
-  if (!shown.length) panel.insertAdjacentHTML("beforeend", `<div class="empty">No comments yet. ${isPage() ? "⌘-click a part of the page, or ⌘-drag a box." : "Select text and press ⌘↵, or ⌘-click a word."}</div>`);
+  if (!shown.length) panel.insertAdjacentHTML("beforeend", `<div class="empty">No comments yet. ${isPage() ? "Select text and press ⌘↵, ⌘-click a part of the page, or ⌘-drag a box." : "Select text and press ⌘↵, or ⌘-click a word."}</div>`);
   for (const t of shown) {
     const card = document.createElement("div");
     card.className = "card" + (t.id === state.active ? " on" : "") + (t.state === "resolved" ? " resolved" : "");
@@ -765,7 +776,7 @@ document.getElementById("doc").addEventListener("click", e => {
   }
 }, true);
 document.addEventListener("keydown", e => {
-  if (e.metaKey && e.key === "Enter" && !e.target.closest("textarea")) { e.preventDefault(); selectionComment(); }
+  if (e.metaKey && e.key === "Enter" && !e.target.closest("textarea")) { e.preventDefault(); isPage() ? pageSelectionComment() : selectionComment(); }
 });
 document.getElementById("commentBtn").addEventListener("mousedown", e => { e.preventDefault(); selectionComment(); });
 function toggleThreads() {

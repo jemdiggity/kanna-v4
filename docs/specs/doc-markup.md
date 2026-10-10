@@ -42,7 +42,7 @@ General remarks that aren't about a passage go straight to the agent's chat, as 
 - **Images.** ⌘-drag on an image to box part of it, or ⌘-click it for the whole image. The box is the thread's mark, and stays on the image.
 
 ![A box drawn on an image, with its thread selected in the list](doc-markup-image.png)
-- **Web pages.** `kanna markup FILE.html` opens a local page (a mockup) in a web pane that takes comments; `kanna open web` stays a plain web view. In it, ⌘-click a part of the page, or ⌘-drag a box. The box stays on the page, and the thread remembers which view of the page it was on (the part after `#`).
+- **Web pages.** `kanna markup FILE.html` opens a local page (a mockup) in a web pane that takes comments; `kanna open web` stays a plain web view. In it, select text and press ⌘↵, ⌘-click a part of the page, or ⌘-drag a box. The box stays on the page, and the thread remembers which view of the page it was on (the part after `#`).
 
 ![A mockup in a web pane, with a part and a box marked and both threads listed](doc-markup-page.png)
 - **Threads live beside the file, not in it.** A thread has an ID (`c1`, `c2`, … per doc), the quoted passage, its messages, and whether it's open or resolved.

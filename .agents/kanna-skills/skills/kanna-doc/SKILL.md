@@ -24,7 +24,7 @@ A comment on an image says which image and which part of it, and where a copy wi
 The agent header needs the branch.
 ```
 
-A comment on a web page (an HTML mockup) names the part of the page, by CSS path and text, or a box drawn on it, and a screenshot with it boxed:
+A comment on a web page (an HTML mockup) names the part of the page, by CSS path and text, the text selected in it (`the text "…" in PATH`), or a box drawn on it, and a screenshot with it boxed:
 
 ```
 [kanna comment c1 · docs/mockups/desk.html:149]

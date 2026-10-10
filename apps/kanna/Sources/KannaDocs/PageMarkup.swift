@@ -69,7 +69,7 @@ public final class PageMarkupView: NSView {
         bar.path.stringValue = store.relativeName
         bar.showsComment = false
         bar.threads.onPress = { [weak self] in self?.toggleThreads() }
-        panel.emptyText = "No comments yet. ⌘-click a part of the page, or ⌘-drag a box."
+        panel.emptyText = "No comments yet. Select text and press ⌘↵, ⌘-click a part of the page, or ⌘-drag a box."
         panel.onSelect = { [weak self] id in self?.reveal(id) }
         panel.onAct = { [weak self] thread in self?.setState(thread.id, open: !thread.isOpen) }
         panel.onReply = { [weak self] id, text in self?.reply(id, text) }
@@ -176,7 +176,7 @@ public final class PageMarkupView: NSView {
         refreshing += 1
         let ticket = refreshing
         let items: [[String: Any]] = record.threads.compactMap { thread in
-            thread.page.map { ["id": thread.id, "selector": $0.selector, "text": $0.text, "box": $0.box] }
+            thread.page.map { ["id": thread.id, "selector": $0.selector, "text": $0.text, "box": $0.box, "selection": $0.selection == true] }
         }
         Task { [weak self] in
             guard let self else { return }
@@ -263,6 +263,26 @@ public final class PageMarkupView: NSView {
             let info = await call("return kannaMarkup.place(x, y, w, h)", ["x": rect.minX, "y": rect.minY, "w": rect.width, "h": rect.height]) as? [String: Any] ?? [:]
             let ints = { (key: String) in (info[key] as? [Any] ?? []).compactMap { ($0 as? NSNumber)?.intValue } }
             let spot = PageSpot(selector: selector, text: text, hash: info["hash"] as? String ?? "", box: ints("box"), viewport: ints("viewport"), scroll: ints("scroll"))
+            openComposer(spot, rect: rect)
+        }
+    }
+
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.keyCode == 36, event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+              let responder = window?.firstResponder as? NSView, responder === webView || responder.isDescendant(of: webView) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        commentOnSelection()
+        return true
+    }
+
+    public func commentOnSelection() {
+        Task { [weak self] in
+            guard let self, let hit = await call("return kannaMarkup.selection()") as? [String: Any], let rect = Self.rect(hit["rect"]) else { return }
+            let info = await call("return kannaMarkup.place(x, y, w, h)", ["x": rect.minX, "y": rect.minY, "w": rect.width, "h": rect.height]) as? [String: Any] ?? [:]
+            let ints = { (key: String) in (info[key] as? [Any] ?? []).compactMap { ($0 as? NSNumber)?.intValue } }
+            let spot = PageSpot(selector: String((hit["selector"] as? String ?? "").prefix(200)), text: String((hit["text"] as? String ?? "").prefix(120)),
+                                hash: info["hash"] as? String ?? "", box: ints("box"), viewport: ints("viewport"), scroll: ints("scroll"), selection: true)
             openComposer(spot, rect: rect)
         }
     }
@@ -454,11 +474,27 @@ public final class PageMarkupView: NSView {
         }
         return parts.join(" > ");
       }
+      function textRect(el, text) {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [];
+        let all = "";
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push([n, all.length]); all += n.data; }
+        const words = text.replace(/…$/, "").split(/\s+/).filter(Boolean).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+        const match = words.length && new RegExp(words.join("\\s+")).exec(all);
+        if (!match) return null;
+        const at = off => { const [n, start] = nodes.findLast(([, s]) => s <= off); return [n, Math.min(off - start, n.data.length)]; };
+        const range = document.createRange();
+        range.setStart(...at(match.index));
+        range.setEnd(...at(match.index + match[0].length));
+        const r = range.getBoundingClientRect();
+        return r.width || r.height ? toView(r) : null;
+      }
       function find(item) {
         if (item.selector) {
           let el = null;
           try { el = document.querySelector(item.selector); } catch {}
-          if (el && (!item.text || flat(el.innerText).startsWith(item.text.replace(/…$/, "")))) {
+          const inText = el && item.selection && item.text ? textRect(el, item.text) : null;
+          if (inText) return inText;
+          if (el && !item.selection && (!item.text || flat(el.innerText).startsWith(item.text.replace(/…$/, "")))) {
             const r = el.getBoundingClientRect();
             if (r.width || r.height) return toView(r);
           }
@@ -471,6 +507,18 @@ public final class PageMarkupView: NSView {
           const el = document.elementFromPoint(...toClient(x, y));
           if (!el || el === document.documentElement || el === document.body) return null;
           return { selector: selectorOf(el), text: textOf(el), rect: toView(el.getBoundingClientRect()) };
+        },
+        selection() {
+          const s = getSelection();
+          if (!s || s.isCollapsed || !s.rangeCount) return null;
+          const text = flat(s.toString());
+          if (!text) return null;
+          const range = s.getRangeAt(0);
+          let el = range.commonAncestorContainer;
+          if (el.nodeType !== 1) el = el.parentElement;
+          const out = { selector: selectorOf(el), text: text.slice(0, 120), rect: toView(range.getBoundingClientRect()) };
+          s.removeAllRanges();
+          return out;
         },
         locate(items) {
           return { hash: location.hash.slice(0, 100), boxes: Object.fromEntries(items.map(i => [i.id, find(i)])) };

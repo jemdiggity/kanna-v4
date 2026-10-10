@@ -19,14 +19,16 @@ public struct PageSpot: Codable, Equatable {
     public var box: [Int]
     public var viewport: [Int]
     public var scroll: [Int]
+    public var selection: Bool?
 
-    package init(selector: String, text: String, hash: String, box: [Int], viewport: [Int], scroll: [Int]) {
+    package init(selector: String, text: String, hash: String, box: [Int], viewport: [Int], scroll: [Int], selection: Bool? = nil) {
         self.selector = selector
         self.text = text
         self.hash = hash
         self.box = box
         self.viewport = viewport
         self.scroll = scroll
+        self.selection = selection
     }
 }
 
@@ -248,6 +250,7 @@ public struct DocStore {
         let hash = flat(page.hash, 100), selector = flat(page.selector, 200), text = flat(page.text, 120)
         let place = hash.isEmpty ? "the page" : "the page at \(hash)"
         guard !selector.isEmpty else { return "\(place), a box" }
+        if page.selection == true { return "\(place), the text \"\(text)\" in \(selector)" }
         return "\(place), element \(selector)" + (text.isEmpty ? "" : " \"\(text)\"")
     }
 

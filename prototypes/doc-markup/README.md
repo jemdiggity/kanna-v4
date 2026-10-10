@@ -22,7 +22,7 @@ prototypes/doc-markup/kanna-doc open docs/specs/doc-markup.md
 
 It opens the doc to the right. Select text and press ⌘↵ (or ⌘-click a word), write, ⌘↵ to post. On an image, ⌘-drag a box (or ⌘-click for the whole image).
 
-It opens HTML pages too (`kanna-doc open docs/mockups/desk.html`): ⌘-click a part of the page, or ⌘-drag a box. Hold ⌘ to see what a click would pick. The agent learns how to answer from the `kanna-doc` skill.
+It opens HTML pages too (`kanna-doc open docs/mockups/desk.html`): select text and press ⌘↵, ⌘-click a part of the page, or ⌘-drag a box. Hold ⌘ to see what a click would pick. The agent learns how to answer from the `kanna-doc` skill.
 
 Put it on your `PATH` so agents can run `kanna-doc` from anywhere:
 

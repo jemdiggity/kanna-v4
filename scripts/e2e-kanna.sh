@@ -1113,6 +1113,17 @@ PY
   red1="$(s39_red s39-red-pinched)"; mark1="$(s39_web | field marks.c3)"
   [[ "$(s39_moved "$red0" "$red1" "$mark0" "$mark1")" == True* ]] || { echo "the mark should move with a pinch: red $red0 → $red1, mark $mark0 → $mark1"; return 1; }
   key cmd+0
+  raw '{"id":1,"cmd":"debug.web","args":{"pane":"page","js":"scrollTo(0, 0); const r = document.createRange(); r.selectNodeContents(document.querySelector(\"p\")); getSelection().removeAllRanges(); getSelection().addRange(r); 1"}}' >/dev/null
+  kanna focus page >/dev/null; sleep 0.3
+  key cmd+return
+  check wait_for 5 eval '[[ "$(s39_web | field box)" == new ]]' || { s39_web; return 1; }
+  sleep 0.3; s39_shot s39-selection
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Reword"}}' >/dev/null
+  key cmd+return
+  check wait_for 5 eval '[[ "$(s39_thread c4 status)" == sent ]]' || { s39_web; return 1; }
+  check test "$(s39_thread c4 page.text)" == "A page to mark up." || return 1
+  check wait_for 5 eval 'kanna read agent | sed "s/^IN //" | tr -d "\n " | grep -qF "[kannacommentc4·page.html:5]>thepage,thetext\"Apagetomarkup.\"inbody>p:nth-of-type(1)>box"' || { kanna read agent; return 1; }
+  check wait_for 5 eval 's39_web | field marks | grep -q c4' || { s39_web; return 1; }
   raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
   sleep 0.5; s39_shot s39-dark
 }

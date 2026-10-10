@@ -291,12 +291,14 @@ def clean_page(page):
             raise SystemExit(f"kanna-doc: page.{key} is text")
         v = one_line(" ".join(v.split()))
         return v if len(v) <= cap else v[: cap - 1] + "…"
-    return {"selector": short("selector", 200), "text": short("text", 120), "hash": short("hash", 100),
+    return {"selector": short("selector", 200), "text": short("text", 120), "hash": short("hash", 100), **({"selection": True} if page.get("selection") is True else {}),
             "box": numbers("box", 4), "viewport": numbers("viewport", 2), "scroll": numbers("scroll", 2)}
 
 
 def describe_page(page):
     where = f"the page at {page['hash']}" if page["hash"] else "the page"
+    if page["selector"] and page.get("selection"):
+        return f'{where}, the text "{page["text"]}" in {page["selector"]}'
     if page["selector"]:
         return f"{where}, element {page['selector']}" + (f' "{page["text"]}"' if page["text"] else "")
     return f"{where}, a box"

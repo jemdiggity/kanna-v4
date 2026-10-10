@@ -21,12 +21,40 @@
     if (!el || el === document.documentElement || el === document.body) return null;
     return { selector: selectorOf(el), text: textOf(el), rect: rect(el) };
   }
+  function textRect(el, text) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [];
+    let all = "";
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push([n, all.length]); all += n.data; }
+    const words = text.replace(/…$/, "").split(/\s+/).filter(Boolean).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const match = words.length && new RegExp(words.join("\\s+")).exec(all);
+    if (!match) return null;
+    const at = off => { const [n, start] = nodes.findLast(([, s]) => s <= off); return [n, Math.min(off - start, n.data.length)]; };
+    const range = document.createRange();
+    range.setStart(...at(match.index));
+    range.setEnd(...at(match.index + match[0].length));
+    const r = range.getBoundingClientRect();
+    return r.width || r.height ? { left: r.left, top: r.top, width: r.width, height: r.height } : null;
+  }
+  function selection() {
+    const s = getSelection();
+    if (!s || s.isCollapsed || !s.rangeCount) return null;
+    const text = s.toString().replace(/\s+/g, " ").trim();
+    if (!text) return null;
+    const range = s.getRangeAt(0);
+    let el = range.commonAncestorContainer;
+    if (el.nodeType !== 1) el = el.parentElement;
+    const r = range.getBoundingClientRect();
+    s.removeAllRanges();
+    return { selector: selectorOf(el), text: text.slice(0, 120), rect: { left: r.left, top: r.top, width: r.width, height: r.height } };
+  }
   function locate(item) {
     if (item.selector) {
       let el = null;
       try { el = document.querySelector(item.selector); } catch {}
+      const inText = el && item.selection && item.text ? textRect(el, item.text) : null;
+      if (inText) return inText;
       const text = el ? (el.innerText || "").replace(/\s+/g, " ").trim() : "";
-      if (el && (!item.text || text.startsWith(item.text.replace(/…$/, "")))) {
+      if (el && !item.selection && (!item.text || text.startsWith(item.text.replace(/…$/, "")))) {
         const r = rect(el);
         if (r.width || r.height) return r;
       }
@@ -51,6 +79,7 @@
     if (e.source !== parent || e.origin !== parentOrigin || !e.data || typeof e.data !== "object") return;
     const m = e.data, reply = body => post({ seq: m.seq, ...body });
     if (m.kind === "hit") reply({ hit: hit(m.x, m.y) });
+    if (m.kind === "selection") reply({ hit: selection() });
     if (m.kind === "locate") reply({ info: info(), boxes: Object.fromEntries((m.items || []).map(i => [i.id, locate(i)])) });
     if (m.kind === "snapshot") reply({ data: await snapshot(m.box) });
     if (m.kind === "hash") { if (location.hash !== m.hash) location.hash = m.hash; reply({ info: info() }); }
@@ -62,6 +91,6 @@
   addEventListener("resize", changed);
   addEventListener("hashchange", changed);
   addEventListener("load", changed);
-  for (const type of ["keydown", "keyup"]) addEventListener(type, e => post({ kind: "key", meta: e.metaKey, key: e.key }), true);
+  for (const type of ["keydown", "keyup"]) addEventListener(type, e => post({ kind: "key", meta: e.metaKey, key: e.key, down: e.type === "keydown" }), true);
   post({ kind: "ready", info: info() });
 })();
