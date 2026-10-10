@@ -4,7 +4,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
-pub const MAX_BODY: usize = 512 * 1024;
+pub const MAX_BODY: usize = 256 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(10);
 const REDIRECTS: usize = 4;
 
@@ -37,7 +37,14 @@ pub fn resolve(base: &str, link: &str) -> String {
     format!("{dir}{link}")
 }
 
+pub fn origin(url: &str) -> &str {
+    let start = url.find("://").map(|i| i + 3).unwrap_or(0);
+    let end = url[start..].find('/').map(|i| start + i).unwrap_or(url.len());
+    &url[..end]
+}
+
 pub fn get(url: &str, etag: Option<&str>) -> Result<Response, String> {
+    let home = origin(url).to_ascii_lowercase();
     let mut url = url.to_string();
     for _ in 0..=REDIRECTS {
         let response = once(&url, etag)?;
@@ -45,6 +52,9 @@ pub fn get(url: &str, etag: Option<&str>) -> Result<Response, String> {
             let location = response.headers.get("location").ok_or_else(|| format!("{url}: a redirect without a Location"))?;
             url = resolve(&url, location);
             allowed(&url)?;
+            if origin(&url).to_ascii_lowercase() != home {
+                return Err(format!("{url}: a redirect to another host"));
+            }
             continue;
         }
         return Ok(response);
@@ -151,6 +161,7 @@ mod tests {
         assert_eq!(resolve(index, "/x.json"), "https://jemdiggity.github.io/x.json");
         assert_eq!(resolve(index, "https://example.com/a.json"), "https://example.com/a.json");
         assert_eq!(resolve("http://127.0.0.1:8000", "a.json"), "http://127.0.0.1:8000/a.json");
+        assert_eq!(origin(index), "https://jemdiggity.github.io");
     }
 
     #[test]

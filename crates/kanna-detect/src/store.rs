@@ -1,5 +1,6 @@
 use crate::http;
-use crate::rules::{safe_name, Agent, RuleSet, Source};
+use crate::program::known_agents;
+use crate::rules::{safe_name, Agent, RuleSet, Source, MAX_FILE};
 use crate::version::compare_text;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -54,6 +55,7 @@ struct Inner {
     current: RwLock<Arc<RuleSet>>,
     generation: AtomicU64,
     problems: Mutex<Vec<String>>,
+    loaded_overrides: Mutex<Signature>,
     stop: AtomicBool,
     wake: (Mutex<bool>, Condvar),
     fetching: Mutex<()>,
@@ -87,6 +89,7 @@ impl Store {
                 current: RwLock::new(Arc::new(RuleSet::default())),
                 generation: AtomicU64::new(0),
                 problems: Mutex::new(vec![]),
+                loaded_overrides: Mutex::new(vec![]),
                 stop: AtomicBool::new(false),
                 wake: (Mutex::new(false), Condvar::new()),
                 fetching: Mutex::new(()),
@@ -113,6 +116,7 @@ impl Store {
     }
 
     pub fn reload(&self) {
+        *self.inner.loaded_overrides.lock().unwrap_or_else(|e| e.into_inner()) = self.override_signature();
         let mut problems = vec![];
         let mut choices: BTreeMap<String, Vec<Agent>> = BTreeMap::new();
         for (name, text) in bundled() {
@@ -122,24 +126,47 @@ impl Store {
                 Err(e) => problems.push(format!("bundled {name}.json: {e}")),
             }
         }
+        let previous = self.rules();
+        let keep = |name: &str, remote: bool, choices: &mut BTreeMap<String, Vec<Agent>>, overrides: &mut BTreeMap<String, Agent>| {
+            let Some(agent) = previous.agent(name) else { return };
+            match (&agent.source, remote) {
+                (Source::Remote(_), true) => choices.entry(name.into()).or_default().push(agent.clone()),
+                (Source::Override(_), false) => {
+                    overrides.insert(name.into(), agent.clone());
+                }
+                _ => {}
+            }
+        };
+        let mut overrides: BTreeMap<String, Agent> = BTreeMap::new();
         for (path, name) in rule_files(&self.remote_dir()) {
             let url = fs::read_to_string(path.with_extension("url")).unwrap_or_else(|_| path.display().to_string());
-            match fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|t| Agent::parse(&t, Source::Remote(url.trim().into()))) {
+            match read_capped(&path).and_then(|t| Agent::parse(&t, Source::Remote(url.trim().into()))) {
                 Ok(agent) if agent.name() == name => choices.entry(name).or_default().push(agent),
-                Ok(_) => problems.push(format!("{}: the file is for another agent", path.display())),
-                Err(e) => problems.push(format!("{}: {e}", path.display())),
+                Ok(_) => {
+                    problems.push(format!("{}: the file is for another agent", path.display()));
+                    keep(&name, true, &mut choices, &mut overrides);
+                }
+                Err(e) => {
+                    problems.push(format!("{}: {e}", path.display()));
+                    keep(&name, true, &mut choices, &mut overrides);
+                }
             }
         }
-        let mut overrides: BTreeMap<String, Agent> = BTreeMap::new();
         if let Some(dir) = &self.inner.config.overrides {
             for (path, name) in rule_files(dir) {
                 let source = Source::Override(path.display().to_string());
-                match fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|t| Agent::parse(&t, source)) {
+                match read_capped(&path).and_then(|t| Agent::parse(&t, source)) {
                     Ok(agent) if agent.name() == name => {
                         overrides.insert(name, agent);
                     }
-                    Ok(_) => problems.push(format!("{}: the file is for another agent (name it <agent>.json)", path.display())),
-                    Err(e) => problems.push(format!("{}: {e}", path.display())),
+                    Ok(_) => {
+                        problems.push(format!("{}: the file is for another agent (name it <agent>.json)", path.display()));
+                        keep(&name, false, &mut choices, &mut overrides);
+                    }
+                    Err(e) => {
+                        problems.push(format!("{}: {e}", path.display()));
+                        keep(&name, false, &mut choices, &mut overrides);
+                    }
                 }
             }
         }
@@ -204,7 +231,6 @@ impl Store {
 
     fn watch(&self) {
         let config = &self.inner.config;
-        let mut seen = self.override_signature();
         let mut next_check = Instant::now();
         while !self.inner.stop.load(Ordering::SeqCst) {
             if config.site.is_some() && Instant::now() >= next_check {
@@ -215,11 +241,9 @@ impl Store {
                     }
                 }
                 self.reload();
-                seen = self.override_signature();
             }
-            let now = self.override_signature();
-            if now != seen {
-                seen = now;
+            let loaded = self.inner.loaded_overrides.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if self.override_signature() != loaded {
                 self.reload();
             }
             let (lock, condvar) = &self.inner.wake;
@@ -229,7 +253,7 @@ impl Store {
         }
     }
 
-    fn override_signature(&self) -> Vec<(PathBuf, Option<SystemTime>, u64)> {
+    fn override_signature(&self) -> Signature {
         let Some(dir) = &self.inner.config.overrides else { return vec![] };
         let mut files: Vec<_> = rule_files(dir)
             .into_iter()
@@ -240,6 +264,12 @@ impl Store {
             .collect();
         files.sort();
         files
+    }
+
+    fn newest_known(&self, name: &str) -> Option<String> {
+        let bundled = bundled().filter(|(n, _)| *n == name).filter_map(|(_, t)| Agent::parse(t, Source::Bundled).ok()).map(|a| a.file.version);
+        let cached = read_capped(&self.remote_dir().join(format!("{name}.json"))).ok().and_then(|t| Agent::parse(&t, Source::Bundled).ok()).map(|a| a.file.version);
+        bundled.chain(cached).max_by(|a, b| compare_text(a, b))
     }
 
     fn remote_dir(&self) -> PathBuf {
@@ -263,16 +293,27 @@ impl Store {
         if index.schema != 1 {
             return Err(format!("{site}: index schema {} isn't supported", index.schema));
         }
+        if index.rules.len() > MAX_ENTRIES {
+            return Err(format!("{site}: over {MAX_ENTRIES} entries"));
+        }
         let mut fetched = vec![];
         let mut problems = vec![];
         for entry in index.rules {
-            if !safe_name(&entry.agent) {
-                problems.push(format!("{}: not an agent name", entry.agent));
+            if !index_name(&entry.agent) || !known_agents().contains(&entry.agent.as_str()) {
+                problems.push(format!("{}: not an agent this Kanna knows", entry.agent.chars().take(40).collect::<String>()));
+                continue;
+            }
+            if entry.sha256.len() != 64 || !entry.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+                problems.push(format!("{}: not a sha256", entry.agent));
                 continue;
             }
             let url = http::resolve(site, &entry.url);
-            let current = fs::read(dir.join(format!("{}.json", entry.agent))).ok();
-            if current.as_deref().is_some_and(|bytes| hex(&Sha256::digest(bytes)).eq_ignore_ascii_case(&entry.sha256)) {
+            if http::origin(&url).to_ascii_lowercase() != http::origin(site).to_ascii_lowercase() {
+                problems.push(format!("{}: {url} isn't on the rules site", entry.agent));
+                continue;
+            }
+            let newest = self.newest_known(&entry.agent);
+            if newest.as_deref().is_some_and(|v| compare_text(&entry.version, v).is_le()) {
                 continue;
             }
             match fetch_one(&url, &entry) {
@@ -331,6 +372,22 @@ fn fetch_one(url: &str, entry: &Entry) -> Result<Vec<u8>, String> {
         return Err(format!("{url}: the file is {} {}, the index says {} {}", agent.name(), agent.file.version, entry.agent, entry.version));
     }
     Ok(response.body)
+}
+
+const MAX_ENTRIES: usize = 64;
+
+type Signature = Vec<(PathBuf, Option<SystemTime>, u64)>;
+
+fn index_name(name: &str) -> bool {
+    (1..=32).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+fn read_capped(path: &Path) -> Result<String, String> {
+    let size = fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if size > MAX_FILE as u64 {
+        return Err(format!("the file is over {} KiB", MAX_FILE / 1024));
+    }
+    fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
 pub fn hex(bytes: &[u8]) -> String {

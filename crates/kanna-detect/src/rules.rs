@@ -8,6 +8,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 pub const SCHEMA: u32 = 1;
 pub const ENGINE: u32 = 1;
 pub const DEFAULT_LINES: usize = 10;
+pub const MAX_FILE: usize = 256 * 1024;
+pub const MAX_RULES: usize = 256;
+pub const MAX_VOCABULARY: usize = 64;
+pub const MAX_WORDS: usize = 256;
+pub const MAX_TEXT: usize = 512;
+pub const MAX_DEPTH: usize = 24;
+pub const MAX_ROWS: usize = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Status {
@@ -121,6 +128,9 @@ pub struct Agent {
 
 impl Agent {
     pub fn parse(text: &str, source: Source) -> Result<Agent, String> {
+        if text.len() > MAX_FILE {
+            return Err(format!("the file is over {} KiB", MAX_FILE / 1024));
+        }
         let file: RuleFile = serde_json::from_str(text).map_err(|e| format!("not a rule file: {e}"))?;
         Agent::compile(file, source)
     }
@@ -138,8 +148,17 @@ impl Agent {
         if !safe_name(&file.agent) || file.version.trim().is_empty() || file.version.len() > 64 {
             return Err("agent (letters, digits, - and _) and version are required".into());
         }
-        if file.lines == Some(0) {
-            return Err("lines must be above 0".into());
+        if file.lines.is_some_and(|n| n == 0 || n > MAX_ROWS) {
+            return Err(format!("lines must be 1 to {MAX_ROWS}"));
+        }
+        if file.rules.len() > MAX_RULES {
+            return Err(format!("over {MAX_RULES} rules"));
+        }
+        if file.vocabulary.len() > MAX_VOCABULARY || file.vocabulary.values().any(|w| w.len() > MAX_WORDS) {
+            return Err(format!("the vocabulary is over {MAX_VOCABULARY} lists or {MAX_WORDS} words in a list"));
+        }
+        if file.vocabulary.iter().any(|(k, w)| k.len() > MAX_TEXT || w.iter().any(|x| x.len() > MAX_TEXT)) {
+            return Err(format!("a vocabulary word is over {MAX_TEXT} bytes"));
         }
         let mut regexes = HashMap::new();
         if let Some(probe) = &file.version_probe {
@@ -148,6 +167,12 @@ impl Agent {
         let mut ids = HashSet::new();
         let mut rules = vec![];
         for rule in &file.rules {
+            if depth(&rule.when) > MAX_DEPTH {
+                return Err(format!("{}: tests nest more than {MAX_DEPTH} deep", rule.id));
+            }
+            if !texts_fit(&rule.when) || rule.id.len() > MAX_TEXT {
+                return Err(format!("{}: a text is over {MAX_TEXT} bytes", rule.id));
+            }
             if rule.id.trim().is_empty() || !ids.insert(rule.id.clone()) {
                 return Err(format!("rule ids must be non-empty and unique: \"{}\"", rule.id));
             }
@@ -247,6 +272,23 @@ fn regex(regexes: &mut HashMap<String, Regex>, pattern: &str) -> Result<(), Stri
         regexes.insert(pattern.into(), compiled);
     }
     Ok(())
+}
+
+fn depth(value: &Value) -> usize {
+    match value {
+        Value::Object(map) => 1 + map.values().map(depth).max().unwrap_or(0),
+        Value::Array(items) => 1 + items.iter().map(depth).max().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn texts_fit(value: &Value) -> bool {
+    match value {
+        Value::String(text) => text.len() <= MAX_TEXT,
+        Value::Object(map) => map.iter().all(|(k, v)| k.len() <= MAX_TEXT && texts_fit(v)),
+        Value::Array(items) => items.iter().all(texts_fit),
+        _ => true,
+    }
 }
 
 fn object(value: &Value) -> Result<(&String, &Value), String> {
@@ -377,7 +419,7 @@ impl Eval<'_> {
             return self.screen.lines.clone();
         }
         let Some((kind, arg)) = region.as_object().and_then(|m| m.iter().next()) else { return rows.to_vec() };
-        let count = |v: &Value| v.as_u64().unwrap_or(0) as usize;
+        let count = |v: &Value| (v.as_u64().unwrap_or(0) as usize).min(MAX_ROWS);
         match kind.as_str() {
             "lastLines" => rows[rows.len().saturating_sub(count(arg))..].to_vec(),
             "lastNonEmptyLines" => {
@@ -511,6 +553,17 @@ mod tests {
     }
 
     #[test]
+    fn region_sizes_are_clamped() {
+        let a = agent(r#"[{"id":"r","status":"working","when":{"region":{"lastLines":4000000000},"when":{"anyLine":{"contains":"top"}}}}]"#);
+        let mut lines = vec!["top".to_string()];
+        lines.extend((0..250).map(|i| format!("{i}")));
+        assert_eq!(a.evaluate(&Screen { lines: lines.clone(), ..Screen::default() }, None).rule, None);
+        lines.drain(..60);
+        lines.insert(0, "top".into());
+        assert_eq!(a.evaluate(&Screen { lines, ..Screen::default() }, None).rule.as_deref(), Some("r"));
+    }
+
+    #[test]
     fn negated_matches_are_not_reported() {
         let a = agent(r#"[{"id":"r","status":"idle","when":{"all":[{"not":{"anyLine":{"contains":"busy"}}},{"anyLine":{"startsWithGlyph":"prompt"}}]}}]"#);
         assert_eq!(a.evaluate(&Screen::new("› hi"), None).matched.as_deref(), Some("› hi"));
@@ -530,6 +583,19 @@ mod tests {
         assert!(bad(r#"[{"id":"a","status":"idle","versions":"~1","when":{"anyLine":{"contains":"x"}}}]"#));
         let future = r#"{"schema":1,"agent":"mock","version":"1","engine":2,"rules":[]}"#;
         assert!(Agent::parse(future, Source::Bundled).is_err());
+        assert!(bad(&format!("[{}]", (0..300).map(|i| format!(r#"{{"id":"r{i}","status":"idle","when":{{"anyLine":{{"contains":"x"}}}}}}"#)).collect::<Vec<_>>().join(","))));
+        let deep = (0..30).fold(r#"{"anyLine":{"contains":"x"}}"#.to_string(), |inner, _| format!(r#"{{"not":{inner}}}"#));
+        assert!(bad(&format!(r#"[{{"id":"a","status":"idle","when":{deep}}}]"#)));
+        assert!(bad(&format!(r#"[{{"id":"a","status":"idle","when":{{"anyLine":{{"contains":"{}"}}}}}}]"#, "x".repeat(600))));
+        assert!(bad(r#"[{"id":"a","status":"idle","when":{"region":{"lastRows":3},"when":{"anyLine":{"contains":"x"}}}}]"#));
+        let big = format!(r#"{{"schema":1,"agent":"mock","version":"1","engine":1,"rules":[],"pad":"{}"}}"#, "x".repeat(300 * 1024));
+        assert!(Agent::parse(&big, Source::Bundled).is_err());
+        let words = format!(r#"{{"schema":1,"agent":"mock","version":"1","engine":1,"vocabulary":{{"w":[{}]}},"rules":[]}}"#, vec!["\"x\""; 300].join(","));
+        assert!(Agent::parse(&words, Source::Bundled).is_err());
+        let lines = r#"{"schema":1,"agent":"mock","version":"1","engine":1,"lines":5000,"rules":[]}"#;
+        assert!(Agent::parse(lines, Source::Bundled).is_err());
+        let older = r#"{"schema":2,"agent":"mock","version":"1","engine":1,"rules":[]}"#;
+        assert!(Agent::parse(older, Source::Bundled).is_err());
         let stranger = r#"{"schema":1,"agent":"evil","version":"1","engine":1,"rules":[]}"#;
         assert!(Agent::parse(stranger, Source::Bundled).is_err());
         let huge = format!(r#"[{{"id":"a","status":"idle","when":{{"anyLine":{{"regex":"{}"}}}}}}]"#, "a".repeat(600));
