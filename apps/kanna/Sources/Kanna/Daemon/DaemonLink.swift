@@ -15,6 +15,7 @@ final class DaemonLink: TerminalLink {
     var onPane: ((JSON) -> Void)?
     var onExited: ((String, Int32) -> Void)?
     var onSnapshot: ((String) -> Void)?
+    var onStatus: ((String, String?) -> Void)?
     private var requests = 0
     private var replies: [Int: (JSON) -> Void] = [:]
     private let starter: DaemonStarter?
@@ -122,6 +123,8 @@ final class DaemonLink: TerminalLink {
                 terminal?.exited(status: code)
                 if let pane = args["pane"]?.string { onExited?(pane, code) }
             }
+        case "status":
+            if let pane = args["pane"]?.string { onStatus?(pane, args["status"]?.string) }
         default: FileHandle.standardError.write(Data("kanna: unknown message from the daemon: \(cmd)\n".utf8))
         }
     }

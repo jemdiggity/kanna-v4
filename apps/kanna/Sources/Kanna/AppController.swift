@@ -1,6 +1,7 @@
 import AppKit
 import GhosttyKit
 import KannaMarkdown
+import KannaStatus
 
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate {
@@ -22,6 +23,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private(set) var state: JSON = ["key": nil, "windows": []]
     var paneMenu: NSMenu?
     var testingDrag = false
+    var agentStatuses = AgentStatuses()
 
     static var daemonSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_SOCKET"], !path.isEmpty { return path }
@@ -129,6 +131,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             closePane(id)
         }
         installCommands()
+        installAgentStatus()
         for signal in [SIGTERM, SIGINT, SIGHUP] {
             Darwin.signal(signal, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: signal, queue: .main)
@@ -301,6 +304,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         refresh()
         let known = placed
         for id in contents.ids where !known.contains(id) { contents.forget(id) }
+        agentStatuses.keep(known)
         scheduleSave()
     }
 
@@ -311,6 +315,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     private func render(_ view: JSON) {
         state = view
+        defer { statusSeen() }
         let ids = Set(windows.compactMap { $0["id"]?.string })
         for (id, controller) in controllers where !ids.contains(id) {
             controller.window.orderOut(nil)
