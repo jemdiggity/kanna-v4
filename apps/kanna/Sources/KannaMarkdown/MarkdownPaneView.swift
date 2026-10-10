@@ -167,7 +167,7 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
         let text = FileManager.default.contents(atPath: path).map { String(decoding: $0, as: UTF8.self) } ?? ""
         source = text
         let start = Date()
-        document = Document(parsing: text, options: [.disableSmartOpts])
+        document = Document(parsing: MarkdownRenderer.fencingFrontMatter(text), options: [.disableSmartOpts])
         parseMs = Date().timeIntervalSince(start) * 1000
         render()
     }

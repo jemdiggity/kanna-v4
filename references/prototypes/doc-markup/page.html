@@ -142,12 +142,24 @@ async function api(path, body) {
 function dirOf(p) { return p.slice(0, p.lastIndexOf("/") + 1); }
 function resolvePath(href) { return decodeURIComponent(new URL(href, "file://" + dirOf(file)).pathname); }
 
+function fenceFrontMatter(text) {
+  const lines = text.split("\n"), plain = l => l.replace(/\r$/, "").trim();
+  if (lines.length < 3 || plain(lines[0]) !== "---") return text;
+  const end = lines.findIndex((l, i) => i > 0 && (plain(l) === "---" || plain(l) === "..."));
+  if (end < 0) return text;
+  const longest = Math.max(0, ...lines.slice(1, end).map(l => l.split("`").length - 1));
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  lines[0] = fence + "yaml";
+  lines[end] = fence;
+  return lines.join("\n");
+}
+
 function renderDoc() {
   const reader = document.getElementById("reader");
   const keep = reader.scrollTop;
   const docEl = document.getElementById("doc");
   docEl.innerHTML = "";
-  const tokens = marked.lexer(state.source);
+  const tokens = marked.lexer(fenceFrontMatter(state.source));
   let line = 1;
   for (const tok of tokens) {
     const block = document.createElement("div");

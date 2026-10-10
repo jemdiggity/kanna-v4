@@ -342,6 +342,18 @@ struct MarkdownRenderer {
         return attachment
     }
 
+    nonisolated static func fencingFrontMatter(_ text: String) -> String {
+        var lines = text.components(separatedBy: "\n")
+        let plain = { (line: String) in line.replacingOccurrences(of: "\r", with: "").trimmingCharacters(in: .whitespaces) }
+        guard lines.count > 2, plain(lines[0]) == "---",
+              let end = lines.indices.dropFirst().first(where: { ["---", "..."].contains(plain(lines[$0])) }) else { return text }
+        let longest = lines[1..<end].map { $0.split(separator: "`", omittingEmptySubsequences: false).count - 1 }.max() ?? 0
+        let fence = String(repeating: "`", count: max(3, longest + 1))
+        lines[0] = fence + "yaml"
+        lines[end] = fence
+        return lines.joined(separator: "\n")
+    }
+
     nonisolated static func localImagePath(_ source: String, folder: URL) -> String? {
         var raw = source
         if raw.lowercased().hasPrefix("file:") {
