@@ -50,7 +50,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         host.onPaneDrag = { [weak self] id, _ in self?.dragPane(id) }
         host.contextMenu = { [weak self] in self?.paneMenu?.copy() as? NSMenu }
-        host.onCloseRequest = { [weak self] id in self?.request(["cmd": "close", "args": ["pane": .string(id)]]) }
+        host.onCloseRequest = { [weak self] id in
+            guard let self, core.model.dockWindow(id) == nil else { return }
+            request(["cmd": "close", "args": ["pane": .string(id)]])
+        }
         core.host = host
         core.onChange = { [weak self] in
             self?.sync()
@@ -311,10 +314,10 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func focused(_ paneID: String) {
-        guard let window = core.model.windows.first(where: { Model.paneIDs($0.activeTab?.root).contains(paneID) }) else { return }
+        guard let window = core.model.windows.first(where: { $0.shownPanes.contains(paneID) }) else { return }
         guard window.focused != paneID else { return }
         window.focused = paneID
-        window.activeTab?.lastFocus = paneID
+        if window.dock?.pane != paneID { window.activeTab?.lastFocus = paneID }
         controllers[window.id]?.render(core.model, host)
         scheduleSave()
     }
@@ -388,6 +391,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         if item.action == #selector(openURL) { return focusedPane.flatMap { host.web($0) } != nil }
         if item.action == #selector(goBack) { return !(focusedPane.flatMap { core.model.panes[$0]?.history?.back.isEmpty } ?? true) }
         if item.action == #selector(goForward) { return !(focusedPane.flatMap { core.model.panes[$0]?.history?.forward.isEmpty } ?? true) }
+        if item.action == #selector(closePane) { return focusedPane.map { core.model.dockWindow($0) == nil } ?? false }
+        if item.action == #selector(showTab(_:) as (NSMenuItem) -> Void) { return (keyWindow?.tabs.count ?? 0) >= item.tag }
         return true
     }
 
@@ -446,7 +451,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     @objc func closePane() {
-        guard let pane = focusedPane else { return }
+        guard let pane = focusedPane, core.model.dockWindow(pane) == nil else { return }
         request(["cmd": "close", "args": ["pane": .string(pane)]])
     }
 
@@ -455,6 +460,12 @@ final class AppController: NSObject, NSApplicationDelegate {
         var args: [String: JSON] = ["type": "term", "tab": true]
         if let window { args["window"] = .string(window) }
         request(["cmd": "open", "args": .object(args)])
+    }
+
+    @objc func showTab(_ sender: NSMenuItem) { showTab(sender.tag) }
+    private func showTab(_ number: Int) {
+        guard let window = keyWindow, number >= 1, number <= window.tabs.count else { return }
+        request(["cmd": "focus", "args": ["tab": .string(window.tabs[number - 1].id)]])
     }
 
     @objc func nextTab() { cycleTab(1) }
@@ -514,7 +525,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         case GHOSTTY_ACTION_NEW_TAB: perform = newTab
         case GHOSTTY_ACTION_GOTO_TAB:
             let target = action.action.goto_tab
-            perform = target == GHOSTTY_GOTO_TAB_PREVIOUS ? previousTab : target == GHOSTTY_GOTO_TAB_NEXT ? nextTab : nil
+            let number = Int(target.rawValue)
+            perform = target == GHOSTTY_GOTO_TAB_PREVIOUS ? previousTab : target == GHOSTTY_GOTO_TAB_NEXT ? nextTab
+                : target == GHOSTTY_GOTO_TAB_LAST ? { [weak self] in self?.showTab(self?.keyWindow?.tabs.count ?? 0) }
+                : number >= 1 ? { [weak self] in self?.showTab(number) } : nil
         case GHOSTTY_ACTION_NEW_WINDOW: perform = newWindow
         case GHOSTTY_ACTION_CLOSE_WINDOW: perform = closeWindow
         case GHOSTTY_ACTION_GOTO_WINDOW:
@@ -595,7 +609,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             guard b.contains(p) else { continue }
             let fx = p.x / b.width, fy = 1 - p.y / b.height
             var side = "swap"
-            if !(fx > 0.3 && fx < 0.7 && fy > 0.3 && fy < 0.7) {
+            if core.model.dockWindow(view.id) == nil, !(fx > 0.3 && fx < 0.7 && fy > 0.3 && fy < 0.7) {
                 side = [("left", fx), ("right", 1 - fx), ("top", fy), ("bottom", 1 - fy)].min { $0.1 < $1.1 }!.0
             }
             let area = switch side {
@@ -696,6 +710,14 @@ final class AppController: NSObject, NSApplicationDelegate {
         try await Task.sleep(for: .milliseconds(50))
         if let ref = args["divider"]?.string {
             let pane = try core.needPane(ref)
+            if let (controller, handle) = controllers.values.lazy.compactMap({ c in c.dockDivider.flatMap { $0.paneID == pane.id ? (c, $0) : nil } }).first,
+               let content = handle.superview {
+                let to = try screen(content, handle.position(CGFloat(args["at"]?.number ?? 0.5)))
+                post([to, to])
+                handle.drag(in: content)
+                controller.render(core.model, host)
+                return [:]
+            }
             guard let (controller, handle) = controllers.values.lazy.compactMap({ c in
                 c.dividers.first { if case .pane(pane.id) = $0.split.kids[$0.index].node { true } else { false } }.map { (c, $0) }
             }).first, let stage = handle.superview else { throw KmuxError("not_found", "no divider after \(pane.id)") }
@@ -744,7 +766,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         let window = try core.targetWindow(args["window"])
         guard let controller = controllers[window.id] else { throw KmuxError("not_found", "no window \"\(window.id)\"") }
         controller.window.displayIfNeeded()
-        let panes = Model.paneIDs(window.activeTab?.root).compactMap { host.views[$0] }.filter { $0.window != nil }
+        let panes = window.shownPanes.compactMap { host.views[$0] }.filter { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
         return try Snapshot.run(controller, panes: panes, path: args["path"]?.string, marker: args["marker"]?.string)
     }
 
@@ -814,7 +836,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             ("Restart", #selector(restartPane), nil, .cmd("r")),
             ("Close Pane", #selector(closePane), "close_surface", .cmd("w")),
         ])
-        _ = menu("View", [
+        let view = menu("View", [
             ("New Tab", #selector(newTab as () -> Void), "new_tab", .cmd("t")),
             ("Next Tab", #selector(nextTab), "next_tab", .shiftCmd("]")),
             ("Previous Tab", #selector(previousTab), "previous_tab", .shiftCmd("[")),
@@ -823,6 +845,16 @@ final class AppController: NSObject, NSApplicationDelegate {
             ("Zoom Out", #selector(zoomOut), "decrease_font_size:1", .cmd("-")),
             ("Actual Size", #selector(actualSize), "reset_font_size", .cmd("0")),
         ])
+        let tabs = NSMenu(title: "Show Tab")
+        for number in 1...9 {
+            let shortcut = runtime.shortcut(for: "goto_tab:\(number)") ?? .cmd("\(number)")
+            let item = tabs.addItem(withTitle: "Tab \(number)", action: #selector(showTab(_:) as (NSMenuItem) -> Void), keyEquivalent: shortcut.key)
+            item.keyEquivalentModifierMask = shortcut.modifiers
+            item.tag = number
+            item.target = self
+        }
+        view.insertItem(.separator(), at: 3)
+        view.insertItem(withTitle: "Show Tab", action: nil, keyEquivalent: "", at: 4).submenu = tabs
         let windowMenu = menu("Window", [
             ("New Window", #selector(newWindow), "new_window", .cmd("n")),
             ("Close Window", #selector(closeWindow), "close_window", .shiftCmd("w")),

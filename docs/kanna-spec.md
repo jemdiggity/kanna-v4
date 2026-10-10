@@ -229,7 +229,7 @@ flowchart LR
     class SC kanna
 ```
 
-- **kmux's source and tests live in `references/kmux`**, a git subtree of kmux (squashed, at 1f05ccb). `kanna-mux` and the daemon run kmux's own protocol cases from `references/kmux/tests/kmux-protocol/cases`. To follow kmux: `git subtree pull --prefix=references/kmux https://github.com/tampopogk/kmux.git main --squash`, then port what Kanna should follow until the checks pass. Nothing in `references/kmux` is edited by hand.
+- **kmux's source and tests live in `references/kmux`**, a git subtree of kmux (squashed, at a759abd). `kanna-mux` and the daemon run kmux's own protocol cases from `references/kmux/tests/kmux-protocol/cases`. To follow kmux: `git subtree pull --prefix=references/kmux https://github.com/tampopogk/kmux.git main --squash`, then port what Kanna should follow until the checks pass. Nothing in `references/kmux` is edited by hand.
 - **What kmux is the reference for:** the mux core and its control protocol, the CLI, and the mux UI (windows, tabs, splits, pane views). Kanna's own layers on top (Desk and Shelf, tasks, agents) have no kmux counterpart.
 - **Building doesn't need kmux; checking does.** Kanna builds from its own sources, including its copies of kmux's socket client (`crates/kanna-client`) and mermaid bridge (`crates/kanna-merman`). The tests that compare Kanna with kmux read `references/kmux` (or `$KMUX_DIR`, to check against another kmux): the protocol cases, and the CLI check that compiles kmux's `commands.rs` and `output.rs`. If it's missing they fail and say so, rather than pass without checking.
 - Where Kanna and kmux behave differently, Kanna is wrong unless we decided otherwise.
@@ -358,8 +358,8 @@ flowchart LR
 
 | Step (`op`) | Used by | The app answers | With no app attached, the daemon answers |
 |---|---|---|---|
-| `place {pane, at}` | `open` (`at` holds only the `split`, `size`, `tab`, `window` given) | places it: `{window, tab}` | with no `at`: `{window: null, tab: null}`, the pane is opened unplaced; with one: `no_app` |
-| `location {pane}` | `open`, once the pane has started | `{window, tab}` | `{window: null, tab: null}` |
+| `place {pane, at}` | `open` (`at` holds only the `split`, `size`, `tab`, `window`, `dock` given) | places it: `{window, tab}`, and `dock` (its edge) for a docked pane, whose `tab` is null | with no `at`: `{window: null, tab: null}`, the pane is opened unplaced; with one: `no_app` |
+| `location {pane}` | `open`, once the pane has started; `close` of a pane, which a docked one refuses ([4.16](#416-docked-pane)) | `{window, tab}`, and `dock` as `place` | `{window: null, tab: null}` |
 | `command {cmd, args}` | `focus`, `zoom`, `rename-tab`, `move`, `move-tab`, `resize`, `arrange` | the command's reply, as kmux | `no_app` |
 | `panes-in {tab}` / `{window}` | `close --tab`, `close --window` | the panes there | `no_app` |
 | `remove {ids, tidy}` | `close`, `debug.restoreState` | removes them (and closes emptied tabs and windows) | nothing to do |
@@ -398,7 +398,7 @@ sequenceDiagram
 
 **The CLI starts the app** ([plan](plans/mux-build.md) steps 1.4 and B.6). When the daemon answers a command with `no_app` and `KANNA_SOCKET` isn't set, `kanna` starts Kanna.app (`open -n -a $KANNA_APP`, or by bundle ID `dev.kanna.app.dev`, never the branded kmux `dev.kanna.kanna`; with `KANNA_SOCKET` and `KANNA_STATE_DIR` passed on, in the background with `--bg` or `KANNA_BG=1`), retries the command every 200 ms until the app has attached (a `no_app` answer changes nothing, so the retry is safe), and gives up after 20 s with exit 6. With `KANNA_SOCKET` set (a test, a script, a terminal inside Kanna) it never starts an app: it exits 6 with the daemon's message and "KANNA_SOCKET is set, so kanna doesn't start Kanna.app for it". Without `KANNA_SOCKET`, kanna talks to the daemon of its instance (the default one's socket is `kanna-dev/kanna.sock` in the app support folder), and when nothing answers there it starts Kanna.app, which starts the daemon ([4.5](#45-the-app-link)), as kmux's CLI starts kmux; the CLI itself never starts a daemon ([4.11](#411-the-kanna-cli)).
 
-**Conformance.** kmux's 31 protocol cases pass three ways: against `kanna-mux` with the model in-process; with the model behind `LayoutOwner`, every step sent as JSON and answered on a later turn (`crates/kanna-mux/tests/protocol_cases.rs`); and through a running daemon, keeper and app link, with a test app answering through `LayoutOwner` (`crates/kanna-daemon/tests/protocol_cases.rs`: all 31 since M3, [4.9](#49-web-markdown-and-ios-panes)). The app's own glue is checked by S5 and S9 of `scripts/e2e-kanna.sh` and by `crates/kanna-layout/tests`.
+**Conformance.** kmux's 43 protocol cases pass three ways: against `kanna-mux` with the model in-process; with the model behind `LayoutOwner`, every step sent as JSON and answered on a later turn (`crates/kanna-mux/tests/protocol_cases.rs`); and through a running daemon, keeper and app link, with a test app answering through `LayoutOwner` (`crates/kanna-daemon/tests/protocol_cases.rs`: all of them since M3, the 12 of docked panes since 4.16, [4.9](#49-web-markdown-and-ios-panes)). The app's own glue is checked by S5 and S9 of `scripts/e2e-kanna.sh` and by `crates/kanna-layout/tests`.
 
 ### 4.8 Restarting the Daemon
 
@@ -485,7 +485,7 @@ A web, markdown or iOS pane is a view in the app and a record in its layout: a w
 - **kmux's commands for these panes are kmux's:** there is no `web.*` namespace in kmux; `debug.web` (URL and page text), `debug.md` and `debug.ios` are its, and Kanna follows it.
 - **The iOS screen** comes straight from the simulator (Xcode's private CoreSimulator and SimulatorKit frameworks, as kmux); `simctl` boots, installs and launches. A simulator is never shut down by Kanna.
 
-**Conformance.** With this, all 31 of kmux's protocol cases also pass through the daemon and the app link (the test app reports every pane running at once). `crates/kanna-daemon/tests/panes.rs` checks lending, clashes, updates, the app's requests, an app that goes away and the answers with no app; S8 of `scripts/e2e-kanna.sh` checks the real views: a page and a markdown file open, `navigate` with history, `list` and `no_app` (exit 6) with the app closed, both back after a relaunch and untouched by a daemon restart, and, when an iPhone simulator is already booted, an iOS pane (Settings) running and reattached after a relaunch.
+**Conformance.** With this, all of kmux's protocol cases (31 then) also pass through the daemon and the app link (the test app reports every pane running at once). `crates/kanna-daemon/tests/panes.rs` checks lending, clashes, updates, the app's requests, an app that goes away and the answers with no app; S8 of `scripts/e2e-kanna.sh` checks the real views: a page and a markdown file open, `navigate` with history, `list` and `no_app` (exit 6) with the app closed, both back after a relaunch and untouched by a daemon restart, and, when an iPhone simulator is already booted, an iOS pane (Settings) running and reattached after a relaunch.
 
 ### 4.10 Windows, Tabs and Splits
 
@@ -525,7 +525,7 @@ flowchart LR
 
 | Call | Does | Why it isn't a protocol command |
 |---|---|---|
-| `view` | `{key, windows: [{id, frame, title, tab, tabs: [{id, title, panes}], focused, zoomed, root}]}`: every window, its tabs with the panes in each, and the tree on screen (the zoomed pane alone when zoomed), with exact sizes and pane types | it's what to draw, not what a client sees (`list` shows names and fractions) |
+| `view` | `{key, windows: [{id, frame, title, tab, tabs: [{id, title, panes}], focused, zoomed, root, dock}]}`: every window, its tabs with the panes in each, the tree on screen (the zoomed pane alone when zoomed; nothing when the docked pane is), with exact sizes and pane types, and its docked pane (`{pane, type, edge, width}`, or null) | it's what to draw, not what a client sees (`list` shows names and fractions) |
 | `focused {pane}` | a click: the pane's window remembers it as focused (and its tab as last focused), without making the window key or unzooming; answers whether it changed | kmux's app does the same outside its core (`AppController.focused`); `focus` would also make the window key |
 | `divider {tab, path, index, share}` | a dragged divider: the two panes on either side of it share what they had, the first getting `share` | `resize` gives one pane a fraction and rescales all its siblings; a divider moves only its two neighbours |
 | `frame {window, frame}` | a window moved or was resized; saved with the window | frames are the app's |
@@ -569,7 +569,7 @@ sequenceDiagram
 | Kanna | New Instance, Quit Kanna ⌘Q |
 | Edit | Undo ⌘Z, Redo ⇧⌘Z, Cut ⌘X, Copy ⌘C, Paste ⌘V, Select All ⌘A (sent to whatever has focus) |
 | Pane | Split Right ⌘D, Split Down ⇧⌘D, New Web / iOS Pane Right and Below, New Markdown Pane Right… and Below…, Open URL… ⌘L, Back, Forward, Home ⇧⌘H, Next Pane ⌘], Previous Pane ⌘[, Zoom ⇧⌘↩, Move Pane to New Window, Restart ⌘R, Close Pane ⌘W |
-| View | New Tab ⌘T, Next Tab ⇧⌘], Previous Tab ⇧⌘[, Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 (a markdown or web pane's magnification, which scales the page without re-laying it out, or a terminal's font size; a pinch magnifies markdown and web panes too) |
+| View | New Tab ⌘T, Next Tab ⇧⌘], Previous Tab ⇧⌘[, Show Tab ▸ Tab 1 ⌘1 … Tab 9 ⌘9, Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 (a markdown or web pane's magnification, which scales the page without re-laying it out, or a terminal's font size; a pinch magnifies markdown and web panes too) |
 | Window | New Window ⌘N, Close Window ⇧⌘W, Move Tab to New Window, Next Window ⌘\`, Previous Window ⇧⌘\`, and the list of windows |
 
 - Every item acts on the key window and its focused pane. Pane, tab and window cycling go in reading order and wrap; moving focus cancels a zoom. A new web pane starts with its URL selected for editing; a new markdown pane asks for a file; a new iOS pane opens Settings.
@@ -595,7 +595,7 @@ sequenceDiagram
 
 ### 4.11 The kanna CLI
 
-`kanna` is kmux's command line for Kanna: every command, option, help text, output, error and exit code of kmux's `kmux` (kmux's `crates/kmux`, at 1f05ccb), branded kanna, plus a few additions of Kanna's. It sends kmux's control protocol to Kanna's daemon over its socket (or, with `--mux kmux`, to a kmux), through `crates/kanna-client`, a copy of kmux's `kmux-client` ([plan](plans/mux-build.md) track B).
+`kanna` is kmux's command line for Kanna: every command, option, help text, output, error and exit code of kmux's `kmux` (kmux's `crates/kmux`, at a759abd), branded kanna, plus a few additions of Kanna's. It sends kmux's control protocol to Kanna's daemon over its socket (or, with `--mux kmux`, to a kmux), through `crates/kanna-client`, a copy of kmux's `kmux-client` ([plan](plans/mux-build.md) track B).
 
 **Design: a port of kmux's CLI, checked against kmux's own source.** kmux's CLI is one table of commands (name, group, summary, usage, options, notes, examples, how its arguments become a request, how its reply prints); help, `commands --json`, parsing and output all come from it. `kanna` has the same table, ported into `crates/kanna/src/commands.rs` (with `output.rs`, and `lib.rs` for help, `commands`, `instances`, `raw` and errors; provenance in NOTICE), and `crates/kanna/tests/kmux_reference.rs` compiles kmux's own `commands.rs` and `output.rs`, unchanged, beside it and checks one against the other.
 
@@ -828,7 +828,7 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 ### 4.16 Docked Pane
 
-**[Proposed]** A window's one pane outside its tabs, along its left edge, shown whichever tab is active. A mux-layer primitive the Desk is built from (the agent docked, the docs as tabs); windows without one behave exactly as kmux. Its own spec: [specs/docked-pane.md](specs/docked-pane.md).
+A window's one pane outside its tabs, along its left or right edge, shown whichever tab is active. A mux-layer primitive the Desk is built from (the agent docked, the docs as tabs); windows without one behave exactly as kmux. It needs no layout steps of its own: `open --dock` is a `place` with `dock`, docking, undocking and its width are `move` and `resize` commands ([4.7](#47-the-layout)). Its own spec: [specs/docked-pane.md](specs/docked-pane.md).
 
 ### 4.17 Agent Status
 

@@ -169,7 +169,7 @@ impl LayoutOwner {
         let placed: HashSet<String> = self.placed().into_iter().collect();
         let mut added = vec![];
         for pane in live.iter().filter(|p| !placed.contains(&p.id)) {
-            self.model.place(&pane.id, &Placement { window: None, split: SplitSide::Auto, size: 0.5, new_tab: false })?;
+            self.model.place(&pane.id, &Placement { window: None, split: SplitSide::Auto, size: 0.5, new_tab: false, dock: None })?;
             added.push(pane.id.clone());
         }
         let mut reply = Map::new();
@@ -180,7 +180,11 @@ impl LayoutOwner {
     }
 
     fn placed(&self) -> Vec<String> {
-        self.model.windows().iter().flat_map(|w| w.tabs.iter()).flat_map(|t| crate::model::pane_ids(t.root.as_ref())).collect()
+        self.model
+            .windows()
+            .iter()
+            .flat_map(|w| w.tabs.iter().flat_map(|t| crate::model::pane_ids(t.root.as_ref())).chain(w.dock.iter().map(|d| d.pane.clone())))
+            .collect()
     }
 
     pub fn view(&self) -> Map {
@@ -190,12 +194,22 @@ impl LayoutOwner {
             .iter()
             .map(|window| {
                 let tab = window.active_tab();
-                let zoomed = window.zoomed.clone().filter(|z| tab.is_some_and(|t| crate::model::pane_ids(t.root.as_ref()).contains(z)));
+                let dock = window.dock.as_ref();
+                let docked = |pane: &String| dock.is_some_and(|d| &d.pane == pane);
+                let zoomed = window.zoomed.clone().filter(|z| docked(z) || tab.is_some_and(|t| crate::model::pane_ids(t.root.as_ref()).contains(z)));
                 let root = match (&zoomed, tab) {
+                    (Some(pane), _) if docked(pane) => Value::Null,
                     (Some(pane), _) => self.node(&Node::Pane(pane.clone())),
                     (None, Some(tab)) => tab.root.as_ref().map_or(Value::Null, |root| self.node(root)),
                     (None, None) => Value::Null,
                 };
+                let dock = dock.map_or(Value::Null, |d| {
+                    let mut node = self.node(&Node::Pane(d.pane.clone()));
+                    node["edge"] = d.edge.as_str().into();
+                    node["width"] = num(d.width);
+                    node
+                });
+                let title = tab.map(|t| t.title.clone()).or_else(|| window.dock.as_ref().map(|d| self.panes.display(&d.pane)));
                 let frame = window.frame.map_or(Value::Null, |f| json!({ "x": f.x, "y": f.y, "w": f.w, "h": f.h }));
                 let tabs: Vec<Value> = window.tabs.iter().map(|t| json!({ "id": t.id, "title": t.title, "panes": crate::model::pane_ids(t.root.as_ref()) })).collect();
                 json!({
@@ -203,10 +217,11 @@ impl LayoutOwner {
                     "frame": frame,
                     "tabs": tabs,
                     "tab": tab.map_or(Value::Null, |t| t.id.clone().into()),
-                    "title": tab.map_or(Value::Null, |t| t.title.clone().into()),
+                    "title": title.map_or(Value::Null, Value::String),
                     "focused": window.focused.clone().map_or(Value::Null, Value::String),
                     "zoomed": zoomed.map_or(Value::Null, Value::String),
                     "root": root,
+                    "dock": dock,
                 })
             })
             .collect();
@@ -276,6 +291,10 @@ pub fn prune_state(state: &Value, live: &HashSet<String>) -> Value {
     let mut state = state.clone();
     if let Some(windows) = state.get_mut("windows").and_then(Value::as_array_mut) {
         for window in windows.iter_mut() {
+            let gone = window.get("dock").and_then(|d| d.get("pane")).and_then(Value::as_str).is_some_and(|pane| !live.contains(pane));
+            if gone {
+                window["dock"] = Value::Null;
+            }
             if let Some(tabs) = window.get_mut("tabs").and_then(Value::as_array_mut) {
                 for tab in tabs.iter_mut() {
                     if let Some(layout) = tab.get_mut("layout") {
@@ -354,7 +373,7 @@ mod tests {
                 { "pane": "p1", "type": "term", "size": 0.75 },
                 { "pane": "p3", "type": "term", "size": 0.125 },
                 { "pane": "p4", "type": "term", "size": 0.125 }
-            ] } }] })
+            ] }, "dock": null }] })
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -402,6 +421,55 @@ mod tests {
         assert_eq!(owner.handle(&json!({ "call": "frame", "window": "w1", "frame": { "x": 10, "y": 20, "w": 800, "h": 600 } }))["changed"], true);
         assert_eq!(owner.view()["windows"][0]["frame"], json!({ "x": 10.0, "y": 20.0, "w": 800.0, "h": 600.0 }));
         assert_eq!(owner.export()["windows"][0]["frame"], json!({ "x": 10, "y": 20, "w": 800, "h": 600 }));
+    }
+
+    #[test]
+    fn a_docked_pane_is_drawn_beside_the_tabs_saved_and_dropped_when_its_pane_is_gone() {
+        let dir = folder("dock");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({}));
+        place(&mut owner, "p2", json!({ "dock": "right" }));
+        let window = |owner: &LayoutOwner| owner.view()["windows"][0].clone();
+        assert_eq!(window(&owner)["dock"], json!({ "pane": "p2", "type": "term", "edge": "right", "width": 0.4 }));
+        assert_eq!(window(&owner)["root"], json!({ "pane": "p1", "type": "term" }));
+        assert_eq!(window(&owner)["focused"], "p2");
+        assert_eq!(owner.handle(&json!({ "call": "focused", "pane": "p1" }))["changed"], true);
+        assert_eq!(owner.handle(&json!({ "call": "focused", "pane": "p2" }))["changed"], true);
+        let zoom = owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "zoom", "args": { "pane": "p2" } } }));
+        assert_eq!(zoom["zoomed"], true, "{zoom}");
+        assert_eq!(window(&owner)["root"], Value::Null);
+        assert_eq!(window(&owner)["zoomed"], "p2");
+        assert_eq!(owner.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2"]) }))["placed"], json!([]));
+        owner.save().unwrap();
+        assert_eq!(owner.export()["windows"][0]["dock"], json!({ "pane": "p2", "edge": "right", "width": 0.4 }));
+
+        let (mut again, _) = LayoutOwner::open(Some(file.clone()), false);
+        again.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2"]) }));
+        assert_eq!(window(&again)["dock"]["pane"], "p2");
+        assert_eq!(window(&again)["zoomed"], "p2");
+
+        let (mut gone, problem) = LayoutOwner::open(Some(file), false);
+        let reply = gone.handle(&json!({ "call": "attach", "panes": table(&["p1"]) }));
+        assert_eq!(problem, None);
+        assert_eq!(reply["problem"], Value::Null, "{reply}");
+        assert_eq!(window(&gone)["dock"], Value::Null);
+        assert_eq!(window(&gone)["focused"], "p1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_window_with_only_a_docked_pane_is_titled_after_it() {
+        let mut owner = LayoutOwner::new();
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let reply = owner.handle(&json!({ "call": "serve", "request": { "op": "place", "pane": { "id": "p1", "name": "agent", "type": "term" }, "at": { "dock": "left" } } }));
+        assert_eq!(reply, json!({ "ok": true, "window": "w1", "tab": null, "dock": "left" }));
+        let view = owner.view();
+        assert_eq!(view["windows"][0]["title"], "agent");
+        assert_eq!(view["windows"][0]["tabs"], json!([]));
+        assert_eq!(view["windows"][0]["root"], Value::Null);
+        assert_eq!(owner.handle(&json!({ "call": "serve", "request": { "op": "place", "pane": { "id": "p2", "name": null, "type": "term" }, "at": { "dock": "top" } } }))["ok"], false);
     }
 
     #[test]

@@ -11,8 +11,11 @@ final class WindowController: NSObject, NSWindowDelegate {
     let id: String
     let window: NSWindow
     private let stage = StageView()
+    private let content = StageView()
+    private let dockStage = NSView()
+    private(set) var dockDivider: DockDividerView?
     /// Redraws from the model; called when the window resizes.
-    var relayout: (() -> Void)? { didSet { stage.onLayout = relayout } }
+    var relayout: (() -> Void)? { didSet { content.onLayout = relayout } }
     let tabBar = TabBar()
     var onCloseRequest: (() -> Void)?
     var onBecomeKey: (() -> Void)?
@@ -35,33 +38,46 @@ final class WindowController: NSObject, NSWindowDelegate {
         stage.wantsLayer = true
         stage.layer?.backgroundColor = NSColor.separatorColor.cgColor
         let size = window.contentLayoutRect.size
-        let content = NSView(frame: NSRect(origin: .zero, size: size))
+        content.frame = NSRect(origin: .zero, size: size)
         content.wantsLayer = true
+        content.layer?.backgroundColor = NSColor.separatorColor.cgColor
         tabBar.frame = NSRect(x: 0, y: size.height - TabBar.height, width: size.width, height: TabBar.height)
-        tabBar.autoresizingMask = [.width, .minYMargin]
         stage.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height - TabBar.height)
-        stage.autoresizingMask = [.width, .height]
         content.addSubview(stage)
         content.addSubview(tabBar)
+        content.addSubview(dockStage)
         window.contentView = content
         if let previous { window.setFrameTopLeftPoint(window.cascadeTopLeft(from: previous.frame.origin + NSPoint(x: 0, y: previous.frame.height))) } else { window.center() }
     }
 
     func render(_ model: Model, _ host: ContentHost) {
-        guard let state = model.window(id), let tab = state.activeTab else { return }
-        window.title = "\(tab.title) — \(id)" + (instance.isDefault ? "" : " · \(instance.name)")
+        guard let state = model.window(id), state.activeTab != nil || state.dock != nil else { return }
+        let tab = state.activeTab
+        let name = tab?.title ?? state.dock.map { model.panes[$0.pane]?.name ?? $0.pane } ?? ""
+        window.title = "\(name) — \(id)" + (instance.isDefault ? "" : " · \(instance.name)")
         tabBar.show(model, state)
-        let shown = Set(Model.paneIDs(state.zoomed.map { Node.pane($0) } ?? tab.root))
+        let dockZoomed = state.dock != nil && state.zoomed == state.dock?.pane
+        arrange(state)
+        let root = dockZoomed ? nil : state.zoomed.map { Node.pane($0) } ?? tab?.root
+        let shown = Set(Model.paneIDs(root))
         for case let view as PaneView in stage.subviews where !shown.contains(view.id) { view.removeFromSuperview() }
+        for case let view as PaneView in dockStage.subviews where view.id != state.dock?.pane { view.removeFromSuperview() }
         dividers.forEach { $0.removeFromSuperview() }
         dividers = []
-        place(state.zoomed.map { Node.pane($0) } ?? tab.root, in: stage.bounds, host)
+        place(root, in: stage.bounds, host)
         dividers.forEach { stage.addSubview($0) }
-        window.invalidateCursorRects(for: stage)
-        for id in shown {
+        if let dock = state.dock, let view = host.views[dock.pane] {
+            if view.superview !== dockStage { dockStage.addSubview(view) }
+            view.frame = dockStage.bounds
+            view.autoresizingMask = []
+        }
+        window.invalidateCursorRects(for: content)
+        let visible = shown.union(state.dock.map { [$0.pane] } ?? [])
+        let many = state.zoomed == nil && state.shownPanes.count > 1
+        for id in visible {
             guard let view = host.views[id], let pane = model.panes[id] else { continue }
             view.show(pane)
-            view.focused = shown.count > 1 && id == state.focused && window.isKeyWindow
+            view.focused = many && id == state.focused && window.isKeyWindow
         }
         // Keyboard focus follows the model's focused pane, but only takes over
         // from another pane's view or from nothing: a tab being renamed keeps it.
@@ -71,6 +87,36 @@ final class WindowController: NSObject, NSWindowDelegate {
            || responder is MarkdownTextView {
             window.makeFirstResponder(target)
         }
+    }
+
+    private func arrange(_ state: Window) {
+        let bounds = content.bounds
+        var side = bounds
+        dockDivider?.removeFromSuperview()
+        dockDivider = nil
+        if let dock = state.dock {
+            if state.zoomed == dock.pane {
+                dockStage.frame = bounds
+                side = .zero
+            } else {
+                let total = bounds.width - Self.divider
+                let low = min(DividerView.minimum, total / 2)
+                let width = min(max((total * dock.width).rounded(), low), total - low)
+                let left = dock.edge == .left
+                dockStage.frame = NSRect(x: left ? 0 : bounds.width - width, y: 0, width: width, height: bounds.height)
+                side = NSRect(x: left ? width + Self.divider : 0, y: 0, width: total - width, height: bounds.height)
+                let line = NSRect(x: left ? width : side.maxX, y: 0, width: Self.divider, height: bounds.height)
+                let handle = DockDividerView(window: state, line: line, span: total, extent: bounds.width)
+                handle.onChange = { [weak self] in self?.relayout?() }
+                content.addSubview(handle)
+                dockDivider = handle
+            }
+        }
+        dockStage.isHidden = state.dock == nil
+        tabBar.isHidden = side.isEmpty
+        stage.isHidden = side.isEmpty
+        tabBar.frame = NSRect(x: side.minX, y: side.maxY - TabBar.height, width: side.width, height: TabBar.height)
+        stage.frame = NSRect(x: side.minX, y: side.minY, width: side.width, height: max(0, side.height - TabBar.height))
     }
 
     /// The handles over the dividers of the tab on screen, rebuilt by each render.

@@ -129,6 +129,34 @@ func makeCore() -> (Core, FakeHost) {
         #expect(host.stopped == ["p1"])
     }
 
+    @Test func dockedPaneCyclesInReadingOrder() async {
+        let (core, _) = makeCore()
+        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "a"]])
+        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "b", "split": "right"]])
+        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "agent", "dock": "left"]])
+        let window = core.model.windows[0]
+        #expect(window.shownPanes == ["p3", "p1", "p2"])
+        #expect(core.cyclePane(in: window, by: 1) == "p1")
+        #expect(core.cyclePane(in: window, by: -1) == "p2")
+        _ = await core.handle(["cmd": "move", "args": ["pane": "agent", "dock": "right"]])
+        #expect(window.shownPanes == ["p1", "p2", "p3"])
+        #expect(core.cyclePane(in: window, by: 1) == "p1")
+        _ = await core.handle(["cmd": "focus", "args": ["pane": "b"]])
+        #expect(core.cyclePane(in: window, by: 1) == "p3")
+    }
+
+    @Test func dockedPaneStaysWhenItsProgramExits() async {
+        let (core, host) = makeCore()
+        _ = await core.handle(["cmd": "open", "args": ["type": "term", "name": "agent", "dock": "left"]])
+        core.update("p1", state: .exited, exitCode: 2)
+        #expect(core.model.windows.first?.dock?.pane == "p1")
+        #expect(core.model.pane("agent")?.state == .exited)
+        let reply = await core.handle(["cmd": "restart", "args": ["pane": "agent"]])
+        #expect(reply["pane"]?["state"] == "running")
+        #expect(core.model.windows.first?.dock == Dock(pane: "p1", edge: .left, width: 0.4))
+        #expect(host.stopped == ["p1"])
+    }
+
     @Test func fractions() {
         #expect(Fraction.parse("1/3")! == 1.0 / 3)
         #expect(Fraction.parse("25%") == 0.25)

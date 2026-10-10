@@ -145,6 +145,14 @@ fn every_kmux_example_and_request_parses_the_same() {
             "kmux arrange '{\"split\":\"column\",\"children\":[{\"pane\":\"a\"}]}' --window w1",
             "kmux list --json",
             "kmux capabilities",
+            "kmux open --dock right --cmd claude",
+            "kmux open --dock md /tmp/a.md",
+            "kmux open web a.test --dock=right --window new",
+            "kmux move agent --dock",
+            "kmux move agent --dock right --window w2",
+            "kmux move agent --tab t3",
+            "kmux move agent --tab --window w2",
+            "kmux resize agent 1/3",
         ]
         .map(String::from),
     );
@@ -184,6 +192,11 @@ fn usage_errors_are_kmux_errors() {
         "kmux open --name",
         "kmux list extra",
         "kmux capabilities extra",
+        "kmux open --dock --split right",
+        "kmux open --dock left --tab",
+        "kmux move agent --dock --tab",
+        "kmux move agent --dock --to b",
+        "kmux move agent --dock top",
     ] {
         let kmux = kmux_parse(line).expect_err(line);
         let kanna = kanna_parse(line).expect_err(line);
@@ -202,7 +215,9 @@ fn replies_print_as_kmux_prints_them() {
                 { "id": "t1", "title": "Tab 1", "active": true, "layout": layout },
                 { "id": "t2", "title": "web", "active": false, "layout": { "pane": "site" } }
             ] },
-            { "id": "w2", "key": false, "tabs": [{ "id": "t3", "title": "Tab 1", "active": true, "layout": { "pane": "p9" } }] }
+            { "id": "w2", "key": false, "dock": { "pane": "doc", "edge": "right", "width": "1/3" },
+              "tabs": [{ "id": "t3", "title": "Tab 1", "active": true, "layout": { "pane": "p9" } }] },
+            { "id": "w3", "key": false, "focused": "phone", "dock": { "pane": "phone", "edge": "left", "width": "2/5" }, "tabs": [] }
         ],
         "panes": [
             { "id": "p1", "type": "term", "state": "running" },
@@ -233,6 +248,9 @@ fn replies_print_as_kmux_prints_them() {
         ("move-tab", json!({ "tab": "t2", "index": 0 }), json!({ "window": "w1", "tabs": ["t2", "t1"] })),
         ("navigate", json!({ "pane": "site", "url": "x" }), json!({ "pane": { "id": "p2", "name": "site", "state": "running", "url": "http://x/" } })),
         ("navigate", json!({ "pane": "doc", "path": "/tmp/a.md" }), json!({ "pane": { "id": "p7", "name": "doc", "state": "running", "path": "/tmp/a.md" } })),
+        ("open", json!({ "type": "term", "dock": "left" }), json!({ "pane": pane, "window": "w1", "tab": null, "dock": "left" })),
+        ("move", json!({ "pane": "logs", "dock": "right" }), json!({ "window": "w1", "dock": { "pane": "logs", "edge": "right", "width": "2/5" } })),
+        ("resize", json!({ "pane": "logs", "size": "1/4" }), json!({ "window": "w1", "dock": { "pane": "logs", "edge": "left", "width": "1/4" } })),
         ("list", json!({}), list),
         ("list", json!({}), json!({ "windows": [], "panes": [] })),
         ("capabilities", json!({}), json!({ "mux": "kmux", "paneTypes": ["term", "web"], "commands": ["capabilities", "list"] })),

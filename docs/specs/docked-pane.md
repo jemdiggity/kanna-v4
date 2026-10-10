@@ -1,6 +1,6 @@
 # Docked Pane
 
-**Status:** agreed (2026-10-10), building in kmux first · **Used by:** [Desk](desk.md) · **Mockup:** the Desk's ([`docs/mockups/desk.html`](../mockups/desk.html)), whose agent is a docked pane
+**Status:** built (2026-10-10), in kmux and Kanna · **Used by:** [Desk](desk.md) · **Mockup:** the Desk's ([`docs/mockups/desk.html`](../mockups/desk.html)), whose agent is a docked pane
 
 A **docked pane** belongs to a window, not to any of its tabs: it sits along the window's left or right edge and stays put while you switch tabs, with the tab bar and the tabs beside it. It's a mux-layer primitive, so any window can have one; the Desk uses it for the agent, with the task's docs as the window's tabs.
 
@@ -69,10 +69,22 @@ The right side needs nothing new: the window's own tabs already are a group of t
 ## 5. How it's built
 
 - **Built in kmux first.** kmux is the reference for the mux layer, so docked panes go into kmux (its core, protocol, CLI, views and state file), with new protocol cases for them; Kanna then takes them like everything else from kmux, and passes the same cases.
-- **The core** (kmux's, then `kanna-mux`) gains a field: a window's `dock {pane, edge, width}`, beside its tabs, with its layout steps (`window.dock`, `window.undock`, `window.dock_width`) sent to the app like a tab's.
-- **The app** splits the window's content view: the docked pane's view on its edge, the tab bar and the shown tab beside it.
-- **Saved** in `layout.json` on the window; a file without one loads as before.
+- **The core** (kmux's, then `kanna-mux`) gains a field: a window's `dock {pane, edge, width}`, beside its tabs.
+- **No new layout steps.** kmux's protocol already says everything about docking in `open`, `move` and `resize`, and Kanna's layout steps already carry those to the app's model ([kanna spec 4.7](../kanna-spec.md#47-the-layout)). The first draft's `window.dock`, `window.undock` and `window.dock_width` are these steps; separate ones would be a second way to say the same thing, with checks of their own to keep in step with kmux's.
+
+| Does | Step |
+|---|---|
+| `open --dock` | `place {pane, at: {dock, window?}}`, answered `{window, tab: null, dock}` |
+| dock, change edge, undock (`move`) | `command move`, kmux's arguments |
+| set the width (`resize`, the divider) | `command resize` |
+| refuse `close` on it | `location {pane}` first, which answers `dock` for a docked pane |
+| close it with its window | `panes-in {window}` lists it |
+
+- **With Kanna.app closed** the daemon has no layout, so it can't know which pane is docked: `open --dock` and `move --dock` start the app (`no_app`), and `close` on a docked terminal closes it; the app then drops it from the window when it attaches, as any pane that's gone.
+- **The app** splits the window's content view: the docked pane's view on its edge, the tab bar and the shown tab beside it. The model's `view` gives each window its `dock {pane, type, edge, width}`; with the docked pane zoomed, `root` is empty and the docked pane fills the window. The divider drag is a layout-only action, `command resize` on the app's own model, as focus is.
+- **Saved** in `layout.json` on the window; a file without one loads as before, and a dock whose pane the daemon no longer has is dropped on attach.
 - **kmux parity** holds: both have docked panes, and a window without one behaves as before in both.
+- **Checked by** kmux's 12 dock protocol cases, run three ways as all of kmux's ([kanna spec 4.7](../kanna-spec.md#47-the-layout)), the layout owner's tests (drawing, saving, a dock whose pane is gone), the CLI's tests against kmux's own, and S38 of `scripts/e2e-kanna.sh`: `open --dock`, ⌘1–⌘9, `close` refused, ⌘W, focus, zoom, `move --dock right`, the divider, moving a tab away, undocking, a window with only its docked pane, and `layout.json` across a relaunch, with screenshots.
 
 ## 6. Glossary
 

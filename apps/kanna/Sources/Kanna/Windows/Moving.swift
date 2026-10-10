@@ -43,7 +43,7 @@ extension AppController {
             guard b.contains(p) else { continue }
             let fx = p.x / b.width, fy = 1 - p.y / b.height
             var side = "swap"
-            if !(fx > 0.3 && fx < 0.7 && fy > 0.3 && fy < 0.7) {
+            if !docked(view.id), !(fx > 0.3 && fx < 0.7 && fy > 0.3 && fy < 0.7) {
                 side = [("left", fx), ("right", 1 - fx), ("top", fy), ("bottom", 1 - fy)].min { $0.1 < $1.1 }!.0
             }
             let area = switch side {
@@ -137,6 +137,14 @@ extension AppController {
         try await Task.sleep(for: .milliseconds(50))
         if let reference = args["divider"]?.string {
             let pane = try resolve(reference)
+            if let (controller, handle) = controllers.values.lazy.compactMap({ c in c.dockDivider.flatMap { $0.pane == pane ? (c, $0) : nil } }).first,
+               let content = handle.superview {
+                let to = try screen(content, handle.position(CGFloat(args["at"]?.number ?? 0.5)))
+                scriptedDrag = [to, to]
+                handle.drag(in: content)
+                if let window = window(controller.id) { controller.render(window, panes) }
+                return [:]
+            }
             guard let (controller, handle) = controllers.values.lazy.compactMap({ c in c.dividers.first { $0.after == pane }.map { (c, $0) } }).first,
                   let stage = handle.superview else { throw KannaError("not_found", "no divider after \(pane)") }
             let to = try screen(stage, handle.position(CGFloat(args["at"]?.number ?? 0.5)))

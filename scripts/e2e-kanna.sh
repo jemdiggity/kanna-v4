@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S36) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S38) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-7]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-8]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -449,7 +449,7 @@ win() {
   state | python3 -c 'import json, sys
 w = next(w for w in json.load(sys.stdin)["windows"] if w["id"] == sys.argv[1])
 v = w
-for k in sys.argv[2].split("."): v = v[int(k)] if k.isdigit() else v[k]
+for k in sys.argv[2].split("."): v = v[int(k)] if k.isdigit() else v.get(k)
 print(json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v)' "$1" "$2"
 }
 xdg() { mkdir -p "$KANNA_STATE_DIR/xdg/ghostty"; printf '%s\n' "$@" >"$KANNA_STATE_DIR/xdg/ghostty/config"; }
@@ -902,10 +902,82 @@ print(len(v) if isinstance(v, list) else v)' "$1" "$2"; }
   sleep 0.5; s37_shot s37-dark
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-7]) echo M4 ;; esac
+S38() {
+  start_daemon && start_app || return 1
+  kanna open --name dt1 --cmd "printf 'DOCK TAB ONE\n'; exec sleep 600" >/dev/null || return 1
+  kanna open --name dt2 --tab --cmd "printf 'DOCK TAB TWO\n'; exec sleep 600" >/dev/null || return 1
+  local opened refused shot first
+  opened="$(kanna open --name agent --dock --cmd "printf 'DOCK AGENT\n'; exec sleep 600")"
+  [[ "$opened" == *"(agent) docked left in window w1: running" ]] || { echo "open --dock should say where it docked: $opened"; return 1; }
+  check test "$(win w1 dock)" == '{"edge": "left", "pane": "agent", "width": "2/5"}' || return 1
+  [[ "$(kanna list)" == *"dock: p3 (agent)  left 2/5"* ]] || { echo "list should show the dock on its own line: $(kanna list)"; return 1; }
+  sleep 1
+  check drawn "$(snap w1 s38-docked)" 2 || return 1
+  key cmd+1
+  check test "$(win w1 tabs.0.active)" == True || return 1
+  check test "$(win w1 dock.pane)" == agent || return 1
+  sleep 0.5
+  check drawn "$(snap w1 s38-first-tab)" 2 || return 1
+  key cmd+2; check test "$(win w1 tabs.1.active)" == True || return 1
+  refused="$(kanna close agent 2>&1)" && { echo "close on the docked pane should fail"; return 1; }
+  [[ "$refused" == *"docked: it closes with its window"* ]] || { echo "close on the docked pane should say why: $refused"; return 1; }
+  kanna focus agent >/dev/null || return 1
+  key cmd+w; check test "$(win w1 dock.pane)" == agent || return 1
+  key "cmd+]"; check test "$(win w1 focused)" == dt2 || return 1
+  key "cmd+]"; check test "$(win w1 focused)" == agent || return 1
+  key cmd+shift+return; check test "$(win w1 zoomed)" == agent || return 1
+  shot="$(snap w1 s38-zoomed)"
+  check test "$(field panes <<<"$shot" | count)" == 1 || return 1
+  key cmd+shift+return; check test "$(win w1 zoomed)" == None || return 1
+  kanna move agent --dock right >/dev/null || return 1
+  check test "$(win w1 dock)" == '{"edge": "right", "pane": "agent", "width": "2/5"}' || return 1
+  drag '{"divider":"agent","at":0.34}'
+  check test "$(win w1 dock.width)" == 1/3 || { echo "$(win w1 dock) $last_drag"; return 1; }
+  sleep 0.5
+  check drawn "$(snap w1 s38-right)" 2 || return 1
+  first="$(win w1 tabs.0.id)"
+  kanna move-tab "$first" --window new >/dev/null || return 1
+  check test "$(win w1 dock.pane)" == agent || return 1
+  check test "$(win w1 tabs | count)" == 1 || return 1
+  kanna close dt1 >/dev/null || return 1
+  check test "$(kanna restart agent --json | field pane.state)" == running || return 1
+  kanna move agent --tab >/dev/null || return 1
+  check test "$(win w1 dock)" == None || return 1
+  check test "$(win w1 tabs | count)" == 2 || return 1
+  kanna move agent --dock >/dev/null || return 1
+  kanna close dt2 >/dev/null || return 1
+  check test "$(win w1 tabs)" == '[]' || return 1
+  check test "$(win w1 dock.pane)" == agent || return 1
+  sleep 0.5
+  check drawn "$(snap w1 s38-only-dock)" 1 || return 1
+  kanna close --window w1 >/dev/null || return 1
+  [[ "$(kanna list)" != *agent* ]] || { echo "closing the window should close its docked pane"; return 1; }
+
+  local main lone before after
+  main="$(kanna open --name tab1 --json | field window)" || return 1
+  kanna open --name back --dock right --cmd "printf 'DOCK BACK\n'; exec sleep 600" >/dev/null || return 1
+  kanna resize back 1/4 >/dev/null || return 1
+  lone="$(kanna open --name lone --dock --window new --json | field window)" || return 1
+  sleep 1.5
+  check python3 -c 'import json, sys
+windows = {w["id"]: w for w in json.load(open(sys.argv[1]))["windows"]}
+main, lone = windows[sys.argv[2]], windows[sys.argv[3]]
+assert main["dock"]["edge"] == "right" and main["dock"]["width"] == 0.25, main
+assert lone["dock"]["edge"] == "left" and lone["tabs"] == [], lone' "$KANNA_STATE_DIR/layout.json" "$main" "$lone" || return 1
+  before="$(state | field windows)"
+  stop_app; start_app || return 1
+  sleep 1
+  after="$(state | field windows)"
+  check test "$after" == "$before" || { echo "before: $before"; echo "after:  $after"; return 1; }
+  check wait_for 5 app_text back "DOCK BACK" || return 1
+  sleep 0.5
+  check drawn "$(snap "$main" s38-restored)" 2
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-8]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

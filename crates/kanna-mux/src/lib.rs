@@ -18,7 +18,7 @@ pub use brand::Brand;
 pub use error::KmuxError;
 pub use exec::Wakeup;
 pub use instance::{Instance, DEFAULT_NAME};
-pub use layout::{pane_entry, pane_table, placement, read_pane_table, serve, LayoutCall, LayoutHost, LayoutLink, LocalLayout, Placement, SavedLayout, Scope, SplitSide};
+pub use layout::{pane_entry, pane_table, placement, read_pane_table, serve, Edge, LayoutCall, LayoutHost, LayoutLink, LocalLayout, Placement, SavedLayout, Scope, SplitSide, Spot};
 pub use model::Model;
 pub use owner::{prune_state, LayoutOwner};
 pub use pane::{History, Pane, PaneState, PaneType, Panes};

@@ -29,7 +29,7 @@ pub static COMMANDS: &[Command] = &[
         name: "open",
         group: "Panes",
         summary: "Open a terminal, web, iOS or markdown pane and wait until it is running.",
-        usage: "kmux open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--no-wait]\n       kmux open web URL [--history] [same placement options]\n       kmux open md FILE [same placement options]\n       kmux open ios --app APP [--device DEVICE] [same placement options]",
+        usage: "kmux open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--no-wait]\n       kmux open [TYPE …] --dock [left|right] [--window ID|new]\n       kmux open web URL [--history] [same placement options]\n       kmux open md FILE [same placement options]\n       kmux open ios --app APP [--device DEVICE] [same placement options]",
         options: &[
             ("--cmd CMD", "Shell command line to run in your login shell, e.g. \"npm run dev\". Put it in single quotes if it uses $VARS or ;, so your own shell leaves it alone. Default: an interactive shell."),
             ("--cwd DIR", "Working directory."),
@@ -42,8 +42,9 @@ pub static COMMANDS: &[Command] = &[
             ("--app APP", "iOS panes: a .app built for the simulator (installed, then launched) or the bundle ID of an installed app, e.g. com.apple.Preferences."),
             ("--device DEVICE", "iOS panes: a simulator device name or UDID, e.g. \"iPhone 16\". Default: a booted iPhone, else the newest one. The device is booted if needed (this can take a minute) and stays booted after the pane closes."),
             ("--history", "Web panes only: keep back/forward history (off by default), for `kmux navigate PANE --back` and the Pane menu's Back and Forward."),
+            ("--dock [left|right]", "Make the pane the window's docked pane: along its left (default) or right edge, outside its tabs, shown whichever tab is. Not with --split, --size or --tab. A pane already docked there moves to a new tab."),
         ],
-        notes: "Prints the new pane's ID and name. A pane whose command exits stays on screen as `exited`.",
+        notes: "Prints the new pane's ID and name. A pane whose command exits stays on screen as `exited`. A docked pane closes only with its window.",
         examples: &[
             ("kmux open --name server --cmd \"npm run dev\"", "Run a dev server in a pane named server."),
             ("kmux open --name logs --split right --size 1/3 --cmd \"tail -f app.log\"", "Put a log tail in the right third."),
@@ -52,6 +53,7 @@ pub static COMMANDS: &[Command] = &[
             ("kmux open --window new --name scratch", "Open a shell in a new window."),
             ("kmux open ios --name phone --app build/MyApp.app --split right --size 1/3", "Run your app in the simulator, in the right third."),
             ("kmux open md docs/spec.md --name spec --split right", "Show a markdown file (with mermaid diagrams) beside this pane; it reloads when the file changes."),
+            ("kmux open --name agent --cmd claude --dock", "Dock an agent on the window's left edge; it stays while you switch tabs."),
         ],
         parse: parse_open,
         show: output::opened,
@@ -62,7 +64,7 @@ pub static COMMANDS: &[Command] = &[
         summary: "Close a pane, or a whole tab or window with everything in it.",
         usage: "kmux close PANE\n       kmux close --tab TAB\n       kmux close --window WINDOW",
         options: &[("--tab TAB", "Close a tab, e.g. t2."), ("--window WINDOW", "Close a window, e.g. w2.")],
-        notes: "Closing a tab's last pane closes the tab; closing a window's last tab closes the window.",
+        notes: "Closing a tab's last pane closes the tab; closing a window's last tab closes the window, unless it has a docked pane. A docked pane closes only with its window (`kmux close --window`); undock it first with `kmux move PANE --tab` to close it alone.",
         examples: &[("kmux close logs", "Close the pane named logs."), ("kmux close --tab t2", "Close tab t2 and its panes.")],
         parse: |args| target(args, "close"),
         show: output::closed,
@@ -128,46 +130,58 @@ pub static COMMANDS: &[Command] = &[
         summary: "Change a pane's share of its split. Its siblings share the rest in proportion.",
         usage: "kmux resize PANE FRACTION",
         options: &[],
-        notes: "FRACTION is 1/3, 25% or 0.25. Fails if the pane fills its tab.",
+        notes: "FRACTION is 1/3, 25% or 0.25. Fails if the pane fills its tab. On a docked pane, sets its width, a fraction of the window.",
         examples: &[("kmux resize logs 1/4", "Make logs a quarter of its split.")],
         parse: |args| {
             let pane = pane(args, "resize")?;
             let size = args.positional().ok_or_else(|| usage("resize", "missing FRACTION"))?;
             Ok(json!({ "pane": pane, "size": size }))
         },
-        show: |_, reply| output::layout(reply),
+        show: |_, reply| output::moved(reply),
     },
     Command {
         name: "move",
         group: "Panes",
-        summary: "Move a pane next to another pane, swap two panes, or move a pane to another tab or window.",
-        usage: "kmux move PANE --to OTHER [--side left|right|top|bottom|swap]\n       kmux move PANE --tab TAB|new [--window WINDOW]\n       kmux move PANE --window WINDOW|new",
+        summary: "Move a pane next to another pane, swap two panes, move a pane to another tab or window, or dock it.",
+        usage: "kmux move PANE --to OTHER [--side left|right|top|bottom|swap]\n       kmux move PANE --tab [TAB|new] [--window WINDOW]\n       kmux move PANE --window WINDOW|new\n       kmux move PANE --dock [left|right] [--window WINDOW|new]",
         options: &[
             ("--to OTHER", "The pane to move next to."),
             ("--side SIDE", "left, right, top or bottom of OTHER (takes half its space), or swap (default)."),
-            ("--tab TAB|new", "Move into that tab, or a new tab."),
+            ("--tab [TAB|new]", "Move into that tab, or a new tab (the default). Undocks a docked pane."),
             ("--window WINDOW|new", "Move into that window's active tab, or a new window."),
+            ("--dock [left|right]", "Make it its window's docked pane (or that window's), on the left (default) or right edge; or move the docked pane to that edge. A pane already docked there moves to a new tab."),
         ],
-        notes: "",
+        notes: "Moving a docked pane to a tab, a window or beside a pane undocks it. A docked pane can't be split: --to it only swaps.",
         examples: &[
             ("kmux move logs --to server --side bottom", "Put logs below server."),
             ("kmux move logs --window new", "Move logs into a new window."),
+            ("kmux move agent --dock right", "Dock agent on the right edge (or move it there if it is docked)."),
+            ("kmux move agent --tab", "Undock agent into a new tab."),
         ],
         parse: |args| {
             let pane = pane(args, "move")?;
             let mut out = Map::new();
             out.insert("pane".into(), json!(pane));
-            for (flag, key) in [("--to", "to"), ("--side", "side"), ("--tab", "tab"), ("--window", "window")] {
+            for (flag, key) in [("--to", "to"), ("--side", "side"), ("--window", "window")] {
                 if let Some(value) = args.option(flag)? {
                     out.insert(key.into(), json!(value));
                 }
             }
-            if !["to", "tab", "window"].iter().any(|k| out.contains_key(*k)) {
-                return Err(usage("move", "say where: --to OTHER, --tab TAB|new or --window WINDOW|new"));
+            if let Some(tab) = args.optional("--tab", |v| !v.starts_with("--")) {
+                out.insert("tab".into(), json!(tab.unwrap_or_else(|| "new".into())));
+            }
+            if let Some(edge) = args.optional("--dock", is_edge) {
+                if out.contains_key("to") || out.contains_key("tab") {
+                    return Err(usage("move", "--dock goes on its own (with --window at most)"));
+                }
+                out.insert("dock".into(), json!(edge.unwrap_or_else(|| "left".into())));
+            }
+            if !["to", "tab", "window", "dock"].iter().any(|k| out.contains_key(*k)) {
+                return Err(usage("move", "say where: --to OTHER, --tab [TAB|new], --window WINDOW|new or --dock [left|right]"));
             }
             Ok(Value::Object(out))
         },
-        show: |_, reply| output::layout(reply),
+        show: |_, reply| output::moved(reply),
     },
     Command {
         name: "arrange",
@@ -175,7 +189,7 @@ pub static COMMANDS: &[Command] = &[
         summary: "Lay out existing panes in one go. Panes left out move to a new tab.",
         usage: "kmux arrange LAYOUT [--window WINDOW]",
         options: &[("--window WINDOW", "Arrange in that window's active tab. Default: the key window.")],
-        notes: "LAYOUT is a JSON tree: {\"split\": \"row\"|\"column\", \"children\": [...]} where each child is {\"pane\": NAME_OR_ID, \"size\": FRACTION?} or another split. FRACTION is a string like \"2/3\" or \"25%\", or a number like 0.25. Unsized children share what is left. row = side by side, column = stacked.",
+        notes: "Arranges the shown tab; a docked pane isn't part of it. LAYOUT is a JSON tree: {\"split\": \"row\"|\"column\", \"children\": [...]} where each child is {\"pane\": NAME_OR_ID, \"size\": FRACTION?} or another split. FRACTION is a string like \"2/3\" or \"25%\", or a number like 0.25. Unsized children share what is left. row = side by side, column = stacked.",
         examples: &[(
             "kmux arrange '{\"split\":\"row\",\"children\":[{\"pane\":\"server\",\"size\":\"2/3\"},{\"pane\":\"logs\"}]}'",
             "server on the left two thirds, logs on the right.",
@@ -264,7 +278,7 @@ pub static COMMANDS: &[Command] = &[
         summary: "Show windows, tabs, layouts and panes, with their IDs.",
         usage: "kmux list",
         options: &[],
-        notes: "Layouts are written as `a:2/3 | b` (side by side) and `a / b` (stacked). `*` marks the key window, the active tab and the focused pane.",
+        notes: "Layouts are written as `a:2/3 | b` (side by side) and `a / b` (stacked). `*` marks the key window, the active tab and the focused pane. A window's docked pane has its own line: `dock: p1 (agent)  left 2/5`.",
         examples: &[("kmux list", "See everything that is open."), ("kmux list --json", "The same, as JSON.")],
         parse: |_| Ok(json!({})),
         show: |_, reply| output::list(reply),
@@ -332,6 +346,10 @@ fn target(args: &mut Args, command: &str) -> Result<Value, Failure> {
     }
 }
 
+fn is_edge(value: &str) -> bool {
+    value == "left" || value == "right"
+}
+
 fn is_markdown(target: &str) -> bool {
     let lower = target.to_lowercase();
     [".md", ".markdown", ".mdown"].iter().any(|ext| lower.ends_with(ext)) && !lower.contains("://")
@@ -363,8 +381,14 @@ fn parse_open(args: &mut Args) -> Result<Value, Failure> {
             }
         }
     }
+    if let Some(edge) = args.optional("--dock", is_edge) {
+        out.insert("dock".into(), json!(edge.unwrap_or_else(|| "left".into())));
+    }
     if args.flag("--tab") {
         out.insert("tab".into(), json!(true));
+    }
+    if out.contains_key("dock") && ["split", "size", "tab"].iter().any(|k| out.contains_key(*k)) {
+        return Err(usage("open", "--dock goes on its own: no --split, --size or --tab"));
     }
     if args.flag("--no-wait") {
         out.insert("wait".into(), json!(false));

@@ -8,12 +8,16 @@ final class WindowController: NSObject, NSWindowDelegate {
     let id: String
     let window: NSWindow
     private let stage = StageView()
-    var relayout: (() -> Void)? { didSet { stage.onLayout = relayout } }
+    private let content = StageView()
+    private let dockStage = NSView()
+    private(set) var dockDivider: DockDividerView?
+    var relayout: (() -> Void)? { didSet { content.onLayout = relayout } }
     let tabBar = TabBar()
     var onCloseRequest: (() -> Void)?
     var onBecomeKey: (() -> Void)?
     var onFrameChange: (() -> Void)?
     var onDivider: ((DividerView, Double) -> Void)?
+    var onDockWidth: ((String, Double) -> Void)?
     private(set) var shown: [String] = []
     private(set) var tab: String?
 
@@ -28,14 +32,13 @@ final class WindowController: NSObject, NSWindowDelegate {
         window.delegate = self
         stage.wantsLayer = true
         let size = window.contentLayoutRect.size
-        let content = NSView(frame: NSRect(origin: .zero, size: size))
+        content.frame = NSRect(origin: .zero, size: size)
         content.wantsLayer = true
         tabBar.frame = NSRect(x: 0, y: size.height - TabBar.height, width: size.width, height: TabBar.height)
-        tabBar.autoresizingMask = [.width, .minYMargin]
         stage.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height - TabBar.height)
-        stage.autoresizingMask = [.width, .height]
         content.addSubview(stage)
         content.addSubview(tabBar)
+        content.addSubview(dockStage)
         window.contentView = content
         if let previous {
             window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: previous.frame.minX, y: previous.frame.maxY)))
@@ -50,20 +53,31 @@ final class WindowController: NSObject, NSWindowDelegate {
         window.title = "\(state["title"]?.string ?? "Kanna") — \(id)" + (instance == "default" ? "" : " · \(instance)")
         tabBar.show(state)
         let root = state["root"] ?? .null
+        let dock = state["dock"].flatMap { $0["pane"]?.string == nil ? nil : $0 }
+        let docked = dock?["pane"]?.string
         let ids = Self.paneIDs(root)
-        shown = ids
+        shown = Self.shownPanes(state)
+        arrange(dock, zoomed: docked != nil && state["zoomed"]?.string == docked)
         let visible = Set(ids)
         for case let view as PaneView in stage.subviews where !visible.contains(view.id) { view.removeFromSuperview() }
+        for case let view as PaneView in dockStage.subviews where view.id != docked { view.removeFromSuperview() }
         dividers.forEach { $0.removeFromSuperview() }
         dividers = []
         place(root, path: [], in: stage.bounds, panes)
         dividers.forEach { stage.addSubview($0) }
-        window.invalidateCursorRects(for: stage)
+        if let dock, let docked, let view = panes.view(docked, type: dock["type"]?.string ?? "term") {
+            if view.superview !== dockStage { dockStage.addSubview(view) }
+            view.frame = dockStage.bounds
+            view.autoresizingMask = []
+        }
+        window.invalidateCursorRects(for: content)
         let focusedID = state["focused"]?.string
-        for id in ids {
+        let visibleIDs = ids + (docked.map { [$0] } ?? [])
+        let many = state["zoomed"]?.string == nil && shown.count > 1
+        for id in visibleIDs {
             guard let view = panes[id] else { continue }
             panes.started(id)
-            view.focused = ids.count > 1 && id == focusedID && window.isKeyWindow
+            view.focused = many && id == focusedID && window.isKeyWindow
         }
         let responder = window.firstResponder
         if let focusedID, let target = panes.keyView(focusedID), responder !== target,
@@ -73,7 +87,47 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    private func arrange(_ dock: JSON?, zoomed: Bool) {
+        let bounds = content.bounds
+        var side = bounds
+        dockDivider?.removeFromSuperview()
+        dockDivider = nil
+        if let dock, let pane = dock["pane"]?.string {
+            if zoomed {
+                dockStage.frame = bounds
+                side = .zero
+            } else {
+                let total = bounds.width - Self.divider
+                let low = min(DividerView.minimum, total / 2)
+                let width = min(max((total * CGFloat(dock["width"]?.number ?? 0.4)).rounded(), low), total - low)
+                let left = dock["edge"]?.string != "right"
+                dockStage.frame = NSRect(x: left ? 0 : bounds.width - width, y: 0, width: width, height: bounds.height)
+                side = NSRect(x: left ? width + Self.divider : 0, y: 0, width: total - width, height: bounds.height)
+                let line = NSRect(x: left ? width : side.maxX, y: 0, width: Self.divider, height: bounds.height)
+                let handle = DockDividerView(pane: pane, left: left, line: line, span: total, extent: bounds.width)
+                handle.onWidth = { [weak self] width in self?.onDockWidth?(pane, width) }
+                content.addSubview(handle)
+                dockDivider = handle
+            }
+        }
+        dockStage.isHidden = dock == nil
+        tabBar.isHidden = side.isEmpty
+        stage.isHidden = side.isEmpty
+        tabBar.frame = NSRect(x: side.minX, y: side.maxY - TabBar.height, width: side.width, height: TabBar.height)
+        stage.frame = NSRect(x: side.minX, y: side.minY, width: side.width, height: max(0, side.height - TabBar.height))
+    }
+
     private(set) var dividers: [DividerView] = []
+
+    static func shownPanes(_ window: JSON) -> [String] {
+        let tab = window["tab"]?.string
+        var ids: [String] = []
+        if case .array(let tabs)? = window["tabs"], case .array(let list)? = tabs.first(where: { $0["id"]?.string == tab })?["panes"] {
+            ids = list.compactMap(\.string)
+        }
+        guard let dock = window["dock"], let pane = dock["pane"]?.string else { return ids }
+        return dock["edge"]?.string == "right" ? ids + [pane] : [pane] + ids
+    }
 
     static func paneIDs(_ node: JSON) -> [String] {
         if let id = node["pane"]?.string { return [id] }

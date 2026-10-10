@@ -7,7 +7,7 @@ import Foundation
 /// their URL, md panes on their file, iOS panes relaunching their app.
 ///
 ///     { kmux: "state", version: 1, key, counters: { pane, tab, window },
-///       windows: [{ id, frame?, active, focused, zoomed, tabCount,
+///       windows: [{ id, frame?, active, focused, zoomed, tabCount, dock?: { pane, edge, width },
 ///                   tabs: [{ id, title, lastFocus, layout }] }],
 ///       panes: [{ id, name, type, …what it shows }] }
 ///
@@ -27,6 +27,7 @@ extension Core {
                 }),
             ]
             if let frame = window.frame { out["frame"] = ["x": .number(frame.x), "y": .number(frame.y), "w": .number(frame.w), "h": .number(frame.h)] }
+            if let dock = window.dock { out["dock"] = ["pane": .string(dock.pane), "edge": .string(dock.edge.rawValue), "width": .number(dock.width)] }
             return .object(out)
         }
         let panes: [JSON] = model.paneOrder.compactMap { model.panes[$0] }.map { pane in
@@ -180,12 +181,19 @@ extension Core {
                 window.tabs.append(tab)
                 counters.tab = max(counters.tab, tn)
             }
+            if let saved = item["dock"], saved != .null {
+                guard let pane = saved["pane"]?.string, byID[pane] != nil else { throw bad("window \(id) docks unknown pane \(quoted(saved["pane"]))") }
+                guard !placed.contains(pane) else { throw bad("pane \(pane) is placed twice") }
+                placed.insert(pane)
+                let width = saved["width"]?.number.flatMap { $0 > 0 && $0 < 1 ? $0 : nil } ?? Dock.defaultWidth
+                window.dock = Dock(pane: pane, edge: saved["edge"]?.string.flatMap(Edge.init(rawValue:)) ?? .left, width: width)
+            }
             window.tabs.removeAll { $0.root == nil }
             let active = item["active"]?.string
             window.active = window.tabs.contains { $0.id == active } ? active : window.tabs.first?.id
-            let shown = Model.paneIDs(window.activeTab?.root)
+            let shown = window.shownPanes
             let focused = item["focused"]?.string
-            window.focused = focused.flatMap { shown.contains($0) ? $0 : nil } ?? window.activeTab?.lastFocus ?? shown.first
+            window.focused = focused.flatMap { shown.contains($0) ? $0 : nil } ?? window.activeTab?.lastFocus ?? Model.paneIDs(window.activeTab?.root).first ?? window.dock?.pane
             window.zoomed = item["zoomed"]?.string.flatMap { shown.contains($0) ? $0 : nil }
             window.tabCount = max(whole(item["tabCount"]) ?? 0, window.tabs.count)
             windows.append(window)
@@ -193,7 +201,7 @@ extension Core {
         }
         // Panes no tab shows are not restored.
         panes.removeAll { !placed.contains($0.id) }
-        windows.removeAll { $0.tabs.isEmpty }
+        windows.removeAll { $0.tabs.isEmpty && $0.dock == nil }
         let key = state["key"]?.string.flatMap { key in windows.contains { $0.id == key } ? key : nil } ?? windows.last?.id
         return (panes, windows, key, counters)
     }

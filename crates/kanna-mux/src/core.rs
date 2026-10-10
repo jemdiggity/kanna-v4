@@ -2,7 +2,7 @@ use crate::error::KmuxError;
 use crate::exec::{sleep, Executor, Signal, Turns, Wakeup};
 use crate::instance::{Instance, DEFAULT_NAME};
 use crate::json::{is_true, json, num, string, Map, Value};
-use crate::layout::{place_request, scope_request, LayoutHost, LayoutLink, LocalLayout, Scope, SplitSide};
+use crate::layout::{place_request, scope_request, Edge, LayoutHost, LayoutLink, LocalLayout, Scope, SplitSide};
 use crate::model::{fraction, Model};
 use crate::pane::{Pane, PaneState, PaneType, Panes};
 use crate::state;
@@ -34,7 +34,7 @@ pub const CORE_COMMANDS: [&str; 8] = ["capabilities", "open", "list", "close", "
 
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
 
-const FEATURES: [&str; 6] = ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle"];
+const FEATURES: [&str; 7] = ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle", "dock"];
 const CORE_FEATURES: [&str; 2] = ["namedPanes", "lifecycle"];
 
 struct State {
@@ -498,11 +498,15 @@ impl CoreHandle {
             return Err(bad_request("size must be a fraction between 0 and 1"));
         }
         let new_tab = args.get("tab").and_then(Value::as_bool).unwrap_or(false);
+        let dock = Edge::read(args.get("dock"))?;
+        if dock.is_some() && (args.get("split").is_some() || args.get("size").is_some() || new_tab) {
+            return Err(bad_request("a docked pane takes no split, size or tab"));
+        }
 
         let turn = self.0.turns.take().await;
         taken(self)?;
         let id = self.state().panes.next_id();
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab)).await?;
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock)).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();
@@ -525,14 +529,21 @@ impl CoreHandle {
 
         let snapshot = self.state().panes.get(&id).cloned().unwrap();
         if args.get("wait") == Some(&Value::Bool(false)) {
-            return Ok(reply([("pane", self.summary(&id, &snapshot)), ("window", placed["window"].clone()), ("tab", placed["tab"].clone())]));
+            return Ok(opened(self.summary(&id, &snapshot), &placed, &placed));
         }
         self.settled(&id).await;
         self.check_started(&id, &snapshot)?;
         let summary = self.summary(&id, &snapshot);
         let location = Value::Object(self.layout(json!({ "op": "location", "pane": id })).await.unwrap_or_default());
-        let window = if location["window"].is_null() { placed["window"].clone() } else { location["window"].clone() };
-        Ok(reply([("pane", summary), ("window", window), ("tab", location["tab"].clone())]))
+        Ok(opened(summary, &location, &placed))
+    }
+
+    async fn refuse_docked(&self, id: &str) -> Result<(), KmuxError> {
+        let location = self.layout(json!({ "op": "location", "pane": id })).await?;
+        if location.get("dock").is_some_and(|dock| !dock.is_null()) {
+            return Err(KmuxError::new("docked", "docked: it closes with its window"));
+        }
+        Ok(())
     }
 
     fn check_started(&self, id: &str, fallback: &Pane) -> Result<(), KmuxError> {
@@ -547,7 +558,9 @@ impl CoreHandle {
     async fn close(&self, args: &Value) -> Result<Map, KmuxError> {
         let _turn = self.0.turns.take().await;
         let victims: Vec<String> = if let Some(reference) = string(args, "pane") {
-            vec![self.need_pane(Some(reference))?.id]
+            let id = self.need_pane(Some(reference))?.id;
+            self.refuse_docked(&id).await?;
+            vec![id]
         } else {
             let scope = if let Some(reference) = string(args, "tab") {
                 Scope::Tab(reference.into())
@@ -736,6 +749,15 @@ impl CoreHandle {
         }
         Ok(())
     }
+}
+
+fn opened(summary: Value, location: &Value, placed: &Value) -> Map {
+    let window = if location["window"].is_null() { placed["window"].clone() } else { location["window"].clone() };
+    let mut out = reply([("pane", summary), ("window", window), ("tab", location["tab"].clone())]);
+    if let Some(edge) = location.get("dock").filter(|d| !d.is_null()) {
+        out.insert("dock".into(), edge.clone());
+    }
+    out
 }
 
 fn moved(pane: &mut Pane, url: String) {

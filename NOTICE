@@ -4,7 +4,7 @@ Kanna includes code derived from the following projects.
 kmux
 https://github.com/tampopogk/kmux
 MIT License, at kmux 6a022cb unless noted otherwise.
-references/kmux is kmux itself at 1f05ccb (a git subtree, under its own
+references/kmux is kmux itself at a759abd (a git subtree, under its own
 LICENSE and NOTICE), kept as the reference model's source and tests; it is
 not built into Kanna.
 ================================================================================
@@ -86,20 +86,28 @@ Derived from kmux:
       debug.drag), the pane views' registry and the debug commands
       (debug.key, debug.click, debug.menu, debug.pinch, debug.stats)
       follow apps/kmux/Sources/Kmux/AppController.swift and ContentHost.swift.
+      The docked pane (the window split into it and the tabs' side, its
+      divider, DockDividerView, Show Tab ⌘1–⌘9, ⌘W doing nothing in it)
+      follows kmux a759abd.
   crates/kanna-mux/src/owner.rs, src/model.rs
       The focused call follows AppController.focused, and divider follows
-      DividerView in apps/kmux/Sources/Kmux/Dragging.swift.
+      DividerView in apps/kmux/Sources/Kmux/Dragging.swift. The docked
+      pane follows apps/kmux/Sources/KmuxCore (Model.swift, Core.swift,
+      Core+Layout.swift, State.swift) at a759abd.
   crates/kanna/src/commands.rs, crates/kanna/src/output.rs and
   crates/kanna/src/lib.rs
       A port of kmux's CLI, crates/kmux/src/commands.rs, output.rs and
       main.rs (the command table, parsing, help, `commands --json`,
       `instances`, `raw`, errors and output), branded kanna, with Kanna's
-      additions (read, --mux, --, exit 6, Kanna's instances).
+      additions (read, --mux, --, exit 6, Kanna's instances). Docked
+      panes (open --dock, move --dock and --tab, the dock line in list)
+      are from kmux a759abd.
       crates/kanna/tests/kmux_reference.rs compiles kmux's commands.rs
       and output.rs, unchanged, to check the port against them.
   crates/kanna-client
       From kmux's crates/kmux-client at 1f05ccb (the control-socket
-      client, exit codes and argument reader), comments removed.
+      client, exit codes and argument reader), with Args.optional from
+      a759abd, comments removed.
   crates/kanna-merman
       From kmux's crates/kmux-merman at 1f05ccb (the C bridge to merman),
       comments removed, its symbols renamed kanna_merman_*.

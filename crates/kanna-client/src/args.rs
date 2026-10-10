@@ -26,6 +26,16 @@ impl Args {
         Ok(Some(self.0.remove(i)))
     }
 
+    pub fn optional(&mut self, name: &str, takes: impl Fn(&str) -> bool) -> Option<Option<String>> {
+        let prefix = format!("{name}=");
+        if let Some(i) = self.0.iter().position(|a| a.starts_with(&prefix)) {
+            return Some(Some(self.0.remove(i)[prefix.len()..].to_string()));
+        }
+        let i = self.0.iter().position(|a| a == name)?;
+        self.0.remove(i);
+        Some((i < self.0.len() && takes(&self.0[i])).then(|| self.0.remove(i)))
+    }
+
     pub fn positional(&mut self) -> Option<String> {
         if let Some(i) = self.0.iter().position(|a| a == "--") {
             if i == 0 || self.0[..i].iter().all(|a| a.starts_with("--")) {
