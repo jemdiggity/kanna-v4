@@ -67,6 +67,16 @@
   },
   "rules": [
     {
+      "id": "codex/needs-you/title-action-required",
+      "status": "needs-you",
+      "priority": 210,
+      "when": {
+        "title": {
+          "regex": "^\\[ [.!] \\] Action Required"
+        }
+      }
+    },
+    {
       "id": "common/waiting/permission-prompt",
       "status": "needs-you",
       "priority": 200,
@@ -151,6 +161,16 @@
             }
           }
         ]
+      }
+    },
+    {
+      "id": "codex/working/title-spinner",
+      "status": "working",
+      "priority": 70,
+      "when": {
+        "title": {
+          "regex": "^[\\x{2801}-\\x{28FF}] "
+        }
       }
     }
   ]

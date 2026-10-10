@@ -1,6 +1,6 @@
 # Agent Status
 
-**Status:** proposed · **Used by:** [Desk](desk.md) (the agent header and the Shelf) · **Mockup:** the Desk's ([`docs/mockups/desk.html`](../mockups/desk.html)), the dots beside each task · **From:** kanna v2/v3's detection rules (`kanna3-detect`) and herdr's agent-detection manifests
+**Status:** built (no dots yet: the Desk isn't built) · **Used by:** [Desk](desk.md) (the agent header and the Shelf) · **Mockup:** the Desk's ([`docs/mockups/desk.html`](../mockups/desk.html)), the dots beside each task · **From:** kanna v2/v3's detection rules (`kanna3-detect`) and herdr's agent-detection manifests
 
 **Agent status** tells you at a glance whether an agent is busy, waiting for you, or done, so you can leave it running and come back when it needs you. Kanna reads the bottom of the agent's screen and matches it against **rules**: patterns for each agent, kept as data that Kanna updates on its own, so a new Claude Code or Codex release never needs a new Kanna.
 
@@ -66,7 +66,16 @@ flowchart LR
   2. **Remote:** Kanna checks the rules site, verifies each file's hash against the site's index, and swaps the newer rules in without a restart.
   3. **Local override** in `~/.config/kanna/agent-rules/<agent>.json`, reloaded when it changes, which always wins.
 - **Every rule file is checked whole before it's used**, wherever it came from: at most 256 KiB, 256 rules, 64 vocabulary lists and tests nested 24 deep; patterns capped and compiled with size limits; regions at most 200 lines; known statuses, tests, regions and agents only. One that fails is refused and logged, and the rules in use stay. From the site, an entry must name a known agent (`a-z`, `0-9`, `-`), its file must be on the site's own host (redirects too) and match the index's hash before it's read, and a file no newer than the one Kanna has is ignored.
+- **Last 10 lines** means the last 10 rows of the screen once blank bottom rows are dropped, so an agent whose prompt sits halfway down a tall pane is read where it is. A region (`screen`, `lastLines`, `lastNonEmptyLines`, `firstNonEmptyLines`, `linesAbove`/`linesBelow` an anchor, `between` two anchors) is taken from the whole screen.
+- **Which programs are agents** is Kanna's code: `claude`, `codex`, `opencode`, `copilot`, `agy`/`antigravity`, and `mock-agent` (tools/mock-agent, for tests), matched against the foreground process group's executable or its name, or a script an interpreter runs (`node …/codex.js`). An agent's rule file is `agent-rules/<agent>.json`.
 - **Proved on a corpus:** recorded screens from real Claude Code and Codex, driven by a mock model so no tokens are spent, each labeled with its status. A rule change ships only when the whole corpus passes.
+
+### When status changes
+
+- **Settled:** no output for 60 ms and no synchronized update (mode 2026) open; output that never pauses is judged once a second anyway, and a synchronized update open longer than a second is ignored.
+- **Working → idle waits 300 ms:** an idle verdict right after working must still hold 300 ms later, so a frame between two steps of a turn doesn't flash idle. Every other change shows at once.
+- **Unread** (the app's): an agent that goes from working to idle while its pane isn't on screen in Kanna's key window (in its active tab, zoomed pane or dock), with Kanna active, is unread until it is; leaving idle clears it.
+- **Names on the wire:** `working`, `needs-you`, `idle`, `exited`.
 
 ## 4. CLI
 
@@ -78,12 +87,14 @@ flowchart LR
 | `kanna status explain --file SCREEN --agent claude` | The same for a saved screen, for writing rules |
 | `kanna status update` | Check the rules site now |
 
+`KANNA_AGENT_RULES_URL` sets the rules site (`none` turns it off; the tests do), `KANNA_AGENT_RULES_DIR` the override folder.
+
 ## 5. How it's built
 
 - **In the daemon**, which already keeps every terminal's screen ([4.5](../kanna-spec.md#45-the-app-link)), so status works with the app closed and `list` reads it directly. The daemon knows each terminal's foreground program, which picks the agent.
-- **The app** gets status changes like the other pane events, to draw the dots.
-- **Rules site:** the repo's GitHub Pages: the rule files and an `index.json` (agent, URL, version, hash), published from the repo's `agent-rules/` with the corpus test as the gate.
-- **The corpus and harness:** `tools/agent-harness` (the mock model, from v3's characterization tools) records sessions; a tool samples their screens into `agent-rules/corpus/`.
+- **The app** gets a `status {pane, status}` notice on every change, and one per pane after `app.hello`, and keeps status and unread in its state (`debug.status`).
+- **Rules site:** the repo's GitHub Pages, `https://jemdiggity.github.io/kanna-v4/agent-rules/index.json`: the rule files and an `index.json` (agent, URL, version, hash), built by `scripts/build-agent-rules-site.sh` and published by `.github/workflows/agent-rules.yml` with `cargo test -p kanna-detect` (the corpus) as the gate. A changed rule file needs a higher `version`, or Kannas that have the old one ignore it.
+- **The corpus and harness:** `tools/agent-harness` (the mock model, from v3's characterization tools) records sessions; `kanna-corpus` (`crates/kanna-corpus`) replays them through libghostty-vt, samples the settled screens by the harness's phases and writes them into `agent-rules/corpus/<agent>/`. `cargo test -p kanna-detect corpus` prints a confusion matrix per agent.
 - **Seeded** from v3's rules (the user's own, via v2); herdr (Apache-2.0) is a reference for behaviour only, and none of its rule text is copied.
 
 ## 6. Glossary

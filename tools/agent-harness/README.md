@@ -19,6 +19,7 @@ Needs `claude` and `codex` on `PATH`, Python 3.9+, and permission to open a pty 
 | `--agents` | `claude`, `codex` |
 | `--terminals` | `kanna`: the environment a Kanna terminal gives (`TERM=xterm-ghostty`, `COLORTERM=truecolor`, `TERM_PROGRAM=ghostty`, `TERM_PROGRAM_VERSION=1.3.2-dev+4ec3122`); `noprogram`: the same without `TERM_PROGRAM` / `TERM_PROGRAM_VERSION`; `xterm`: `TERM=xterm-256color` only |
 | `--settings` | Claude: `default`, `bell`, `ghostty`, `iterm2_with_bell` (`preferredNotifChannel` in the run's `settings.json`). Codex: `default`, `on`, `always`, `always_bel` (`[tui]` in the run's `config.toml`) |
+| `--size` | `COLSxROWS` of the terminal (default `120x40`); another size is added to the recording's name |
 | `--focus` | `here`: the terminal reports focus-in once and keeps it; `away`: it reports focus-out after each prompt is sent and focus-in before the next |
 
 ## What a run does

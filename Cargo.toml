@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/kanna", "crates/kanna-client", "crates/kanna-daemon", "crates/kanna-detect", "crates/kanna-keeper", "crates/kanna-layout", "crates/kanna-mux", "crates/kanna-vt"]
+members = ["crates/kanna", "crates/kanna-client", "crates/kanna-corpus", "crates/kanna-daemon", "crates/kanna-detect", "crates/kanna-keeper", "crates/kanna-layout", "crates/kanna-mux", "crates/kanna-vt"]
 exclude = ["crates/kanna-merman", "references"]
 resolver = "2"
 

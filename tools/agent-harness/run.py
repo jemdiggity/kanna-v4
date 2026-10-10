@@ -121,8 +121,9 @@ def stop_leftovers(home):
         time.sleep(2)
 
 
-def run_one(out, port, agent, terminal, setting, focus):
-    name = f"{agent}-{terminal}-{setting}-{focus}"
+def run_one(out, port, size, agent, terminal, setting, focus):
+    cols, rows = size
+    name = f"{agent}-{terminal}-{setting}-{focus}" + ("" if size == (120, 40) else f"-{cols}x{rows}")
     base = out / "runs" / name
     argv, work, env = prepare(agent, base, port, SETTINGS[agent][setting])
     env.update(TERMINALS[terminal])
@@ -131,7 +132,7 @@ def run_one(out, port, agent, terminal, setting, focus):
     script_path = base / "script.json"
     script_path.write_text(json.dumps(script(agent, focus), indent=2))
     rec = out / f"{name}.jsonl"
-    subprocess.run([sys.executable, str(ROOT / "record.py"), "--argv", json.dumps(argv), "--cwd", str(work), "--env", json.dumps(env), "--script", str(script_path), "--out", str(rec), "--version", GHOSTTY_VERSION.split("-")[0]], check=False)
+    subprocess.run([sys.executable, str(ROOT / "record.py"), "--argv", json.dumps(argv), "--cwd", str(work), "--env", json.dumps(env), "--script", str(script_path), "--out", str(rec), "--version", GHOSTTY_VERSION.split("-")[0], "--cols", str(cols), "--rows", str(rows)], check=False)
     stop_leftovers(base / "home")
     return rec
 
@@ -144,6 +145,7 @@ def main():
     p.add_argument("--settings", default="default")
     p.add_argument("--focus", default="here")
     p.add_argument("--jobs", type=int, default=4)
+    p.add_argument("--size", default="120x40", help="COLSxROWS of the terminal")
     a = p.parse_args()
     out = Path(a.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -154,7 +156,8 @@ def main():
         urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=3).read()
         combos = [c for c in itertools.product(a.agents.split(","), a.terminals.split(","), a.settings.split(","), a.focus.split(",")) if c[2] in SETTINGS[c[0]]]
         with ThreadPoolExecutor(a.jobs) as pool:
-            recs = list(pool.map(lambda c: run_one(out, port, *c), combos))
+            size = tuple(int(n) for n in a.size.lower().split("x"))
+            recs = list(pool.map(lambda c: run_one(out, port, size, *c), combos))
     finally:
         mock.terminate()
         mock.wait(5)

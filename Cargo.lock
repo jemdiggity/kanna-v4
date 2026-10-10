@@ -128,6 +128,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanna-corpus"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "kanna-vt",
+ "serde_json",
+]
+
+[[package]]
 name = "kanna-daemon"
 version = "0.1.0"
 dependencies = [

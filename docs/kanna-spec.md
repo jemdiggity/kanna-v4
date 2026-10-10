@@ -298,6 +298,7 @@ sequenceDiagram
 | `grid {pane, cols, rows}` | daemon | the terminal's size, after a snapshot or a resize |
 | `output {pane, data}` | daemon | bytes the program wrote since the snapshot |
 | `exited {pane, code}` | daemon | the program ended |
+| `status {pane, status}` | daemon | an agent pane's status changed (`working`, `needs-you`, `idle`), or a terminal ended (`exited`), or `null` when it's no longer an agent; for every terminal, shown or not, and once per pane after `app.hello` ([4.17](#417-agent-status)) |
 | `input {pane, data}` | app | bytes the view wrote: keys, paste, mouse and focus reports |
 | `resize {pane, cols, rows, width, height}` | app | the view now fits this many cells (and pixels), after a view or font size change |
 | `settings {foreground, background, cursor, palette, scheme, cursorStyle, cursorBlink, graphemes}` | app | the terminal settings from the app's Ghostty config, sent before any attach and again when the config or the light/dark appearance changes ([4.12](#412-terminal-behaviour)) |
@@ -641,6 +642,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 | | kmux | kanna | Why |
 |---|---|---|---|
 | `read PANE [--lines N]` | — | prints a terminal's screen as text, scrollback with `--lines` | the daemon keeps every screen, with or without the app; agents read terminals |
+| `status explain PANE`, `status explain --file SCREEN --agent AGENT`, `status update`; `list`'s STATUS column and `status` field | — | agent status ([4.17](#417-agent-status)); the column shows only when a pane has a status, so a kmux reply prints as kmux prints it | the daemon judges agent panes; `capabilities` lists `status` |
 | `--` | — (`--json` is taken from anywhere, so it can't be typed) | ends the options: `kanna send p1 -- --json` | text that looks like an option |
 | `--mux`, `KANNA_MUX` | — | `kanna` (default) or `kmux` | kanna can drive a kmux too |
 | Exit 6 | — | the command needs Kanna.app, which isn't attached and wasn't started | terminals work without the app; layout commands don't ([4.7](#47-the-layout)) |
@@ -832,7 +834,7 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 ### 4.17 Agent Status
 
-**[Proposed]** Working, needs you, idle or exited for agent panes, judged in the daemon from the bottom of the screen, the title and progress by per-agent rules kept as data and hot-loaded from a rules site, so an agent's new release needs no new Kanna. Its own spec: [specs/agent-status.md](specs/agent-status.md).
+**[Built]** Working, needs you, idle or exited for agent panes, judged in the daemon from the bottom of the screen, the title and progress by per-agent rules kept as data and hot-loaded from a rules site, so an agent's new release needs no new Kanna. Its own spec: [specs/agent-status.md](specs/agent-status.md). In the daemon: `crates/kanna-detect` (the rules, their sources and the foreground program, from v3's `kanna3-detect`), `crates/kanna-daemon/src/status.rs` (one thread judging settled screens) and the `status` command; rule files and the corpus in `agent-rules/`. Checked by `cargo test -p kanna-detect` (the corpus and the rule store), `crates/kanna-daemon/tests/status.rs` and S40.
 
 ---
 
