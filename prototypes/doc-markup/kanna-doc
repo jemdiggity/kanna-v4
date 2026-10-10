@@ -403,7 +403,6 @@ def ensure_server():
 
 class Handler(BaseHTTPRequestHandler):
     token = ""
-    roots = set()
 
     def log_message(self, fmt, *a):
         pass
@@ -431,37 +430,24 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {"error": f"not a markdown file or a page: {f}"})
             return None
         if p.suffix.lower() in PAGES:
-            Handler.roots.add(repo_root(p).resolve())
+            PageHandler.roots.add(repo_root(p).resolve())
         return p
-
-    def raw(self, rest):
-        token, _, path = rest.partition("/")
-        if not secrets.compare_digest(token, self.token):
-            return self.reply(403, {"error": "bad token"})
-        target = Path("/" + urllib.parse.unquote(path)).resolve()
-        inside = [r for r in Handler.roots if r in target.parents]
-        hidden = any(part.startswith(".") for part in target.relative_to(inside[0]).parts) if inside else True
-        if hidden or target.suffix.lower() not in RAW or not target.is_file():
-            return self.reply(404, {"error": "not found"})
-        return self.reply(200, target.read_bytes(), mimetypes.guess_type(str(target))[0] or "application/octet-stream")
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         if u.path == "/ping":
             return self.reply(200, b"pong" if secrets.compare_digest(q.get("token", [""])[0], self.token) else b"no", "text/plain")
-        if u.path.startswith("/raw/"):
-            return self.raw(u.path[len("/raw/"):])
         p = self.guard(q)
         if p is None:
             return
         if u.path == "/":
             nonce = secrets.token_urlsafe(16)
-            self.csp = f"default-src 'self'; script-src 'nonce-{nonce}' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+            self.csp = f"default-src 'self'; frame-src {PageHandler.origin}/; script-src 'nonce-{nonce}' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
             return self.reply(200, PAGE.read_text().replace("__NONCE__", nonce).encode(), "text/html")
         if u.path == "/api/doc":
             doc = read_doc(p)
-            return self.reply(200, {"file": str(p), "rel": rel_name(p), "kind": "page" if p.suffix.lower() in PAGES else "doc",
+            return self.reply(200, {"file": str(p), "rel": rel_name(p), "kind": "page" if p.suffix.lower() in PAGES else "doc", "pages": f"{PageHandler.origin}/{PageHandler.token}",
                                     "source": "" if p.suffix.lower() in PAGES else p.read_text(errors="replace"),
                                     "mtime": p.stat().st_mtime, "agent": doc.get("agent"), "threads": doc["threads"]})
         if u.path == "/asset":
@@ -495,10 +481,47 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(404, {"error": "not found"})
 
 
+class PageHandler(Handler):
+    token = ""
+    origin = ""
+    parent = ""
+    roots = set()
+    frame_js = Path(__file__).resolve().parent / "frame.js"
+    tools = ('<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" '
+             'integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>')
+
+    def do_GET(self):
+        self.csp = f"frame-ancestors {PageHandler.parent}"
+        token, _, path = urllib.parse.urlparse(self.path).path.lstrip("/").partition("/")
+        if not secrets.compare_digest(token, self.token):
+            return self.reply(403, {"error": "bad token"})
+        if path == "__kanna__/frame.js":
+            return self.reply(200, self.frame_js.read_bytes(), "text/javascript")
+        target = Path("/" + urllib.parse.unquote(path)).resolve()
+        inside = [r for r in PageHandler.roots if r in target.parents]
+        hidden = any(part.startswith(".") for part in target.relative_to(inside[0]).parts) if inside else True
+        if hidden or target.suffix.lower() not in RAW or not target.is_file():
+            return self.reply(404, {"error": "not found"})
+        data = target.read_bytes()
+        if target.suffix.lower() in PAGES:
+            inject = (self.tools + f'<script src="/{self.token}/__kanna__/frame.js" data-parent="{PageHandler.parent}"></script>').encode()
+            at = re.search(rb"<head[^>]*>", data, re.I) or re.search(rb"<!doctype[^>]*>", data, re.I)
+            data = data[: at.end()] + inject + data[at.end():] if at else inject + data
+        return self.reply(200, data, mimetypes.guess_type(str(target))[0] or "application/octet-stream")
+
+    def do_POST(self):
+        self.reply(405, {"error": "read only"})
+
+
 def cmd_serve(args):
     token = secrets.token_hex(12)
     Handler.token = token
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    pages = ThreadingHTTPServer(("127.0.0.1", 0), PageHandler)
+    PageHandler.token = secrets.token_hex(12)
+    PageHandler.origin = f"http://127.0.0.1:{pages.server_address[1]}"
+    PageHandler.parent = f"http://127.0.0.1:{server.server_address[1]}"
+    threading.Thread(target=pages.serve_forever, daemon=True).start()
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(STATE, 0o700)
     fd = os.open(SERVER_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

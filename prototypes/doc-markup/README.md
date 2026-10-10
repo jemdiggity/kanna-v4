@@ -33,6 +33,7 @@ ln -s "$PWD/prototypes/doc-markup/kanna-doc" ~/.local/bin/kanna-doc
 ## What it is
 
 - `kanna-doc`: the CLI (`open`, `comments`, `show`, `reply`, `resolve`, `reopen`, `comment`) and the server (`serve`, started by `open` when none is running). Python 3, standard library only.
+- `frame.js`: added to an HTML page so the doc pane can pick parts of it, box them and screenshot it.
 - `page.html`: the doc pane. Markdown and mermaid render as in Kanna's markdown pane; comments are highlighted in place and listed beside it; it reloads when the file or the threads change.
 - Threads: `<repo>/.kanna/docs/<path>.json`; an image comment's marked-up copy goes in `<repo>/.kanna/docs/marks/`. The agent is the pane `open` ran in (`$KANNA_PANE`), and `$KANNA_SOCKET` picks the Kanna.
 - `fixture/`: a doc and its threads that the model and Kanna's native pane (e2e S37) are both screenshotted with, to compare how they render.
@@ -48,6 +49,6 @@ ln -s "$PWD/prototypes/doc-markup/kanna-doc" ~/.local/bin/kanna-doc
 
 ## Safety
 
-The server listens on 127.0.0.1 only and every request needs the token in the URL. It serves only `.md` and `.html` files, and images inside the doc's repo; an open HTML page may also load files beside it from its repo (not from dot-folders). Rendered markdown is sanitised (DOMPurify) and the page's Content-Security-Policy allows only its own script and the three pinned libraries, so a doc can't run script, which could otherwise post comments and so type into the agent's terminal.
+The server listens on 127.0.0.1 only and every request needs the token in the URL. It serves only `.md` files, and images inside the doc's repo. Rendered markdown is sanitised (DOMPurify) and the page's Content-Security-Policy allows only its own script and the three pinned libraries, so a doc can't run script, which could otherwise post comments and so type into the agent's terminal.
 
-An HTML page is different: it runs its own script, on the same origin as the comment pane, so it could post comments. Open only pages you trust, such as your repo's mockups. Kanna's web pane would keep its comment code in a separate script world that the page can't reach.
+An HTML page runs its own script, so it's served by a second, read-only server on another port, with its own token: another origin, which can't read the comment pane, call its API or learn its token. That server serves only files of a kind a page loads (html, css, js, images, fonts, json) inside the repo of a page that's been opened, never from dot-folders, and only into the comment pane (`frame-ancestors`). The comment pane works the page through `frame.js`, which the server adds to it, by `postMessage` only. The page can still lie to `frame.js` (say it's somewhere it isn't, or hand back a made-up screenshot), but it can't post a comment; only you can. Kanna's web pane would use a separate script world (`WKContentWorld`) and its own screenshot.

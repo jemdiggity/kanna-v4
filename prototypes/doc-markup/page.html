@@ -7,7 +7,6 @@
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js" integrity="sha384-WmdflGW9aGfoBdHc4rRyWzYuAjEmDwMdGdiPNacbwfGKxBW/SO6guzuQ76qjnSlr" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
 <style>
 :root {
   --bg: #ffffff; --bar: #f4f4f6; --panel: #f7f7f9; --card: #ffffff; --line: #dedfe3; --edge: #c9cbd1;
@@ -235,80 +234,71 @@ function locate(idx, t) {
 
 const isPage = () => state.kind === "page";
 const frame = () => document.getElementById("frame");
-const frameWin = () => frame()?.contentWindow;
-const frameDoc = () => { try { return frame()?.contentDocument || null; } catch { return null; } };
-const pageHash = () => (frameWin()?.location.hash || "").slice(0, 100);
+const pageOrigin = () => new URL(state.pages).origin;
+const page = { info: { hash: "", scroll: [0, 0], viewport: [0, 0] }, boxes: {}, seq: 0, waiting: {}, hoverSeq: 0 };
+const pageHash = () => page.info.hash;
+
+function ask(msg) {
+  const w = frame()?.contentWindow;
+  if (!w) return Promise.resolve({});
+  const seq = ++page.seq;
+  return new Promise(done => {
+    page.waiting[seq] = done;
+    setTimeout(() => { if (page.waiting[seq]) { delete page.waiting[seq]; done({}); } }, 4000);
+    w.postMessage({ ...msg, seq }, pageOrigin());
+  });
+}
+addEventListener("message", e => {
+  if (!isPage() || e.source !== frame()?.contentWindow || e.origin !== pageOrigin() || !e.data || typeof e.data !== "object") return;
+  const m = e.data;
+  if (m.seq && page.waiting[m.seq]) { const done = page.waiting[m.seq]; delete page.waiting[m.seq]; done(m); return; }
+  if (m.kind === "key") {
+    document.body.classList.toggle("meta", !!m.meta);
+    if (!m.meta) document.querySelectorAll(".imark.hover").forEach(h => h.remove());
+    if (m.key === "Escape" && state.composer) { closeComposer(); anchorAll(); }
+  }
+  if (m.kind === "ready" || m.kind === "changed") {
+    const was = page.info.hash;
+    if (m.kind === "ready" && page.restore) { const [x, y] = page.restore; page.restore = null; ask({ kind: "scroll", x, y }); }
+    if (m.info && was !== m.info.hash) closePop();
+    refreshPage();
+  }
+});
 
 function renderPage() {
   const reader = document.getElementById("reader");
   reader.classList.add("page");
-  const src = "/raw/" + token + file.split("/").map(encodeURIComponent).join("/");
   let f = frame();
   if (f) {
-    const keep = [frameWin().scrollX, frameWin().scrollY];
-    f.onload = () => { watchFrame(); frameWin().scrollTo(keep[0], keep[1]); anchorAll(); };
-    frameWin().location.reload();
+    page.restore = page.info.scroll;
+    f.src = page.base + "?r=" + Date.now() + page.info.hash;
     return;
   }
   f = document.createElement("iframe");
   f.id = "frame";
-  f.onload = () => { watchFrame(); anchorAll(); };
-  f.src = src + location.hash;
+  page.base = state.pages + file.split("/").map(encodeURIComponent).join("/");
+  f.src = page.base + location.hash;
   const shield = document.createElement("div");
   shield.id = "shield";
   reader.append(f, shield);
   shield.addEventListener("mousemove", hoverPage);
-  shield.addEventListener("mouseleave", () => document.querySelectorAll(".imark.hover").forEach(m => m.remove()));
+  shield.addEventListener("mouseleave", () => { page.hoverSeq++; document.querySelectorAll(".imark.hover").forEach(m => m.remove()); });
   shield.addEventListener("mousedown", pickPage);
 }
-function watchFrame() {
-  const w = frameWin();
-  const meta = e => { document.body.classList.toggle("meta", e.metaKey); if (!e.metaKey) document.querySelectorAll(".imark.hover").forEach(m => m.remove()); };
-  w.addEventListener("keydown", meta);
-  w.addEventListener("keyup", meta);
-  w.addEventListener("keydown", e => { if (e.key === "Escape" && state.composer) { closeComposer(); anchorAll(); } });
-  w.addEventListener("scroll", drawPageMarks, { passive: true });
-  w.addEventListener("resize", drawPageMarks);
-  w.addEventListener("hashchange", () => { closePop(); anchorAll(); });
+async function refreshPage() {
+  const items = state.threads.filter(t => t.page).map(t => ({ id: t.id, selector: t.page.selector, text: t.page.text, box: t.page.box }));
+  const r = await ask({ kind: "locate", items });
+  if (r.info) page.info = r.info;
+  page.boxes = r.boxes || {};
+  drawPageMarks();
+  renderThreads();
 }
-function selectorOf(el) {
-  const parts = [];
-  for (let n = el; n && n.nodeType === 1 && n.localName !== "html"; n = n.parentElement) {
-    if (n.id && /^[A-Za-z][\w-]*$/.test(n.id)) { parts.unshift("#" + n.id); break; }
-    let part = n.localName;
-    const same = n.parentElement ? [...n.parentElement.children].filter(c => c.localName === n.localName) : [];
-    if (same.length > 1) part += `:nth-of-type(${same.indexOf(n) + 1})`;
-    parts.unshift(part);
-  }
-  return parts.join(" > ");
-}
-function elementAt(cx, cy) {
-  const d = frameDoc();
-  if (!d) return null;
-  const el = d.elementFromPoint(cx, cy);
-  return el && el !== d.documentElement && el !== d.body ? el : null;
-}
+function onPage(t) { return t.page && (t.page.hash || "") === pageHash(); }
+function pageBox(t) { return page.boxes[t.id] || null; }
 function frameXY(e) {
   const r = frame().getBoundingClientRect();
   return [e.clientX - r.left, e.clientY - r.top];
 }
-function pageBox(t) {
-  const d = frameDoc(), w = frameWin();
-  if (!d) return null;
-  const p = t.page;
-  if (p.selector) {
-    let el = null;
-    try { el = d.querySelector(p.selector); } catch {}
-    const text = el ? (el.innerText || "").replace(/\s+/g, " ").trim() : "";
-    if (el && (!p.text || text.startsWith(p.text.replace(/…$/, "")))) {
-      const r = el.getBoundingClientRect();
-      if (r.width || r.height) return { left: r.left, top: r.top, width: r.width, height: r.height };
-    }
-  }
-  const [x, y, bw, bh] = p.box;
-  return { left: x - w.scrollX, top: y - w.scrollY, width: bw, height: bh };
-}
-function onPage(t) { return t.page && (t.page.hash || "") === pageHash(); }
 function drawPageMarks() {
   const reader = document.getElementById("reader");
   reader.querySelectorAll(".imark:not(.draft):not(.hover)").forEach(m => m.remove());
@@ -324,14 +314,16 @@ function drawPageMarks() {
     reader.appendChild(m);
   }
 }
-function hoverPage(e) {
+async function hoverPage(e) {
+  const seq = ++page.hoverSeq;
+  const [x, y] = frameXY(e);
+  const { hit } = await ask({ kind: "hit", x, y });
+  if (seq !== page.hoverSeq || !document.body.classList.contains("meta")) return;
   const reader = document.getElementById("reader");
   let m = reader.querySelector(".imark.hover");
-  const el = elementAt(...frameXY(e));
-  if (!el) { m?.remove(); return; }
+  if (!hit) { m?.remove(); return; }
   if (!m) { m = document.createElement("div"); m.className = "imark hover"; reader.appendChild(m); }
-  const r = el.getBoundingClientRect();
-  placeBox(m, { left: r.left, top: r.top, width: r.width, height: r.height });
+  placeBox(m, hit.rect);
 }
 function pickPage(e) {
   if (e.button !== 0) return;
@@ -349,47 +341,39 @@ function pickPage(e) {
     drag = Math.abs(x - sx) < 6 && Math.abs(y - sy) < 6 ? null : { left: Math.min(sx, x), top: Math.min(sy, y), width: Math.abs(x - sx), height: Math.abs(y - sy) };
     if (drag) placeBox(draft, drag);
   };
-  const up = m => {
+  const up = async m => {
     removeEventListener("mousemove", move);
     removeEventListener("mouseup", up);
     move(m);
+    page.hoverSeq++;
     reader.querySelectorAll(".imark.hover").forEach(h => h.remove());
-    const el = drag ? null : elementAt(sx, sy);
-    if (!drag && !el) { draft.remove(); return; }
-    const r = el ? el.getBoundingClientRect() : null;
-    const box = drag || { left: r.left, top: r.top, width: r.width, height: r.height };
+    const hit = drag ? null : (await ask({ kind: "hit", x: sx, y: sy })).hit;
+    if (!drag && !hit) { draft.remove(); return; }
+    const box = drag || hit.rect;
     placeBox(draft, box);
-    openPageComposer(el, box, draft);
+    openPageComposer(hit, box, draft);
   };
   addEventListener("mousemove", move);
   addEventListener("mouseup", up);
 }
-function openPageComposer(el, box, draft) {
-  const w = frameWin();
-  const text = el ? (el.innerText || el.getAttribute("aria-label") || el.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 120) : "";
-  const page = {
-    selector: el ? selectorOf(el) : "", text, hash: pageHash(),
-    box: [box.left + w.scrollX, box.top + w.scrollY, box.width, box.height].map(Math.round),
-    viewport: [w.innerWidth, w.innerHeight], scroll: [Math.round(w.scrollX), Math.round(w.scrollY)],
+async function openPageComposer(hit, box, draft) {
+  const { info } = await ask({ kind: "info" });
+  if (info) page.info = info;
+  const [sx, sy] = page.info.scroll;
+  const text = hit ? String(hit.text || "").slice(0, 120) : "";
+  const p = {
+    selector: hit ? String(hit.selector || "").slice(0, 200) : "", text, hash: page.info.hash,
+    box: [box.left + sx, box.top + sy, box.width, box.height].map(Math.round),
+    viewport: page.info.viewport, scroll: page.info.scroll,
   };
-  state.composer = { quote: text || page.selector || "a box", prefix: "", suffix: "", line: 1, page, frameBox: box };
+  state.composer = { quote: text || p.selector || "a box", prefix: "", suffix: "", line: 1, page: p, frameBox: box };
   draft.className = "imark on draft";
   const reader = document.getElementById("reader");
   reader.appendChild(draft);
   showComposer(box.left, Math.min(box.top + box.height, reader.clientHeight - 140));
 }
 async function pageSnapshot(box) {
-  const d = frameDoc(), w = frameWin();
-  if (!d || !window.html2canvas) return null;
-  try {
-    const c = await html2canvas(d.documentElement, { x: w.scrollX, y: w.scrollY, width: w.innerWidth, height: w.innerHeight, windowWidth: w.innerWidth, windowHeight: w.innerHeight, scrollX: -w.scrollX, scrollY: -w.scrollY, scale: Math.min(2, w.devicePixelRatio || 1), logging: false, useCORS: true });
-    const g = c.getContext("2d"), k = c.width / w.innerWidth;
-    const line = Math.max(3, Math.round(c.width / 400));
-    g.lineWidth = line;
-    g.strokeStyle = "#ff3b30";
-    g.strokeRect(box.left * k + line / 2, box.top * k + line / 2, box.width * k - line, box.height * k - line);
-    return c.toDataURL("image/png");
-  } catch { return null; }
+  return (await ask({ kind: "snapshot", box })).data || null;
 }
 
 function anchorAll() {
@@ -398,6 +382,7 @@ function anchorAll() {
     for (const t of state.threads) state.anchors[t.id] = t.page ? "page" : null;
     drawPageMarks();
     renderThreads();
+    refreshPage();
     return;
   }
   const idx = textIndex();
@@ -577,14 +562,13 @@ function reveal(id) {
   const span = state.anchors[id];
   if (!span) return;
   if (span === "page") {
-    const t = state.threads.find(x => x.id === id), w = frameWin();
-    if (!w) return;
-    if ((t.page.hash || "") !== pageHash()) w.location.hash = t.page.hash || "";
-    requestAnimationFrame(() => {
-      const b = pageBox(t);
-      if (b && (b.top < 0 || b.top + b.height > w.innerHeight)) w.scrollBy({ top: b.top - w.innerHeight / 3, behavior: "smooth" });
-      anchorAll();
-    });
+    const t = state.threads.find(x => x.id === id);
+    (async () => {
+      if ((t.page.hash || "") !== pageHash()) await ask({ kind: "hash", hash: t.page.hash || "" });
+      await refreshPage();
+      const b = pageBox(t), [, h] = page.info.viewport, [x, y] = page.info.scroll;
+      if (b && (b.top < 0 || b.top + b.height > h)) { await ask({ kind: "scroll", x, y: Math.max(0, y + b.top - h / 3) }); await refreshPage(); }
+    })();
     return;
   }
   if (span === "image") {
@@ -802,6 +786,7 @@ async function poll() {
   agent.classList.toggle("warn", !d.agent);
   state.agent = d.agent;
   state.kind = d.kind || "doc";
+  state.pages = d.pages;
   document.getElementById("commentBtn").hidden = isPage();
   const key = JSON.stringify(d.threads);
   const changedDoc = d.mtime !== state.mtime;
