@@ -138,6 +138,7 @@ extension AppController {
             reply["active"] = markup.activeThread.map { .string($0) } ?? .null
             reply["agent"] = markup.agent.map { .string($0) } ?? .null
             reply["hash"] = .string(markup.pageHash)
+            reply["comment_at"] = point(markup.commentButton)
             return reply
         }
         commands["debug.md"] = { [weak self] args in

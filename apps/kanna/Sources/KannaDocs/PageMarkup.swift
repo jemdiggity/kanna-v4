@@ -67,7 +67,8 @@ public final class PageMarkupView: NSView {
         addSubview(bar)
         addSubview(panel)
         bar.path.stringValue = store.relativeName
-        bar.showsComment = false
+        bar.comment.toolTip = "Select text, then ⌘↵. Or ⌘-click a part of the page, or ⌘-drag a box."
+        bar.comment.onPress = { [weak self] in self?.commentOnSelection() }
         bar.threads.onPress = { [weak self] in self?.toggleThreads() }
         panel.emptyText = "No comments yet. Select text and press ⌘↵, ⌘-click a part of the page, or ⌘-drag a box."
         panel.onSelect = { [weak self] id in self?.reveal(id) }
@@ -158,6 +159,7 @@ public final class PageMarkupView: NSView {
         Dictionary(uniqueKeysWithValues: overlay.marks.compactMap { mark in mark.thread.map { ($0, overlay.convert(mark.frame, to: self)) } })
     }
     public var pageHash: String { pageHashValue }
+    public var commentButton: NSRect { bar.comment.convert(bar.comment.bounds, to: self) }
 
     public func rect(of selector: String) async -> NSRect? {
         Self.rect(await call("return kannaMarkup.rectOf(selector)", ["selector": selector])).map { overlay.convert($0, to: self) }

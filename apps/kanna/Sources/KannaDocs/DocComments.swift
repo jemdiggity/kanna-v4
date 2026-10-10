@@ -105,7 +105,6 @@ package final class DocBar: FlippedView {
     package let agent = Chip("")
     package let comment = Chip("Comment ⌘↵")
     package let threads = Chip("Threads")
-    package var showsComment = true { didSet { comment.isHidden = !showsComment; needsLayout = true } }
 
     package init() {
         super.init(frame: .zero)
@@ -123,7 +122,7 @@ package final class DocBar: FlippedView {
     package override func layout() {
         super.layout()
         var x = bounds.width - 10
-        for chip in [threads, comment, agent] where !chip.isHidden {
+        for chip in [threads, comment, agent] {
             x -= chip.frame.width
             chip.frame.origin = NSPoint(x: x, y: 6)
             x -= 10
