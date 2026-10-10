@@ -35,6 +35,8 @@ Needs `claude` and `codex` on `PATH`, Python 3.9+, and permission to open a pty 
 - `out/<dir>/mock-requests.jsonl`: every request the agents made to the mock.
 - `out/<dir>/runs/<name>/`: the run's HOME, working folder and script.
 
+Codex starts a detached `codex app-server --managed-daemon` from its CODEX_HOME that outlives the TUI; `run.py` stops any process running from the run's HOME when the run ends.
+
 `signals.py` reads recordings and lists, with time and phase, every BEL, OSC 0/1/2 (title), OSC 9 (notification), OSC 9;4 (progress), OSC 777 (notification), OSC 99, OSC 1337 and focus-reporting request. `--no-titles` leaves titles out; `--json` prints them as JSON; `--text N` prints the last N characters of the screen text instead.
 
 ## Files

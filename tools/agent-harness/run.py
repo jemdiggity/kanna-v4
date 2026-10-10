@@ -2,6 +2,9 @@
 import argparse
 import itertools
 import json
+import os
+import signal
+import time
 import shutil
 import subprocess
 import sys
@@ -106,6 +109,18 @@ def script(agent, focus):
     ]
 
 
+def stop_leftovers(home):
+    listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+    pids = [int(line.split(None, 1)[0]) for line in listing.splitlines() if str(home) + "/" in line]
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+        time.sleep(2)
+
+
 def run_one(out, port, agent, terminal, setting, focus):
     name = f"{agent}-{terminal}-{setting}-{focus}"
     base = out / "runs" / name
@@ -117,6 +132,7 @@ def run_one(out, port, agent, terminal, setting, focus):
     script_path.write_text(json.dumps(script(agent, focus), indent=2))
     rec = out / f"{name}.jsonl"
     subprocess.run([sys.executable, str(ROOT / "record.py"), "--argv", json.dumps(argv), "--cwd", str(work), "--env", json.dumps(env), "--script", str(script_path), "--out", str(rec), "--version", GHOSTTY_VERSION.split("-")[0]], check=False)
+    stop_leftovers(base / "home")
     return rec
 
 
