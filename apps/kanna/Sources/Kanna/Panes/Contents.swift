@@ -36,6 +36,7 @@ final class Contents {
     private(set) var states: [String: String] = [:]
     var onUpdate: ((String, [String: JSON]) -> Void)?
     var onRequest: ((String, [String: JSON]) -> Void)?
+    var onCall: ((String, [String: JSON], @escaping (JSON) -> Void) -> Void)?
     var onFocus: ((String) -> Void)?
     var contextMenu: (() -> NSMenu?)?
     private var markdownSpots: [String: [String: (y: CGFloat, zoom: CGFloat)]] = [:]
@@ -55,6 +56,17 @@ final class Contents {
     func ios(_ id: String) -> IosPaneView? { slots[id]?.content as? IosPaneView }
     func markdown(_ id: String) -> MarkdownPaneView? { slots[id]?.content as? MarkdownPaneView }
     func keyView(_ id: String) -> NSView? { web(id)?.webView ?? ios(id) ?? markdown(id)?.keyView }
+
+    private func send(_ text: String, to agent: String, done: @escaping (String?) -> Void) {
+        guard let onCall else { return done("not connected to the daemon") }
+        onCall("send", ["pane": .string(agent), "text": .string("\u{1b}[200~" + text + "\u{1b}[201~")]) { answer in
+            guard answer["ok"]?.bool == true else { return done(answer["error"]?["message"]?.string ?? "send failed") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                onCall("send", ["pane": .string(agent), "text": .string("")]) { _ in }
+                done(nil)
+            }
+        }
+    }
 
     private func report(_ id: String, _ fields: [String: JSON]) {
         if let state = fields["state"]?.string { states[id] = state }
@@ -84,6 +96,8 @@ final class Contents {
                     self?.onUpdate?(id, ["zoom": .number(Double(markdown.zoom))])
                 }
                 markdown.onFocus = { [weak self] in self?.onFocus?(id) }
+                markdown.agent = pane["agent"]?.string
+                markdown.onSend = { [weak self] agent, text, done in self?.send(text, to: agent, done: done) }
                 markdown.contextMenu = { [weak self] in self?.contextMenu?() }
                 markdown.onOpenMarkdown = { [weak self] target in self?.onRequest?("navigate", ["pane": .string(id), "path": .string(target)]) }
                 content = markdown

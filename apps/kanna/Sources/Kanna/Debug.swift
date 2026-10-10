@@ -8,8 +8,13 @@ extension AppController {
             guard let self else { throw KannaError("app_gone", "Kanna.app is closing") }
             return try self.terminal(id)
         }
-        commands["debug.app"] = { [weak self] _ in
+        commands["debug.app"] = { [weak self] args in
             guard let self else { return [:] }
+            switch args["appearance"]?.string {
+            case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+            case "light": NSApp.appearance = NSAppearance(named: .aqua)
+            default: break
+            }
             var reply: [String: JSON] = [
                 "app": "kanna", "pid": .number(Double(ProcessInfo.processInfo.processIdentifier)),
                 "bundle": .string(Bundle.main.bundleIdentifier ?? ""),
@@ -26,6 +31,14 @@ extension AppController {
         }
         commands["debug.type"] = { [weak self] args in
             guard let self else { return [:] }
+            if args["focused"]?.bool == true {
+                guard let text = args["text"]?.string, let window = state["key"]?.string.flatMap({ controllers[$0]?.window }) else {
+                    throw KannaError("bad_request", "debug.type needs text and a key window")
+                }
+                let events = SyntheticKey.typing(text, window: window)
+                for event in events { window.sendEvent(event) }
+                return ["keys": .number(Double(events.count / 2)), "responder": .string(window.firstResponder.map { String(describing: type(of: $0)) } ?? "")]
+            }
             let view = try terminal(args["pane"]?.string)
             guard let text = args["text"]?.string, let window = view.window else { throw KannaError("bad_request", "debug.type needs text") }
             if window.firstResponder !== view { window.makeFirstResponder(view) }
@@ -101,10 +114,24 @@ extension AppController {
         commands["debug.md"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let markdown = contents.markdown(id) else { throw KannaError("wrong_type", "not a running md pane") }
             if let y = args["scroll"]?.number { markdown.scroll(toY: CGFloat(y)) }
+            if case .array(let pick)? = args["select"], pick.count == 2, let at = pick[0].number, let length = pick[1].number {
+                markdown.select(NSRange(location: Int(at), length: Int(length)))
+            }
+            if let id = args["mark"]?.string {
+                guard let rect = markdown.markRect(id) else { throw KannaError("not_found", "no mark for \(id)") }
+                return ["x": .number(Double(rect.midX)), "y": .number(Double(markdown.bounds.height - rect.midY))]
+            }
+            let threads: [JSON] = markdown.threads.map { thread in
+                ["id": .string(thread.id), "quote": .string(thread.quote), "line": .number(Double(thread.line)), "state": .string(thread.state),
+                 "status": thread.status.map { .string($0) } ?? .null, "error": thread.error.map { .string($0) } ?? .null,
+                 "messages": .array(thread.messages.map { .string("\($0.who): \($0.text)") })]
+            }
             let diagrams: [JSON] = markdown.drawnDiagrams.map { ["type": .string($0.type), "labels": .array($0.labels.map { .string($0) })] }
             return ["text": .string(markdown.text), "zoom": .number(Double(markdown.zoom)), "diagrams": .array(diagrams),
                     "render_ms": .number(markdown.renderMs), "parse_ms": .number(markdown.parseMs), "scroll": .number(Double(markdown.scrollTop)),
-                    "layout_width": .number(Double(markdown.layoutWidth))]
+                    "layout_width": .number(Double(markdown.layoutWidth)), "threads": .array(threads),
+                    "box": markdown.commentBoxThread.map { .string($0) } ?? .null, "box_text": markdown.commentBoxText.map { .string($0) } ?? .null,
+                    "active": markdown.activeThread.map { .string($0) } ?? .null, "agent": markdown.agent.map { .string($0) } ?? .null]
         }
         commands["debug.ios"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let screen = contents.ios(id)?.screen else { throw KannaError("wrong_type", "not a running ios pane") }
@@ -198,7 +225,8 @@ extension AppController {
         }
         for count in 1...max(1, Int(args["clicks"]?.number ?? 1)) {
             func event(_ type: NSEvent.EventType) -> NSEvent? {
-                NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                NSEvent.mouseEvent(with: type, location: point, modifierFlags: args["command"]?.bool == true ? [.command] : [],
+                                   timestamp: ProcessInfo.processInfo.systemUptime,
                                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1)
             }
             guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { continue }

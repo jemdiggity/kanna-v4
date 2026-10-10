@@ -107,6 +107,10 @@ final class AppController: NSObject, NSApplicationDelegate {
                 daemon?.update(pane, fields)
             }
             contents.onRequest = { [weak daemon] cmd, args in daemon?.request(cmd, args) }
+            contents.onCall = { [weak daemon] cmd, args, reply in
+                guard let daemon else { return reply(["ok": false, "error": ["message": "not connected to the daemon"]]) }
+                daemon.request(cmd, args) { answer in DispatchQueue.main.async { reply(answer) } }
+            }
             terminals = ExternalIOBackend(runtime: runtime, link: daemon)
             self.daemon = daemon
         }

@@ -405,6 +405,9 @@ fn parse_open(args: &mut Argv) -> Result<Value, Failure> {
     if kind == "md" {
         let file = args.positional().ok_or_else(|| usage("open", "markdown panes need a file: kanna open md FILE"))?;
         out.insert("path".into(), json!(absolute(&file)));
+        if let Some(agent) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
+            out.insert("agent".into(), json!(agent));
+        }
     }
     if kind == "ios" && !out.contains_key("app") {
         return Err(usage("open", "iOS panes need an app: kanna open ios --app MyApp.app (or a bundle ID)"));

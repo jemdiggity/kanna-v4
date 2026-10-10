@@ -1,0 +1,16 @@
+{
+  "file": "FILE",
+  "agent": null,
+  "socket": null,
+  "next": 4,
+  "threads": [
+    {"id": "c1", "quote": "typed into the agent that opened the doc", "prefix": "Reaching the agent\nA comment is ", "suffix": ", as kanna send would, the momen", "line": 7, "state": "open", "status": "replied",
+     "messages": [{"who": "you", "text": "Say what happens when the agent pane is closed.", "at": "2026-10-10T12:00:00"},
+                  {"who": "agent", "text": "Added: posting still saves the thread, and the toolbar says it wasn't sent.", "at": "2026-10-10T12:01:00"}], "error": null},
+    {"id": "c2", "quote": "Sent at once, never held.", "prefix": "", "suffix": "", "line": 8, "state": "resolved", "status": "replied",
+     "messages": [{"who": "you", "text": "Is this still true for Codex?", "at": "2026-10-10T12:02:00"},
+                  {"who": "agent", "text": "Yes: Codex queues input mid-turn too.", "at": "2026-10-10T12:03:00"}], "error": null},
+    {"id": "c3", "quote": "beside the terminals", "prefix": "", "suffix": "", "line": 13, "state": "open", "status": "unsent",
+     "messages": [{"who": "you", "text": "Name the crate.", "at": "2026-10-10T12:04:00"}], "error": "no agent"}
+  ]
+}

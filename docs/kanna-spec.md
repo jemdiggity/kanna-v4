@@ -470,7 +470,7 @@ A web, markdown or iOS pane is a view in the app and a record in its layout: a w
 | Message (app link) | From | What it says |
 |---|---|---|
 | `app.hello {pid, panes}` | app | `panes`: the app's web, markdown and iOS panes (records, with each view's `state`). The daemon takes each whose ID and name no terminal has (the others are dropped and logged), continues its pane counter past them, and lists them in the reply's `panes` with its terminals |
-| pane tables (`panes` in the hello reply and every `layout` step) | daemon | records now: `{id, name, type}` plus the state file's fields (`url`, `history`; `path`, `zoom`; `app`, `device`; `cmd`, `cwd` for terminals); the app's layout keeps and saves them |
+| pane tables (`panes` in the hello reply and every `layout` step) | daemon | records now: `{id, name, type}` plus the state file's fields (`url`, `history`; `path`, `zoom`, `agent` (the pane that ran `kanna open md`, where its comments go); `app`, `device`; `cmd`, `cwd` for terminals); the app's layout keeps and saves them |
 | `start {pane: record}` | daemon | show this pane (`open`, `restart`, `navigate`, `debug.restoreState`), replacing any view it had |
 | `stop {pane}` | daemon | the pane closed, or is about to start again |
 | `update {pane, state?, error?, url?, device?, zoom?}` | app | the view is `running` or `failed` (with `error`); the page moved (`url`, applied as kmux's page moves, history included); the simulator chosen (`device`); the markdown zoom |

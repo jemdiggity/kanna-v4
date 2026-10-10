@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-6]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-7]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -845,10 +845,63 @@ S36() {
   check wait_for 5 eval 'kanna read s36 | tr -d "\\n" | sed "s/IN //g" | grep -qF "^[200~S36 TEXT^[201~"'
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-6]) echo M4 ;; esac
+S37() {
+  start_daemon && start_app || return 1
+  kanna open --name agent --cmd "$(probe '\033[?2004h' x 0)" >/dev/null || return 1
+  check wait_for 5 shows agent READY || return 1
+  local dir="$KANNA_STATE_DIR/doc" fixture="$repo_root/prototypes/doc-markup/fixture" agent_id at xy
+  mkdir -p "$dir/.git" "$dir/.kanna/docs"
+  cp "$fixture/review.md" "$dir/review.md"
+  sed "s|FILE|$dir/review.md|" "$fixture/review.threads.json" >"$dir/.kanna/docs/review.md.json"
+  agent_id="$(pane agent id)"
+  KANNA_PANE="$agent_id" kanna open md --name doc --tab "$dir/review.md" >/dev/null || return 1
+  s37_md() { raw "{\"id\":1,\"cmd\":\"debug.md\",\"args\":{\"pane\":\"doc\"${1:-}}}"; }
+  s37_count() { s37_md | field threads | python3 -c 'import json, sys; print(len(json.load(sys.stdin)))'; }
+  s37_thread() { s37_md | field threads | python3 -c 'import json, sys
+t = [t for t in json.load(sys.stdin) if t["id"] == sys.argv[1]][0]
+v = t[sys.argv[2]]
+print(len(v) if isinstance(v, list) else v)' "$1" "$2"; }
+  s37_shot() { raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$1.png\"}}" >/dev/null; cp "$KANNA_STATE_DIR/$1.png" "$out/$1.png" 2>/dev/null; }
+  check wait_for 5 eval '[[ "$(s37_md | field agent)" == "$agent_id" ]]' || { echo "agent=$agent_id"; kanna list --json; s37_md; return 1; }
+  check test "$(s37_count)" == 3 || return 1
+  sleep 0.5; s37_shot s37-threads
+  at="$(s37_md | field text | python3 -c 'import sys; print(sys.stdin.read().index("SENDME"))')"
+  s37_md ",\"select\":[$at,6]" >/dev/null
+  key cmd+return; check test "$(s37_md | field box)" == new || return 1
+  sleep 0.3; s37_shot s37-composer
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Please fix"}}' >/dev/null
+  check test "$(s37_md | field box_text)" == "Please fix" || return 1
+  key cmd+return
+  check wait_for 5 eval '[[ "$(s37_thread c4 status)" == sent ]]' || { s37_md; return 1; }
+  check test "$(s37_thread c4 line)" == 22 || return 1
+  check wait_for 5 eval 'kanna read agent | sed "s/^IN //" | tr -d "\\n " | grep -qF "^[200~[kannacommentc4·review.md:22]>SENDMEPleasefix^[201~"' || { kanna read agent; return 1; }
+  xy="$(s37_md ',"mark":"c1"')"
+  raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"pane\":\"doc\",\"at\":[$(echo "$xy" | field x),$(echo "$xy" | field y)]}}" >/dev/null
+  check test "$(s37_md | field box)" == c1 || return 1
+  check test "$(s37_md | field active)" == c1 || return 1
+  sleep 0.3; s37_shot s37-thread
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Thanks"}}' >/dev/null
+  key return
+  check wait_for 5 eval '[[ "$(s37_thread c1 messages)" == 3 ]]' || return 1
+  check wait_for 5 eval 'kanna read agent | sed "s/^IN //" | tr -d "\\n " | grep -qF "Thanks^[201~"' || return 1
+  key escape; check test "$(s37_md | field box)" == None || return 1
+  xy="$(s37_md ',"mark":"c3"')"
+  raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"pane\":\"doc\",\"command\":true,\"at\":[$(echo "$xy" | field x),$(echo "$xy" | field y)]}}" >/dev/null
+  check test "$(s37_md | field box)" == new || return 1
+  key escape; check test "$(s37_md | field box)" == None || return 1
+  check test "$(s37_count)" == 4 || return 1
+  "$repo_root/prototypes/doc-markup/kanna-doc" reply c4 --doc "$dir/review.md" "Fixed the wording." >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(s37_thread c4 messages)" == 2 ]]' || return 1
+  "$repo_root/prototypes/doc-markup/kanna-doc" resolve c4 --doc "$dir/review.md" >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(s37_thread c4 state)" == resolved ]]' || return 1
+  raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
+  sleep 0.5; s37_shot s37-dark
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-7]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

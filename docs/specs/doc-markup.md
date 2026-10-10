@@ -42,6 +42,7 @@ General remarks that aren't about a passage go straight to the agent's chat, as 
 - **Threads live beside the file, not in it.** A thread has an ID (`c1`, `c2`, … per doc), the quoted passage, its messages, and whether it's open or resolved.
 - **Anchors follow the text.** A comment remembers its quote with some text either side. When the file changes (the agent, you in another editor, git), it finds the quote again; if it can't, the thread is kept and marked **detached**, never dropped.
 - **Resolved threads stay marked** in the doc, more faintly than open ones, and clicking the mark opens the thread to read or reopen it. The list beside the doc hides them until you ask; resolving can be undone.
+- **The thread list** sits on the pane's right; in a pane narrower than twice its width it hides until you press **Threads**.
 - **Not committed.** Threads are stored in `<repo>/.kanna/docs/`. Kanna doesn't commit them or change `.gitignore`; whether a team commits `.kanna/` is its own decision.
 
 ## 3. Reaching the agent
@@ -106,6 +107,7 @@ flowchart LR
 - **Sending** uses the daemon's existing `send`, wrapped as a bracketed paste so a multi-line comment arrives whole (plain `send` would submit it at its first newline). `kanna open md` passes the pane it runs in (`$KANNA_PANE`, which Kanna sets in every terminal), and the doc remembers it.
 - **The app** adds the thread panel, highlighting and the comment box to the existing markdown pane, and gets thread changes over the app link like any other pane update.
 - **Stored** in `<repo>/.kanna/docs/`, one file per doc, so threads survive restarts.
+- **Built so far:** the markdown pane has the native comment UI, matching the reference model (e2e S37 drives it and screenshots it). Until the daemon's doc store lands, the app reads and writes the reference model's files directly, so the prototype's `kanna-doc reply` and `resolve` (and the skill) work with it unchanged.
 
 ## 6. Glossary
 

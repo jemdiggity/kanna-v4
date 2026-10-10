@@ -5,6 +5,7 @@ import Markdown
 extension NSAttributedString.Key {
     static let kannaHeading = NSAttributedString.Key("kanna.heading")
     static let kannaBlock = NSAttributedString.Key("kanna.block")
+    static let kannaLine = NSAttributedString.Key("kanna.line")
 }
 
 final class BlockDecoration: NSObject {
@@ -88,6 +89,15 @@ struct MarkdownRenderer {
     }
 
     private mutating func block(_ markup: any Markup, _ context: Context, into out: NSMutableAttributedString) {
+        let start = out.length
+        defer {
+            if let line = markup.range?.lowerBound.line, out.length > start {
+                let added = NSRange(location: start, length: out.length - start)
+                out.enumerateAttribute(.kannaLine, in: added) { value, range, _ in
+                    if value == nil { out.addAttribute(.kannaLine, value: line, range: range) }
+                }
+            }
+        }
         switch markup {
         case let heading as Heading:
             let level = min(max(heading.level, 1), 6)

@@ -41,6 +41,9 @@ pub fn pane_record(pane: &Pane) -> Map {
         PaneType::Md => {
             out.insert("path".into(), opt(pane.path.as_deref()));
             out.insert("zoom".into(), num(pane.zoom.unwrap_or(1.0)));
+            if let Some(agent) = &pane.agent {
+                out.insert("agent".into(), Value::String(agent.clone()));
+            }
         }
         PaneType::Ios => {
             out.insert("app".into(), opt(pane.app.as_deref()));
@@ -72,6 +75,7 @@ pub fn read_record(item: &Value, id: &str, kind: PaneType) -> Pane {
         PaneType::Md => {
             pane.path = field("path");
             pane.zoom = item.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0);
+            pane.agent = field("agent");
             pane.history = Some(History::default());
         }
         PaneType::Ios => {

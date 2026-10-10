@@ -70,6 +70,7 @@ pub struct Pane {
     pub app: Option<String>,
     pub device: Option<String>,
     pub path: Option<String>,
+    pub agent: Option<String>,
     pub history: Option<History>,
     pub zoom: Option<f64>,
     pub session: Option<String>,
@@ -91,6 +92,7 @@ impl Pane {
             app: None,
             device: None,
             path: None,
+            agent: None,
             history: None,
             zoom: None,
             session: None,
@@ -129,6 +131,7 @@ impl Pane {
             }
             PaneType::Md => {
                 out.insert("path".into(), opt(self.path.as_deref()));
+                out.insert("agent".into(), opt(self.agent.as_deref()));
             }
         }
         if let Some(code) = self.exit_code {

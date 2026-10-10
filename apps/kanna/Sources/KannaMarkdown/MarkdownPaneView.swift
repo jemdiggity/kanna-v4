@@ -17,17 +17,34 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
     public private(set) var renderMs: Double = 0
     public private(set) var parseMs: Double = 0
 
-    private let scrollView = MarkdownScrollView()
-    private let textView: MarkdownTextView
-    private let layoutManager = MarkdownLayoutManager()
+    let scrollView = MarkdownScrollView()
+    let textView: MarkdownTextView
+    let layoutManager = MarkdownLayoutManager()
     private let diagrams = DiagramCache()
     private var document = Document(parsing: "")
     private var stamp: (Date, Int)?
     private var poll: Timer?
     private var magnifyObserver: NSObjectProtocol?
+    let bar = DocBar()
+    let panel = ThreadPanel()
+    let store: DocStore
+    var record: DocRecord
+    var storeStamp: Date?
+    var source = ""
+    var anchors: [String: NSRange] = [:]
+    var active: String?
+    var box: CommentBox?
+    var pending: (quote: String, prefix: String, suffix: String, line: Int, range: NSRange)?
+    var showThreads = true
+    var forcedThreads = false
+    public var agent: String? { didSet { agentChanged() } }
+    public var onSend: ((String, String, @escaping (String?) -> Void) -> Void)?
 
     public init(path: String, zoom: CGFloat = 1) {
         self.path = path
+        store = DocStore(file: path)
+        record = store.read()
+        storeStamp = store.stamp
         let storage = NSTextStorage()
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer(size: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude))
@@ -47,6 +64,9 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
         scrollView.magnification = zoom
         scrollView.backgroundColor = MarkdownTheme.background
         addSubview(scrollView)
+        addSubview(bar)
+        addSubview(panel)
+        setUpComments()
         textView.delegate = self
         scrollView.onSwipe = { [weak self] back in self?.onHistory?(back) }
         magnifyObserver = NotificationCenter.default.addObserver(forName: NSScrollView.didEndLiveMagnifyNotification, object: scrollView, queue: .main) { [weak self] _ in
@@ -87,12 +107,24 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
 
     public override func layout() {
         super.layout()
-        scrollView.frame = bounds
+        let barHeight: CGFloat = 34
+        let side = threadsVisible ? ThreadPanel.width : 0
+        bar.frame = NSRect(x: 0, y: bounds.height - barHeight, width: bounds.width, height: barHeight)
+        scrollView.frame = NSRect(x: 0, y: 0, width: max(0, bounds.width - side), height: max(0, bounds.height - barHeight))
+        panel.isHidden = side == 0
+        if bar.threads.on != (side > 0) { bar.threads.on = side > 0 }
+        panel.frame = NSRect(x: bounds.width - side, y: 0, width: side, height: max(0, bounds.height - barHeight))
         updateInset()
         if let y = startScrollY, bounds.height > 0 {
             startScrollY = nil
             scroll(toY: y)
         }
+    }
+
+    var threadsVisible: Bool { showThreads && (bounds.width >= ThreadPanel.width * 2 || forcedThreads) }
+
+    public override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(textView)
     }
 
     public override func otherMouseDown(with event: NSEvent) {
@@ -109,6 +141,7 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
         let size = NSSize(width: inset, height: 22)
         if textView.textContainerInset != size { textView.textContainerInset = size }
         textView.layoutWidth = width
+        textView.tail = (scrollView.contentSize.height * 0.4).rounded()
         if textView.frame.width != width { textView.frame.size.width = width }
     }
 
@@ -118,7 +151,8 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
     }
 
     private func reloadIfChanged() {
-        guard let now = fileStamp() else { return }
+        reloadThreadsIfChanged()
+        guard pending == nil, let now = fileStamp() else { return }
         if let stamp, stamp == now { return }
         load()
     }
@@ -126,6 +160,7 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
     private func load() {
         stamp = fileStamp()
         let text = FileManager.default.contents(atPath: path).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        source = text
         let start = Date()
         document = Document(parsing: text, options: [.disableSmartOpts])
         parseMs = Date().timeIntervalSince(start) * 1000
@@ -141,6 +176,7 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
         updateInset()
         textView.textStorage?.setAttributedString(text)
         if let position { restoreReadingPosition(position) }
+        refreshMarks()
         renderMs = Date().timeIntervalSince(start) * 1000
     }
 
@@ -306,11 +342,31 @@ private final class CenteringClipView: NSClipView {
 
 public final class MarkdownTextView: NSTextView {
     var onFocus: (() -> Void)?
+    var onCommandClick: ((NSPoint) -> Bool)?
+    var onPlainClick: ((NSPoint) -> Void)?
+    var onCommentKey: (() -> Bool)?
+
+    public override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if event.modifierFlags.contains(.command), onCommandClick?(point) == true { return }
+        super.mouseDown(with: event)
+        if selectedRange().length == 0 { onPlainClick?(point) }
+    }
+
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.keyCode == 36, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command, window?.firstResponder === self, onCommentKey?() == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
     var contextMenu: (() -> NSMenu?)?
     var layoutWidth: CGFloat = 0
+    var tail: CGFloat = 0
 
     public override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(NSSize(width: layoutWidth > 0 ? layoutWidth : newSize.width, height: newSize.height))
+        var height = newSize.height
+        if let manager = layoutManager, let container = textContainer {
+            height = max(height, ceil(manager.usedRect(for: container).height + textContainerInset.height * 2 + tail))
+        }
+        super.setFrameSize(NSSize(width: layoutWidth > 0 ? layoutWidth : newSize.width, height: height))
     }
 
     public override func becomeFirstResponder() -> Bool {
