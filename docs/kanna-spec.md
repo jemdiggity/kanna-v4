@@ -29,6 +29,7 @@
    - 4.15 [Desk](#415-desk)
    - 4.16 [Docked Pane](#416-docked-pane)
    - 4.17 [Agent Status](#417-agent-status)
+   - 4.18 [Tab Completion](#418-tab-completion)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -645,6 +646,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 | `status explain PANE`, `status explain --file SCREEN --agent AGENT`, `status update`; `list`'s STATUS column and `status` field | — | agent status ([4.17](#417-agent-status)); the column shows only when a pane has a status, so a kmux reply prints as kmux prints it | the daemon judges agent panes; `capabilities` lists `status` |
 | `--` | — (`--json` is taken from anywhere, so it can't be typed) | ends the options: `kanna send p1 -- --json` | text that looks like an option |
 | `--mux`, `KANNA_MUX` | — | `kanna` (default) or `kmux` | kanna can drive a kmux too |
+| `completions zsh\|bash`, `__complete` | — | tab completion from the command table, with live pane, tab and window names ([4.18](#418-tab-completion)) | the CLI is how you drive Kanna from a terminal |
 | Exit 6 | — | the command needs Kanna.app, which isn't attached and wasn't started | terminals work without the app; layout commands don't ([4.7](#47-the-layout)) |
 | Starting | starts the kmux app | starts Kanna.app (`$KANNA_APP` or `dev.kanna.app.dev`, never the branded `dev.kanna.kanna`), which starts the daemon; never with `KANNA_SOCKET` set | the app starts the daemon ([4.5](#45-the-app-link)) |
 | The app closed | (the app is kmux) | `open` prints "opened p3 (logs), unplaced until Kanna.app opens"; `list` lists the terminals under "no windows: Kanna.app isn't open" | the terminals still run |
@@ -835,6 +837,11 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 ### 4.17 Agent Status
 
 **[Built]** Working, needs you, idle or exited for agent panes, judged in the daemon from the bottom of the screen, the title and progress by per-agent rules kept as data and hot-loaded from a rules site, so an agent's new release needs no new Kanna. Its own spec: [specs/agent-status.md](specs/agent-status.md). In the daemon: `crates/kanna-detect` (the rules, their sources and the foreground program, from v3's `kanna3-detect`), `crates/kanna-daemon/src/status.rs` (one thread judging settled screens) and the `status` command; rule files and the corpus in `agent-rules/`. Checked by `cargo test -p kanna-detect` (the corpus and the rule store), `crates/kanna-daemon/tests/status.rs` and S40.
+
+
+### 4.18 Tab Completion
+
+**[Built]** Tab completes every `kanna` command, option and value in zsh and bash: pane names and IDs, tabs and windows from the running Kanna (never starting one), and only the files a command takes. Generated from the CLI's command table, so a new command or option completes with no extra work. Its own spec: [specs/tab-completion.md](specs/tab-completion.md). In `crates/kanna/src/complete.rs` with the shell scripts beside it; checked by its unit tests and S41.
 
 ---
 

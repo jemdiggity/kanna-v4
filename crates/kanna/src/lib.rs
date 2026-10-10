@@ -1,5 +1,6 @@
 pub mod args;
 pub mod commands;
+pub mod complete;
 pub mod output;
 pub mod target;
 
@@ -20,6 +21,14 @@ pub fn main() -> std::process::ExitCode {
 }
 
 pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
+    if args.first().is_some_and(|a| a == "__complete") {
+        let start = if args.get(1).is_some_and(|a| a == "--") { 2 } else { 1 };
+        let words = if args.len() > start { args[start..].to_vec() } else { vec![String::new()] };
+        for line in complete::lines(&complete::wants(&words), &words, env) {
+            println!("{line}");
+        }
+        return Ok(());
+    }
     let mut args = Argv::new(args);
     let json_output = args.flag("--json");
     let wants_help = args.flag("--help") || args.flag("-h");
@@ -46,6 +55,7 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
                 None => println!("{}", overview(&target)),
                 Some(topic) if topic == "instances" => println!("{INSTANCES_HELP}"),
                 Some(topic) if topic == "raw" => println!("{RAW_HELP}"),
+                Some(topic) if topic == "completions" => println!("{COMPLETIONS_HELP}"),
                 Some(topic) => println!("{}", help(lookup(&topic)?, &target)),
             }
             return Ok(());
@@ -58,6 +68,14 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
                 for command in COMMANDS {
                     println!("{:<13} {}{}", command.name, command.summary, mark(command, supported.as_deref(), &target));
                 }
+            }
+            return Ok(());
+        }
+        "completions" => {
+            match args.positional().as_deref() {
+                Some("zsh") => print!("{}", complete::ZSH),
+                Some("bash") => print!("{}", complete::BASH),
+                _ => println!("{COMPLETIONS_HELP}"),
             }
             return Ok(());
         }
@@ -149,6 +167,8 @@ fn mark(command: &Command, supported: Option<&[String]>, target: &Target) -> Str
     }
 }
 
+const COMPLETIONS_HELP: &str = "usage: kanna completions zsh|bash\n\nPrints the tab-completion script for your shell. Load it from your shell's startup file:\n  zsh:  source <(kanna completions zsh)     in ~/.zshrc\n  bash: eval \"$(kanna completions bash)\"  in ~/.bashrc\n\nTab then completes commands, options, pane names and IDs, tabs, windows, instances,\nand files of the kind a command takes (markdown for open md, HTML for markup).";
+
 const RAW_HELP: &str = "usage: kanna raw REQUEST\n\nSends one control-protocol request as JSON and prints the reply, e.g.\n  kanna raw '{\"cmd\":\"list\"}'\n  kanna raw '{\"cmd\":\"open\",\"args\":{\"type\":\"term\",\"name\":\"a\"}}'";
 
 const INSTANCES_HELP: &str = "kanna instances — List the running Kanna instances.\n\
@@ -227,11 +247,12 @@ fn overview(target: &Target) -> String {
         }
     }
     out += &format!(
-        "\nMore:\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n",
+        "\nMore:\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n",
         "help COMMAND", "Details, options and examples for one command (or: kanna COMMAND --help).",
         "commands", "All commands with summaries; `kanna commands --json` describes them for scripts.",
         "raw REQUEST", "Send a control-protocol request as JSON, e.g. kanna raw '{\"cmd\":\"list\"}'.",
         "instances", "List the running Kanna instances (separate daemons and apps, each with its own panes).",
+        "completions", "Tab completion for zsh or bash: source <(kanna completions zsh) in ~/.zshrc.",
     );
     let name = target.name();
     let running = match &supported {

@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S40) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S41) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S40) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[01]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -1153,10 +1153,40 @@ S40() {
   check wait_for 5 eval '[[ "$(s40_status status)" == exited ]]'
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S40) echo M4 ;; esac
+S41() {
+  start_daemon && start_app || return 1
+  local dir="$KANNA_STATE_DIR/s41"
+  mkdir -p "$dir/sub" && touch "$dir/alpha-notes.md" "$dir/alpha.html" "$dir/alpha.txt"
+  kanna open --name s41 --cwd "$dir" --cmd "zsh -f -i" >/dev/null || return 1
+  kanna open --name s41-web --tab web "$dir/alpha.html" >/dev/null || return 1
+  kanna open --name notes --tab md "$dir/alpha-notes.md" >/dev/null || return 1
+  kanna focus s41 >/dev/null || return 1
+  sleep 1
+  kanna send s41 "PATH='$bin':\$PATH; stty cols 120; source <(kanna completions zsh); clear" || return 1
+  sleep 1
+  s41_tab() {
+    raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$1\"}}" >/dev/null
+    sleep 0.3; key tab; [[ -n "$2" ]] && key tab; sleep 0.7
+    s41_screen=$(kanna read s41)
+    [[ -n "${4:-}" ]] && { raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$4.png\"}}" >/dev/null; cp "$KANNA_STATE_DIR/$4.png" "$out/$4.png" 2>/dev/null; }
+    key ctrl+c; sleep 0.3
+    printf "%s\n" "$s41_screen" | grep -qE -- "$3" || { echo "kanna $1⇥ didn't show $3:"; printf "%s\n" "$s41_screen" | tail -8; return 1; }
+  }
+  check s41_tab "kanna open md al" "" 'open md alpha-notes\.md *$' || return 1
+  check s41_tab "kanna markup al" "" 'markup alpha\.html *$' || return 1
+  check s41_tab "kanna nav" "" 'kanna navigate *$' || return 1
+  check s41_tab "kanna open " 2 '^md +-- A markdown file' || return 1
+  check test "$(printf "%s\n" "$s41_screen" | grep -oE '^(term|web|md|ios) ' | tr -d ' \n')" == termwebmdios || return 1
+  check s41_tab "kanna close " 2 's41-web +-- p[0-9]+ · web · alpha\.html' s41-panes || return 1
+  check s41_tab "kanna focus --tab " 2 't[0-9]+ +-- "' || return 1
+  check s41_tab "kanna open --split " 2 'right' || return 1
+  check s41_tab "kanna open md alpha-notes.md --sp" "" '--split *$'
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[01]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
