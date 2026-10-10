@@ -133,6 +133,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
+Kanna v3
+================================================================================
+
+Derived from Kanna v3:
+
+  tools/agent-harness/mock_server.py
+      From Kanna v3's tools/characterize/mock_server.py (the scripted
+      Anthropic Messages, OpenAI Responses and Chat Completions server);
+      record.py and run.py follow its record.py and run_all.py.
+
+================================================================================
 Linked libraries
 ================================================================================
 

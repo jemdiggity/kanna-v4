@@ -1,0 +1,32 @@
+{
+  "think_seconds": 2.0,
+  "chunk_seconds": 0.25,
+  "fallback": "Agent status probe",
+  "rules": [
+    {
+      "match": "PLAIN_TURN",
+      "text": [
+        "PLAIN_DONE: a scripted answer from the local mock model.",
+        "Line 01 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 02 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 03 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 04 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 05 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 06 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 07 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 08 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 09 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 10 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 11 of a slow streamed answer, so the turn lasts a few seconds.",
+        "Line 12 of a slow streamed answer, so the turn lasts a few seconds."
+      ]
+    },
+    {
+      "match": "TOOL_TURN",
+      "tool": "touch kanna-probe.txt",
+      "after_tool": [
+        "TOOL_DONE: the probe file was created."
+      ]
+    }
+  ]
+}
