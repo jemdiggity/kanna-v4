@@ -532,6 +532,8 @@ S11() {
   pinched="$(raw '{"id":1,"cmd":"debug.pinch","args":{"pane":"page"}}')"
   check python3 -c 'import json, sys; z = json.loads(sys.argv[1])["zooms"]; assert z and z[-1] > 1.2, z' "$pinched" || return 1
   key cmd+0; check python3 -c 'import sys; assert float(sys.argv[1]) == 1' "$(webzoom zoom)" || return 1
+  key cmd+-; check python3 -c 'import sys; assert float(sys.argv[1]) < 1' "$(webzoom zoom)" || return 1
+  key cmd+0
   kanna close page >/dev/null || return 1
   key cmd+t; check test "$(win w1 tabs | count)" == 2 || return 1
   key "cmd+shift+["; check test "$(win w1 tabs.0.active)" == True || return 1
