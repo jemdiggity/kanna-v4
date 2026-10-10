@@ -4,6 +4,7 @@ import fcntl
 import json
 import mimetypes
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -106,6 +107,13 @@ def rel_name(file):
     return os.path.relpath(file, repo_root(file))
 
 
+CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def clean(text):
+    return CONTROL.sub("", text.replace("\r\n", "\n").replace("\r", "\n"))
+
+
 def message(doc, t, text):
     quote = "\n".join("> " + line for line in t["quote"].splitlines()) or "> "
     return f"[kanna comment {t['id']} · {rel_name(Path(doc['file']))}:{t['line']}]\n{quote}\n{text}"
@@ -117,7 +125,7 @@ def send_to_agent(doc, text):
     env = dict(os.environ)
     if doc.get("socket"):
         env["KANNA_SOCKET"] = doc["socket"]
-    paste = "\x1b[200~" + text + "\x1b[201~"
+    paste = "\x1b[200~" + clean(text) + "\x1b[201~"
     r = subprocess.run(["kanna", "send", doc["agent"], "--", paste], env=env, capture_output=True, text=True)
     if r.returncode != 0:
         return (r.stderr or r.stdout).strip() or f"kanna send exited {r.returncode}"
@@ -203,7 +211,8 @@ def ensure_server():
     info = server_alive()
     if info:
         return info
-    STATE.mkdir(parents=True, exist_ok=True)
+    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(STATE, 0o700)
     log = open(STATE / "server.log", "a")
     subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "serve"], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     for _ in range(50):
@@ -232,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def guard(self, q):
-        if q.get("token", [""])[0] != self.token:
+        if not secrets.compare_digest(q.get("token", [""])[0], self.token):
             self.reply(403, {"error": "bad token"})
             return None
         f = q.get("file", [""])[0]
@@ -248,7 +257,7 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         if u.path == "/ping":
-            return self.reply(200, b"pong" if q.get("token", [""])[0] == self.token else b"no", "text/plain")
+            return self.reply(200, b"pong" if secrets.compare_digest(q.get("token", [""])[0], self.token) else b"no", "text/plain")
         p = self.guard(q)
         if p is None:
             return
@@ -276,10 +285,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
         if u.path == "/api/comment":
-            tid, error = add_comment(p, body["quote"], body["text"], int(body.get("line", 1)), body.get("prefix", ""), body.get("suffix", ""))
+            tid, error = add_comment(p, clean(body["quote"]), clean(body["text"]), int(body.get("line", 1)), body.get("prefix", ""), body.get("suffix", ""))
             return self.reply(200, {"id": tid, "error": error})
         if u.path == "/api/reply":
-            return self.reply(200, {"error": add_your_reply(p, body["id"], body["text"])})
+            return self.reply(200, {"error": add_your_reply(p, body["id"], clean(body["text"]))})
         if u.path in ("/api/resolve", "/api/reopen"):
             set_state(p, body["id"], "resolved" if u.path == "/api/resolve" else "open")
             return self.reply(200, {})
@@ -290,7 +299,12 @@ def cmd_serve(args):
     token = secrets.token_hex(12)
     Handler.token = token
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    SERVER_FILE.write_text(json.dumps({"port": server.server_address[1], "token": token, "pid": os.getpid()}))
+    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(STATE, 0o700)
+    fd = os.open(SERVER_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps({"port": server.server_address[1], "token": token, "pid": os.getpid()}))
+    os.chmod(SERVER_FILE, 0o600)
     print(f"kanna-doc: serving on 127.0.0.1:{server.server_address[1]}", flush=True)
     server.serve_forever()
 

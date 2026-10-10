@@ -231,7 +231,7 @@ function chip(t) {
   if (state.anchors[t.id] === null) out.push(`<span class="state detached">detached</span>`);
   if (t.status === "unsent") out.push(`<span class="state unsent">not sent</span>`);
   else if (t.status === "replied") out.push(`<span class="state replied">agent replied</span>`);
-  else out.push(`<span class="state sent">sent to ${state.agent || "agent"}</span>`);
+  else out.push(`<span class="state sent">sent to ${esc(state.agent || "agent")}</span>`);
   return out.join("");
 }
 
@@ -251,12 +251,12 @@ function renderThreads() {
   for (const t of shown) {
     const card = document.createElement("div");
     card.className = "card" + (t.id === state.active ? " on" : "") + (t.state === "resolved" ? " resolved" : "");
-    card.innerHTML = `<div class="head"><span>${t.id} · ${state.anchors[t.id] === null ? "not found" : "line " + t.line}</span><span class="act">${t.state === "open" ? "Resolve" : "Reopen"}</span></div>
+    card.innerHTML = `<div class="head"><span>${esc(t.id)} · ${state.anchors[t.id] === null ? "not found" : "line " + t.line}</span><span class="act">${t.state === "open" ? "Resolve" : "Reopen"}</span></div>
       <div class="quote">${esc(t.quote)}</div>
-      ${t.messages.map(m => `<div class="msg"><b class="${m.who}">${m.who}</b> ${esc(m.text)}</div>`).join("")}
+      ${t.messages.map(m => `<div class="msg"><b class="${m.who === "agent" ? "agent" : "you"}">${m.who === "agent" ? "agent" : "you"}</b> ${esc(m.text)}</div>`).join("")}
       <div>${chip(t)}</div>
       ${t.error ? `<div class="error">${esc(t.error)}</div>` : ""}
-      <div class="reply"><textarea data-id="${t.id}" placeholder="Reply (⌘↵)"></textarea></div>`;
+      <div class="reply"><textarea data-id="${esc(t.id)}" placeholder="Reply (⌘↵)"></textarea></div>`;
     card.querySelector(".quote").onclick = () => reveal(t.id);
     card.querySelector(".act").onclick = async () => { await api(t.state === "open" ? "/api/resolve" : "/api/reopen", { id: t.id }); poll(); };
     const ta = card.querySelector("textarea");
