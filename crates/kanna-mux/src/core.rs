@@ -474,8 +474,8 @@ impl CoreHandle {
         if args.get("path").is_some() && kind != PaneType::Md {
             return Err(bad_request("path is only for markdown panes"));
         }
-        if args.get("agent").is_some() && kind != PaneType::Md {
-            return Err(bad_request("agent is only for markdown panes"));
+        if args.get("agent").is_some() && !matches!(kind, PaneType::Md | PaneType::Web) {
+            return Err(bad_request("agent is only for markdown and web panes"));
         }
         let name = string(args, "name").map(String::from);
         let taken = |core: &CoreHandle| match &name {

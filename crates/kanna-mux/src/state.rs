@@ -37,6 +37,9 @@ pub fn pane_record(pane: &Pane) -> Map {
         PaneType::Web => {
             out.insert("url".into(), opt(pane.url.as_deref()));
             out.insert("history".into(), Value::Bool(pane.history.is_some()));
+            if let Some(agent) = &pane.agent {
+                out.insert("agent".into(), Value::String(agent.clone()));
+            }
         }
         PaneType::Md => {
             out.insert("path".into(), opt(pane.path.as_deref()));
@@ -68,6 +71,7 @@ pub fn read_record(item: &Value, id: &str, kind: PaneType) -> Pane {
         }
         PaneType::Web => {
             pane.url = field("url");
+            pane.agent = field("agent");
             if is_true(item, "history") {
                 pane.history = Some(History::default());
             }

@@ -393,6 +393,24 @@ fn is_markdown(target: &str) -> bool {
     [".md", ".markdown", ".mdown"].iter().any(|ext| lower.ends_with(ext)) && !lower.contains("://")
 }
 
+fn local_page(target: &str) -> Option<String> {
+    if target.contains("://") {
+        return None;
+    }
+    let path = absolute(target);
+    if !std::path::Path::new(&path).is_file() {
+        return None;
+    }
+    let encoded: String = path
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect();
+    Some(format!("file://{encoded}"))
+}
+
 pub fn absolute(path: &str) -> String {
     let expanded = match path.strip_prefix("~/") {
         Some(rest) => match std::env::var("HOME") {
@@ -457,7 +475,10 @@ fn parse_open(args: &mut Argv) -> Result<Value, Failure> {
     };
     if kind == "web" {
         let url = args.positional().ok_or_else(|| usage("open", "web panes need a URL: kanna open web URL"))?;
-        out.insert("url".into(), json!(url));
+        out.insert("url".into(), json!(local_page(&url).unwrap_or(url)));
+        if let Some(agent) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
+            out.insert("agent".into(), json!(agent));
+        }
     }
     if kind == "md" {
         let file = args.positional().ok_or_else(|| usage("open", "markdown panes need a file: kanna open md FILE"))?;

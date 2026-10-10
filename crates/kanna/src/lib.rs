@@ -385,6 +385,19 @@ mod tests {
     }
 
     #[test]
+    fn a_local_page_opens_as_a_file_url() {
+        let dir = std::env::temp_dir().join(format!("kanna-page-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let page = dir.join("a page.html");
+        std::fs::write(&page, "<p>hi</p>").unwrap();
+        let (_, request) = parse(&format!("kanna open web '{}'", page.display())).unwrap();
+        assert_eq!(request["url"], json!(format!("file://{}", page.display().to_string().replace(' ', "%20"))));
+        let (_, request) = parse("kanna open web a.test").unwrap();
+        assert_eq!(request["url"], json!("a.test"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn requests() {
         let cases = [
             ("kanna open", json!({ "type": "term" })),

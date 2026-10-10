@@ -134,6 +134,9 @@ impl Pane {
             PaneType::Web => {
                 out.insert("url".into(), opt(self.url.as_deref()));
                 out.insert("history".into(), Value::Bool(self.history.is_some()));
+                if let Some(agent) = &self.agent {
+                    out.insert("agent".into(), Value::String(agent.clone()));
+                }
             }
             PaneType::Ios => {
                 out.insert("app".into(), opt(self.app.as_deref()));
