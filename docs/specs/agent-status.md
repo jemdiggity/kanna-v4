@@ -34,7 +34,7 @@ stateDiagram-v2
 | Status | When |
 |---|---|
 | working | a busy rule matches (spinner, "esc to interrupt", a busy title or progress) |
-| needs you | a waiting rule matches: an approval, a question or a trust prompt is on screen |
+| needs you | a waiting rule matches (an approval, a question or a trust prompt is on screen), or it posted a notification since you last focused it |
 | idle | the agent is at its prompt, or no rule matches |
 | exited | the program has ended (the pane is `exited`) |
 
@@ -43,6 +43,7 @@ stateDiagram-v2
 - **Known agents only:** a terminal whose foreground program is an agent Kanna has rules for (Claude Code, Codex, …) has a status; other terminals show only `exited`.
 - **Needs you is strict:** it shows only when the screen matches a known question or approval. A prompt Kanna hasn't learned shows as idle, never as needs you by guesswork.
 - **Settled screens only:** Kanna judges a screen once it stops changing mid-frame, so a half-drawn repaint never flips the status.
+- **Notifications count too:** an OSC 9 or OSC 777 notification from the agent means needs you until you focus its pane. Both Claude Code and Codex send them by default in Kanna's terminal; the bell doesn't ring by default ([evidence](../research/agent-status-signals.md)).
 - **Same for every agent:** each agent differs only in its rule file.
 
 ## 3. Detection rules
@@ -77,7 +78,7 @@ flowchart LR
 ## 5. How it's built
 
 - **In the daemon**, which already keeps every terminal's screen ([4.5](../kanna-spec.md#45-the-app-link)), so status works with the app closed and `list` reads it directly. The daemon knows each terminal's foreground program, which picks the agent.
-- **The app** gets status changes like the other pane events, to draw the dots.
+- **The app** gets status changes like the other pane events, to draw the dots, and sends focus in and out to every pane that asks for it: Codex notifies only when it's told it lost focus.
 - **Rules site:** the rule files and an `index.json` (agent, URL, version, hash), published from the repo's `agent-rules/` with the corpus test as the gate.
 - **The corpus and harness:** `tools/agent-harness` (the mock model, from v3's characterization tools) records sessions; a tool samples their screens into `agent-rules/corpus/`.
 - **Seeded** from v3's rules (the user's own, via v2); herdr (Apache-2.0) is a reference for behaviour only, and none of its rule text is copied.
@@ -85,8 +86,7 @@ flowchart LR
 ## 6. Open questions
 
 1. Where's the rules site: the repo's GitHub Pages, as v3 planned?
-2. Should a bell or notification also count as needs you? Waiting for the harness to show what Claude Code and Codex actually send.
-3. Should needs you badge the Dock icon and post a macOS notification when Kanna isn't frontmost?
+2. Should needs you badge the Dock icon and post a macOS notification when Kanna isn't frontmost?
 
 ## 7. Glossary
 
@@ -96,4 +96,5 @@ flowchart LR
 | **Rules site** | Where Kanna fetches updated rule files from |
 | **Corpus** | Recorded agent screens, each labeled with its true status, that every rule change is tested against |
 | **Mock model** | A local stand-in for the AI provider that drives real Claude Code and Codex without spending tokens |
+| **OSC 9 / OSC 777** | Escape sequences a program uses to post a desktop notification |
 | **OSC 9;4** | The escape sequence a program uses to report progress to its terminal |
