@@ -13,8 +13,7 @@
 3. [Detection rules](#3-detection-rules)
 4. [CLI](#4-cli)
 5. [How it's built](#5-how-its-built)
-6. [Open questions](#6-open-questions)
-7. [Glossary](#7-glossary)
+6. [Glossary](#6-glossary)
 
 ## 1. States
 
@@ -44,6 +43,7 @@ stateDiagram-v2
 - **Needs you is strict:** it shows only when the screen matches a known question or approval. A prompt Kanna hasn't learned shows as idle, never as needs you by guesswork.
 - **Settled screens only:** Kanna judges a screen once it stops changing mid-frame, so a half-drawn repaint never flips the status.
 - **Screen only:** the bell and the agents' own notifications (OSC 9, OSC 777) aren't used. They depend on each agent's settings and, for Codex, on focus reports ([evidence](../research/agent-status-signals.md)); the screen doesn't.
+- **Shown in Kanna only:** status is the dots in Kanna's windows; it doesn't badge the Dock icon or post macOS notifications.
 - **Same for every agent:** each agent differs only in its rule file.
 - **Unread is separate:** an agent that goes from working to idle while you aren't looking at it is **unread** until you do. Unread is the app's mark of what you've seen, not an agent status: the status stays idle, and the dot shows both.
 
@@ -80,16 +80,11 @@ flowchart LR
 
 - **In the daemon**, which already keeps every terminal's screen ([4.5](../kanna-spec.md#45-the-app-link)), so status works with the app closed and `list` reads it directly. The daemon knows each terminal's foreground program, which picks the agent.
 - **The app** gets status changes like the other pane events, to draw the dots.
-- **Rules site:** the rule files and an `index.json` (agent, URL, version, hash), published from the repo's `agent-rules/` with the corpus test as the gate.
+- **Rules site:** the repo's GitHub Pages: the rule files and an `index.json` (agent, URL, version, hash), published from the repo's `agent-rules/` with the corpus test as the gate.
 - **The corpus and harness:** `tools/agent-harness` (the mock model, from v3's characterization tools) records sessions; a tool samples their screens into `agent-rules/corpus/`.
 - **Seeded** from v3's rules (the user's own, via v2); herdr (Apache-2.0) is a reference for behaviour only, and none of its rule text is copied.
 
-## 6. Open questions
-
-1. Where's the rules site: the repo's GitHub Pages, as v3 planned?
-2. Should needs you badge the Dock icon and post a macOS notification when Kanna isn't frontmost?
-
-## 7. Glossary
+## 6. Glossary
 
 | Term | Meaning |
 |---|---|
