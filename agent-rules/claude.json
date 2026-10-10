@@ -3,6 +3,9 @@
   "agent": "claude",
   "version": "2026.10.10.1",
   "engine": 1,
+  "versionProbe": {
+    "pattern": "(\\d+\\.\\d+(?:\\.\\d+)*)"
+  },
   "vocabulary": {
     "composerPrompts": [
       "❯"

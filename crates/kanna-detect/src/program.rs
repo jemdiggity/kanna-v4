@@ -1,11 +1,18 @@
-use crate::rules::RuleSet;
+use crate::rules::{Agent, RuleSet};
+use std::collections::HashMap;
+use std::io::Read;
 use std::os::fd::RawFd;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 pub const PROGRAMS: &[(&str, &str)] =
     &[("claude", "claude"), ("codex", "codex"), ("opencode", "opencode"), ("copilot", "copilot"), ("agy", "antigravity"), ("antigravity", "antigravity"), ("mock-agent", "mock")];
 
 const INTERPRETERS: &[&str] = &["node", "bun", "deno", "python", "python3", "ruby", "perl", "sh", "bash", "zsh", "dash", "fish"];
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const PROBE_OUTPUT: u64 = 16 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Process {
@@ -63,6 +70,82 @@ pub fn recognise(process: &Process) -> Option<Program> {
     let script = process.argv.iter().skip(1).take_while(|a| *a != "-c" && *a != "-e").find(|a| !a.starts_with('-'))?;
     let agent = known_agent(Path::new(script).file_stem()?.to_str()?)?;
     Some(Program { agent: agent.into(), pid: process.pid, executable: None })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct ProbeKey {
+    executable: PathBuf,
+    modified: u128,
+}
+
+enum Probed {
+    Running,
+    Done(Option<String>),
+}
+
+fn probes() -> &'static Mutex<HashMap<ProbeKey, Probed>> {
+    static PROBES: OnceLock<Mutex<HashMap<ProbeKey, Probed>>> = OnceLock::new();
+    PROBES.get_or_init(Mutex::default)
+}
+
+pub enum Version {
+    Known(Option<String>),
+    Pending,
+}
+
+pub fn version(program: &Program, agent: &Agent) -> Version {
+    let (Some(executable), Some(pattern)) = (program.executable.clone(), agent.probe_pattern().cloned()) else { return Version::Known(None) };
+    let modified = std::fs::metadata(&executable).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+    let key = ProbeKey { executable: executable.clone(), modified };
+    let mut table = probes().lock().unwrap_or_else(|e| e.into_inner());
+    match table.get(&key) {
+        Some(Probed::Done(found)) => return Version::Known(found.clone()),
+        Some(Probed::Running) => return Version::Pending,
+        None => {}
+    }
+    table.insert(key.clone(), Probed::Running);
+    drop(table);
+    std::thread::Builder::new()
+        .name("kanna.probe".into())
+        .spawn(move || {
+            let found = probe(&executable, PROBE_TIMEOUT).and_then(|text| pattern.captures(&text).and_then(|c| c.get(1).or_else(|| c.get(0))).map(|m| m.as_str().chars().take(64).collect()));
+            probes().lock().unwrap_or_else(|e| e.into_inner()).insert(key, Probed::Done(found));
+        })
+        .map(|_| Version::Pending)
+        .unwrap_or(Version::Known(None))
+}
+
+pub fn probe(executable: &Path, timeout: Duration) -> Option<String> {
+    if !executable.is_absolute() {
+        return None;
+    }
+    let mut command = Command::new(executable);
+    command.arg("--version").env_clear().env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+    for key in ["HOME", "USER", "LANG", "TMPDIR"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut text = Vec::new();
+        let _ = (&mut stdout).take(PROBE_OUTPUT).read_to_end(&mut text);
+        text
+    });
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    reader.join().ok().map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[cfg(target_os = "macos")]
@@ -157,9 +240,25 @@ fn process(_pid: i32) -> Option<Process> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules::Source;
+    use std::os::unix::fs::PermissionsExt;
 
     fn proc(executable: &str, argv: &[&str]) -> Process {
         Process { pid: 7, executable: Some(executable.into()), argv: argv.iter().map(|s| s.to_string()).collect() }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kanna-detect-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
     }
 
     #[test]
@@ -178,6 +277,42 @@ mod tests {
         assert_eq!(found(proc("/usr/bin/vim", &["vim", "claude.md"])), None);
         assert_eq!(found(proc("/x/kanna-keeper", &["claude"])), None);
         assert_eq!(found(proc("/usr/bin/evil", &["evil"])), None);
+    }
+
+    #[test]
+    fn a_probe_that_never_answers_is_stopped() {
+        let dir = scratch("hang");
+        let hang = script(&dir, "hang", "exec sleep 30");
+        let started = Instant::now();
+        assert_eq!(probe(&hang, Duration::from_millis(200)), None);
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn rules_cannot_choose_what_runs() {
+        let dir = scratch("probe");
+        let marker = dir.join("ran-the-rule");
+        let args = dir.join("args");
+        let codex = script(&dir, "codex", &format!("printf '%s|' \"$@\" > {}; echo 'codex-cli 9.8.7'", args.display()));
+        let text = format!(
+            r#"{{"schema":1,"agent":"codex","version":"1","engine":1,"programs":["evil"],
+                "versionProbe":{{"argv":["/bin/sh","-c","touch {m}"],"args":["-c","touch {m}"],"pattern":"(\\d+\\.\\d+\\.\\d+)"}},"rules":[]}}"#,
+            m = marker.display()
+        );
+        let agent = Agent::parse(&text, Source::Remote("https://example.com/codex.json".into())).unwrap();
+        let program = Program { agent: "codex".into(), pid: 1, executable: Some(codex.clone()) };
+        let mut version = super::version(&program, &agent);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while matches!(version, Version::Pending) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+            version = super::version(&program, &agent);
+        }
+        assert!(matches!(version, Version::Known(Some(ref v)) if v == "9.8.7"));
+        assert_eq!(std::fs::read_to_string(&args).unwrap(), "--version|");
+        assert!(!marker.exists(), "the rule file's command ran");
+        assert_eq!(recognise(&proc("/usr/bin/evil", &["evil"])), None);
+        let relative = Program { agent: "codex".into(), pid: 1, executable: None };
+        assert!(matches!(super::version(&relative, &agent), Version::Known(None)));
     }
 
     #[cfg(target_os = "macos")]

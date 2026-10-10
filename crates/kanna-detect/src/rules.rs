@@ -70,11 +70,19 @@ pub struct RuleFile {
     pub version: String,
     pub engine: u32,
     #[serde(default)]
+    pub version_probe: Option<VersionProbe>,
+    #[serde(default)]
     pub lines: Option<usize>,
     #[serde(default)]
     pub vocabulary: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub rules: Vec<Rule>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionProbe {
+    pub pattern: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -153,6 +161,9 @@ impl Agent {
             return Err(format!("a vocabulary word is over {MAX_TEXT} bytes"));
         }
         let mut regexes = HashMap::new();
+        if let Some(probe) = &file.version_probe {
+            regex(&mut regexes, &probe.pattern).map_err(|e| format!("versionProbe.pattern: {e}"))?;
+        }
         let mut ids = HashSet::new();
         let mut rules = vec![];
         for rule in &file.rules {
@@ -176,6 +187,10 @@ impl Agent {
 
     pub fn name(&self) -> &str {
         &self.file.agent
+    }
+
+    pub fn probe_pattern(&self) -> Option<&Regex> {
+        self.file.version_probe.as_ref().and_then(|p| self.regexes.get(&p.pattern))
     }
 
     pub fn evaluate(&self, screen: &Screen, version: Option<&str>) -> Verdict {
@@ -535,19 +550,6 @@ mod tests {
         assert_eq!(a.evaluate(&Screen::new("x").with_title("⠋ ⠋ | work"), None).rule.as_deref(), Some("title"));
         assert_eq!(a.evaluate(&Screen::new("› old\n───\n› "), None).rule.as_deref(), Some("composer"));
         assert_eq!(a.evaluate(&Screen::new("› old\n───\ntext"), None).rule, None);
-    }
-
-    #[test]
-    fn a_rule_file_naming_a_command_is_only_data() {
-        let marker = std::env::temp_dir().join(format!("kanna-rule-ran-{}", std::process::id()));
-        let text = format!(
-            r#"{{"schema":1,"agent":"mock","version":"1","engine":1,"programs":["sh"],"versionProbe":{{"argv":["/bin/sh","-c","touch {m}"],"pattern":"x"}},"rules":[]}}"#,
-            m = marker.display()
-        );
-        let agent = Agent::parse(&text, Source::Remote("https://example.com/mock.json".into())).unwrap();
-        agent.evaluate(&Screen::new("x"), None);
-        assert!(!marker.exists());
-        assert_eq!(crate::program::known_agent("sh"), None);
     }
 
     #[test]
