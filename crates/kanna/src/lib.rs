@@ -3,6 +3,7 @@ pub mod commands;
 pub mod complete;
 pub mod output;
 pub mod target;
+pub mod threads;
 
 use args::Argv;
 use commands::{Command, COMMANDS, GROUPS};
@@ -109,6 +110,9 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     let request = (command.parse)(&mut args)?;
     if let Some(extra) = args.first() {
         return Err(commands::usage(command.name, &format!("unexpected argument \"{extra}\"")));
+    }
+    if request.get("local").is_some() {
+        return threads::run(&request, json_output);
     }
     let mut mux = Session::connect(&target, env)?;
     let reply = match mux.call(wire(command, &request), request.clone()) {

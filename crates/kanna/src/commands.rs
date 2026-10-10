@@ -322,8 +322,8 @@ pub static COMMANDS: &[Command] = &[
     Command {
         name: "markup",
         group: "Panes",
-        summary: "Open a markdown file or a local page to comment on, or turn comments on or off in a pane; the comments come to this pane.",
-        usage: "kanna markup FILE.md|FILE.html [--to PANE] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]\n       kanna markup PANE [--to PANE | --off]",
+        summary: "Open a markdown file or a local page to comment on, turn comments on or off in a pane, and answer them; the comments come to this pane.",
+        usage: "kanna markup FILE.md|FILE.html [--to PANE] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]\n       kanna markup PANE [--to PANE | --off]\n       kanna markup comments [--all] [--doc FILE]\n       kanna markup show|resolve|reopen THREAD [--doc FILE]\n       kanna markup reply THREAD TEXT... [--doc FILE]",
         options: &[
             ("--to PANE", "The terminal comments go to, e.g. the pane an agent runs in. Default: this one."),
             ("--name NAME", "A name to refer to the pane by in later commands."),
@@ -334,6 +334,8 @@ pub static COMMANDS: &[Command] = &[
             ("--dock [left|right]", "Make it the window's docked pane, as for open."),
             ("--no-wait", "Return as soon as the pane exists."),
             ("--off", "Turn comments off in PANE: it shows the doc alone again. Its comments are kept."),
+            ("--all", "comments: resolved ones too."),
+            ("--doc FILE", "The doc a comment is on. Default: found from the comment's ID, the docs whose comments come to this pane first."),
         ],
         notes: "A markdown or web pane like `kanna open md FILE` or `kanna open web FILE`, with a thread list and a comment box: select text and press ⌘↵, ⌘-click a part, or ⌘-drag a box. Each comment is typed into the terminal that ran markup, with the part or box and, for a page or an image, a screenshot with it marked up. `kanna open` shows the doc without comments; `kanna markup PANE` turns them on there.",
         examples: &[
@@ -342,6 +344,8 @@ pub static COMMANDS: &[Command] = &[
             ("kanna markup spec", "Turn on comments in the pane named spec; they come to this pane."),
             ("kanna markup spec --to agent", "Send spec's comments to the pane named agent instead."),
             ("kanna markup spec --off", "Show spec without comments again."),
+            ("kanna markup comments", "The open comments on the docs whose comments come to this pane."),
+            ("kanna markup reply c4 \"Renamed it.\"", "Answer comment c4 beside the doc; leave it open for its author to read and resolve."),
         ],
         parse: parse_markup,
         show: output::marked,
@@ -366,6 +370,9 @@ fn parse_markup(args: &mut Argv) -> Result<Value, Failure> {
     }
     if args.flag("--no-wait") {
         out.insert("wait".into(), json!(false));
+    }
+    if let Some(action) = args.first().filter(|a| crate::threads::ACTIONS.contains(a)).map(String::from) {
+        return parse_thread_action(args, &action);
     }
     let off = args.flag("--off");
     let to = args.option("--to")?;
@@ -403,6 +410,27 @@ fn parse_markup(args: &mut Argv) -> Result<Value, Failure> {
         out.insert("agent".into(), json!(agent));
     }
     Ok(Value::Object(out))
+}
+
+fn parse_thread_action(args: &mut Argv, action: &str) -> Result<Value, Failure> {
+    let all = args.flag("--all");
+    let doc = args.option("--doc")?;
+    args.positional();
+    let mut out = json!({ "local": action });
+    if let Some(doc) = doc {
+        out["doc"] = json!(doc);
+    }
+    if action == "comments" {
+        out["all"] = json!(all);
+        return Ok(out);
+    }
+    let id = args.positional().ok_or_else(|| usage("markup", &format!("{action} which comment? e.g. kanna markup {action} c2")))?;
+    out["id"] = json!(id);
+    if action == "reply" {
+        let text = args.rest().ok_or_else(|| usage("markup", "reply with what? e.g. kanna markup reply c2 \"Fixed.\""))?;
+        out["text"] = json!(text);
+    }
+    Ok(out)
 }
 
 fn parse_status(args: &mut Argv) -> Result<Value, Failure> {

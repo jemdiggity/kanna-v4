@@ -13,6 +13,7 @@ pub enum Want {
     Dirs,
     Commands,
     Devices,
+    Threads,
 }
 
 const MARKDOWN: &[&str] = &["md", "markdown", "mdown"];
@@ -207,6 +208,7 @@ fn placeholder(name: &str) -> Vec<Want> {
         "APP" => vec![Want::Files(&["app"])],
         "CMD" => vec![Want::Commands],
         "DEVICE" => vec![Want::Devices],
+        "THREAD" => vec![Want::Threads],
         "AGENT" => words(AGENTS),
         "TYPE" => vec![Want::Words(TYPES.iter().map(|(w, d)| (w.to_string(), d.to_string())).collect())],
         "SIDE" => words(&["left", "right", "top", "bottom", "swap"]),
@@ -289,7 +291,7 @@ fn next_slot(form: &[&'static str], typed: &[String]) -> Option<&'static str> {
         let Some(slot) = form.get(i) else {
             return form.last().filter(|s| repeats(s)).copied();
         };
-        if !is_placeholder(slot) && slot != word {
+        if !is_placeholder(slot) && !slot.split('|').any(|alt| alt == word) {
             return None;
         }
     }
@@ -332,6 +334,7 @@ pub fn lines(wants: &[Want], words: &[String], env: Env) -> Vec<String> {
             Want::Dirs => out.push(":dirs".into()),
             Want::Commands => out.push(":commands".into()),
             Want::Devices => out.extend(devices()),
+            Want::Threads => out.extend(crate::threads::open_threads(words.iter().any(|w| w == "reopen")).into_iter().map(|(id, what)| line(&id, &what))),
         }
     }
     out
@@ -520,11 +523,15 @@ mod tests {
         assert_eq!(at("rename-tab "), [Want::Tabs]);
         assert_eq!(at("navigate "), [Want::Panes]);
         assert_eq!(at("navigate p1 "), [Want::Files(MARKDOWN)]);
-        assert_eq!(at("markup "), [Want::Files(MARKDOWN), Want::Files(HTML), Want::Panes]);
+        assert_eq!(at("markup ")[1..], [Want::Files(MARKDOWN), Want::Files(HTML), Want::Panes]);
         assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(HTML)], &[String::new()], &|_| None), [":files md markdown mdown html htm"]);
         assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(&[])], &[String::new()], &|_| None), [":files"]);
         assert!(words(&at("markup spec -")).contains(&"--off".into()));
         assert_eq!(at("markup spec --to "), [Want::Panes]);
+        assert!(words(&at("markup ")).contains(&"reply".into()));
+        assert_eq!(at("markup reply "), [Want::Threads]);
+        assert_eq!(at("markup resolve "), [Want::Threads]);
+        assert_eq!(at("markup reply c2 "), []);
         assert_eq!(words(&at("resize p1 ")), ["1/2", "1/3", "2/3", "1/4", "3/4"]);
     }
 

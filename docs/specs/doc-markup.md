@@ -21,16 +21,16 @@
 sequenceDiagram
     participant You
     participant Doc as doc pane
-    participant D as daemon
+    participant F as thread file
     participant A as agent
     You->>Doc: select text and ⌘↵, ⌘-click, or ⌘-drag
     You->>Doc: write, post
-    Doc->>D: new thread c2
-    D->>A: types c2 into the agent's pane, then Enter
+    Doc->>F: new thread c2
+    Doc->>A: types c2 into the agent's pane, then Enter
     A->>A: edits the file
-    A->>D: kanna doc reply c2 "…"
-    A->>D: kanna doc resolve c2
-    D->>Doc: c2 updated
+    A->>F: kanna markup reply c2 "…"
+    F->>Doc: c2 shows the reply
+    You->>Doc: read it, resolve
 ```
 
 General remarks that aren't about something in the doc go straight to the agent's chat, as now.
@@ -99,30 +99,32 @@ Make the title bar quieter.
 
 - **Replies you add to a thread** are sent the same way, under the same header.
 - **Sent at once, never held.** Claude Code and Codex queue input that arrives during a turn and take it next. If you have unsent text in the agent's prompt, the comment joins it; Kanna doesn't try to detect that (v3 did, and it was never reliable).
-- **How to answer is a skill, not part of the message.** A `kanna-doc` skill in kanna-skills tells the agent that a `[kanna comment …]` is a review comment, to fix the doc, then answer with `kanna doc reply` and close it with `kanna doc resolve`.
+- **How to answer is a skill, not part of the message.** The `kanna-markup` skill in kanna-skills tells the agent that a `[kanna comment …]` is a review comment, to fix the doc, then answer with `kanna markup reply cN`.
+- **The agent replies; you resolve.** An answered thread stays open, so you read the reply beside the doc and resolve it yourself (or reply again). The agent resolves only when you ask.
 - **No agent** (the doc has none, or its pane is closed): posting still saves the thread, and the toolbar says it wasn't sent.
 
 ```mermaid
 stateDiagram-v2
     [*] --> sent: you post
-    sent --> replied: kanna doc reply
+    sent --> replied: kanna markup reply
     replied --> sent: you reply again
-    sent --> resolved: resolved
-    replied --> resolved
+    sent --> resolved: you resolve
+    replied --> resolved: you resolve
     resolved --> sent: reopen
 ```
 
 ## 4. CLI
 
-Inside a pane, the doc is found from the thread ID; elsewhere pass `--doc FILE`.
+Run in the doc's repo, the doc is found from the thread ID, the docs whose comments come to this pane first; or pass `--doc FILE`.
 
 | Command | Does |
 |---|---|
-| `kanna doc comments [--all]` | List the doc's threads (open only, unless `--all`) |
-| `kanna doc show cN` | One thread: quote, line, messages, state |
-| `kanna doc reply cN TEXT` | Answer a thread |
-| `kanna doc resolve cN` / `reopen cN` | Close or reopen a thread |
-| `kanna doc comment FILE --quote TEXT TEXT` | Start a thread from the command line |
+| `kanna markup FILE.md\|FILE.html [--to PANE]` | Open a doc with comments, sent to this pane (or PANE) |
+| `kanna markup PANE [--to PANE \| --off]` | Turn comments on or off in a pane already open, or send them elsewhere |
+| `kanna markup comments [--all]` | List the threads (open only, unless `--all`) |
+| `kanna markup show cN` | One thread: what it points at, line, messages, state |
+| `kanna markup reply cN TEXT` | Answer a thread |
+| `kanna markup resolve cN` / `reopen cN` | Resolve or reopen a thread |
 
 ## 5. How it's built
 
@@ -131,18 +133,18 @@ flowchart LR
     subgraph app["Kanna.app"]
         V["markdown pane / page pane<br/>preview + thread panel"]
     end
+    F["thread file<br/>.kanna/docs/PATH.json"]
     subgraph daemon["daemon"]
-        S["doc store<br/>threads, anchors"]
         T["terminals"]
     end
-    CLI["kanna doc reply / resolve<br/>(from the agent)"]
-    V <-->|app link| S
-    S -->|"paste + Enter"| T
-    CLI --> S
+    CLI["kanna markup reply / show / …<br/>(from the agent)"]
+    V <-->|"read, write, watch"| F
+    V -->|"send: paste + Enter"| T
+    CLI --> F
     S --- F[("&lt;repo&gt;/.kanna/docs/")]
 ```
 
-- **Threads live in the daemon**, beside the terminals they're typed into, so `reply` and `resolve` work the same with the app closed. The anchoring and thread logic come from v3's `kanna3-doc` crate, ported as `crates/kanna-doc`; v3's delivery gate and draft tracking are not ported.
+- **Threads live in files**, `<repo>/.kanna/docs/<path>.json`, one per doc, which the app, `kanna markup comments|show|reply|resolve|reopen` and the reference model all read and write the same way (one format, one lock file), so answering works with the app closed and the pane picks up a reply when the file changes.
 - **Sending** uses the daemon's existing `send`, wrapped as a bracketed paste so a multi-line comment arrives whole (plain `send` would submit it at its first newline). `kanna markup` passes the pane it runs in (`$KANNA_PANE`, which Kanna sets in every terminal), and the doc remembers it. Comments on or off are the pane's `markup` flag, set by `open` or the `markup` command, which restarts the pane's view as `navigate` does.
 - **The app** adds the thread panel, marks and the comment box to a markdown or web pane with comments on, one shared set of views (`KannaDocs`), and gets thread changes over the app link like any other pane update. A page is worked from a script world of its own (`WKContentWorld`), which the page's scripts can't see or call; its marked-up copy is the web view's own screenshot.
 - **Stored** in `<repo>/.kanna/docs/`, one file per doc, so threads survive restarts.
