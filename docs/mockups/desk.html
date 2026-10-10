@@ -50,7 +50,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .tabs .plus { color: var(--muted); padding: 0 12px; display: flex; align-items: center; }
 
 .content { flex: 1; display: flex; min-height: 0; }
-.agent { flex: 0 0 34%; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.agent { flex: 0 0 38%; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
 .agent .head { flex: none; padding: 12px 14px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .agent .kind { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
 .agent .title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 650; margin: 4px 0 6px; }
@@ -81,7 +81,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .doc p, .doc li { color: var(--text); opacity: .92; }
 .doc ul { padding-left: 18px; }
 .doc mark { background: var(--tint); color: inherit; border-bottom: 1.5px solid var(--accent); }
-.threads { flex: 0 0 260px; background: var(--panel); border-left: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.threads { flex: 0 0 220px; background: var(--panel); border-left: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
 .card { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; }
 .card .h { color: var(--muted); font: 11px var(--mono); margin-bottom: 4px; }
 .card .q { color: var(--muted); border-left: 2px solid var(--accent); padding-left: 7px; margin-bottom: 4px; }
@@ -90,6 +90,35 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .web .site { width: 78%; max-width: 520px; border: 1px solid var(--line); border-radius: 10px; padding: 18px; background: var(--panel); }
 .web .site .row { height: 10px; border-radius: 5px; background: var(--panel2); margin: 10px 0; }
 .web .site .row.short { width: 55%; } .web .site .row.acc { background: var(--tint); width: 35%; height: 26px; }
+
+.docs { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dtabs { height: 38px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: var(--panel); border-bottom: 1px solid var(--line); overflow: hidden; }
+.dtab { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 7px; color: var(--muted); cursor: pointer; white-space: nowrap; max-width: 230px; border: 1px solid transparent; }
+.dtab:hover { background: var(--panel2); }
+.dtab.on { background: var(--bg); color: var(--text); border-color: var(--line); }
+.dtab .ic { width: 14px; text-align: center; font-size: 11px; opacity: .8; }
+.dtab .nm { overflow: hidden; text-overflow: ellipsis; }
+.dtab .kb { color: var(--muted); font-size: 11px; }
+.dtab .x { color: var(--muted); font-size: 11px; visibility: hidden; }
+.dtab.on .x, .dtab:hover .x { visibility: visible; }
+.dtabs .add { color: var(--muted); padding: 0 8px; cursor: pointer; font-size: 15px; }
+.pathbar { height: 36px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.crumbs { display: flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 14px; padding: 3px 10px; white-space: nowrap; overflow: hidden; }
+.crumbs b { color: var(--text); font-weight: 600; }
+.pathbar .spacer { flex: 1; }
+.dbody { flex: 1; display: flex; min-height: 0; }
+.view { flex: 1; min-width: 0; display: flex; }
+.tree { flex: 0 0 210px; border-left: 1px solid var(--line); background: var(--panel); padding: 8px 6px; overflow: auto; font-size: 12.5px; }
+.tree.hidden { display: none; }
+.tree .filter { margin: 0 4px 8px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; color: var(--muted); }
+.tree .f { padding: 3px 8px; border-radius: 5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree .f:hover { background: var(--panel2); }
+.tree .f.open { color: var(--accent); }
+.tree .f.on { background: var(--tint); color: var(--text); }
+.tree .d { color: var(--muted); padding: 3px 8px; }
+.imgview { flex: 1; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+.imgview .shot { width: 70%; aspect-ratio: 16/10; border-radius: 8px; border: 1px solid var(--line); background: linear-gradient(135deg, var(--panel2), var(--panel)); display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.tterm { flex: 1; background: var(--term); font: 12px/1.6 var(--mono); padding: 10px 12px; white-space: pre-wrap; color: var(--text); }
 
 .empty { flex: 1; overflow: auto; padding: 40px 48px; }
 .empty h2 { margin: 0 0 4px; font-size: 22px; }
@@ -208,19 +237,49 @@ function agentTerm(t) {
   ].join("\n");
 }
 
-function workHTML(t) {
-  if (t.kind === "doc") return `<div class="split"><div class="pane"><div class="strip"><span class="path">docs/specs/doc-markup.md</span><span class="spacer"></span><span>Agent: this task's</span><span class="chip">Comment ⌘↵</span><span class="chip">Threads 1</span></div>
-    <div style="flex:1;display:flex;min-height:0"><div class="doc"><h2>Doc Markup</h2><p class="sub">Comment on a markdown file in its pane, and the agent that opened it answers.</p>
+const files = {
+  "doc-markup": ["docs/specs/doc-markup.md", "docs/specs/desk.md", "docs/mockups/doc-markup.html", "docs/specs/doc-markup.png", "prototypes/doc-markup/README.md", "prototypes/doc-markup/kanna-doc", "tests"],
+  "tab-bar-light": ["apps/kanna/Sources/Kanna/Windows/TabBar.swift", "target/tmp/s36-2-light.png", "localhost:5173", "tests"],
+  "s30-colours": ["scripts/e2e-kanna.sh", "docs/kanna-spec.md", "tests"],
+};
+const opened = {
+  "doc-markup": ["docs/specs/doc-markup.md", "docs/mockups/doc-markup.html", "docs/specs/doc-markup.png", "tests"],
+  "tab-bar-light": ["localhost:5173", "target/tmp/s36-2-light.png"],
+  "s30-colours": ["docs/kanna-spec.md", "tests"],
+};
+const active = { "doc-markup": "docs/specs/doc-markup.md", "tab-bar-light": "localhost:5173", "s30-colours": "tests" };
+let showTree = true;
+const kindOf = f => f === "tests" ? "term" : f.startsWith("localhost") || f.endsWith(".html") ? "web" : f.endsWith(".png") ? "img" : f.endsWith(".md") ? "md" : "text";
+const icon = { md: "¶", web: "◎", img: "▣", term: "›_", text: "≡" };
+const label = f => f === "tests" ? "tests" : f.split("/").pop();
+
+function viewHTML(f) {
+  const k = kindOf(f);
+  if (k === "md" && f.endsWith("doc-markup.md")) return `<div class="doc"><h2>Doc Markup</h2><p class="sub">Comment on a markdown file in its pane, and the agent that opened it answers.</p>
     <h3>Reaching the agent</h3><ul><li><mark>A comment is typed into the agent that opened the doc</mark>, as kanna send would, the moment you post it.</li><li>Sent at once, never held. Claude Code and Codex queue input that arrives during a turn.</li><li>No agent: posting still saves the thread, and the toolbar says it wasn't sent.</li></ul>
     <h3>How it's built</h3><p>Threads live in the daemon, beside the terminals they're typed into, so reply and resolve work the same with the app closed.</p></div>
-    <div class="threads"><div class="card"><div class="h">c3 · line 54</div><div class="q">A comment is typed into the agent that opened the doc</div><div><b>you</b> What if that pane was restarted?</div></div></div></div></div></div>`;
-  return `<div class="split"><div class="pane"><div class="strip"><span class="path">localhost:5173</span><span class="spacer"></span><span>web</span></div><div class="web"><div class="site"><div class="row acc"></div><div class="row"></div><div class="row short"></div><div class="row"></div></div></div></div></div>`;
+    <div class="threads"><div class="card"><div class="h">c3 · line 54</div><div class="q">A comment is typed into the agent that opened the doc</div><div><b>you</b> What if that pane was restarted?</div></div></div>`;
+  if (k === "md") return `<div class="doc"><h2>${label(f).replace(".md", "")}</h2><p class="sub">${f}</p><p>Rendered markdown, with comments, as any markdown pane.</p></div>`;
+  if (k === "web") return `<div class="web"><div class="site"><div class="row acc"></div><div class="row"></div><div class="row short"></div><div class="row"></div></div></div>`;
+  if (k === "img") return `<div class="imgview"><div class="shot">${label(f)}</div></div>`;
+  if (k === "term") return `<div class="tterm"><span class="c">~/work/kanna-v4</span> <span class="p">❯</span> cargo test -p kanna-daemon\n<span class="g">running 48 tests</span>\n<span class="ok">test result: ok. 48 passed</span></div>`;
+  return `<div class="tterm">${f}</div>`;
+}
+
+function docsHTML(t) {
+  const list = opened[t.id], cur = active[t.id];
+  const parts = cur === "tests" ? ["kanna-v4", "terminal", "tests"] : cur.startsWith("localhost") ? ["web", cur] : ["kanna-v4", ...cur.split("/")];
+  return `<div class="docs">
+    <div class="dtabs">${list.map((f, i) => `<div class="dtab ${f === cur ? "on" : ""}" data-tab="${f}"><span class="ic">${icon[kindOf(f)]}</span><span class="nm">${label(f)}</span><span class="kb">⌘${i + 1}</span><span class="x" data-close="${f}">×</span></div>`).join("")}<span class="add" title="Open a file, page or terminal">+</span></div>
+    <div class="pathbar"><span class="crumbs">${parts.map((p, i) => i === parts.length - 1 ? `<b>${p}</b>` : `${p} ›`).join(" ")}</span><span class="spacer"></span><span class="pill">Open ▾</span><span class="pill" data-tree>${showTree ? "Files ▸" : "Files ◂"}</span></div>
+    <div class="dbody"><div class="view">${viewHTML(cur)}</div>
+      <div class="tree ${showTree ? "" : "hidden"}"><div class="filter">Filter files…</div><div class="d">▾ ${t.id === "doc-markup" ? ".kanna/worktrees/doc-markup" : t.repo}</div>
+        ${files[t.id].map(f => `<div class="f ${f === cur ? "on" : list.includes(f) ? "open" : ""}" data-file="${f}">${"&nbsp;".repeat(3)}${icon[kindOf(f)]} ${f === "tests" ? "tests (terminal)" : f}</div>`).join("")}</div>
+    </div></div>`;
 }
 
 function deskHTML(t) {
-  const tabs = t.kind === "doc" ? ["Review", "Tests"] : ["Preview", "Logs"];
-  return `<div class="tabs">${tabs.map((n, i) => `<div class="tab ${i === 0 ? "on" : ""}">${n}<span class="x">×</span></div>`).join("")}<span class="plus">+</span></div>
-  <div class="content">
+  return `<div class="content">
     <div class="agent">
       <div class="head">
         <div class="kind"><span>${t.agent} · task</span><span class="pill" data-park>Park ↓</span></div>
@@ -229,9 +288,36 @@ function deskHTML(t) {
       </div>
       <div class="term">${agentTerm(t)}</div>
     </div>
-    <div class="work">${workHTML(t)}</div>
+    ${docsHTML(t)}
   </div>`;
 }
+
+function openDoc(f) {
+  const t = task(s.desk);
+  if (!opened[t.id].includes(f)) opened[t.id].push(f);
+  active[t.id] = f;
+  render();
+}
+function closeDoc(f) {
+  const t = task(s.desk), list = opened[t.id], i = list.indexOf(f);
+  list.splice(i, 1);
+  if (active[t.id] === f) active[t.id] = list[Math.min(i, list.length - 1)] || "tests";
+  if (!list.length) list.push("tests");
+  render();
+}
+document.addEventListener("click", e => {
+  const close = e.target.closest("[data-close]");
+  if (close) { e.stopPropagation(); return closeDoc(close.dataset.close); }
+  const tab = e.target.closest("[data-tab]"); if (tab) return openDoc(tab.dataset.tab);
+  const file = e.target.closest("[data-file]"); if (file) return openDoc(file.dataset.file);
+  if (e.target.closest("[data-tree]")) { showTree = !showTree; render(); }
+});
+document.addEventListener("keydown", e => {
+  const t = task(s.desk);
+  if (!t || !e.metaKey || !/^[1-9]$/.test(e.key)) return;
+  const f = opened[t.id][Number(e.key) - 1];
+  if (f) { e.preventDefault(); openDoc(f); }
+});
 
 function emptyHTML() {
   const waiting = s.tasks.filter(t => t.id !== s.desk);

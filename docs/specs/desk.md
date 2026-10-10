@@ -1,10 +1,10 @@
 # Desk
 
-**Status:** proposed · **Mockup:** [`docs/mockups/desk.html`](../mockups/desk.html) · **From:** kanna v3 slice 7, "Shelf and Desk" (its look, without Build, Line, Digest or Spec Review)
+**Status:** proposed · **Mockup:** [`docs/mockups/desk.html`](../mockups/desk.html) · **Builds on:** [tab groups](tab-groups.md), [doc markup](doc-markup.md) · **From:** kanna v3's Desk and Shelf (its look), laid out like a chat app's work view: one conversation, tabbed documents beside it
 
-The **Desk** is Kanna's own window for working with an agent: it shows one **task** (an agent, its folder and its panes), and the **Shelf** along its bottom holds every other task, their agents still running. You keep several pieces of work going without a wall of windows, and swap between them in one click.
+The **Desk** is Kanna's window for working with an agent. It shows one **task**: the agent's terminal on the left as the single chat, and everything the task opens (docs, pages, images, other terminals) as tabs on the right. The **Shelf** along the bottom holds every other task, their agents still running, and swaps one in with a click.
 
-![A Desk holding one task: the agent on the left, the task's doc on the right, the Shelf below with a task that needs you](desk.png)
+![A Desk: the agent on the left, the task's docs as tabs on the right with the file tree, the Shelf below with a task that needs you](desk.png)
 
 ![An empty Desk listing parked tasks, in light mode](desk-empty.png)
 
@@ -21,7 +21,7 @@ The **Desk** is Kanna's own window for working with an agent: it shows one **tas
 
 ## 1. Tasks
 
-A task is a named piece of work: a title, a folder, an agent, and the tabs and panes you open for it.
+A task is a named piece of work: a title, a folder, an agent, and the docs it has open.
 
 ```mermaid
 stateDiagram-v2
@@ -35,38 +35,42 @@ stateDiagram-v2
 
 - **New Task** asks for a title, a repository and an agent (`claude`, `codex`, or a shell). The task's ID is the title as a slug (`doc-markup`).
 - **Its own worktree** (on by default for a git repository): `<repo>/.kanna/worktrees/<id>` on a new branch `task/<id>`, so tasks don't edit each other's files. Off: the task works in the repository itself.
-- **The agent** starts in that folder in the task's first pane, the **agent pane**. A doc it opens with `kanna open md` sends its comments to it ([doc markup](doc-markup.md)).
 - **Done** closes the task's panes, ending its agent and terminals. The worktree and branch are kept; Kanna never deletes your work.
 
 ## 2. The Desk
 
-- **One task per Desk.** Pulling a task onto a Desk parks the one it held. A task is on at most one Desk: pulling one that's on another Desk brings that window forward instead.
-- **Several Desks.** Each Desk is a window; New Desk opens another, empty. Closing a Desk window parks its task.
-- **The Desk shows the task's own tabs.** The tab bar, splits and panes are the mux UI's as today; a task is the set of tabs it holds. New tabs and panes opened on a Desk belong to its task.
-- **The agent pane** has a header above the terminal: the title, repository, branch, agent status and **Park ↓**. The terminal below is the agent's own, untouched.
+```mermaid
+flowchart LR
+    A["agent pane<br/>(the chat)"] --- D["docs: a tab group<br/>doc · page · image · terminal"] --- F["file tree<br/>(toggle)"]
+```
+
+- **One task per Desk.** Pulling a task onto a Desk parks the one it held; a task on another Desk brings that window forward instead. Several Desks are several windows; closing one parks its task.
+- **The agent pane** is the task's agent in its terminal, untouched, with a header: title, repository, branch, status and **Park ↓**. It's the only chat: you talk to the agent there, and doc comments arrive there ([doc markup](doc-markup.md)).
+- **Docs** are a [tab group](tab-groups.md) named `docs`. Each tab is an ordinary pane: markdown (with comments), a web page, an image, video or PDF (shown in a web pane), or another terminal (tests, a server).
+  - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, clicking a file in the tree, a markdown link, or **+**.
+  - **⌘1 … ⌘9** show the 1st … 9th tab. Opening a file that's already open shows its tab.
+  - **The path bar** shows where the shown tab's file is, with **Open ▾** (in its default app, in Finder, copy path) and the file tree toggle.
+- **The file tree** lists the task's folder; open files are marked, the shown one highlighted. Filter by typing.
 - **The Kanna bar** (top) names the Desk and its task, and has **+ New Task**.
 - **Empty Desk:** the parked tasks grouped by repository, each with **Pull →**, and **+ New Task**.
-- **Plain windows stay.** Windows that hold no task work exactly as now, so every kmux behaviour is unchanged.
+- **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
 
 ## 3. The Shelf
 
-- **Every task not on a Desk**, in the order they were parked, each with its agent status and how long ago it was parked.
+- **Every task not on a Desk**, in the order they were parked, each with its agent status and how long ago it was parked. **Needs you** moves a task to the front.
 - **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step.
-- **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, splits, scroll positions and docs come back as they were.
-- **Needs you** moves a task to the front of the Shelf, so a waiting agent is hard to miss.
+- **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, shown doc and scroll positions come back as they were.
 
 ## 4. Agent status
 
-The dot beside a task, on the Desk and the Shelf:
-
 | Status | When |
 |---|---|
-| working | the agent's terminal has printed in the last 2 s, or it reports progress (OSC 9;4) |
+| working | the agent's terminal printed in the last 2 s, or reports progress (OSC 9;4) |
 | needs you | it rang the bell or posted a notification since you last looked at the task |
 | idle | neither |
 | exited | the agent's program has ended |
 
-These come from what the terminal already reports to Kanna, the same for every agent; nothing reads the agent's prompt. Looking at the task (it's on a Desk and its window is focused) clears **needs you**.
+These come from what the terminal already reports to Kanna, the same for every agent; nothing reads the agent's prompt. Looking at the task (on a Desk, window focused) clears **needs you**.
 
 ## 5. CLI
 
@@ -78,44 +82,48 @@ These come from what the terminal already reports to Kanna, the same for every a
 | `kanna task park [ID]` | Move a task (default: the one on the key Desk) to the Shelf |
 | `kanna task done ID` | End a task: close its panes; the worktree is kept |
 
-Run from a task's terminal, `kanna task park` and `done` mean that task. An agent can start its own follow-up work with `kanna task new`.
+Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens into the task's `docs`.
 
 ## 6. How it's built
 
 ```mermaid
 flowchart TB
-    subgraph app["Kanna.app"]
-        D1["Desk window<br/>Kanna bar · tabs · Shelf"]
-        D2["Desk window"]
-        P["plain window"]
-        L["layout: windows, tabs, splits<br/>+ tasks (each owns tabs)"]
-        D1 & D2 & P --> L
+    subgraph mux["mux layer (kanna-mux + app views)"]
+        L["window tab layout:<br/>agent | docs=[…]"]
+        G["tab group node"]
+        L --- G
     end
-    subgraph daemon["daemon"]
-        T["terminals<br/>(parked or not)"]
+    subgraph desk["Desk layer (app)"]
+        T["task records<br/>title · folder · worktree · status"]
+        W["Desk chrome<br/>Kanna bar · agent header · path bar · file tree · Shelf"]
     end
-    CLI["kanna task …"] -->|layout commands| L
-    L <-->|app link| T
+    T -->|"each task owns one layout"| L
+    W --> L
+    CLI["kanna task …"] --> T
 ```
 
-- **Tasks are layout.** The app owns them, as it owns windows and tabs ([4.7](../kanna-spec.md#47-the-layout)): a task is a record (ID, title, folder, worktree, agent pane, status, park time) and the tabs it holds. Parking moves the task's tabs off the window; the panes keep their IDs, and their terminals never notice. Saved with the layout.
+- **The mux layer does the layout.** A task's layout is an ordinary window-tab layout, `agent:2/5 | docs=[…]`, built from a split and a [tab group](tab-groups.md). Nothing in the mux layer knows about tasks.
+- **The Desk layer is chrome and records.** The app keeps each task as a record (ID, title, folder, worktree, agent pane, status, park time) plus the layout it owns, saved with the windows ([4.7](../kanna-spec.md#47-the-layout)). The Kanna bar, agent header, path bar, file tree and Shelf are app views around that layout.
+- **Parking** moves the task's layout off the window; the panes keep their IDs, and their terminals never notice.
 - **`kanna task` commands** are layout commands: they go to the app like `open --split`, and start it if it's closed.
 - **The worktree** is made with `git worktree add` when the task starts; nothing else in Kanna touches git.
 - **Status** is worked out in the app from the terminal events it already gets (output, progress, bell, notifications, exit).
 
 ## 7. Open questions
 
-1. Keys: New Task, New Desk, Park, and next/previous task on the Shelf.
+1. Keys: New Task, New Desk, Park, next/previous task on the Shelf.
 2. Should Done offer to remove the worktree when the branch is merged?
 3. Should the Shelf show tasks from every repository, or only the Desk's?
+4. Is the agent pane's width fixed (2/5) or draggable and remembered per task?
 
 ## 8. Glossary
 
 | Term | Meaning |
 |---|---|
-| **Task** | A piece of work: an agent, its folder, and the tabs and panes opened for it |
+| **Task** | A piece of work: an agent, its folder, and the docs it has open |
 | **Desk** | A window that shows one task |
 | **Shelf** | The strip along a Desk's bottom listing every task not on a Desk |
 | **Pull / Park** | Put a task on a Desk / take it off, to the Shelf |
-| **Agent pane** | A task's first pane, where its agent runs, with the task's header above it |
+| **Agent pane** | Where the task's agent runs: the Desk's one chat |
+| **Docs** | The task's tab group: everything it has open besides the agent |
 | **Worktree** | A second checkout of a git repository on its own branch (`git worktree`) |
