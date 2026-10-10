@@ -437,9 +437,10 @@ public final class PageMarkupView: NSView {
 
     static let script = #"""
     (() => {
-      const vv = () => window.visualViewport || { offsetLeft: 0, offsetTop: 0, scale: 1 };
-      const toView = r => { const v = vv(); return { x: (r.left - v.offsetLeft) * v.scale, y: (r.top - v.offsetTop) * v.scale, w: r.width * v.scale, h: r.height * v.scale }; };
-      const toPage = (x, y) => { const v = vv(); return [x / v.scale + v.offsetLeft, y / v.scale + v.offsetTop]; };
+      const zoom = () => window.visualViewport?.scale || 1;
+      const origin = () => document.documentElement.getBoundingClientRect();
+      const toView = r => { const s = zoom(); return { x: r.left * s, y: r.top * s, w: r.width * s, h: r.height * s }; };
+      const toClient = (x, y) => { const s = zoom(); return [x / s, y / s]; };
       const flat = s => (s || "").replace(/\s+/g, " ").trim();
       const textOf = el => flat(el.innerText || el.getAttribute("aria-label") || el.getAttribute("alt")).slice(0, 120);
       function selectorOf(el) {
@@ -462,12 +463,12 @@ public final class PageMarkupView: NSView {
             if (r.width || r.height) return toView(r);
           }
         }
-        const [x, y, w, h] = item.box;
-        return toView({ left: x - scrollX, top: y - scrollY, width: w, height: h });
+        const [x, y, w, h] = item.box, o = origin();
+        return toView({ left: x + o.left, top: y + o.top, width: w, height: h });
       }
       window.kannaMarkup = {
         hit(x, y) {
-          const el = document.elementFromPoint(...toPage(x, y));
+          const el = document.elementFromPoint(...toClient(x, y));
           if (!el || el === document.documentElement || el === document.body) return null;
           return { selector: selectorOf(el), text: textOf(el), rect: toView(el.getBoundingClientRect()) };
         },
@@ -475,14 +476,14 @@ public final class PageMarkupView: NSView {
           return { hash: location.hash.slice(0, 100), boxes: Object.fromEntries(items.map(i => [i.id, find(i)])) };
         },
         place(x, y, w, h) {
-          const [px, py] = toPage(x, y), s = vv().scale;
-          return { hash: location.hash.slice(0, 100), box: [px + scrollX, py + scrollY, w / s, h / s].map(Math.round),
-                   viewport: [innerWidth, innerHeight], scroll: [Math.round(scrollX), Math.round(scrollY)] };
+          const [cx, cy] = toClient(x, y), s = zoom(), o = origin();
+          return { hash: location.hash.slice(0, 100), box: [cx - o.left, cy - o.top, w / s, h / s].map(Math.round),
+                   viewport: [innerWidth, innerHeight], scroll: [Math.round(-o.left), Math.round(-o.top)] };
         },
         go(hash) { if (location.hash !== hash) location.hash = hash; },
         show(box) {
-          const top = box[1] - scrollY;
-          if (top < 0 || top + box[3] > innerHeight) scrollTo(scrollX, Math.max(0, box[1] - innerHeight / 3));
+          const top = box[1] + origin().top, height = innerHeight / zoom();
+          if (top < 0 || top + box[3] > height) scrollTo(scrollX, Math.max(0, box[1] - height / 3));
         },
         rectOf(selector) { const el = document.querySelector(selector); return el ? toView(el.getBoundingClientRect()) : null; },
       };

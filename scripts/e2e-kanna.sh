@@ -984,11 +984,12 @@ S39() {
   mkdir -p "$dir/.git"
   cat >"$dir/page.html" <<'HTML'
 <!doctype html>
-<html><head><meta charset="utf-8"><style>body { font: 16px sans-serif; margin: 40px; } button { font-size: 22px; padding: 10px 24px; }</style></head>
+<html><head><meta charset="utf-8"><style>body { font: 16px sans-serif; margin: 40px; height: 2400px; width: 2400px; } button { font-size: 22px; padding: 10px 24px; } #red { position: absolute; left: 560px; top: 420px; width: 120px; height: 60px; background: #ff0000; }</style></head>
 <body>
 <h1>Mockup</h1>
 <p>A page to mark up.</p>
 <button id="go">Ship it</button>
+<div id="red"></div>
 </body></html>
 HTML
   agent_id="$(pane agent id)"
@@ -1057,6 +1058,61 @@ print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
   kanna navigate page "file://$dir/page.html#later" >/dev/null || return 1
   check wait_for 5 eval '[[ "$(s39_web | field hash)" == "#later" ]]' || { s39_web; return 1; }
   check wait_for 5 eval '[[ "$(s39_web | field marks)" == "{}" ]]' || { s39_web; return 1; }
+  kanna navigate page "file://$dir/page.html" >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(s39_web | field hash)" == "" ]]' || return 1
+  xy="$(s39_web ',"find":"#red"' | field at)"
+  s39_click "\"command\":true,\"at\":$xy"
+  check wait_for 5 eval '[[ "$(s39_web | field box)" == new ]]' || return 1
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Red"}}' >/dev/null
+  key cmd+return
+  check wait_for 5 eval '[[ "$(s39_thread c3 status)" == sent ]]' || { s39_web; return 1; }
+  s39_red() {
+    raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$1.png\"}}" >/dev/null; cp "$KANNA_STATE_DIR/$1.png" "$out/$1.png"
+    python3 - "$KANNA_STATE_DIR/$1.png" <<'PY'
+import struct, sys, zlib
+data = open(sys.argv[1], "rb").read()
+at, idat = 8, b""
+while at < len(data):
+    n = struct.unpack(">I", data[at:at + 4])[0]
+    kind, chunk = data[at + 4:at + 8], data[at + 8:at + 8 + n]
+    at += 12 + n
+    if kind == b"IHDR": w, h, _, ct = struct.unpack(">IIBB", chunk[:10])
+    if kind == b"IDAT": idat += chunk
+raw, bpp = zlib.decompress(idat), 4 if ct == 6 else 3
+stride, prev, o, hits = w * bpp, bytearray(w * bpp), 0, []
+for y in range(h):
+    f, line = raw[o], bytearray(raw[o + 1:o + 1 + stride])
+    o += 1 + stride
+    for x in range(stride):
+        a = line[x - bpp] if x >= bpp else 0
+        b, c = prev[x], prev[x - bpp] if x >= bpp else 0
+        if f == 1: line[x] = (line[x] + a) & 255
+        elif f == 2: line[x] = (line[x] + b) & 255
+        elif f == 3: line[x] = (line[x] + (a + b) // 2) & 255
+        elif f == 4:
+            p = a + b - c
+            line[x] = (line[x] + (a if abs(p - a) <= abs(p - b) and abs(p - a) <= abs(p - c) else b if abs(p - b) <= abs(p - c) else c)) & 255
+    prev = line
+    for x in range(0, w, 2):
+        if line[x * bpp] > 200 and line[x * bpp + 1] < 90 and line[x * bpp + 2] < 90: hits.append((x, y))
+xs, ys = [p[0] for p in hits], [p[1] for p in hits]
+print(f"[{(min(xs) + max(xs)) / 4}, {(min(ys) + max(ys)) / 4}]")
+PY
+  }
+  s39_moved() { python3 -c 'import json, sys; a, b, c, d = (json.loads(v) for v in sys.argv[1:]); dx, dy = (b[0] - a[0]) - (d[0] - c[0]), (b[1] - a[1]) - (d[1] - c[1]); print(abs(dx) < 3 and abs(dy) < 3, dx, dy)' "$@"; }
+  local red0 mark0 red1 mark1
+  sleep 0.3
+  red0="$(s39_red s39-red-start)"; mark0="$(s39_web | field marks.c3)"
+  key cmd+=; key cmd+=
+  raw '{"id":1,"cmd":"debug.web","args":{"pane":"page","js":"scrollTo(150, 200)"}}' >/dev/null
+  sleep 0.6
+  red1="$(s39_red s39-red-zoomed)"; mark1="$(s39_web | field marks.c3)"
+  [[ "$(s39_moved "$red0" "$red1" "$mark0" "$mark1")" == True* ]] || { echo "the mark should move with the page: red $red0 → $red1, mark $mark0 → $mark1: $(s39_moved "$red0" "$red1" "$mark0" "$mark1")"; return 1; }
+  raw '{"id":1,"cmd":"debug.pinch","args":{"pane":"page","steps":[0.15,0.1]}}' >/dev/null
+  sleep 0.6
+  red1="$(s39_red s39-red-pinched)"; mark1="$(s39_web | field marks.c3)"
+  [[ "$(s39_moved "$red0" "$red1" "$mark0" "$mark1")" == True* ]] || { echo "the mark should move with a pinch: red $red0 → $red1, mark $mark0 → $mark1"; return 1; }
+  key cmd+0
   raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
   sleep 0.5; s39_shot s39-dark
 }

@@ -109,6 +109,11 @@ extension AppController {
         }
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
+            if let script = args["js"]?.string {
+                let value = try? await web.webView.evaluateJavaScript(script)
+                let data = value.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed]) }
+                return ["value": .string(data.map { String(decoding: $0, as: UTF8.self) } ?? "null"), "magnification": .number(Double(web.webView.magnification))]
+            }
             let text = try? await web.webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
             var reply: [String: JSON] = ["url": web.webView.url.map { .string($0.absoluteString) } ?? .null, "text": .string(text ?? ""), "zoom": .number(Double(web.zoom))]
             guard let markup = web.markup else { return reply }
