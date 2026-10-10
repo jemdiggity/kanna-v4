@@ -22,7 +22,13 @@ flowchart TB
 Kanna builds against Ghostty from the `kanna4` branch of [jemdiggity/ghostty](https://github.com/jemdiggity/ghostty/tree/kanna4), which the scripts clone and pin (`scripts/env.sh`).
 
 ```sh
-scripts/build-ghostty-vt.sh       # libghostty-vt for the daemon
+scripts/build.sh                  # everything: libghostty-vt, the daemon, keeper and CLI, and target/Kanna.app
+```
+
+It runs these, which also work on their own:
+
+```sh
+scripts/build-ghostty-vt.sh       # libghostty-vt for the daemon (skipped when it's already the pinned Ghostty)
 cargo build --workspace --release # daemon, keeper, CLI
 scripts/build-kanna-app.sh        # target/Kanna.app, with the daemon and keeper inside
 ```
