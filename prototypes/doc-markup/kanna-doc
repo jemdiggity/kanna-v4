@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import fcntl
 import json
 import mimetypes
@@ -119,13 +120,18 @@ def current_line(src, t):
     return t["line"], True
 
 
+def image_line(src, t):
+    lines = [n for n, text in enumerate(src.splitlines(), 1) if f"]({t['image']})" in text or f"]({t['image']} " in text]
+    return (min(lines, key=lambda n: abs(n - t["line"])), False) if lines else (t["line"], True)
+
+
 def with_lines(doc):
     try:
         src = Path(doc["file"]).read_text(errors="replace")
     except OSError:
         return doc
     for t in doc["threads"]:
-        t["line"], t["detached"] = current_line(src, t)
+        t["line"], t["detached"] = image_line(src, t) if t.get("image") else current_line(src, t)
     return doc
 
 
@@ -150,12 +156,24 @@ def clean(text):
 THREAD_ID = re.compile(r"c[0-9]{1,10}")
 
 
+def describe_region(region):
+    if not region:
+        return "the whole image"
+    x, y, w, h = (round(v * 100) for v in region)
+    return f"the box from {x}%,{y}% to {x + w}%,{y + h}% (left,top to right,bottom)"
+
+
 def message(doc, t, text):
     if not THREAD_ID.fullmatch(t["id"]):
         raise SystemExit(f"kanna-doc: refusing to send thread id {t['id']!r}")
     header = f"[kanna comment {t['id']} · {rel_name(Path(doc['file']))}:{t['line']}]"
     if t.get("detached"):
         return f"{header}\n{text}"
+    if t.get("image"):
+        lines = [f"> image {t['image']}, {describe_region(t.get('region'))}"]
+        if t.get("mark"):
+            lines.append(f"> marked up: {t['mark']}")
+        return header + "\n" + "\n".join(lines) + "\n" + text
     quote = "\n".join("> " + line for line in t["quote"].splitlines()) or "> "
     return f"{header}\n{quote}\n{text}"
 
@@ -175,12 +193,43 @@ def send_to_agent(doc, text):
     return None
 
 
-def add_comment(file, quote, text, line, prefix="", suffix=""):
+PNG = b"\x89PNG\r\n\x1a\n"
+
+
+def clean_region(region):
+    if region is None:
+        return None
+    if not (isinstance(region, list) and len(region) == 4 and all(isinstance(v, (int, float)) for v in region)):
+        raise SystemExit("kanna-doc: region is [x, y, width, height] as fractions")
+    x, y, w, h = (min(1.0, max(0.0, float(v))) for v in region)
+    return [round(x, 4), round(y, 4), round(min(w, 1 - x), 4), round(min(h, 1 - y), 4)]
+
+
+def save_mark(file, tid, data_url):
+    head, _, body = (data_url or "").partition(",")
+    if head != "data:image/png;base64":
+        return None
+    data = base64.b64decode(body, validate=True)
+    if not data.startswith(PNG) or len(data) > 8 * 1024 * 1024:
+        return None
+    root = repo_root(file)
+    folder = store_dir(root) / "marks"
+    real_folder(folder)
+    path = folder / f"{store_path(file).stem}-{tid}.png"
+    write_no_follow(path, data)
+    return os.path.relpath(path, root)
+
+
+def add_comment(file, quote, text, line, prefix="", suffix="", image=None, region=None, snapshot=None):
     with locked(file) as doc:
         tid = f"c{doc['next']}"
         doc["next"] += 1
         t = {"id": tid, "quote": quote, "prefix": prefix, "suffix": suffix, "line": line, "state": "open",
              "status": "sent", "messages": [{"who": "you", "text": text, "at": now()}], "error": None}
+        if image:
+            t["image"] = image
+            t["region"] = clean_region(region)
+            t["mark"] = save_mark(file, tid, snapshot)
         doc["threads"].append(t)
         snapshot = with_lines(json.loads(json.dumps(doc)))
         t = find_thread(snapshot, tid)
@@ -327,9 +376,14 @@ class Handler(BaseHTTPRequestHandler):
         p = self.guard(q)
         if p is None:
             return
-        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+        length = int(self.headers.get("Content-Length", "0"))
+        if length > 12 * 1024 * 1024:
+            return self.reply(413, {"error": "too large"})
+        body = json.loads(self.rfile.read(length) or b"{}")
         if u.path == "/api/comment":
-            tid, error = add_comment(p, clean(body["quote"]), clean(body["text"]), int(body.get("line", 1)), body.get("prefix", ""), body.get("suffix", ""))
+            image = clean(body["image"]) if body.get("image") else None
+            tid, error = add_comment(p, clean(body["quote"]), clean(body["text"]), int(body.get("line", 1)), body.get("prefix", ""), body.get("suffix", ""),
+                                     image, body.get("region"), body.get("snapshot"))
             return self.reply(200, {"id": tid, "error": error})
         if u.path == "/api/reply":
             return self.reply(200, {"error": add_your_reply(p, body["id"], clean(body["text"]))})
@@ -395,8 +449,11 @@ def cmd_show(args):
     if args.json:
         return print(json.dumps(t, indent=2, ensure_ascii=False))
     print(f"{t['id']} · {rel_name(file)}:{t['line']} · {t['state']}" + (" · detached: the quote is no longer in the file" if t.get("detached") else ""))
-    for line in t["quote"].splitlines():
-        print("> " + line)
+    if t.get("image"):
+        print(f"> image {t['image']}, {describe_region(t.get('region'))}" + (f"\n> marked up: {t['mark']}" if t.get("mark") else ""))
+    else:
+        for line in t["quote"].splitlines():
+            print("> " + line)
     for m in t["messages"]:
         print(f"{m['who']}: {m['text']}")
 

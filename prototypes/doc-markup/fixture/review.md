@@ -20,3 +20,5 @@ Threads live in the daemon, beside the terminals they're typed into, so `reply` 
 > Comments are stored in `.kanna/docs/`, one file per doc.
 
 The SENDME word is for the test.
+
+![A Desk: the agent docked on the left, docs as tabs on the right](desk.png)

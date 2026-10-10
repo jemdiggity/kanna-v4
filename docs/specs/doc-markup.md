@@ -39,6 +39,9 @@ General remarks that aren't about a passage go straight to the agent's chat, as 
 
 - **Preview only.** The markdown pane shows the file rendered and reloads when it changes; you don't edit in it. Comments are the only thing you add.
 - **Commenting.** Select text and press ⌘↵ (or Comment), or ⌘-click a word to comment on just that word. ⌘-click always comments, even on a link; a plain click follows a link.
+- **Images.** ⌘-drag on an image to box part of it, or ⌘-click it for the whole image. The box is the thread's mark, and stays on the image.
+
+![A box drawn on an image, with its thread selected in the list](doc-markup-image.png)
 - **Threads live beside the file, not in it.** A thread has an ID (`c1`, `c2`, … per doc), the quoted passage, its messages, and whether it's open or resolved.
 - **Anchors follow the text.** A comment remembers its quote with some text either side. When the file changes (the agent, you in another editor, git), it finds the quote again; if it can't, the thread is kept and marked **detached**, never dropped.
 - **Resolved threads stay marked** in the doc, more faintly than open ones, and clicking the mark opens the thread to read or reopen it. The list beside the doc hides them until you ask; resolving can be undone.
@@ -56,6 +59,15 @@ General remarks that aren't about a passage go straight to the agent's chat, as 
 [kanna comment c2 · docs/specs/tab-container.md:18]
 > the strip scrolls, keeping the active tab in view
 Also say what ⌃Tab does when the strip has scrolled.
+```
+
+- **A comment on an image** names the image and the box, and a copy of the image with the box drawn on it, saved beside the threads, for the agent to look at:
+
+```
+[kanna comment c4 · docs/specs/desk.md:9]
+> image desk.png, the box from 5%,20% to 30%,50% (left,top to right,bottom)
+> marked up: .kanna/docs/marks/docs__specs__desk.md-c4.png
+The agent header needs the branch.
 ```
 
 - **Replies you add to a thread** are sent the same way, under the same header.

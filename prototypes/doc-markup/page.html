@@ -87,6 +87,12 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .mark { position: absolute; pointer-events: none; background: var(--tint); border-bottom: 1.5px solid var(--accent); }
 .mark.on { background: var(--tint-on); }
 .mark.done { background: rgba(128, 128, 128, 0.16); border-bottom: 0; }
+.imark { position: absolute; z-index: 5; border: 2px solid var(--accent); background: var(--tint); border-radius: 3px; cursor: pointer; }
+.imark.on { background: var(--tint-on); }
+.imark.done { border: 2px dashed rgba(128, 128, 128, 0.7); background: rgba(128, 128, 128, 0.12); }
+.imark.draft { pointer-events: none; background: var(--tint-on); }
+#doc img { cursor: default; }
+body.meta #doc img { cursor: crosshair; }
 .card.on .reply { display: block; }
 .card .reply textarea { width: 100%; height: 28px; resize: none; background: transparent; border: 0; border-top: 1px solid var(--line); color: var(--text); padding: 6px 0 0; font: 12.5px var(--sans); outline: none; }
 #fail { padding: 30px; color: var(--warn); }
@@ -150,6 +156,9 @@ function renderDoc() {
   }
   docEl.querySelectorAll("img").forEach(img => {
     const src = img.getAttribute("src") || "";
+    img.dataset.src = src;
+    img.draggable = false;
+    img.addEventListener("load", drawImageMarks);
     if (src && !/^[a-z]+:/i.test(src)) img.src = "/asset" + q({ path: src });
   });
   docEl.querySelectorAll("a[href]").forEach(a => {
@@ -222,6 +231,7 @@ function anchorAll() {
   const all = [], done = [], active = [];
   state.anchors = {};
   for (const t of state.threads) {
+    if (t.image) { state.anchors[t.id] = imageFor(t) ? "image" : null; continue; }
     const span = locate(idx, t);
     state.anchors[t.id] = span;
     if (!span) continue;
@@ -236,7 +246,48 @@ function anchorAll() {
   } else {
     drawMarks(all, done, active);
   }
+  drawImageMarks();
   renderThreads();
+}
+function imageFor(t) {
+  return [...document.querySelectorAll("#doc img")].find(i => i.dataset.src === t.image) || null;
+}
+function regionRect(img, region) {
+  const reader = document.getElementById("reader");
+  const host = reader.getBoundingClientRect(), r = img.getBoundingClientRect();
+  const [x, y, w, h] = region || [0, 0, 1, 1];
+  return { left: r.left - host.left + reader.scrollLeft + x * r.width, top: r.top - host.top + reader.scrollTop + y * r.height, width: w * r.width, height: h * r.height };
+}
+function placeBox(el, box) {
+  Object.assign(el.style, { left: box.left + "px", top: box.top + "px", width: box.width + "px", height: box.height + "px" });
+}
+function drawImageMarks() {
+  const reader = document.getElementById("reader");
+  reader.querySelectorAll(".imark:not(.draft)").forEach(m => m.remove());
+  for (const t of state.threads) {
+    const img = t.image && imageFor(t);
+    if (!img || !img.complete || !img.naturalWidth) continue;
+    const m = document.createElement("div");
+    m.className = "imark" + (t.state === "open" ? "" : " done") + (t.id === state.active ? " on" : "");
+    m.dataset.id = t.id;
+    placeBox(m, regionRect(img, t.region));
+    m.addEventListener("click", e => { e.stopPropagation(); state.active = t.id; anchorAll(); document.querySelector(".card.on")?.scrollIntoView({ block: "nearest", behavior: "smooth" }); openPop(t.id); });
+    reader.appendChild(m);
+  }
+}
+function anchorBox(id) {
+  const t = state.threads.find(x => x.id === id);
+  const reader = document.getElementById("reader"), host = reader.getBoundingClientRect();
+  if (t && t.image) {
+    const img = imageFor(t);
+    if (!img) return null;
+    const b = regionRect(img, t.region);
+    return { left: b.left, bottom: b.top + b.height };
+  }
+  const span = state.anchors[id];
+  if (!span) return null;
+  const rect = rangeAt(textIndex(), ...span).getBoundingClientRect();
+  return { left: rect.left - host.left + reader.scrollLeft, bottom: rect.bottom - host.top + reader.scrollTop };
 }
 
 function drawMarks(all, done, active) {
@@ -265,10 +316,9 @@ function openPop(id) {
   closePop();
   closeComposer();
   const t = state.threads.find(x => x.id === id);
-  const span = state.anchors[id];
-  if (!t || !span) return;
+  const at = anchorBox(id);
+  if (!t || !at) return;
   const reader = document.getElementById("reader");
-  const rect = rangeAt(textIndex(), ...span).getBoundingClientRect(), host = reader.getBoundingClientRect();
   const box = document.createElement("div");
   box.className = "composer pop";
   box.dataset.id = id;
@@ -276,8 +326,8 @@ function openPop(id) {
   const open = t.state === "open";
   box.innerHTML = `<span class="act" title="${open ? "Resolve" : "Reopen"}">${open ? "✓" : "↺"}</span>${threadMessages(t)}${n ? `<div class="note">${n}</div>` : ""}<textarea placeholder="Reply"></textarea>`;
   reader.appendChild(box);
-  box.style.left = Math.max(8, Math.min(rect.left - host.left + reader.scrollLeft, reader.scrollLeft + reader.clientWidth - box.offsetWidth - 8)) + "px";
-  box.style.top = (rect.bottom - host.top + reader.scrollTop + 6) + "px";
+  box.style.left = Math.max(8, Math.min(at.left, reader.scrollLeft + reader.clientWidth - box.offsetWidth - 8)) + "px";
+  box.style.top = (at.bottom + 6) + "px";
   const ta = box.querySelector("textarea");
   ta.focus();
   requestAnimationFrame(() => ta.focus());
@@ -297,7 +347,7 @@ function openPop(id) {
 function note(t) {
   if (t.state !== "open") return "";
   if (t.status === "unsent") return `not sent${t.error ? ": " + esc(t.error) : ""}`;
-  if (state.anchors[t.id] === null) return "its text is no longer in the doc";
+  if (state.anchors[t.id] === null) return t.image ? "its image is no longer in the doc" : "its text is no longer in the doc";
   return "";
 }
 
@@ -348,6 +398,11 @@ function reveal(id) {
   anchorAll();
   const span = state.anchors[id];
   if (!span) return;
+  if (span === "image") {
+    const at = anchorBox(id), reader = document.getElementById("reader");
+    reader.scrollTo({ top: Math.max(0, at.bottom - reader.clientHeight / 2), behavior: "smooth" });
+    return;
+  }
   const idx = textIndex();
   const r = rangeAt(idx, ...span);
   const rect = r.getBoundingClientRect(), reader = document.getElementById("reader");
@@ -382,20 +437,56 @@ function openComposer(range) {
   const reader = document.getElementById("reader");
   const rect = range.getBoundingClientRect(), host = reader.getBoundingClientRect();
   window.getSelection().removeAllRanges();
+  showComposer(rect.left - host.left + reader.scrollLeft, rect.bottom - host.top + reader.scrollTop);
+}
+
+function openImageComposer(img, region, draft) {
+  const block = img.closest(".block");
+  if (!block) return;
+  closeComposer();
+  const quote = `![${img.getAttribute("alt") || ""}](${img.dataset.src})`;
+  state.composer = { quote, prefix: "", suffix: "", line: Number(block.dataset.line), image: img.dataset.src, region, img };
+  const reader = document.getElementById("reader");
+  const mark = draft || document.createElement("div");
+  mark.className = "imark on draft";
+  placeBox(mark, regionRect(img, region));
+  reader.appendChild(mark);
+  const b = regionRect(img, region);
+  showComposer(b.left, b.top + b.height);
+}
+
+function snapshot(img, region) {
+  const scale = Math.min(1, 1600 / img.naturalWidth);
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.naturalWidth * scale);
+  c.height = Math.round(img.naturalHeight * scale);
+  const g = c.getContext("2d");
+  g.drawImage(img, 0, 0, c.width, c.height);
+  const [x, y, w, h] = region || [0, 0, 1, 1];
+  const line = Math.max(3, Math.round(c.width / 250));
+  g.lineWidth = line;
+  g.strokeStyle = "#ff3b30";
+  g.strokeRect(x * c.width + line / 2, y * c.height + line / 2, w * c.width - line, h * c.height - line);
+  return c.toDataURL("image/png");
+}
+
+function showComposer(left, bottom) {
+  const reader = document.getElementById("reader");
   const box = document.createElement("div");
   box.className = "composer";
   box.innerHTML = `<textarea placeholder="Comment"></textarea><div class="row"><span>⌘↵ posts · Esc cancels</span><button class="primary">Post</button></div>`;
   reader.appendChild(box);
-  const left = Math.max(8, Math.min(rect.left - host.left + reader.scrollLeft, reader.scrollLeft + reader.clientWidth - box.offsetWidth - 8));
-  box.style.left = left + "px";
-  box.style.top = (rect.bottom - host.top + reader.scrollTop + 6) + "px";
+  box.style.left = Math.max(8, Math.min(left, reader.scrollLeft + reader.clientWidth - box.offsetWidth - 8)) + "px";
+  box.style.top = (bottom + 6) + "px";
+  box.scrollIntoView({ block: "nearest" });
   const ta = box.querySelector("textarea");
   ta.focus();
   requestAnimationFrame(() => ta.focus());
   const post = async () => {
     const text = ta.value.trim();
     if (!text) return;
-    const c = state.composer;
+    const { img, ...c } = state.composer;
+    if (img) c.snapshot = snapshot(img, c.region);
     closeComposer();
     const r = await api("/api/comment", { ...c, text });
     state.active = r.id;
@@ -409,7 +500,7 @@ function openComposer(range) {
 }
 
 function closeComposer() {
-  document.querySelectorAll(".composer").forEach(b => b.remove());
+  document.querySelectorAll(".composer, .imark.draft").forEach(b => b.remove());
   state.composer = null;
 }
 
@@ -446,8 +537,39 @@ function threadAt(x, y) {
   return hits.find(id => state.threads.find(t => t.id === id)?.state === "open") || hits[0] || null;
 }
 
+document.getElementById("doc").addEventListener("mousedown", e => {
+  const img = e.target.closest("#doc img");
+  if (!img || !e.metaKey || e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  closePop();
+  closeComposer();
+  const r = img.getBoundingClientRect();
+  const clamp = v => Math.min(1, Math.max(0, v));
+  const sx = clamp((e.clientX - r.left) / r.width), sy = clamp((e.clientY - r.top) / r.height);
+  const draft = document.createElement("div");
+  draft.className = "imark on draft";
+  document.getElementById("reader").appendChild(draft);
+  let region = null;
+  const move = m => {
+    const x = clamp((m.clientX - r.left) / r.width), y = clamp((m.clientY - r.top) / r.height);
+    region = Math.abs(x - sx) * r.width < 6 && Math.abs(y - sy) * r.height < 6 ? null : [Math.min(sx, x), Math.min(sy, y), Math.abs(x - sx), Math.abs(y - sy)];
+    placeBox(draft, regionRect(img, region));
+  };
+  const up = m => {
+    removeEventListener("mousemove", move);
+    removeEventListener("mouseup", up);
+    move(m);
+    openImageComposer(img, region, draft);
+  };
+  addEventListener("mousemove", move);
+  addEventListener("mouseup", up);
+}, true);
+addEventListener("keydown", e => document.body.classList.toggle("meta", e.metaKey));
+addEventListener("keyup", e => document.body.classList.toggle("meta", e.metaKey));
 document.getElementById("doc").addEventListener("click", e => {
   if (e.target.closest(".composer")) return;
+  if (e.metaKey && e.target.closest("#doc img")) { e.preventDefault(); e.stopPropagation(); return; }
   if (state.composer && !e.metaKey) { const ta = document.querySelector(".composer textarea"); if (ta && !ta.value.trim()) { closeComposer(); anchorAll(); } return; }
   if (e.metaKey) {
     e.preventDefault();
