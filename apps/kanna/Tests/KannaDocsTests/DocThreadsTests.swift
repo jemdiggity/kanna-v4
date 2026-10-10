@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import KannaMarkdown
+@testable import KannaDocs
 
 struct DocThreadsTests {
     func thread(_ quote: String, prefix: String = "", suffix: String = "") -> DocThread {

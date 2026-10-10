@@ -1,4 +1,5 @@
 import AppKit
+import KannaDocs
 import Markdown
 
 @MainActor

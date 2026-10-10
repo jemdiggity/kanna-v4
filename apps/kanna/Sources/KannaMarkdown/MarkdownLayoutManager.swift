@@ -1,4 +1,5 @@
 import AppKit
+import KannaDocs
 
 struct DocMark {
     enum Kind { case open, resolved, active }

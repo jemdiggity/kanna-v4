@@ -1,4 +1,5 @@
 import AppKit
+import KannaDocs
 
 extension MarkdownPaneView {
     func setUpComments() {

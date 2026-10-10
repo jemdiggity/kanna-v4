@@ -4,6 +4,30 @@ public struct DocMessage: Codable, Equatable {
     public var who: String
     public var text: String
     public var at: String
+
+    package init(who: String, text: String, at: String) {
+        self.who = who
+        self.text = text
+        self.at = at
+    }
+}
+
+public struct PageSpot: Codable, Equatable {
+    public var selector: String
+    public var text: String
+    public var hash: String
+    public var box: [Int]
+    public var viewport: [Int]
+    public var scroll: [Int]
+
+    package init(selector: String, text: String, hash: String, box: [Int], viewport: [Int], scroll: [Int]) {
+        self.selector = selector
+        self.text = text
+        self.hash = hash
+        self.box = box
+        self.viewport = viewport
+        self.scroll = scroll
+    }
 }
 
 public struct DocThread: Codable, Equatable {
@@ -16,6 +40,24 @@ public struct DocThread: Codable, Equatable {
     public var status: String?
     public var messages: [DocMessage]
     public var error: String?
+    public var image: String?
+    public var region: [Double]?
+    public var page: PageSpot?
+    public var mark: String?
+
+    package init(id: String, quote: String, prefix: String?, suffix: String?, line: Int, state: String, status: String?, messages: [DocMessage],
+                 error: String?, page: PageSpot? = nil) {
+        self.id = id
+        self.quote = quote
+        self.prefix = prefix
+        self.suffix = suffix
+        self.line = line
+        self.state = state
+        self.status = status
+        self.messages = messages
+        self.error = error
+        self.page = page
+    }
 
     public var isOpen: Bool { state == "open" }
 }
@@ -27,7 +69,7 @@ public struct DocRecord: Codable, Equatable {
     public var next: Int
     public var threads: [DocThread]
 
-    init(file: String) {
+    package init(file: String) {
         self.file = file
         next = 1
         threads = []
@@ -47,7 +89,7 @@ public struct DocStore {
 
     public var relativeName: String { Self.relative(file, to: Self.repoRoot(of: file)) }
 
-    static func repoRoot(of file: String) -> String {
+    package static func repoRoot(of file: String) -> String {
         let start = URL(fileURLWithPath: file).deletingLastPathComponent().standardizedFileURL
         var folder = start
         while true {
@@ -58,7 +100,7 @@ public struct DocStore {
         }
     }
 
-    static func relative(_ file: String, to root: String) -> String {
+    package static func relative(_ file: String, to root: String) -> String {
         file.hasPrefix(root + "/") ? String(file.dropFirst(root.count + 1)) : (file as NSString).lastPathComponent
     }
 
@@ -71,14 +113,14 @@ public struct DocStore {
         return record
     }
 
-    static func readNoFollow(_ path: String) -> Data? {
+    package static func readNoFollow(_ path: String) -> Data? {
         let fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         return try? handle.readToEnd()
     }
 
-    static func realFolder(_ path: String) throws {
+    package static func realFolder(_ path: String) throws {
         if mkdir(path, 0o755) != 0, errno != EEXIST { throw CocoaError(.fileWriteNoPermission) }
         var info = stat()
         guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { throw CocoaError(.fileWriteInvalidFileName) }

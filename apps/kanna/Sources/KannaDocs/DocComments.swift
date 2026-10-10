@@ -1,37 +1,37 @@
 import AppKit
 
-enum DocTheme {
-    static let bar = color(dark: 0x202226, light: 0xf4f4f6)
-    static let panel = color(dark: 0x1c1d22, light: 0xf7f7f9)
-    static let card = color(dark: 0x23252b, light: 0xffffff)
-    static let line = color(dark: 0x2c2e34, light: 0xdedfe3)
-    static let edge = color(dark: 0x3a3d44, light: 0xc9cbd1)
-    static let text = color(dark: 0xe6e6e6, light: 0x1d1f23)
-    static let soft = color(dark: 0xc9ccd3, light: 0x3a3d44)
-    static let dim = color(dark: 0x8b8f98, light: 0x7a7e87)
-    static let accent = color(dark: 0x3478f6, light: 0x2f6fe4)
-    static let ok = color(dark: 0x4cb782, light: 0x2f9a63)
-    static let warn = color(dark: 0xd9a441, light: 0xb9801b)
-    static let agent = color(dark: 0xd18ae6, light: 0x9a45c4)
-    static let tint = color(dark: 0x3478f6, light: 0x2f6fe4, alpha: (0.2, 0.16))
-    static let tintOn = color(dark: 0x3478f6, light: 0x2f6fe4, alpha: (0.42, 0.34))
-    static let resolvedTint = NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 0.16)
+package enum DocTheme {
+    package static let bar = color(dark: 0x202226, light: 0xf4f4f6)
+    package static let panel = color(dark: 0x1c1d22, light: 0xf7f7f9)
+    package static let card = color(dark: 0x23252b, light: 0xffffff)
+    package static let line = color(dark: 0x2c2e34, light: 0xdedfe3)
+    package static let edge = color(dark: 0x3a3d44, light: 0xc9cbd1)
+    package static let text = color(dark: 0xe6e6e6, light: 0x1d1f23)
+    package static let soft = color(dark: 0xc9ccd3, light: 0x3a3d44)
+    package static let dim = color(dark: 0x8b8f98, light: 0x7a7e87)
+    package static let accent = color(dark: 0x3478f6, light: 0x2f6fe4)
+    package static let ok = color(dark: 0x4cb782, light: 0x2f9a63)
+    package static let warn = color(dark: 0xd9a441, light: 0xb9801b)
+    package static let agent = color(dark: 0xd18ae6, light: 0x9a45c4)
+    package static let tint = color(dark: 0x3478f6, light: 0x2f6fe4, alpha: (0.2, 0.16))
+    package static let tintOn = color(dark: 0x3478f6, light: 0x2f6fe4, alpha: (0.42, 0.34))
+    package static let resolvedTint = NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 0.16)
 
-    static var sans: NSFont { NSFont.systemFont(ofSize: 13) }
-    static var small: NSFont { NSFont.systemFont(ofSize: 12) }
-    static var tiny: NSFont { NSFont.systemFont(ofSize: 11.5) }
-    static var mono: NSFont { NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular) }
+    package static var sans: NSFont { NSFont.systemFont(ofSize: 13) }
+    package static var small: NSFont { NSFont.systemFont(ofSize: 12) }
+    package static var tiny: NSFont { NSFont.systemFont(ofSize: 11.5) }
+    package static var mono: NSFont { NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular) }
 
     private static func color(dark: UInt32, light: UInt32, alpha: (CGFloat, CGFloat) = (1, 1)) -> NSColor {
         NSColor(name: nil) { appearance in
-            let isDark = MarkdownTheme.isDark(appearance)
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             let value = isDark ? dark : light
             return NSColor(srgbRed: CGFloat((value >> 16) & 0xff) / 255, green: CGFloat((value >> 8) & 0xff) / 255,
                            blue: CGFloat(value & 0xff) / 255, alpha: isDark ? alpha.0 : alpha.1)
         }
     }
 
-    static func paragraph(_ lineHeight: CGFloat, size: CGFloat) -> NSParagraphStyle {
+    package static func paragraph(_ lineHeight: CGFloat, size: CGFloat) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.minimumLineHeight = (size * lineHeight).rounded()
         style.maximumLineHeight = (size * lineHeight).rounded()
@@ -40,13 +40,13 @@ enum DocTheme {
 }
 
 @MainActor
-class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-    var fill: NSColor? { didSet { needsDisplay = true } }
-    var stroke: NSColor? { didSet { needsDisplay = true } }
-    var radius: CGFloat = 0
+package class FlippedView: NSView {
+    package override var isFlipped: Bool { true }
+    package var fill: NSColor? { didSet { needsDisplay = true } }
+    package var stroke: NSColor? { didSet { needsDisplay = true } }
+    package var radius: CGFloat = 0
 
-    override func draw(_ dirtyRect: NSRect) {
+    package override func draw(_ dirtyRect: NSRect) {
         if let fill {
             fill.setFill()
             NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
@@ -59,13 +59,13 @@ class FlippedView: NSView {
 }
 
 @MainActor
-final class Chip: FlippedView {
-    let label = NSTextField(labelWithString: "")
-    var onPress: (() -> Void)?
-    var on = false { didSet { paint() } }
-    var warn = false { didSet { paint() } }
+package final class Chip: FlippedView {
+    package let label = NSTextField(labelWithString: "")
+    package var onPress: (() -> Void)?
+    package var on = false { didSet { paint() } }
+    package var warn = false { didSet { paint() } }
 
-    init(_ text: String) {
+    package init(_ text: String) {
         super.init(frame: .zero)
         radius = 5
         label.font = DocTheme.small
@@ -76,7 +76,7 @@ final class Chip: FlippedView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func set(_ text: String) {
+    package func set(_ text: String) {
         label.stringValue = text
         label.sizeToFit()
         frame.size = NSSize(width: ceil(label.frame.width) + 18, height: 22)
@@ -89,24 +89,24 @@ final class Chip: FlippedView {
         label.textColor = warn ? DocTheme.warn : on ? DocTheme.text : DocTheme.soft
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    package override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         paint()
     }
 
-    override func mouseDown(with event: NSEvent) {
+    package override func mouseDown(with event: NSEvent) {
         if let onPress { onPress() } else { super.mouseDown(with: event) }
     }
 }
 
 @MainActor
-final class DocBar: FlippedView {
-    let path = NSTextField(labelWithString: "")
-    let agent = Chip("")
-    let comment = Chip("Comment ⌘↵")
-    let threads = Chip("Threads")
+package final class DocBar: FlippedView {
+    package let path = NSTextField(labelWithString: "")
+    package let agent = Chip("")
+    package let comment = Chip("Comment ⌘↵")
+    package let threads = Chip("Threads")
 
-    init() {
+    package init() {
         super.init(frame: .zero)
         fill = DocTheme.bar
         path.font = DocTheme.mono
@@ -119,7 +119,7 @@ final class DocBar: FlippedView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func layout() {
+    package override func layout() {
         super.layout()
         var x = bounds.width - 10
         for chip in [threads, comment, agent] {
@@ -131,7 +131,7 @@ final class DocBar: FlippedView {
         path.frame = NSRect(x: 10, y: ((bounds.height - path.frame.height) / 2).rounded(), width: max(0, min(path.frame.width, x - 10)), height: path.frame.height)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         DocTheme.line.setFill()
         NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
@@ -139,11 +139,11 @@ final class DocBar: FlippedView {
 }
 
 @MainActor
-final class BoxField: NSTextView {
-    var onKey: ((NSEvent) -> Bool)?
-    var placeholder = ""
+package final class BoxField: NSTextView {
+    package var onKey: ((NSEvent) -> Bool)?
+    package var placeholder = ""
 
-    convenience init(placeholder: String) {
+    package convenience init(placeholder: String) {
         self.init(frame: NSRect(x: 0, y: 0, width: 100, height: 28))
         self.placeholder = placeholder
         font = DocTheme.sans
@@ -158,33 +158,33 @@ final class BoxField: NSTextView {
         isAutomaticDashSubstitutionEnabled = false
     }
 
-    override func keyDown(with event: NSEvent) {
+    package override func keyDown(with event: NSEvent) {
         if onKey?(event) == true { return }
         super.keyDown(with: event)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    package override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, event.modifierFlags.contains(.command), onKey?(event) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
 
-    override func didChangeText() {
+    package override func didChangeText() {
         super.didChangeText()
         needsDisplay = true
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty {
             (placeholder as NSString).draw(at: NSPoint(x: 0, y: 0), withAttributes: [.font: font ?? DocTheme.sans, .foregroundColor: DocTheme.dim])
         }
     }
 
-    var trimmed: String { string.trimmingCharacters(in: .whitespacesAndNewlines) }
+    package var trimmed: String { string.trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
 @MainActor
-func messageViews(_ thread: DocThread, width: CGFloat) -> [NSView] {
+package func messageViews(_ thread: DocThread, width: CGFloat) -> [NSView] {
     thread.messages.map { message in
         let agent = message.who == "agent"
         let label = NSTextField(wrappingLabelWithString: "")
@@ -207,7 +207,7 @@ func messageViews(_ thread: DocThread, width: CGFloat) -> [NSView] {
 }
 
 @MainActor
-func stack(_ views: [NSView], in host: NSView, x: CGFloat, y: CGFloat, gap: CGFloat) -> CGFloat {
+package func stack(_ views: [NSView], in host: NSView, x: CGFloat, y: CGFloat, gap: CGFloat) -> CGFloat {
     var y = y
     for (index, view) in views.enumerated() {
         if index > 0 { y += gap }
@@ -219,7 +219,7 @@ func stack(_ views: [NSView], in host: NSView, x: CGFloat, y: CGFloat, gap: CGFl
 }
 
 @MainActor
-func noteLabel(_ text: String, width: CGFloat) -> NSTextField {
+package func noteLabel(_ text: String, width: CGFloat) -> NSTextField {
     let label = NSTextField(wrappingLabelWithString: text)
     label.font = DocTheme.tiny
     label.textColor = DocTheme.warn
@@ -228,12 +228,12 @@ func noteLabel(_ text: String, width: CGFloat) -> NSTextField {
 }
 
 @MainActor
-final class ActButton: FlippedView {
-    let label = NSTextField(labelWithString: "")
-    var onPress: (() -> Void)?
+package final class ActButton: FlippedView {
+    package let label = NSTextField(labelWithString: "")
+    package var onPress: (() -> Void)?
     private var hover = false
 
-    init(resolve: Bool) {
+    package init(resolve: Bool) {
         super.init(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
         radius = 4
         label.stringValue = resolve ? "✓" : "↺"
@@ -248,23 +248,23 @@ final class ActButton: FlippedView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func mouseEntered(with event: NSEvent) { hover = true; paint() }
-    override func mouseExited(with event: NSEvent) { hover = false; paint() }
+    package override func mouseEntered(with event: NSEvent) { hover = true; paint() }
+    package override func mouseExited(with event: NSEvent) { hover = false; paint() }
     private func paint() {
         fill = hover ? DocTheme.panel : nil
         label.textColor = hover ? DocTheme.ok : DocTheme.dim
     }
 
-    override func mouseDown(with event: NSEvent) { onPress?() }
+    package override func mouseDown(with event: NSEvent) { onPress?() }
 }
 
 @MainActor
-final class CommentBox: FlippedView {
-    static let width: CGFloat = 360
-    let field: BoxField
-    var threadID: String?
+package final class CommentBox: FlippedView {
+    package static let width: CGFloat = 360
+    package let field: BoxField
+    package var threadID: String?
 
-    init(composer: Void) {
+    package init(composer: Void) {
         field = BoxField(placeholder: "Comment")
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 100))
         decorate()
@@ -286,7 +286,7 @@ final class CommentBox: FlippedView {
         frame.size.height = 96
     }
 
-    init(thread: DocThread, note: String?) {
+    package init(thread: DocThread, note: String?) {
         field = BoxField(placeholder: "Reply")
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 100))
         threadID = thread.id
@@ -324,19 +324,19 @@ final class CommentBox: FlippedView {
         }()
     }
 
-    func button(_ name: String) -> NSView? { subviews.first { $0.identifier?.rawValue == name } }
+    package func button(_ name: String) -> NSView? { subviews.first { $0.identifier?.rawValue == name } }
 }
 
 @MainActor
-final class ThreadCard: FlippedView {
-    let thread: DocThread
-    let field = BoxField(placeholder: "Reply")
-    let act: ActButton
-    var onSelect: (() -> Void)?
+package final class ThreadCard: FlippedView {
+    package let thread: DocThread
+    package let field = BoxField(placeholder: "Reply")
+    package let act: ActButton
+    package var onSelect: (() -> Void)?
     private let active: Bool
     private var hover = false
 
-    init(thread: DocThread, active: Bool, note: String?, width: CGFloat) {
+    package init(thread: DocThread, active: Bool, note: String?, width: CGFloat) {
         self.thread = thread
         self.active = active
         act = ActButton(resolve: thread.isOpen)
@@ -364,8 +364,8 @@ final class ThreadCard: FlippedView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func mouseEntered(with event: NSEvent) { hover = true; paint() }
-    override func mouseExited(with event: NSEvent) { hover = false; paint() }
+    package override func mouseEntered(with event: NSEvent) { hover = true; paint() }
+    package override func mouseExited(with event: NSEvent) { hover = false; paint() }
 
     private func paint() {
         fill = hover || active ? DocTheme.card : nil
@@ -373,7 +373,7 @@ final class ThreadCard: FlippedView {
         needsDisplay = true
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if active {
             DocTheme.accent.setFill()
@@ -381,24 +381,24 @@ final class ThreadCard: FlippedView {
         }
     }
 
-    override func mouseDown(with event: NSEvent) {
+    package override func mouseDown(with event: NSEvent) {
         if !active { onSelect?() }
     }
 }
 
 @MainActor
-final class ThreadPanel: FlippedView {
-    static let width: CGFloat = 280
-    let scroll = NSScrollView()
+package final class ThreadPanel: FlippedView {
+    package static let width: CGFloat = 280
+    package let scroll = NSScrollView()
     private let content = FlippedView()
-    var onSelect: ((String) -> Void)?
-    var onAct: ((DocThread) -> Void)?
-    var onReply: ((String, String) -> Void)?
-    var showResolved = false
+    package var onSelect: ((String) -> Void)?
+    package var onAct: ((DocThread) -> Void)?
+    package var onReply: ((String, String) -> Void)?
+    package var showResolved = false
     private(set) var cards: [ThreadCard] = []
     private var last: (threads: [DocThread], active: String?, notes: [String: String], showResolved: Bool, width: CGFloat)?
 
-    init() {
+    package init() {
         super.init(frame: .zero)
         fill = DocTheme.panel
         scroll.drawsBackground = false
@@ -410,19 +410,19 @@ final class ThreadPanel: FlippedView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func layout() {
+    package override func layout() {
         super.layout()
         scroll.frame = NSRect(x: 1, y: 0, width: bounds.width - 1, height: bounds.height)
         if let last, last.width != bounds.width { show(last.threads, active: last.active, notes: last.notes) }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         DocTheme.line.setFill()
         NSRect(x: 0, y: 0, width: 1, height: bounds.height).fill()
     }
 
-    func show(_ threads: [DocThread], active: String?, notes: [String: String]) {
+    package func show(_ threads: [DocThread], active: String?, notes: [String: String]) {
         let width = bounds.width - 1
         if let last, last.threads == threads, last.active == active, last.notes == notes, last.showResolved == showResolved, last.width == bounds.width { return }
         last = (threads, active, notes, showResolved, bounds.width)
@@ -484,15 +484,15 @@ final class ThreadPanel: FlippedView {
         }
     }
 
-    func reveal(_ id: String) {
+    package func reveal(_ id: String) {
         guard let card = cards.first(where: { $0.thread.id == id }) else { return }
         content.scrollToVisible(card.frame)
     }
 }
 
 @MainActor
-final class Clickable: FlippedView {
-    var onPress: (() -> Void)?
-    override func mouseDown(with event: NSEvent) { onPress?() }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+package final class Clickable: FlippedView {
+    package var onPress: (() -> Void)?
+    package override func mouseDown(with event: NSEvent) { onPress?() }
+    package override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
 }
