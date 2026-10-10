@@ -47,6 +47,7 @@ impl Daemon {
             .env("KANNA_SOCKET", dir.join("kanna.sock"))
             .env("KANNA_STATE_DIR", dir.join("state"))
             .env("KANNA_KEEPER", keeper)
+            .env("KANNA_AGENT_RULES_URL", "none")
             .env("KANNA_KEEPER_CLOSE_GRACE_MS", "300")
             .stdin(Stdio::null())
             .stdout(Stdio::null())

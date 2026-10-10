@@ -4,6 +4,8 @@ mod keeper;
 mod pty;
 mod reader;
 mod settings;
+mod status;
+mod status_command;
 mod store;
 mod terminals;
 
@@ -48,6 +50,8 @@ pub enum Event {
     Wake,
     Output { pane: String, serial: u64 },
     Drained { pane: String, serial: u64 },
+    Status { pane: String, serial: u64, status: Option<&'static str> },
+    RulesUpdated { token: u64, report: kanna_detect::Report },
     KeeperReadable,
     KeeperExits,
     KeeperLost(String),
@@ -147,6 +151,12 @@ fn run() -> Result<(), String> {
     let env = vec![("KANNA_SOCKET".to_string(), socket_path.clone()), ("KANNA_INSTANCE".to_string(), instance.clone())];
     let terminals = Rc::new(Terminals::new(keeper.clone(), store, events.clone(), env));
     *terminals.core.borrow_mut() = Some(core.weak());
+    let rules = kanna_detect::Store::new(status_command::rules_config(&state_dir));
+    let _rules_updater = rules.start();
+    let detector = Rc::new(status::Detector::start(rules, events.clone()));
+    *terminals.detector.borrow_mut() = Some(detector.clone());
+    let status_commands = Rc::new(status_command::StatusCommand::new(detector.clone(), events.clone()));
+    status_commands.install(&core);
     let host = Rc::new(Host::new(terminals.clone()));
     core.set_host(Some(host.clone()));
     let on_change = Rc::downgrade(&terminals);
@@ -245,6 +255,10 @@ fn run() -> Result<(), String> {
                     core.handle(request, move |mut answer| {
                         if answer.get("ok") == Some(&Value::Bool(true)) {
                             answer["app"] = Value::Bool(attached);
+                            if let Some(Value::Array(commands)) = answer.get_mut("commands") {
+                                commands.push(Value::String("status".into()));
+                                commands.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+                            }
                         }
                         reply(answer)
                     })
@@ -260,8 +274,16 @@ fn run() -> Result<(), String> {
             Event::Drained { pane, serial } => {
                 if let Some(code) = terminals.drained(&pane, serial) {
                     app.exited(&pane, code);
+                    app.status(&pane, Some("exited"));
                 }
             }
+            Event::Status { pane, serial, status } => {
+                if terminals.current(&pane, serial) {
+                    core.with_pane_mut(&pane, |p| p.status = status.map(String::from));
+                    app.status(&pane, status);
+                }
+            }
+            Event::RulesUpdated { token, report } => status_commands.updated(token, report),
             Event::KeeperReadable | Event::KeeperExits => {
                 let exits = keeper.take_exits();
                 if matches!(event, Event::KeeperReadable) {
@@ -273,6 +295,7 @@ fn run() -> Result<(), String> {
                             let code = exit.status.shell_status();
                             if let Some((pane, code)) = terminals.exited(&exit.id, exit.pid, code) {
                                 app.exited(&pane, code);
+                                app.status(&pane, Some("exited"));
                             }
                         }
                     }

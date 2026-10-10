@@ -63,7 +63,7 @@ pub fn recognise(process: &Process) -> Option<Program> {
         let executable = process.executable.clone().filter(|p| p.is_absolute());
         return Some(Program { agent: agent.into(), pid: process.pid, executable });
     }
-    let interpreter = names.iter().flatten().any(|n| INTERPRETERS.contains(&n.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.')));
+    let interpreter = names.iter().flatten().any(|n| INTERPRETERS.contains(&n.to_ascii_lowercase().trim_end_matches(|c: char| c.is_ascii_digit() || c == '.')));
     if !interpreter {
         return None;
     }

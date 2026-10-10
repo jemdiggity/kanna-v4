@@ -301,7 +301,40 @@ pub static COMMANDS: &[Command] = &[
         parse: |_| Ok(json!({})),
         show: |_, reply| output::capabilities(reply),
     },
+    Command {
+        name: "status",
+        group: "Information",
+        summary: "Explain an agent pane's status, or check the rules site for new status rules now.",
+        usage: "kanna status explain PANE\n       kanna status explain --file SCREEN --agent AGENT\n       kanna status update",
+        options: &[
+            ("--file SCREEN", "A saved screen: text (as `kanna read` prints it) or a corpus case (JSON with rows, title, progress and cliVersion)."),
+            ("--agent AGENT", "Whose rules judge the saved screen: claude, codex, …"),
+        ],
+        notes: "An agent pane's status (working, needs-you, idle, exited) is in `kanna list`. explain shows the agent and its version, the rules file and where it came from, the rule that matched and the text it matched.\nRules: bundled in Kanna, from the rules site (checked every 30 minutes), or your own in ~/.config/kanna/agent-rules/<agent>.json, which always wins and reloads when you save it.",
+        examples: &[
+            ("kanna status explain p3", "Why p3's agent shows the status it does."),
+            ("kanna status explain --file screen.txt --agent claude", "How Claude's rules judge a saved screen."),
+            ("kanna status update", "Fetch new rules from the rules site now."),
+        ],
+        parse: parse_status,
+        show: output::status,
+    },
 ];
+
+fn parse_status(args: &mut Argv) -> Result<Value, Failure> {
+    let file = args.option("--file")?;
+    let agent = args.option("--agent")?;
+    match args.positional().as_deref() {
+        Some("update") => Ok(json!({ "action": "update" })),
+        Some("explain") => match (file, agent) {
+            (Some(file), Some(agent)) => Ok(json!({ "action": "explain", "agent": agent, "file": absolute(&file) })),
+            (Some(_), None) => Err(usage("status", "a saved screen needs --agent (claude, codex, …)")),
+            (None, _) => Ok(json!({ "action": "explain", "pane": pane(args, "status")? })),
+        },
+        Some(other) => Err(usage("status", &format!("unknown action \"{other}\" (explain or update)"))),
+        None => Err(usage("status", "say what: explain PANE, explain --file SCREEN --agent AGENT, or update")),
+    }
+}
 
 pub fn find(name: &str) -> Option<&'static Command> {
     COMMANDS.iter().find(|c| c.name == name)

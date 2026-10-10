@@ -142,6 +142,7 @@ fn spawn_daemon(dir: &Path, env: &[(String, String)]) -> Child {
         .env("SHELL", "/bin/sh")
         .env("KANNA_SOCKET", dir.join("kanna.sock"))
         .env("KANNA_STATE_DIR", dir.join("state"))
+        .env("KANNA_AGENT_RULES_URL", "none")
         .env("KANNA_KEEPER", keeper_binary())
         .env("KANNA_KEEPER_CLOSE_GRACE_MS", "300")
         .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))

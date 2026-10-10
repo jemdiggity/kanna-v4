@@ -75,6 +75,7 @@ pub struct Pane {
     pub zoom: Option<f64>,
     pub session: Option<String>,
     pub pid: Option<i64>,
+    pub status: Option<String>,
 }
 
 impl Pane {
@@ -97,6 +98,15 @@ impl Pane {
             zoom: None,
             session: None,
             pid: None,
+            status: None,
+        }
+    }
+
+    pub fn status(&self) -> Option<&str> {
+        match (self.kind, self.state) {
+            (PaneType::Term, PaneState::Exited) => Some("exited"),
+            (PaneType::Term, _) => self.status.as_deref(),
+            _ => None,
         }
     }
 
@@ -136,6 +146,9 @@ impl Pane {
         }
         if let Some(code) = self.exit_code {
             out.insert("exitCode".into(), num(code as f64));
+        }
+        if let Some(status) = self.status() {
+            out.insert("status".into(), Value::String(status.into()));
         }
         if let Some(error) = &self.error {
             out.insert("error".into(), Value::String(error.clone()));
@@ -210,6 +223,27 @@ impl Panes {
         self.order = panes.iter().map(|p| p.id.clone()).collect();
         self.panes = panes.into_iter().map(|p| (p.id.clone(), p)).collect();
         self.counter = self.counter.max(counter);
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+
+    #[test]
+    fn agent_terminals_list_their_status_and_every_exited_terminal_says_so() {
+        let mut pane = Pane::new("p1", None, PaneType::Term);
+        pane.state = PaneState::Running;
+        assert!(pane.summary().get("status").is_none());
+        pane.status = Some("working".into());
+        assert_eq!(pane.summary()["status"], "working");
+        pane.state = PaneState::Exited;
+        assert_eq!(pane.summary()["status"], "exited");
+        pane.status = None;
+        assert_eq!(pane.summary()["status"], "exited");
+        let mut web = Pane::new("p2", None, PaneType::Web);
+        web.state = PaneState::Exited;
+        assert!(web.summary().get("status").is_none());
     }
 }
 

@@ -176,19 +176,107 @@ pub fn list(reply: &Value) -> String {
         }
     }
     out.push(String::new());
-    let mut rows = vec![["PANE".to_string(), "NAME".into(), "TYPE".into(), "STATE".into(), "COMMAND".into()]];
+    let statuses = panes.iter().any(|p| p["status"].is_string());
+    let mut header = vec!["PANE".to_string(), "NAME".into(), "TYPE".into(), "STATE".into()];
+    if statuses {
+        header.push("STATUS".into());
+    }
+    header.push("COMMAND".into());
+    let mut rows = vec![header];
     for pane in panes {
-        rows.push([
+        let mut row: Vec<String> = vec![
             pane["id"].as_str().unwrap_or("?").into(),
             pane["name"].as_str().unwrap_or("-").into(),
             pane["type"].as_str().unwrap_or("?").into(),
             brief(&state(pane)),
-            what(pane).unwrap_or_else(|| "(shell)".into()),
-        ]);
+        ];
+        if statuses {
+            row.push(pane["status"].as_str().unwrap_or("-").into());
+        }
+        row.push(what(pane).unwrap_or_else(|| "(shell)".into()));
+        rows.push(row);
     }
-    let widths: Vec<usize> = (0..5).map(|i| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0)).collect();
+    let widths: Vec<usize> = (0..rows[0].len()).map(|i| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0)).collect();
     for row in rows {
         out.push(row.iter().zip(&widths).map(|(cell, w)| format!("{cell:w$}")).collect::<Vec<_>>().join("  ").trim_end().to_string());
     }
     out.join("\n")
+}
+
+pub fn status(args: &Value, reply: &Value) -> String {
+    if args["action"] == "update" {
+        let mut out = vec![match reply["site"].as_str() {
+            Some(site) => format!("checked {site}"),
+            None => "no rules site is set".to_string(),
+        }];
+        let fetched = join(&reply["fetched"]);
+        out.push(if fetched.is_empty() { "nothing new".into() } else { format!("fetched: {fetched}") });
+        for problem in reply["problems"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            out.push(format!("problem: {problem}"));
+        }
+        for rules in reply["rules"].as_array().into_iter().flatten() {
+            out.push(format!("{:<12} {:<14} {}", rules["agent"].as_str().unwrap_or("?"), rules["version"].as_str().unwrap_or("?"), rules["source"].as_str().unwrap_or("?")));
+        }
+        return out.join("\n");
+    }
+    let mut out = vec![];
+    let who = reply["pane"].as_str().map(|p| format!("{p}: ")).unwrap_or_default();
+    match reply["agent"].as_str() {
+        None => return format!("{who}not an agent Kanna knows (its foreground program has no rules){}", reply["status"].as_str().map(|s| format!("; status {s}")).unwrap_or_default()),
+        Some(agent) => {
+            let version = reply["agentVersion"].as_str().map(|v| format!(" {v}")).unwrap_or_else(|| " (version unknown)".into());
+            let exe = reply["executable"].as_str().map(|e| format!(" ({e})")).unwrap_or_default();
+            out.push(format!("{who}{agent}{version}{exe}"));
+        }
+    }
+    out.push(format!("rules: {} ({})", reply["rules"]["version"].as_str().unwrap_or("?"), reply["rules"]["source"].as_str().unwrap_or("?")));
+    let judged = reply["judged"].as_str().unwrap_or("?");
+    match reply["status"].as_str() {
+        Some(status) if status != judged => out.push(format!("status: {status} (this screen judges {judged})")),
+        _ => out.push(format!("status: {judged}")),
+    }
+    match reply["rule"].as_str() {
+        Some(rule) => {
+            out.push(format!("rule: {rule}"));
+            if let Some(matched) = reply["matched"].as_str() {
+                out.push(format!("matched: {}", matched.trim_end()));
+            }
+        }
+        None => out.push("rule: none matched, so idle".into()),
+    }
+    let excluded = join(&reply["excluded"]);
+    if !excluded.is_empty() {
+        out.push(format!("not for this version: {excluded}"));
+    }
+    out.join("\n")
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn list_has_a_status_column_only_when_a_pane_has_a_status() {
+        let plain = json!({ "windows": [], "panes": [{ "id": "p1", "name": null, "type": "term", "state": "running", "cmd": null }] });
+        assert!(!list(&plain).contains("STATUS"));
+        let agents = json!({ "windows": [], "panes": [
+            { "id": "p1", "name": "a", "type": "term", "state": "running", "status": "needs-you", "cmd": "claude" },
+            { "id": "p2", "name": null, "type": "term", "state": "running", "cmd": null }
+        ] });
+        let text = list(&agents);
+        assert!(text.contains("PANE  NAME  TYPE  STATE    STATUS     COMMAND"), "{text}");
+        assert!(text.contains("p1    a     term  running  needs-you  claude"), "{text}");
+        assert!(text.contains("p2    -     term  running  -          (shell)"), "{text}");
+    }
+
+    #[test]
+    fn explain_says_why() {
+        let reply = json!({ "pane": "p3", "agent": "claude", "agentVersion": "2.1.296", "executable": "/bin/claude", "status": "working",
+            "rules": { "version": "2026.10.10.1", "source": "bundled" }, "judged": "working", "rule": "claude/working/title", "matched": "◐ Claude Code", "excluded": [] });
+        assert_eq!(
+            status(&json!({ "action": "explain" }), &reply),
+            "p3: claude 2.1.296 (/bin/claude)\nrules: 2026.10.10.1 (bundled)\nstatus: working\nrule: claude/working/title\nmatched: ◐ Claude Code"
+        );
+    }
 }

@@ -1,6 +1,7 @@
 use crate::settings::Settings;
 use crate::Event;
-use kanna_vt::{Lines, Terminal};
+use kanna_detect::{Activity, Screen};
+use kanna_vt::{Lines, Mode, Terminal};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -27,6 +28,7 @@ pub struct Feed {
     pub cols: u16,
     pub rows: u16,
     cwd: Option<String>,
+    activity: Activity,
 }
 
 pub enum Taken {
@@ -50,7 +52,7 @@ impl Feed {
 
     fn with(screen: Terminal, unsaved: bool) -> io::Result<Arc<Mutex<Feed>>> {
         let (cols, rows) = screen.size();
-        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, unsaved, cols, rows, cwd: None })))
+        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, unsaved, cols, rows, cwd: None, activity: Activity::default() })))
     }
 
     pub fn apply(&mut self, settings: &Settings) -> Vec<u8> {
@@ -70,6 +72,7 @@ impl Feed {
     pub fn push(&mut self, bytes: &[u8]) -> (bool, Vec<u8>) {
         self.screen.write(bytes);
         self.unsaved = true;
+        self.changed();
         let replies = self.screen.take_replies();
         if self.screen.take_changed().pwd {
             if let Some(cwd) = cwd_from_url(&self.screen.pwd()) {
@@ -110,11 +113,32 @@ impl Feed {
         if (cols, rows) != (self.cols, self.rows) {
             (self.cols, self.rows) = (cols, rows);
             self.unsaved = true;
+            self.changed();
             if let Err(error) = self.screen.resize(cols, rows) {
                 eprintln!("kanna-daemon: couldn't make {id}'s screen {cols}×{rows}: {error}");
             }
         }
         self.screen.take_replies()
+    }
+
+    fn changed(&mut self) {
+        let now = Instant::now();
+        self.activity.changed = Some(now);
+        self.activity.dirty_since.get_or_insert(now);
+        self.activity.held_since = if self.screen.mode(Mode::SYNC_OUTPUT) { Some(self.activity.held_since.unwrap_or(now)) } else { None };
+    }
+
+    pub fn activity(&self) -> Activity {
+        self.activity
+    }
+
+    pub fn status_screen(&mut self) -> Screen {
+        self.activity.dirty_since = None;
+        self.status_screen_peek()
+    }
+
+    pub fn status_screen_peek(&self) -> Screen {
+        Screen { lines: self.screen.text(Lines::Screen).lines().map(str::to_owned).collect(), title: self.screen.title(), progress: self.screen.progress().as_str().into() }
     }
 
     pub fn text(&self, lines: Option<usize>) -> String {

@@ -15,7 +15,7 @@ mod commands {
 use kanna::args::Argv;
 use serde_json::{json, Value};
 
-const KANNA_ONLY: &[&str] = &["read"];
+const KANNA_ONLY: &[&str] = &["read", "status"];
 
 const EXTENDED: &[(&str, &str)] = &[("open", "notes"), ("send", "notes"), ("list", "notes")];
 

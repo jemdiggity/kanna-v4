@@ -79,7 +79,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][5]["path"], json!(doc.to_string_lossy()));
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();
-    assert!(capabilities.starts_with("pane types: term, web, ios, md\ncommands: arrange, capabilities, close, focus, list, move, move-tab, navigate, open, read, rename-tab, resize, restart, send, zoom"), "{capabilities}");
+    assert!(capabilities.starts_with("pane types: term, web, ios, md\ncommands: arrange, capabilities, close, focus, list, move, move-tab, navigate, open, read, rename-tab, resize, restart, send, status, zoom"), "{capabilities}");
     assert!(capabilities.ends_with("Kanna.app: attached"), "{capabilities}");
     let raw = daemon.kanna(&["raw", r#"{"cmd":"debug.anything","args":{"pane":"a"}}"#]).json();
     assert_eq!(raw, json!({ "cmd": "debug.anything", "args": { "pane": "p1" } }));
@@ -178,11 +178,11 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     assert!(kanna_at(&dir, Some(&nowhere), &["raw", "--help"]).ok().starts_with("usage: kanna raw REQUEST"));
     kanna_at(&dir, Some(&nowhere), &["help", "nope"]).fails(2, "unknown command \"nope\"");
     let commands = kanna_at(&dir, Some(&nowhere), &["commands"]).ok();
-    assert_eq!(commands.lines().count(), 15);
+    assert_eq!(commands.lines().count(), 16);
     assert!(commands.starts_with("open          Open a terminal"), "{commands}");
     let described = kanna_at(&dir, Some(&nowhere), &["commands", "--json"]).json();
     assert_eq!(described["running"], false);
-    assert_eq!(described["commands"].as_array().unwrap().len(), 15);
+    assert_eq!(described["commands"].as_array().unwrap().len(), 16);
     assert_eq!(described["exitCodes"]["6"], "needs Kanna.app, which isn't attached and wasn't started");
     assert!(described["globalOptions"].as_array().unwrap().iter().any(|o| o["flag"] == "--"));
 

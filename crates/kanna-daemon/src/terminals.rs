@@ -1,6 +1,7 @@
 use crate::pty::{self, Adopted, Spawned, Spawner, Spec};
 use crate::reader::{Feed, Reader, Taken};
 use crate::settings::Settings;
+use crate::status::Detector;
 use crate::store::{pane_number, Record, Saved, Store};
 use crate::Event;
 use kanna_mux::{KmuxError, Pane, PaneHost, PaneState, PaneType, WeakCore};
@@ -71,6 +72,7 @@ pub struct Terminals {
     changed: Cell<bool>,
     settings: RefCell<Settings>,
     pub on_start: RefCell<Option<OnStart>>,
+    pub detector: RefCell<Option<Rc<Detector>>>,
 }
 
 impl Terminals {
@@ -88,6 +90,7 @@ impl Terminals {
             sizes: RefCell::default(),
             changed: Cell::new(false),
             on_start: RefCell::new(None),
+            detector: RefCell::new(None),
         }
     }
 
@@ -119,6 +122,18 @@ impl Terminals {
         let serial = self.serial.get() + 1;
         self.serial.set(serial);
         serial
+    }
+
+    pub fn set_status(&self, id: &str, status: Option<&str>) {
+        let Some(core) = self.core.borrow().as_ref().and_then(WeakCore::upgrade) else { return };
+        let (id, status, reporter) = (id.to_string(), status.map(String::from), core.clone());
+        core.later(move || {
+            reporter.with_pane_mut(&id, |pane| pane.status = status);
+        });
+    }
+
+    pub fn current(&self, id: &str, serial: u64) -> bool {
+        self.live.borrow().get(id).is_some_and(|t| t.serial == serial && t.exit_code.is_none())
     }
 
     pub fn output(&self, id: &str, serial: u64) -> Option<Taken> {
@@ -166,6 +181,9 @@ impl Terminals {
             let found = live.iter_mut().find(|(_, t)| t.keeper == keeper && t.pid == pid && t.exit_code.is_none() && t.pty.is_some());
             found.map(|(id, terminal)| {
                 terminal.exit_code = Some(code);
+                if let Some(detector) = self.detector.borrow().as_ref() {
+                    detector.forget(id, terminal.serial);
+                }
                 if !terminal.drained {
                     if let Some(pty) = &terminal.pty {
                         pty.reader.drain();
@@ -452,6 +470,7 @@ impl PaneHost for Terminals {
     fn start(&self, pane: &Pane) {
         let serial = self.next_serial();
         let spec = self.spec(pane);
+        self.set_status(&pane.id, None);
         let started = self.spawner.spawn(&spec).and_then(|spawned| {
             let feed = Feed::new(spec.cols, spec.rows, &self.settings())?;
             self.run(&pane.id, &pane.id, serial, spawned, feed)
@@ -475,6 +494,9 @@ impl PaneHost for Terminals {
 
     fn stop(&self, pane: &Pane) {
         let removed = self.live.borrow_mut().remove(&pane.id);
+        if let (Some(terminal), Some(detector)) = (&removed, self.detector.borrow().as_ref()) {
+            detector.forget(&pane.id, terminal.serial);
+        }
         if let Some(terminal) = removed {
             if terminal.running().is_some() {
                 self.spawner.close(&terminal.keeper);
@@ -514,6 +536,9 @@ impl Terminals {
             }
         })?;
         self.store.track(id, feed.clone());
+        if let Some(detector) = self.detector.borrow().as_ref() {
+            detector.watch(id, serial, feed.clone(), master.try_clone()?);
+        }
         Ok(Terminal {
             serial,
             pid,

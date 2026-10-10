@@ -193,6 +193,16 @@ impl AppLink {
         let panes = self.core.upgrade().map_or(Value::Array(vec![]), |core| core.with_panes(pane_table));
         answer(json!({ "id": id, "ok": true, "daemon": { "pid": std::process::id() }, "panes": panes }));
         *self.app.borrow_mut() = Some(Connection { id: conn, out, stream, behind: Cell::new(false), cut: Cell::new(false) });
+        let statuses: Vec<(String, String)> = self.core.upgrade().map_or(vec![], |core| {
+            core.with_panes(|panes| panes.iter().filter_map(|p| p.status().map(|s| (p.id.clone(), s.to_string()))).collect())
+        });
+        for (pane, status) in statuses {
+            self.status(&pane, Some(&status));
+        }
+    }
+
+    pub fn status(&self, pane: &str, status: Option<&str>) {
+        self.notify("status", json!({ "pane": pane, "status": status }));
     }
 
     fn lend(&self, panes: Option<&Value>) {
