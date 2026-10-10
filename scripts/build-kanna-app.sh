@@ -23,8 +23,11 @@ fi
 configuration="${KANNA_CONFIGURATION:-release}"
 bundle_id="${KANNA_BUNDLE_ID:-dev.kanna.app.dev}"
 build=(swift build --package-path "$repo_root/apps/kanna" --configuration "$configuration" --scratch-path "$repo_root/target/kanna-build")
-"${build[@]}"
 product_dir="$("${build[@]}" --show-bin-path)"
+for library in "$repo_root"/target/release/*.a; do
+  [[ "$library" -nt "$product_dir/Kanna" ]] && rm -f "$product_dir/Kanna"
+done
+"${build[@]}"
 
 app="$repo_root/target/Kanna.app"
 rm -rf "$app"
