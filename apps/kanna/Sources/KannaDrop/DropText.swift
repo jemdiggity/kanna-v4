@@ -1,16 +1,16 @@
 import Foundation
 
 public enum DropText {
-    static let special: Set<Character> = Set("\\ ()[]{}<>\"'`!#$&;|*?\t")
+    static let special: Set<Unicode.Scalar> = Set("\\ ()[]{}<>\"'`!#$&;|*?\t~=%^".unicodeScalars)
 
     public static func escape(_ path: String) -> String {
         if path.unicodeScalars.contains(where: isControl) { return quoted(path) }
-        var out = ""
-        for character in path {
-            if special.contains(character) { out.append("\\") }
-            out.append(character)
+        var out = String.UnicodeScalarView()
+        for scalar in path.unicodeScalars {
+            if special.contains(scalar) { out.append("\\") }
+            out.append(scalar)
         }
-        return out
+        return String(out)
     }
 
     static func isControl(_ scalar: Unicode.Scalar) -> Bool {

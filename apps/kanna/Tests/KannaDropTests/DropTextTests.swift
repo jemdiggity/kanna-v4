@@ -20,6 +20,11 @@ struct DropTextTests {
         #expect(DropText.escape("/tmp/a\u{85}b") == #"$'/tmp/a\xc2\x85b'"#)
     }
 
+    @Test func combiningMarksCannotHideShellCharacters() {
+        #expect(DropText.escape("/tmp/`\u{301}id`\u{301}") == "/tmp/\\`\u{301}id\\`\u{301}")
+        #expect(DropText.escape("/tmp/$\u{301}(id)") == "/tmp/\\$\u{301}\\(id\\)")
+    }
+
     @Test func severalPathsAreJoinedBySpaces() {
         #expect(DropText.paths(["/a b", "/c"]) == #"/a\ b /c"#)
     }
