@@ -20,9 +20,9 @@ pub fn run(request: &Value, json_output: bool) -> Result<(), Failure> {
                 println!("{}", serde_json::to_string_pretty(&shown).unwrap());
                 return Ok(());
             }
-            println!("{}", relative(&file));
+            println!("{}", printable(&relative(&file)));
             for thread in &shown {
-                println!("  {}", summary(thread));
+                println!("  {}", printable(&summary(thread)));
             }
             if shown.is_empty() {
                 println!("  (no open comments)");
@@ -34,7 +34,7 @@ pub fn run(request: &Value, json_output: bool) -> Result<(), Failure> {
             if json_output {
                 println!("{}", serde_json::to_string_pretty(thread).unwrap());
             } else {
-                println!("{}", show(thread, &relative(&file)));
+                println!("{}", printable(&show(thread, &relative(&file))));
             }
         }
         "reply" => {
@@ -95,6 +95,10 @@ fn libc_no_follow() -> i32 {
 fn update(file: &Path, change: impl FnOnce(&mut Value) -> Result<(), Failure>) -> Result<(), Failure> {
     let path = store_path(file);
     let broken = |e: std::io::Error| fail(exit::FAILED, format!("markup: can't write {}: {e}", path.display()));
+    let folder = path.parent().unwrap_or(Path::new("/"));
+    for dir in [folder.parent().unwrap_or(folder), folder] {
+        real_folder(dir).map_err(broken)?;
+    }
     let lock = OpenOptions::new().write(true).create(true).truncate(false).mode(0o600).custom_flags(libc_no_follow()).open(path.with_extension("json.lock")).map_err(broken)?;
     lock.lock().map_err(broken)?;
     let mut doc = read(file);
@@ -110,6 +114,18 @@ fn update(file: &Path, change: impl FnOnce(&mut Value) -> Result<(), Failure>) -
     File::unlock(&lock).map_err(broken)
 }
 
+fn real_folder(dir: &Path) -> std::io::Result<()> {
+    match std::fs::create_dir(dir) {
+        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return Err(e),
+        _ => {}
+    }
+    if std::fs::symlink_metadata(dir)?.file_type().is_dir() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!("{} is not a plain folder; refusing to write through it", dir.display())))
+    }
+}
+
 fn docs_in(root: &Path) -> Vec<Value> {
     let mut found: Vec<(std::time::SystemTime, Value)> = std::fs::read_dir(root.join(".kanna/docs"))
         .into_iter()
@@ -119,7 +135,9 @@ fn docs_in(root: &Path) -> Vec<Value> {
         .filter_map(|entry| {
             let raw = read_no_follow(&entry.path())?;
             let when = entry.metadata().and_then(|m| m.modified()).ok()?;
-            Some((when, serde_json::from_slice(&raw).ok()?))
+            let doc: Value = serde_json::from_slice(&raw).ok()?;
+            let file = Path::new(doc["file"].as_str()?);
+            (file.is_absolute() && store_path(file) == entry.path()).then_some((when, doc))
         })
         .collect();
     found.sort_by_key(|(when, _)| std::cmp::Reverse(*when));
@@ -158,7 +176,7 @@ pub fn open_threads(all: bool) -> Vec<(String, String)> {
         for thread in threads(doc).iter().filter(|t| all || t["state"] == "open") {
             let id = thread["id"].as_str().unwrap_or_default().to_string();
             if !out.iter().any(|(have, _)| *have == id) {
-                out.push((id, short(&what(thread), 50)));
+                out.push((printable(&id), printable(&short(&what(thread), 50))));
             }
         }
     }
@@ -227,6 +245,10 @@ fn image_line(source: &str, image: &str, near: i64) -> (i64, bool) {
         .map(|(n, _)| n as i64 + 1)
         .collect();
     lines.into_iter().min_by_key(|n| (n - near).abs()).map_or((near, true), |n| (n, false))
+}
+
+pub fn printable(text: &str) -> String {
+    text.chars().filter(|c| *c == '\n' || !c.is_control()).collect()
 }
 
 fn what(thread: &Value) -> String {
@@ -343,6 +365,30 @@ mod tests {
         assert!(show(&shown["threads"][0], "docs/specs/desk.md").starts_with("c1 · docs/specs/desk.md:3 · resolved\n> The Shelf holds\nyou: Why?\nagent: Because."));
         assert!(run(&json!({ "local": "reply", "id": "c9", "text": "x", "doc": file }), false).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_thread_file_counts_only_for_the_doc_it_is_named_for_and_never_writes_through_links() {
+        let dir = repo("trust");
+        let file = dir.join("docs/specs/desk.md");
+        std::fs::write(&file, "# Desk\n").unwrap();
+        std::fs::create_dir_all(dir.join(".kanna/docs")).unwrap();
+        let elsewhere = dir.join("elsewhere.md");
+        std::fs::write(dir.join(".kanna/docs/docs__specs__desk.md.json"), json!({ "file": elsewhere, "threads": [{ "id": "c1", "state": "open", "messages": [] }] }).to_string()).unwrap();
+        assert!(docs_in(&dir).is_empty());
+        std::fs::write(store_path(&file), json!({ "file": file, "threads": [{ "id": "c1", "state": "open", "messages": [] }] }).to_string()).unwrap();
+        assert_eq!(docs_in(&dir).len(), 1);
+        let linked = repo("linked");
+        let target = linked.join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        std::os::unix::fs::symlink(&target, linked.join(".kanna")).unwrap();
+        let doc = linked.join("docs/specs/desk.md");
+        std::fs::write(&doc, "# Desk\n").unwrap();
+        assert!(run(&json!({ "local": "resolve", "id": "c1", "doc": doc }), false).is_err() || !target.join("docs").exists());
+        assert!(!target.join("docs").exists());
+        assert_eq!(printable("ok\u{1b}]52;c;x\u{7}\nnext\u{9b}2J"), "ok]52;c;x\nnext2J");
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_dir_all(&linked).unwrap();
     }
 
     #[test]
