@@ -13,8 +13,7 @@ A **docked pane** belongs to a window, not to any of its tabs: it sits along the
 3. [Keys and mouse](#3-keys-and-mouse)
 4. [CLI](#4-cli)
 5. [How it's built](#5-how-its-built)
-6. [Open questions](#6-open-questions)
-7. [Glossary](#7-glossary)
+6. [Glossary](#6-glossary)
 
 ## 1. The window
 
@@ -42,6 +41,7 @@ The right side needs nothing new: the window's own tabs already are a group of t
 - **Width** is a fraction of the window, dragged at its divider and saved with the window. Default 2/5.
 - **Always shown:** switching tabs leaves it alone. The tab bar spans only the tabs' side.
 - **It closes only with its window.** Close Pane (⌘W) and `kanna close` don't close it: ⌘W in the docked pane does nothing, and `kanna close` on it fails with `docked: it closes with its window`. If its program exits, it stays on screen as `exited`, and Restart (⌘R) starts it again. Closing the window's last tab leaves the window with just its docked pane.
+- **Stays with its window:** moving or dragging a tab to another window leaves the docked pane where it is.
 - **Focus:** Next/Previous Pane go from the docked pane into the shown tab's panes and back. Zoom on a tab's pane fills the tabs' side; zoom on the docked pane fills the window.
 
 ## 3. Keys and mouse
@@ -69,11 +69,7 @@ The right side needs nothing new: the window's own tabs already are a group of t
 - **Saved** in `layout.json` on the window; a file without one loads as before.
 - **kmux parity:** kmux has no docked panes, so a window without one looks and behaves exactly as kmux.
 
-## 6. Open questions
-
-1. Should moving a tab to another window take the docked pane with it, or leave it?
-
-## 7. Glossary
+## 6. Glossary
 
 | Term | Meaning |
 |---|---|
