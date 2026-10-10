@@ -64,10 +64,11 @@ The right side needs nothing new: the window's own tabs already are a group of t
 
 ## 5. How it's built
 
-- **`kanna-mux`** gains a field: a window's `dock {pane, edge, width}`, beside its tabs, with its layout steps (`window.dock`, `window.undock`, `window.dock_width`) sent to the app like a tab's. Its protocol cases are Kanna's additions beside kmux's 31, which keep passing unchanged.
+- **Built in kmux first.** kmux is the reference for the mux layer, so docked panes go into kmux (its core, protocol, CLI, views and state file), with new protocol cases for them; Kanna then takes them like everything else from kmux, and passes the same cases.
+- **The core** (kmux's, then `kanna-mux`) gains a field: a window's `dock {pane, edge, width}`, beside its tabs, with its layout steps (`window.dock`, `window.undock`, `window.dock_width`) sent to the app like a tab's.
 - **The app** splits the window's content view: the docked pane's view on its edge, the tab bar and the shown tab beside it.
 - **Saved** in `layout.json` on the window; a file without one loads as before.
-- **kmux parity:** kmux has no docked panes, so a window without one looks and behaves exactly as kmux.
+- **kmux parity** holds: both have docked panes, and a window without one behaves as before in both.
 
 ## 6. Glossary
 
