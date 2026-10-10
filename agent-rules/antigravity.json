@@ -3,14 +3,7 @@
   "agent": "antigravity",
   "version": "2026.10.10.1",
   "engine": 1,
-  "programs": [
-    "agy",
-    "antigravity"
-  ],
   "versionProbe": {
-    "args": [
-      "--version"
-    ],
     "pattern": "(\\d+\\.\\d+(?:\\.\\d+)*)"
   },
   "vocabulary": {

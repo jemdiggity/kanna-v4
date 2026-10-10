@@ -63,8 +63,6 @@ pub struct RuleFile {
     pub version: String,
     pub engine: u32,
     #[serde(default)]
-    pub programs: Vec<String>,
-    #[serde(default)]
     pub version_probe: Option<VersionProbe>,
     #[serde(default)]
     pub lines: Option<usize>,
@@ -77,7 +75,6 @@ pub struct RuleFile {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionProbe {
-    pub args: Vec<String>,
     pub pattern: String,
 }
 
@@ -135,11 +132,11 @@ impl Agent {
         if file.engine > ENGINE {
             return Err(format!("needs rule engine {} (this Kanna has {ENGINE})", file.engine));
         }
-        if !safe_name(&file.agent) || file.version.trim().is_empty() {
-            return Err("agent (letters, digits, - and _) and version are required".into());
+        if !crate::program::known_agents().contains(&file.agent.as_str()) {
+            return Err(format!("\"{}\" isn't an agent this Kanna knows; a new agent needs a new Kanna", file.agent));
         }
-        if file.programs.iter().any(|p| p.trim().is_empty() || p.contains('/')) {
-            return Err("programs are plain executable names".into());
+        if !safe_name(&file.agent) || file.version.trim().is_empty() || file.version.len() > 64 {
+            return Err("agent (letters, digits, - and _) and version are required".into());
         }
         if file.lines == Some(0) {
             return Err("lines must be above 0".into());
@@ -165,14 +162,6 @@ impl Agent {
 
     pub fn name(&self) -> &str {
         &self.file.agent
-    }
-
-    pub fn programs(&self) -> Vec<String> {
-        if self.file.programs.is_empty() {
-            vec![self.file.agent.clone()]
-        } else {
-            self.file.programs.clone()
-        }
     }
 
     pub fn probe_pattern(&self) -> Option<&Regex> {
@@ -240,19 +229,21 @@ impl RuleSet {
     pub fn evaluate(&self, agent: &str, screen: &Screen, version: Option<&str>) -> Option<Verdict> {
         self.agents.get(agent).map(|a| a.evaluate(screen, version))
     }
-
-    pub fn agent_for_program(&self, program: &str) -> Option<&Agent> {
-        self.agents.values().find(|a| a.programs().iter().any(|p| p == program))
-    }
 }
 
 pub fn safe_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= 64 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+pub const MAX_PATTERN: usize = 512;
+const REGEX_SIZE: usize = 256 * 1024;
+
 fn regex(regexes: &mut HashMap<String, Regex>, pattern: &str) -> Result<(), String> {
+    if pattern.len() > MAX_PATTERN {
+        return Err(format!("a pattern is over {MAX_PATTERN} bytes"));
+    }
     if !regexes.contains_key(pattern) {
-        let compiled = Regex::new(pattern).map_err(|e| e.to_string())?;
+        let compiled = regex::RegexBuilder::new(pattern).size_limit(REGEX_SIZE).dfa_size_limit(REGEX_SIZE).nest_limit(32).build().map_err(|e| e.to_string())?;
         regexes.insert(pattern.into(), compiled);
     }
     Ok(())
@@ -466,7 +457,7 @@ mod tests {
     use super::*;
 
     fn agent(rules: &str) -> Agent {
-        let text = format!(r#"{{"schema":1,"agent":"test","version":"1","engine":1,"vocabulary":{{"prompt":["›"]}},"rules":{rules}}}"#);
+        let text = format!(r#"{{"schema":1,"agent":"mock","version":"1","engine":1,"vocabulary":{{"prompt":["›"]}},"rules":{rules}}}"#);
         Agent::parse(&text, Source::Bundled).unwrap()
     }
 
@@ -528,7 +519,7 @@ mod tests {
     #[test]
     fn bad_rule_files_are_refused() {
         let bad = |rules: &str| {
-            let text = format!(r#"{{"schema":1,"agent":"test","version":"1","engine":1,"vocabulary":{{}},"rules":{rules}}}"#);
+            let text = format!(r#"{{"schema":1,"agent":"mock","version":"1","engine":1,"vocabulary":{{}},"rules":{rules}}}"#);
             Agent::parse(&text, Source::Bundled).is_err()
         };
         assert!(bad(r#"[{"id":"a","status":"busy","when":{"anyLine":{"contains":"x"}}}]"#));
@@ -537,7 +528,12 @@ mod tests {
         assert!(bad(r#"[{"id":"a","status":"idle","when":{"someLine":{"contains":"x"}}}]"#));
         assert!(bad(r#"[{"id":"a","status":"idle","when":{"anyLine":{"contains":"x"}}},{"id":"a","status":"idle","when":{"anyLine":{"contains":"y"}}}]"#));
         assert!(bad(r#"[{"id":"a","status":"idle","versions":"~1","when":{"anyLine":{"contains":"x"}}}]"#));
-        let future = r#"{"schema":1,"agent":"test","version":"1","engine":2,"rules":[]}"#;
+        let future = r#"{"schema":1,"agent":"mock","version":"1","engine":2,"rules":[]}"#;
         assert!(Agent::parse(future, Source::Bundled).is_err());
+        let stranger = r#"{"schema":1,"agent":"evil","version":"1","engine":1,"rules":[]}"#;
+        assert!(Agent::parse(stranger, Source::Bundled).is_err());
+        let huge = format!(r#"[{{"id":"a","status":"idle","when":{{"anyLine":{{"regex":"{}"}}}}}}]"#, "a".repeat(600));
+        assert!(bad(&huge));
+        assert!(bad(r#"[{"id":"a","status":"idle","when":{"anyLine":{"regex":"(a{1000}){1000}"}}}]"#));
     }
 }

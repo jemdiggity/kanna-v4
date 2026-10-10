@@ -1,13 +1,18 @@
 use crate::rules::{Agent, RuleSet};
 use std::collections::HashMap;
+use std::io::Read;
 use std::os::fd::RawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+pub const PROGRAMS: &[(&str, &str)] =
+    &[("claude", "claude"), ("codex", "codex"), ("opencode", "opencode"), ("copilot", "copilot"), ("agy", "antigravity"), ("antigravity", "antigravity"), ("mock-agent", "mock")];
+
 const INTERPRETERS: &[&str] = &["node", "bun", "deno", "python", "python3", "ruby", "perl", "sh", "bash", "zsh", "dash", "fish"];
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const PROBE_OUTPUT: u64 = 16 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Process {
@@ -20,7 +25,17 @@ pub struct Process {
 pub struct Program {
     pub agent: String,
     pub pid: i32,
-    pub command: Vec<String>,
+    pub executable: Option<PathBuf>,
+}
+
+pub fn known_agent(program: &str) -> Option<&'static str> {
+    PROGRAMS.iter().find(|(name, _)| *name == program).map(|(_, agent)| *agent)
+}
+
+pub fn known_agents() -> Vec<&'static str> {
+    let mut agents: Vec<&str> = PROGRAMS.iter().map(|(_, a)| *a).collect();
+    agents.dedup();
+    agents
 }
 
 pub fn foreground_group(fd: RawFd) -> Option<i32> {
@@ -31,42 +46,35 @@ pub fn foreground_group(fd: RawFd) -> Option<i32> {
 pub fn identify(group: i32, rules: &RuleSet) -> Option<Program> {
     let mut members = group_members(group);
     members.sort_by_key(|pid| (*pid != group, *pid));
-    members.into_iter().filter_map(process).find_map(|p| recognise(&p, rules))
+    let processes: Vec<Process> = members.into_iter().filter_map(process).collect();
+    let found = processes.iter().filter_map(recognise).find(|p| p.executable.is_some()).or_else(|| processes.iter().find_map(recognise))?;
+    rules.agent(&found.agent).is_some().then_some(found)
 }
 
-pub fn recognise(process: &Process, rules: &RuleSet) -> Option<Program> {
+pub fn recognise(process: &Process) -> Option<Program> {
     let base = |p: &str| Path::new(p).file_name().and_then(|n| n.to_str()).map(str::to_owned);
     let argv0 = process.argv.first().and_then(|a| base(a));
     let exe = process.executable.as_ref().and_then(|p| p.to_str()).and_then(base);
-    let names = [argv0.clone(), exe.clone()];
-    let direct = names.iter().flatten().find_map(|name| rules.agent_for_program(name));
-    if let Some(agent) = direct {
-        if is_kanna(exe.as_deref()) {
-            return None;
-        }
-        let executable = process.executable.clone().map(|p| p.to_string_lossy().into_owned()).or_else(|| process.argv.first().cloned())?;
-        return Some(Program { agent: agent.name().into(), pid: process.pid, command: vec![executable] });
+    if exe.as_deref().is_some_and(|n| n.starts_with("kanna")) {
+        return None;
+    }
+    let names = [argv0, exe];
+    if let Some(agent) = names.iter().flatten().find_map(|name| known_agent(name)) {
+        let executable = process.executable.clone().filter(|p| p.is_absolute());
+        return Some(Program { agent: agent.into(), pid: process.pid, executable });
     }
     let interpreter = names.iter().flatten().any(|n| INTERPRETERS.contains(&n.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.')));
     if !interpreter {
         return None;
     }
-    let (index, script) = process.argv.iter().enumerate().skip(1).take_while(|(_, a)| *a != "-c" && *a != "-e").find(|(_, a)| !a.starts_with('-'))?;
-    let stem = Path::new(script).file_stem()?.to_str()?;
-    let agent = rules.agent_for_program(stem)?;
-    let runner = process.executable.clone().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| process.argv[0].clone());
-    let mut command = vec![runner];
-    command.extend(process.argv[1..=index].iter().cloned());
-    Some(Program { agent: agent.name().into(), pid: process.pid, command })
-}
-
-fn is_kanna(name: Option<&str>) -> bool {
-    name.is_some_and(|n| n.starts_with("kanna"))
+    let script = process.argv.iter().skip(1).take_while(|a| *a != "-c" && *a != "-e").find(|a| !a.starts_with('-'))?;
+    let agent = known_agent(Path::new(script).file_stem()?.to_str()?)?;
+    Some(Program { agent: agent.into(), pid: process.pid, executable: None })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct ProbeKey {
-    command: Vec<String>,
+    executable: PathBuf,
     modified: u128,
 }
 
@@ -86,11 +94,9 @@ pub enum Version {
 }
 
 pub fn version(program: &Program, agent: &Agent) -> Version {
-    let Some(probe) = &agent.file.version_probe else { return Version::Known(None) };
-    let Some(pattern) = agent.probe_pattern().cloned() else { return Version::Known(None) };
-    let binary = program.command.last().cloned().unwrap_or_default();
-    let modified = std::fs::metadata(&binary).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
-    let key = ProbeKey { command: program.command.clone(), modified };
+    let (Some(executable), Some(pattern)) = (program.executable.clone(), agent.probe_pattern().cloned()) else { return Version::Known(None) };
+    let modified = std::fs::metadata(&executable).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+    let key = ProbeKey { executable: executable.clone(), modified };
     let mut table = probes().lock().unwrap_or_else(|e| e.into_inner());
     match table.get(&key) {
         Some(Probed::Done(found)) => return Version::Known(found.clone()),
@@ -99,27 +105,38 @@ pub fn version(program: &Program, agent: &Agent) -> Version {
     }
     table.insert(key.clone(), Probed::Running);
     drop(table);
-    let mut argv = program.command.clone();
-    argv.extend(probe.args.iter().cloned());
     std::thread::Builder::new()
         .name("kanna.probe".into())
         .spawn(move || {
-            let found = run(&argv, PROBE_TIMEOUT).and_then(|text| pattern.captures(&text).and_then(|c| c.get(1).or_else(|| c.get(0))).map(|m| m.as_str().to_owned()));
+            let found = probe(&executable, PROBE_TIMEOUT).and_then(|text| pattern.captures(&text).and_then(|c| c.get(1).or_else(|| c.get(0))).map(|m| m.as_str().chars().take(64).collect()));
             probes().lock().unwrap_or_else(|e| e.into_inner()).insert(key, Probed::Done(found));
         })
         .map(|_| Version::Pending)
         .unwrap_or(Version::Known(None))
 }
 
-pub fn run(argv: &[String], timeout: Duration) -> Option<String> {
-    let mut child = Command::new(argv.first()?).args(&argv[1..]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
+pub fn probe(executable: &Path, timeout: Duration) -> Option<String> {
+    if !executable.is_absolute() {
+        return None;
+    }
+    let mut command = Command::new(executable);
+    command.arg("--version").env_clear().env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+    for key in ["HOME", "USER", "LANG", "TMPDIR"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut text = Vec::new();
+        let _ = (&mut stdout).take(PROBE_OUTPUT).read_to_end(&mut text);
+        text
+    });
     let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => {
-                let out = child.wait_with_output().ok()?;
-                return Some(format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)));
-            }
+            Ok(Some(_)) => break,
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
             _ => {
                 let _ = child.kill();
@@ -128,6 +145,7 @@ pub fn run(argv: &[String], timeout: Duration) -> Option<String> {
             }
         }
     }
+    reader.join().ok().map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[cfg(target_os = "macos")]
@@ -222,44 +240,79 @@ fn process(_pid: i32) -> Option<Process> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::{RuleSet, Source};
-
-    fn rules() -> RuleSet {
-        let mut set = RuleSet::default();
-        for (agent, programs) in [("claude", r#"["claude"]"#), ("codex", r#"["codex"]"#), ("mock", r#"["mock-agent"]"#)] {
-            let text = format!(r#"{{"schema":1,"agent":"{agent}","version":"1","engine":1,"programs":{programs},"rules":[]}}"#);
-            set.insert(Agent::parse(&text, Source::Bundled).unwrap());
-        }
-        set
-    }
+    use crate::rules::Source;
+    use std::os::unix::fs::PermissionsExt;
 
     fn proc(executable: &str, argv: &[&str]) -> Process {
         Process { pid: 7, executable: Some(executable.into()), argv: argv.iter().map(|s| s.to_string()).collect() }
     }
 
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kanna-detect-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
     #[test]
     fn agents_are_known_by_their_name_their_binary_or_their_script() {
-        let rules = rules();
-        let found = |p: Process| recognise(&p, &rules).map(|p| (p.agent, p.command));
-        assert_eq!(found(proc("/Users/x/.local/share/claude/versions/2.1.296", &["claude"])), Some(("claude".into(), vec!["/Users/x/.local/share/claude/versions/2.1.296".into()])));
-        assert_eq!(found(proc("/opt/vendor/codex/codex", &["/opt/vendor/codex/codex", "--yolo"])).map(|f| f.0), Some("codex".into()));
+        let found = |p: Process| recognise(&p).map(|p| (p.agent, p.executable));
         assert_eq!(
-            found(proc("/usr/local/bin/node", &["node", "/n/lib/node_modules/@openai/codex/bin/codex.js", "resume"])),
-            Some(("codex".into(), vec!["/usr/local/bin/node".into(), "/n/lib/node_modules/@openai/codex/bin/codex.js".into()]))
+            found(proc("/Users/x/.local/share/claude/versions/2.1.296", &["claude"])),
+            Some(("claude".into(), Some("/Users/x/.local/share/claude/versions/2.1.296".into())))
         );
-        assert_eq!(found(proc("/usr/bin/python3", &["/usr/bin/python3", "/t/mock-agent"])).map(|f| f.0), Some("mock".into()));
+        assert_eq!(found(proc("/opt/vendor/codex/codex", &["/opt/vendor/codex/codex", "--yolo"])).map(|f| f.0), Some("codex".into()));
+        assert_eq!(found(proc("/usr/local/bin/node", &["node", "/n/lib/node_modules/@openai/codex/bin/codex.js", "resume"])), Some(("codex".into(), None)));
+        assert_eq!(found(proc("/usr/bin/python3", &["/usr/bin/python3", "/t/mock-agent"])), Some(("mock".into(), None)));
         assert_eq!(found(proc("/bin/zsh", &["-zsh"])), None);
         assert_eq!(found(proc("/bin/zsh", &["zsh", "-l"])), None);
         assert_eq!(found(proc("/bin/zsh", &["zsh", "-l", "-c", "/t/mock-agent"])), None);
         assert_eq!(found(proc("/usr/bin/vim", &["vim", "claude.md"])), None);
+        assert_eq!(found(proc("/x/kanna-keeper", &["claude"])), None);
+        assert_eq!(found(proc("/usr/bin/evil", &["evil"])), None);
     }
 
     #[test]
     fn a_probe_that_never_answers_is_stopped() {
+        let dir = scratch("hang");
+        let hang = script(&dir, "hang", "exec sleep 30");
         let started = Instant::now();
-        assert_eq!(run(&["/bin/sleep".into(), "30".into()], Duration::from_millis(200)), None);
+        assert_eq!(probe(&hang, Duration::from_millis(200)), None);
         assert!(started.elapsed() < Duration::from_secs(5));
-        assert!(run(&["/bin/echo".into(), "codex-cli 1.2.3".into()], Duration::from_secs(2)).unwrap().contains("1.2.3"));
+    }
+
+    #[test]
+    fn rules_cannot_choose_what_runs() {
+        let dir = scratch("probe");
+        let marker = dir.join("ran-the-rule");
+        let args = dir.join("args");
+        let codex = script(&dir, "codex", &format!("printf '%s|' \"$@\" > {}; echo 'codex-cli 9.8.7'", args.display()));
+        let text = format!(
+            r#"{{"schema":1,"agent":"codex","version":"1","engine":1,"programs":["evil"],
+                "versionProbe":{{"argv":["/bin/sh","-c","touch {m}"],"args":["-c","touch {m}"],"pattern":"(\\d+\\.\\d+\\.\\d+)"}},"rules":[]}}"#,
+            m = marker.display()
+        );
+        let agent = Agent::parse(&text, Source::Remote("https://example.com/codex.json".into())).unwrap();
+        let program = Program { agent: "codex".into(), pid: 1, executable: Some(codex.clone()) };
+        let mut version = super::version(&program, &agent);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while matches!(version, Version::Pending) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+            version = super::version(&program, &agent);
+        }
+        assert!(matches!(version, Version::Known(Some(ref v)) if v == "9.8.7"));
+        assert_eq!(std::fs::read_to_string(&args).unwrap(), "--version|");
+        assert!(!marker.exists(), "the rule file's command ran");
+        assert_eq!(recognise(&proc("/usr/bin/evil", &["evil"])), None);
+        let relative = Program { agent: "codex".into(), pid: 1, executable: None };
+        assert!(matches!(super::version(&relative, &agent), Version::Known(None)));
     }
 
     #[cfg(target_os = "macos")]
