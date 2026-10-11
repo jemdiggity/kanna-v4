@@ -47,6 +47,7 @@ stateDiagram-v2
 - **By an agent:** `kanna task new "NAME" "FIRST MESSAGE"` adds a task to the backlog of the repo it runs in. An agent planning with you, or one splitting its own work, makes tasks this way.
 - **Start a task** (⌘N on a Desk, where it takes over from New Window; or the button on an empty Desk): a new task on this Desk with an agent in its own worktree and no first message. You tell the agent what to do; it names the task.
 - **A repo with no tasks** starts on a task with a plain terminal and a Getting started tab (pictured above): when Kanna opens with nothing, and when a Desk empties with no tasks running or waiting. You `cd` to your repo and run your agent there; the Desk follows the terminal's folder.
+- **`kanna PATH` opens a Desk on a project:** a new window on the project PATH is in, with nothing docked. It shows the project's Shelf and backlog, or the starter terminal (in PATH) when the project has no tasks, and takes none of its three running slots. The window keeps the project across a relaunch, until a task from another project is pulled onto it.
 
 ## 3. The backlog
 

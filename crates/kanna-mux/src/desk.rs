@@ -202,7 +202,17 @@ impl Model {
                 self.key = Some(window.clone());
                 Ok(reply([("task", task.into()), ("window", window.into()), ("moved", Value::Bool(true))]))
             }
-            other => Err(bad_request(format!("unknown task action \"{other}\" (list, park or pull)"))),
+            "desk" => {
+                let project = string("project").filter(|p| p.starts_with('/')).ok_or_else(|| bad_request("desk needs a project: an absolute path to a folder"))?;
+                let w = self.make_window();
+                let window = &mut self.windows[w];
+                window.desk = true;
+                window.project = Some(project.to_string());
+                let id = window.id.clone();
+                self.key = Some(id.clone());
+                Ok(reply([("window", id.into()), ("project", project.into())]))
+            }
+            other => Err(bad_request(format!("unknown task action \"{other}\" (list, park, pull or desk)"))),
         }
     }
 

@@ -359,7 +359,11 @@ final class AppController: NSObject, NSApplicationDelegate {
             guard let id = window["id"]?.string else { continue }
             let controller = controllers[id] ?? makeController(id, window)
             let docked = window["dock"]?["pane"]?.string
-            if let root = docked.flatMap(projectRoot) { controller.projectRoot = root }
+            if let root = docked.flatMap(projectRoot) {
+                controller.projectRoot = root
+            } else if controller.projectRoot == nil, let folder = window["project"]?.string {
+                controller.projectRoot = canonical(GitPlace.of(folder)?.main ?? folder)
+            }
             let mine = controller.projectRoot.map { root in tasks.filter { projectRoot($0.id) == root } } ?? tasks
             controller.shelf = mine
             controller.backlog = backlogTasks(in: controller.projectRoot)

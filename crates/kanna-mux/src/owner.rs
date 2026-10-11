@@ -225,6 +225,7 @@ impl LayoutOwner {
                     "root": root,
                     "dock": dock,
                     "desk": window.desk || window.dock.is_some(),
+                    "project": window.project.clone().map_or(Value::Null, Value::String),
                 })
             })
             .collect();
@@ -388,7 +389,7 @@ mod tests {
         let view = again.view();
         assert_eq!(
             Value::Object(view),
-            json!({ "key": "w1", "shelf": [], "windows": [{ "id": "w1", "frame": null, "desk": false, "tabs": [{ "id": "t1", "title": "Tab 1", "panes": ["p1", "p3", "p4"] }], "tab": "t1", "title": "Tab 1",
+            json!({ "key": "w1", "shelf": [], "windows": [{ "id": "w1", "frame": null, "desk": false, "project": null, "tabs": [{ "id": "t1", "title": "Tab 1", "panes": ["p1", "p3", "p4"] }], "tab": "t1", "title": "Tab 1",
                 "focused": "p4", "zoomed": null, "root": { "split": "row", "children": [
                 { "pane": "p1", "type": "term", "size": 0.75 },
                 { "pane": "p3", "type": "term", "size": 0.125 },
@@ -514,6 +515,27 @@ mod tests {
         }
         assert_eq!(again.view()["shelf"], json!([]));
         assert_eq!(task(&mut again, json!({ "action": "pull", "task": "p1" }))["moved"], false);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_desk_opens_on_a_project_with_nothing_in_it_and_keeps_its_project_across_a_relaunch() {
+        let dir = folder("project-desk");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let task = |owner: &mut LayoutOwner, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "task", "args": args } }));
+        let opened = task(&mut owner, json!({ "action": "desk", "project": "/work/app" }));
+        assert_eq!((opened["window"].clone(), opened["project"].clone()), (json!("w1"), json!("/work/app")), "{opened}");
+        assert!(task(&mut owner, json!({ "action": "desk", "project": "work/app" }))["error"].is_object());
+        let window = owner.view()["windows"][0].clone();
+        assert_eq!((window["desk"].clone(), window["dock"].clone(), window["tabs"].clone(), window["project"].clone()), (json!(true), Value::Null, json!([]), json!("/work/app")), "{window}");
+        assert_eq!(owner.view()["key"], "w1");
+        owner.save().unwrap();
+
+        let (mut again, _) = LayoutOwner::open(Some(file), false);
+        again.handle(&json!({ "call": "attach", "panes": [] }));
+        assert_eq!(again.view()["windows"][0]["project"], "/work/app", "{:?}", again.view());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
