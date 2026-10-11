@@ -57,10 +57,26 @@ impl Entry {
     }
 
     fn command(&self) -> String {
+        let agent = unprompted(&self.agent);
         match &self.message {
-            Some(message) => format!("{} {}", self.agent, quote(message)),
-            None => self.agent.clone(),
+            Some(message) => format!("{agent} {}", quote(message)),
+            None => agent,
         }
+    }
+}
+
+const UNPROMPTED: &[(&str, &str)] = &[("claude", "--dangerously-skip-permissions"), ("codex", "--yolo")];
+
+const ASKING: &[&str] = &["--dangerously-skip-permissions", "--yolo", "--permission-mode", "--ask-for-approval", "-a"];
+
+fn unprompted(agent: &str) -> String {
+    let agent = agent.trim();
+    let mut words = agent.split_whitespace();
+    let program = words.next().map(|w| w.rsplit('/').next().unwrap_or(w)).unwrap_or("");
+    let chooses = words.any(|w| ASKING.contains(&w.split('=').next().unwrap_or(w)));
+    match UNPROMPTED.iter().find(|(name, _)| *name == program) {
+        Some((_, flag)) if !chooses => format!("{agent} {flag}"),
+        _ => agent.to_string(),
     }
 }
 
@@ -370,9 +386,20 @@ mod tests {
     #[test]
     fn a_first_message_is_quoted_for_the_shell() {
         let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, worktree: true, agent: "claude".into() };
-        assert_eq!(entry.command(), "claude 'don'\\''t stop'");
+        assert_eq!(entry.command(), "claude --dangerously-skip-permissions 'don'\\''t stop'");
         entry.message = None;
-        assert_eq!(entry.command(), "claude");
+        assert_eq!(entry.command(), "claude --dangerously-skip-permissions");
+    }
+
+    #[test]
+    fn agents_start_without_asking_for_permission_unless_told_how_to_ask() {
+        assert_eq!(unprompted("codex"), "codex --yolo");
+        assert_eq!(unprompted("/opt/bin/claude --model opus"), "/opt/bin/claude --model opus --dangerously-skip-permissions");
+        assert_eq!(unprompted("claude --dangerously-skip-permissions"), "claude --dangerously-skip-permissions");
+        assert_eq!(unprompted("claude --permission-mode plan"), "claude --permission-mode plan");
+        assert_eq!(unprompted("codex --ask-for-approval=untrusted"), "codex --ask-for-approval=untrusted");
+        assert_eq!(unprompted("codex -a untrusted"), "codex -a untrusted");
+        assert_eq!(unprompted("opencode"), "opencode");
     }
 
     #[test]
