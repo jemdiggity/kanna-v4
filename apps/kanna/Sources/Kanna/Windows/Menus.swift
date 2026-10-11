@@ -307,6 +307,7 @@ extension AppController {
 
     func close(window id: String) {
         if window(id)?["desk"]?.bool == true {
+            if let planner = window(id)?["planner"]?["pane"]?.string { request("close", ["pane": .string(planner)]) }
             layoutCommand("task", ["action": "park", "window": .string(id), "close": true])
         } else {
             request("close", ["window": .string(id)])

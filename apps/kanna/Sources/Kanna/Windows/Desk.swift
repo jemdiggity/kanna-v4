@@ -65,6 +65,9 @@ final class AgentHeader: NSView {
     var onPark: (() -> Void)?
     private let label = NSTextField(labelWithString: "")
     private let park = ParkButton()
+    var parkable = true {
+        didSet { park.isHidden = !parkable }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -224,25 +227,39 @@ extension AppController {
         request("backlog", args) { [weak self] reply in self?.noted(window, reply) }
     }
 
-    func openStarter(in window: String?) {
-        let key = window ?? ""
-        guard !starting.contains(key) else { return }
-        starting.insert(key)
-        var args: [String: JSON] = ["type": "term", "dock": "left"]
-        if let window { args["window"] = .string(window) }
-        if let root = window.flatMap({ controllers[$0]?.projectRoot }) { args["cwd"] = .string(root) }
-        request("open", args) { [weak self] reply in
+    func openPlanner(in window: String) {
+        guard !starting.contains(window), let controller = controllers[window] else { return }
+        starting.insert(window)
+        let root = controller.projectRoot
+        var args: [String: JSON] = ["action": "plan", "window": .string(window)]
+        if let root {
+            args["repo"] = .string(root)
+            if self.window(window)?["project"]?.string == nil {
+                DispatchQueue.main.async { [weak self] in self?.layoutCommand("task", ["action": "desk", "window": .string(window), "project": .string(root)]) }
+            }
+        }
+        if runningTasks(in: root) == 0, backlogTasks(in: root).isEmpty, let guide = Bundle.main.url(forResource: "getting-started", withExtension: "md") {
+            args["guide"] = .string(guide.path)
+        }
+        request("backlog", args) { [weak self] reply in
             guard let self else { return }
-            starting.remove(key)
-            if let window { noted(window, reply) }
-            guard reply["ok"]?.bool == true, let placed = reply["window"]?.string,
-                  let guide = Bundle.main.url(forResource: "getting-started", withExtension: "md") else { return }
-            request("open", ["type": "md", "path": .string(guide.path), "window": .string(placed), "tab": true])
+            starting.remove(window)
+            noted(window, reply)
         }
     }
 
-    func wantsStarter(_ window: JSON, root: String?) -> Bool {
-        guard window["desk"]?.bool == true, window["dock"]?["pane"] == nil, case .array(let tabs)? = window["tabs"], tabs.isEmpty else { return false }
-        return runningTasks(in: root) == 0 && backlogTasks(in: root).isEmpty
+    func wantsPlanner(_ window: JSON) -> Bool {
+        guard let id = window["id"]?.string, window["desk"]?.bool == true, window["dock"]?["pane"]?.string == nil else { return false }
+        return window["planner"]?["pane"]?.string == nil && !starting.contains(id)
+    }
+
+    func plannerHeader(_ root: String?) -> String {
+        "Planning · " + (root.map(tilde) ?? "no project yet")
+    }
+
+    var latestProject: String? {
+        let parked = shelfEntries.sorted { ($0["parkedAt"]?.number ?? 0) > ($1["parkedAt"]?.number ?? 0) }.lazy.compactMap { $0["task"]?.string }.compactMap(projectRoot).first
+        let waiting = backlog.sorted { ($0["madeAt"]?.number ?? 0) > ($1["madeAt"]?.number ?? 0) }.lazy.compactMap { $0["repo"]?.string }.first.map(canonical)
+        return parked ?? waiting
     }
 }

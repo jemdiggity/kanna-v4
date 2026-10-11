@@ -117,7 +117,7 @@ extension AppController {
                     "header": controller.agentHeader.isHidden ? .null : .string(controller.agentHeader.text),
                     "backlog": .array(controller.backlog.map { .string($0.id) }), "running": .number(Double(controller.running)),
                     "waiting": .string(controller.shelfStrip.waitingText), "note": .string(controller.note),
-                    "blank": .bool(controller.shelfPage.blankCenter != nil)]
+                    "blank": .bool(controller.shelfPage.blankCenter != nil), "planner": controller.plannerShown.map { .string($0) } ?? .null, "window": window(id) ?? .null]
         }
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }

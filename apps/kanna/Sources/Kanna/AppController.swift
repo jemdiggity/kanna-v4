@@ -261,6 +261,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         for window in windows {
             if let pane = window["dock"]?["pane"]?.string { ids.insert(pane) }
+            if let pane = window["planner"]?["pane"]?.string { ids.insert(pane) }
             guard case .array(let tabs)? = window["tabs"] else { continue }
             for tab in tabs {
                 guard case .array(let list)? = tab["panes"] else { continue }
@@ -272,7 +273,9 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     func openTerminalIfEmpty() {
         guard windows.isEmpty, daemon?.attached == true else { return }
-        openStarter(in: nil)
+        var args: [String: JSON] = ["action": "desk"]
+        if let project = latestProject { args["project"] = .string(project) }
+        layoutCommand("task", args)
     }
 
     private func helloPanes() -> JSON {
@@ -369,9 +372,9 @@ final class AppController: NSObject, NSApplicationDelegate {
             controller.running = runningTasks(in: controller.projectRoot)
             controller.project = controller.projectRoot.map(tilde) ?? projectName(mine.map(\.id))
             controller.taskTitle = docked.map { taskTitle($0, name: window["dock"]?["name"]?.string) }
-            controller.headerText = docked.map(headerText) ?? ""
+            controller.headerText = docked.map(headerText) ?? plannerHeader(controller.projectRoot)
             controller.render(window, panes)
-            if wantsStarter(window, root: controller.projectRoot) { openStarter(in: id) }
+            if wantsPlanner(window) { openPlanner(in: id) }
         }
         placeNewKey()
         if let key = state["key"]?.string, let controller = controllers[key], !controller.window.isKeyWindow {

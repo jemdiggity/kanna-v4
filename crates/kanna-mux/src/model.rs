@@ -1082,6 +1082,9 @@ impl LayoutHost for Model {
                     if window.dock.is_some() {
                         out.insert("dock".into(), self.dock_view(w, panes));
                     }
+                    if let Some(planner) = &window.planner {
+                        out.insert("planner".into(), Value::Object(reply([("pane", panes.display(&planner.pane).into()), ("width", fraction::format(planner.width).into())])));
+                    }
                     Value::Object(out)
                 })
                 .collect(),

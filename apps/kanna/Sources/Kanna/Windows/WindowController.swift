@@ -27,6 +27,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     var taskTitle: String?
     private(set) var desk = false
     private(set) var emptyDesk = false
+    private(set) var plannerShown: String?
     var onCloseRequest: (() -> Void)?
     var onBecomeKey: (() -> Void)?
     var onFrameChange: (() -> Void)?
@@ -74,11 +75,14 @@ final class WindowController: NSObject, NSWindowDelegate {
         window.title = named + (instance == "default" ? "" : " · \(instance)")
         tabBar.show(state)
         let root = state["root"] ?? .null
-        let dock = state["dock"].flatMap { $0["pane"]?.string == nil ? nil : $0 }
+        let task = Self.side(state["dock"])
+        let planner = desk && task == nil ? Self.side(state["planner"]) : nil
+        let dock = task ?? planner
         let docked = dock?["pane"]?.string
+        plannerShown = planner?["pane"]?.string
         let ids = Self.paneIDs(root)
         shown = Self.shownPanes(state)
-        emptyDesk = desk && docked == nil && ids.isEmpty
+        emptyDesk = desk && task == nil && ids.isEmpty
         let zoomed = state["zoomed"]?.string
         arrange(dock, zoomed: zoomed.map { $0 == docked ? .dock : .tab })
         let visible = Set(ids)
@@ -94,6 +98,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             view.frame = NSRect(x: 0, y: 0, width: dockStage.bounds.width, height: dockStage.bounds.height - header)
             view.autoresizingMask = []
             agentHeader.isHidden = !self.desk
+            agentHeader.parkable = planner == nil
             agentHeader.frame = NSRect(x: 0, y: dockStage.bounds.height - header, width: dockStage.bounds.width, height: header)
             agentHeader.show(headerText)
         }
@@ -118,12 +123,10 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     private func arrange(_ dock: JSON?, zoomed: Zoom?) {
         var bounds = content.bounds
+        let taskless = desk && plannerShown != nil || emptyDesk
         if shelfPage.isHidden == emptyDesk { shelfPage.isHidden = !emptyDesk }
-        if shelfStrip.isHidden == (desk && !emptyDesk) { shelfStrip.isHidden = !desk || emptyDesk }
-        if emptyDesk {
-            shelfPage.frame = bounds
-            shelfPage.show(DeskPage(tasks: shelf, backlog: backlog, running: running, project: project, cheer: cheer, note: note))
-            bounds = .zero
+        if shelfStrip.isHidden == (desk && !taskless) { shelfStrip.isHidden = !desk || taskless }
+        if taskless {
         } else if desk {
             shelfStrip.frame = NSRect(x: 0, y: 0, width: bounds.width, height: ShelfStrip.height)
             shelfStrip.show(shelf, waiting: backlog.count)
@@ -151,6 +154,11 @@ final class WindowController: NSObject, NSWindowDelegate {
             }
         }
         dockStage.isHidden = dock == nil || zoomed == .tab
+        if emptyDesk {
+            shelfPage.frame = side
+            shelfPage.show(DeskPage(tasks: shelf, backlog: backlog, running: running, project: project, cheer: cheer, note: note))
+            side = .zero
+        }
         tabBar.isHidden = side.isEmpty || (dock != nil && zoomed == .tab)
         stage.isHidden = side.isEmpty
         let bar = tabBar.isHidden ? 0 : TabBar.height
@@ -166,8 +174,16 @@ final class WindowController: NSObject, NSWindowDelegate {
         if case .array(let tabs)? = window["tabs"], case .array(let list)? = tabs.first(where: { $0["id"]?.string == tab })?["panes"] {
             ids = list.compactMap(\.string)
         }
-        guard let dock = window["dock"], let pane = dock["pane"]?.string else { return ids }
+        guard let dock = window["dock"], let pane = dock["pane"]?.string else {
+            guard window["desk"]?.bool == true, let planner = window["planner"]?["pane"]?.string else { return ids }
+            return [planner] + ids
+        }
         return dock["edge"]?.string == "right" ? ids + [pane] : [pane] + ids
+    }
+
+    static func side(_ pane: JSON?) -> JSON? {
+        guard let pane, pane["pane"]?.string != nil else { return nil }
+        return pane
     }
 
     static func paneIDs(_ node: JSON) -> [String] {

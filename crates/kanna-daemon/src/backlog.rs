@@ -92,7 +92,7 @@ const STOPPED: &str = "The planning agent stopped. Press Return to start it agai
 pub fn planner_command(agent: &str, session: Option<&str>, homeless: bool, guide: Option<&str>) -> String {
     let first = quote(&if homeless { format!("{PLANNING} {NOWHERE}") } else { format!("{PLANNING} Start by saying in a line or two what's running and waiting (kanna task list), then ask what we're working on.") });
     let agent = agent.trim();
-    let show = guide.map_or(String::new(), |g| format!("if command -v glow >/dev/null 2>&1; then glow {g}; else cat {g}; fi; echo; ", g = quote(g)));
+    let show = guide.map_or(String::new(), |g| format!("if command -v glow >/dev/null 2>&1; then glow -w 0 {g}; else cat {g}; fi; echo; ", g = quote(g)));
     let (start, again) = match session.filter(|_| program(agent) == "claude") {
         Some(id) => (format!("{agent} --session-id {id} {first} || {agent} --resume {id}"), format!("{agent} --resume {id}")),
         None => (format!("{agent} {first}"), format!("{agent} {first}")),
@@ -568,7 +568,7 @@ mod tests {
     fn a_planning_agent_shows_the_guide_runs_with_its_first_message_and_waits_to_resume_when_it_exits() {
         let command = planner_command("claude", Some("u1"), false, Some("/K/getting started.md"));
         let (show, rest) = command.split_once("echo; ").unwrap();
-        assert_eq!(show, "if command -v glow >/dev/null 2>&1; then glow '/K/getting started.md'; else cat '/K/getting started.md'; fi; ");
+        assert_eq!(show, "if command -v glow >/dev/null 2>&1; then glow -w 0 '/K/getting started.md'; else cat '/K/getting started.md'; fi; ");
         assert!(rest.starts_with("claude --session-id u1 'You'\\''re the planning agent"), "{rest}");
         assert!(rest.contains("kanna-planning") && rest.contains("kanna task list") && !rest.contains("dangerously"), "{rest}");
         assert!(rest.contains("|| claude --resume u1; while printf"), "{rest}");

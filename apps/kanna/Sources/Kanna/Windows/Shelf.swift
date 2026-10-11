@@ -264,7 +264,7 @@ final class ShelfPage: NSView {
         y += blank.frame.height + 28
         y = header("Backlog", detail: nil, count: "\(page.backlog.count) waiting", y: y, left: left, width: width)
         if page.backlog.isEmpty {
-            let none = label("Empty. Agents add tasks here with kanna task new.", color: .secondaryLabelColor)
+            let none = label("Empty. Ask the planning agent for tasks.", color: .secondaryLabelColor)
             none.frame.origin = NSPoint(x: left, y: y + 4)
             y += none.frame.height + 12
         }
