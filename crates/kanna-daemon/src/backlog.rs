@@ -25,6 +25,10 @@ pub struct Entry {
     pub by: Option<String>,
     pub made_at: f64,
     pub agent: String,
+    /// The worktree of a task moved back to the backlog, where it starts again.
+    pub folder: Option<String>,
+    /// The agent's session there, which it resumes when it starts again.
+    pub session: Option<String>,
 }
 
 impl Entry {
@@ -37,6 +41,8 @@ impl Entry {
             "by": opt(self.by.as_deref()),
             "madeAt": num(self.made_at),
             "agent": self.agent,
+            "folder": opt(self.folder.as_deref()),
+            "session": opt(self.session.as_deref()),
         })
     }
 
@@ -50,16 +56,34 @@ impl Entry {
             by: text("by"),
             made_at: value.get("madeAt").and_then(Value::as_f64).unwrap_or(0.0),
             agent: text("agent").unwrap_or_else(default_agent),
+            folder: text("folder"),
+            session: text("session"),
         })
     }
 
-    fn command(&self) -> String {
+    /// The agent's command line. A new claude task gets `session` as its ID, so Move to Backlog can resume it;
+    /// a claude task back from the backlog resumes its session, or the folder's latest one if Kanna didn't start it.
+    fn command(&self, session: Option<&str>) -> String {
         let agent = unprompted(&self.agent);
-        match &self.message {
+        let first = |agent: String| match &self.message {
             Some(message) => format!("{agent} {}", quote(message)),
             None => agent,
+        };
+        if program(&self.agent) != "claude" {
+            return first(agent);
+        }
+        match (&self.session, &self.folder, session) {
+            (Some(resume), _, _) => format!("{agent} --resume {}", quote(resume)),
+            (None, Some(_), _) => format!("{agent} --continue"),
+            (None, None, Some(new)) => first(format!("{agent} --session-id {new}")),
+            (None, None, None) => first(agent),
         }
     }
+}
+
+fn program(agent: &str) -> &str {
+    let first = agent.split_whitespace().next().unwrap_or("");
+    first.rsplit('/').next().unwrap_or(first)
 }
 
 const UNPROMPTED: &[(&str, &str)] = &[("claude", "--dangerously-skip-permissions"), ("codex", "--yolo")];
@@ -68,9 +92,8 @@ const ASKING: &[&str] = &["--dangerously-skip-permissions", "--yolo", "--permiss
 
 fn unprompted(agent: &str) -> String {
     let agent = agent.trim();
-    let mut words = agent.split_whitespace();
-    let program = words.next().map(|w| w.rsplit('/').next().unwrap_or(w)).unwrap_or("");
-    let chooses = words.any(|w| ASKING.contains(&w.split('=').next().unwrap_or(w)));
+    let program = program(agent);
+    let chooses = agent.split_whitespace().skip(1).any(|w| ASKING.contains(&w.split('=').next().unwrap_or(w)));
     match UNPROMPTED.iter().find(|(name, _)| *name == program) {
         Some((_, flag)) if !chooses => format!("{agent} {flag}"),
         _ => agent.to_string(),
@@ -141,13 +164,19 @@ fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
-/// A worktree's name, and its branch's: `task-` and the first 32 bits of a random (v4) UUID, in hex.
-fn worktree_name() -> Result<String, String> {
+/// A random (v4) UUID, in hex.
+fn uuid() -> Result<String, String> {
     let mut uuid = [0u8; 16];
     std::io::Read::read_exact(&mut fs::File::open("/dev/urandom").map_err(|e| format!("can't read /dev/urandom: {e}"))?, &mut uuid).map_err(|e| format!("can't read /dev/urandom: {e}"))?;
     uuid[6] = (uuid[6] & 0x0f) | 0x40;
     uuid[8] = (uuid[8] & 0x3f) | 0x80;
-    Ok(format!("task-{}", uuid[..4].iter().map(|b| format!("{b:02x}")).collect::<String>()))
+    let hex: String = uuid.iter().map(|b| format!("{b:02x}")).collect();
+    Ok(format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..]))
+}
+
+/// A worktree's name, and its branch's: `task-` and the first 32 bits of a random UUID, in hex.
+fn worktree_name() -> Result<String, String> {
+    Ok(format!("task-{}", &uuid()?[..8]))
 }
 
 /// Makes a worktree in `.kanna-worktrees/NAME` on a new branch NAME, and returns its folder and branch.
@@ -192,6 +221,8 @@ struct Starting {
 pub struct Backlog {
     path: PathBuf,
     entries: RefCell<Vec<Entry>>,
+    /// The tasks this backlog started and that may still run, by their agent's pane: how to put each back.
+    running: RefCell<Vec<(String, Entry)>>,
     counter: Cell<usize>,
     events: Sender<Event>,
     core: WeakCore,
@@ -210,9 +241,12 @@ impl Backlog {
             .and_then(|text| serde_json::from_str::<Value>(&text).ok())
             .unwrap_or(Value::Null);
         let entries: Vec<Entry> = saved.get("tasks").and_then(Value::as_array).map_or(vec![], |list| list.iter().filter_map(Entry::from_value).collect());
+        let running: Vec<(String, Entry)> = saved.get("running").and_then(Value::as_array).map_or(vec![], |list| {
+            list.iter().filter_map(|v| Some((string(v, "pane")?.to_string(), Entry::from_value(v)?))).collect()
+        });
         let counter = saved.get("counter").and_then(Value::as_u64).unwrap_or(0) as usize;
-        let counter = entries.iter().filter_map(|e| number(&e.id)).fold(counter, usize::max);
-        Backlog { path, entries: RefCell::new(entries), counter: Cell::new(counter), events, core, pending: RefCell::default(), next: Cell::new(0), on_change: RefCell::default() }
+        let counter = entries.iter().chain(running.iter().map(|(_, e)| e)).filter_map(|e| number(&e.id)).fold(counter, usize::max);
+        Backlog { path, entries: RefCell::new(entries), running: RefCell::new(running), counter: Cell::new(counter), events, core, pending: RefCell::default(), next: Cell::new(0), on_change: RefCell::default() }
     }
 
     pub fn view(&self) -> Value {
@@ -220,7 +254,12 @@ impl Backlog {
     }
 
     fn save(&self) {
-        let saved = json!({ "counter": self.counter.get(), "tasks": self.view() });
+        let running: Vec<Value> = self.running.borrow().iter().map(|(pane, entry)| {
+            let mut value = entry.to_value();
+            value["pane"] = json!(pane);
+            value
+        }).collect();
+        let saved = json!({ "counter": self.counter.get(), "tasks": self.view(), "running": running });
         let temporary = self.path.with_extension("json.tmp");
         let written = fs::write(&temporary, saved.to_string()).and_then(|_| fs::rename(&temporary, &self.path));
         if let Err(error) = written {
@@ -247,7 +286,8 @@ impl Backlog {
                     Some("done") => responder.reply(this.remove(&args)),
                     Some("start") => this.start(&args, responder),
                     Some("blank") => this.blank(&args, responder),
-                    _ => responder.reply(Err(bad("backlog needs an action: new, list, done, start or blank"))),
+                    Some("defer") => this.defer(&args, responder),
+                    _ => responder.reply(Err(bad("backlog needs an action: new, list, done, start, blank or defer"))),
                 }
             }),
         );
@@ -269,6 +309,8 @@ impl Backlog {
             by,
             made_at: now(),
             agent: string(args, "agent").filter(|a| !a.trim().is_empty()).map(String::from).unwrap_or_else(default_agent),
+            folder: None,
+            session: None,
         })
     }
 
@@ -345,7 +387,14 @@ impl Backlog {
         });
     }
 
-    fn prepare(self: &Rc<Self>, entry: Entry, window: Option<String>, responder: Responder) {
+    fn prepare(self: &Rc<Self>, mut entry: Entry, window: Option<String>, responder: Responder) {
+        if let Some(folder) = entry.folder.clone() {
+            if Path::new(&folder).is_dir() {
+                let branch = git(Path::new(&folder), &["branch", "--show-current"]).unwrap_or_default();
+                return self.launch(Starting { entry, window, responder }, folder, branch);
+            }
+            (entry.folder, entry.session) = (None, None);
+        }
         let token = self.next.get() + 1;
         self.next.set(token);
         let (repo, events) = (PathBuf::from(&entry.repo), self.events.clone());
@@ -364,11 +413,55 @@ impl Backlog {
         }
     }
 
+    /// Remembers how to put a running task back on the backlog, forgetting tasks whose agent is gone.
+    fn record(&self, pane: &str, entry: Entry) {
+        let core = self.core.upgrade();
+        let mut running = self.running.borrow_mut();
+        running.retain(|(p, _)| p != pane && core.as_ref().is_none_or(|core| core.pane(p).is_some()));
+        running.push((pane.to_string(), entry));
+    }
+
+    /// Move to Backlog: closes a running task's agent and tabs and puts it back on its repo's backlog,
+    /// keeping its worktree and its agent's session, so starting it again carries on where it was.
+    fn defer(self: &Rc<Self>, args: &Value, responder: Responder) {
+        let Some(core) = self.core.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
+        let Some(reference) = string(args, "task") else { return responder.reply(Err(bad("say which running task"))) };
+        let Some(pane) = core.pane(reference) else { return responder.reply(Err(KmuxError::new("not_found", format!("no running task \"{reference}\"")))) };
+        let recorded = self.running.borrow().iter().find(|(p, _)| *p == pane.id).map(|(_, e)| e.clone());
+        let entry = match recorded {
+            Some(entry) => entry,
+            None => {
+                let Some(folder) = pane.opened_in.clone().or(pane.cwd.clone()) else { return responder.reply(Err(bad(format!("{} has no folder to come back to", pane.id)))) };
+                let repo = project(Some(&folder)).map(|r| r.to_string_lossy().to_string()).unwrap_or_default();
+                let agent = pane.command.as_deref().map(program).filter(|p| !p.is_empty()).map(String::from);
+                let args = json!({ "repo": repo, "agent": opt(agent.as_deref()) });
+                match self.mint(&args, pane.name.clone(), None) {
+                    Ok(entry) => Entry { folder: Some(folder), ..entry },
+                    Err(error) => return responder.reply(Err(error)),
+                }
+            }
+        };
+        let this = Rc::downgrade(self);
+        let id = pane.id.clone();
+        core.handle(json!({ "cmd": "close", "args": { "task": id } }), move |reply| {
+            let Some(this) = this.upgrade() else { return };
+            if let Some(error) = failed(&reply) {
+                return responder.reply(Err(error));
+            }
+            this.running.borrow_mut().retain(|(p, _)| *p != id);
+            let value = entry.to_value();
+            this.entries.borrow_mut().push(entry);
+            this.changed();
+            responder.reply(Ok(Map::from_iter([("task".to_string(), value), ("pane".to_string(), json!(id)), ("closed".to_string(), reply.get("closed").cloned().unwrap_or(Value::Null))])));
+        });
+    }
+
     fn launch(self: &Rc<Self>, starting: Starting, folder: String, branch: String) {
         let Some(core) = self.core.upgrade() else { return starting.responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
         let Starting { entry, window, responder } = starting;
         let name = entry.name.clone().filter(|n| core.pane(n).is_none());
-        let mut args = json!({ "type": "term", "dock": "left", "shelf": true, "cwd": folder, "cmd": entry.command(), "wait": false });
+        let session = (program(&entry.agent) == "claude" && entry.folder.is_none()).then(uuid).and_then(Result::ok);
+        let mut args = json!({ "type": "term", "dock": "left", "shelf": true, "cwd": folder, "cmd": entry.command(session.as_deref()), "wait": false });
         if let Some(name) = &name {
             args["name"] = json!(name);
         }
@@ -380,9 +473,12 @@ impl Backlog {
                 return responder.reply(Err(error));
             }
             let pane = reply.get("pane").and_then(|p| string(p, "id")).unwrap_or("").to_string();
-            if this.take(&entry.id).is_some() {
-                this.changed();
-            }
+            this.take(&entry.id);
+            let mut ran = entry.clone();
+            ran.folder = Some(folder.clone());
+            ran.session = ran.session.or(session);
+            this.record(&pane, ran);
+            this.changed();
             let mut out = Map::from_iter([
                 ("task".to_string(), json!(entry.id)),
                 ("pane".to_string(), json!(pane)),
@@ -412,10 +508,24 @@ mod tests {
 
     #[test]
     fn a_first_message_is_quoted_for_the_shell() {
-        let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "claude".into() };
-        assert_eq!(entry.command(), "claude --dangerously-skip-permissions 'don'\\''t stop'");
+        let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "codex".into(), folder: None, session: None };
+        assert_eq!(entry.command(None), "codex --yolo 'don'\\''t stop'");
         entry.message = None;
-        assert_eq!(entry.command(), "claude --dangerously-skip-permissions");
+        assert_eq!(entry.command(None), "codex --yolo");
+    }
+
+    #[test]
+    fn a_claude_task_gets_a_session_and_resumes_it_when_it_comes_back_from_the_backlog() {
+        let mut entry = Entry { id: "t1".into(), name: None, message: Some("go".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "/bin/claude".into(), folder: None, session: None };
+        let id = uuid().unwrap();
+        assert!(id.len() == 36 && id.chars().nth(14) == Some('4'), "{id}");
+        assert_eq!(entry.command(Some(&id)), format!("/bin/claude --dangerously-skip-permissions --session-id {id} 'go'"));
+        entry.folder = Some("/r/.kanna-worktrees/task-1".into());
+        assert_eq!(entry.command(None), "/bin/claude --dangerously-skip-permissions --continue", "a task Kanna didn't start resumes the folder's latest session");
+        entry.session = Some(id.clone());
+        assert_eq!(entry.command(None), format!("/bin/claude --dangerously-skip-permissions --resume '{id}'"));
+        entry.agent = "codex".into();
+        assert_eq!(entry.command(None), "codex --yolo 'go'", "only claude resumes for now");
     }
 
     #[test]
@@ -431,7 +541,7 @@ mod tests {
 
     #[test]
     fn entries_round_trip_and_ids_are_t_numbers() {
-        let entry = Entry { id: "t7".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into() };
+        let entry = Entry { id: "t7".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into(), folder: Some("/r/.kanna-worktrees/task-1".into()), session: Some("s".into()) };
         assert_eq!(Entry::from_value(&entry.to_value()), Some(entry));
         assert_eq!(number("t12"), Some(12));
         assert_eq!(number("p3"), None);
@@ -482,6 +592,13 @@ mod tests {
         let mint = || Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0).mint(&args, None, None).unwrap().id;
         assert_eq!(mint(), "t1");
         assert_eq!(mint(), "t2");
+        let backlog = Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0);
+        let ran = Entry { id: "t9".into(), name: Some("Ran".into()), message: None, repo: "/r".into(), by: None, made_at: 0.0, agent: "claude".into(), folder: Some("/r/w".into()), session: Some("s".into()) };
+        backlog.record("p4", ran.clone());
+        backlog.save();
+        let again = Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0);
+        assert_eq!(*again.running.borrow(), vec![("p4".to_string(), ran)], "a running task's way back survives a restart");
+        assert_eq!(again.mint(&args, None, None).unwrap().id, "t10", "and its ID isn't handed out again");
         fs::remove_dir_all(&state).unwrap();
     }
 

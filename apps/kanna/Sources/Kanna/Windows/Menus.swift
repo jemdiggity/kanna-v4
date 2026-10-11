@@ -80,6 +80,7 @@ extension AppController {
         _ = menu("Task", [
             ("Start a Task", #selector(startTaskHere), nil, nil),
             ("Park", #selector(parkTask), nil, .cmd(".")),
+            ("Move to Backlog", #selector(deferTask), nil, nil),
             nil,
             ("Task Waiting Longest", #selector(pullWaitingTask), nil, .shiftCmd("A")),
             nil,
@@ -198,6 +199,7 @@ extension AppController {
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
         case #selector(parkTask): return keyWindow?["dock"]?["pane"] != nil
+        case #selector(deferTask): return keyWindow?["dock"]?["pane"] != nil
         case #selector(startTaskHere): return keyWindow?["desk"]?.bool == true
         case #selector(pullWaitingTask): return waitingTask != nil
         case #selector(pullShelf1): return shelfPull(1) != nil
@@ -332,6 +334,16 @@ extension AppController {
     @objc func parkTask() {
         guard let window = keyWindow?["id"]?.string else { return }
         layoutCommand("task", ["action": "park", "window": .string(window)])
+    }
+
+    /// Closes the Desk's task and puts it back on its repo's backlog, keeping its worktree and its agent's session.
+    @objc func deferTask() {
+        guard let window = keyWindow?["id"]?.string, let pane = keyWindow?["dock"]?["pane"]?.string else { return }
+        request("backlog", ["action": "defer", "task": .string(pane)]) { [weak self] reply in
+            guard let self, reply["ok"]?.bool != true, let controller = controllers[window] else { return }
+            controller.note = reply["error"]?["message"]?.string ?? "it didn't move"
+            refresh()
+        }
     }
 
     @objc func pullShelf1() { pullShelf(1) }
