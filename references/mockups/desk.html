@@ -28,6 +28,8 @@ button { font: 12px var(--sans); color: var(--text); background: var(--panel2); 
 button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.ghost { background: transparent; }
+button:disabled { opacity: .45; cursor: default; }
+button:disabled:hover { border-color: var(--line); }
 
 .window { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: var(--shadow); background: var(--bg); height: 720px; display: flex; flex-direction: column; }
 body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 100vh; }
@@ -155,22 +157,14 @@ body.picture .cmd input::placeholder { color: transparent; }
 .keys kbd { font: 11px var(--mono); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; background: var(--panel2); }
 .nowin { color: var(--muted); padding: 40px; text-align: center; border: 1px dashed var(--line); border-radius: 10px; }
 .shelf .item.needs { color: var(--warn); }
-.shelf .new { color: var(--muted); padding: 3px 8px; border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1; }
-.shelf .new:hover { color: var(--text); background: var(--panel); }
-.sheet-wrap { position: absolute; inset: 36px 0 0 0; background: rgba(0,0,0,.28); display: flex; justify-content: center; align-items: flex-start; z-index: 5; }
-.sheet { margin-top: 0; width: 520px; max-width: 92%; background: var(--panel); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; box-shadow: var(--shadow); padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 10px; }
-.sheet h3 { margin: 0; font-size: 13px; }
-.sheet label { color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
-.sheet label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
-.sheet label.check .s { color: var(--muted); font: 11px var(--mono); }
-.sheet select, .sheet textarea { font: 12.5px var(--sans); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
-.sheet textarea { min-height: 74px; resize: vertical; }
-.sheet .row2 { display: flex; gap: 10px; }
-.sheet .row2 label { flex: 1; }
-.sheet .acts { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
-.sheet .acts .err { flex: 1; color: var(--warn); font-size: 12px; }
-.sheet .acts .kb { color: var(--muted); font-size: 11px; }
-.empty .start { margin-top: 4px; }
+.empty .start { margin-top: 2px; }
+.row.waiting .t .n { font-weight: 500; }
+.row.waiting .dot { background: transparent; border: 1.5px solid var(--muted); width: 9px; height: 9px; }
+.row .go.off { color: var(--muted); }
+.row.waiting .go { visibility: visible; color: var(--muted); }
+.row.waiting:hover .go:not(.off) { color: var(--accent); }
+.empty .note { color: var(--warn); font-size: 12px; margin: 6px 0 0; min-height: 16px; }
+.shelf .backlog { margin-left: auto; color: var(--muted); white-space: nowrap; padding: 3px 8px; }
 .where .unnamed { color: var(--muted); font-weight: 400; font-style: italic; }
 </style>
 </head>
@@ -178,7 +172,7 @@ body.picture .cmd input::placeholder { color: transparent; }
 <main>
   <div class="intro">
     <h1>Desk: one task per window, the rest on the Shelf</h1>
-    <p>A task is what a Desk holds: its agent, docked on the left, and its tabs. The Desk shows one; the Shelf below holds the project's other tasks, their agents still running. Click a Shelf item to swap, Park to clear the Desk, <b>+</b> or ⌘N to start a task (or run <code>kanna task new "…"</code> in an agent's pane, as an agent would), drag the line between the agent and the tabs, or type a <code>kanna</code> command in the agent's pane as the agent would.</p>
+    <p>A task is what a Desk holds: its agent, docked on the left, and its tabs. The Desk shows one; the Shelf below holds the project's other tasks, their agents still running. Click a Shelf item to swap, Park to clear the Desk, ⌘N to start a task with a fresh agent, <code>kanna task new "NAME" "FIRST MESSAGE"</code> in an agent's pane (as an agent would) to add one to the backlog, drag the line between the agent and the tabs, or type a <code>kanna</code> command in the agent's pane as the agent would.</p>
     <div class="controls">
       <button id="theme">Light / dark</button>
       <button id="newwin">New Desk window</button>
@@ -186,7 +180,7 @@ body.picture .cmd input::placeholder { color: transparent; }
       <button id="reset">Reset</button>
     </div>
     <div class="keys">
-      <span><kbd>⌘N</kbd> new task</span>
+      <span><kbd>⌘N</kbd> start a task</span>
       <span><kbd>⌘1</kbd> <kbd>⌘2</kbd> <kbd>⌘3</kbd> pull the Shelf's 1st, 2nd, 3rd</span>
       <span><kbd>⌘.</kbd> Park</span>
       <span><kbd>⇧⌘→</kbd> <kbd>⇧⌘←</kbd> next / previous Shelf task</span>
@@ -204,7 +198,7 @@ const initial = () => {
     repos: ["~/work/kanna-v4", "~/work/kmux"],
     key: "w1",
     windows: [{ id: "w1", desk: "p1", repo: "~/work/kanna-v4" }],
-    sheet: null,
+    note: "",
     order: ["p4", "p7"],
     nextWindow: 2,
     nextPane: 10,
@@ -215,6 +209,12 @@ const initial = () => {
         tabs: ["localhost:5173", "target/tmp/s36-2-light.png"], active: "localhost:5173", log: [] },
       { id: "p7", repo: "~/work/kmux", worktree: true, title: "Pinch zoom in web panes", branch: "kanna/p7", agent: "claude", status: "idle", parkedAt: now - 64 * MIN, width: 0.32,
         tabs: ["docs/kanna-spec.md", "tests"], active: "tests", log: [] },
+      { id: "p8", repo: "~/work/kanna-v4", backlog: true, title: "S40 status test is flaky", by: "p1", madeAt: now - 40 * MIN,
+        prompt: "S40 waits 5s for 'working' after answering the mock agent, but work(1) lasts a second; make the wait follow the status, and run it 20 times" },
+      { id: "p9", repo: "~/work/kanna-v4", backlog: true, title: "kanna open infers the pane type", by: "p4", madeAt: now - 25 * MIN,
+        prompt: "kanna open FILE should pick md or web from the file's extension, so TYPE is optional" },
+      { id: "p11", repo: "~/work/kanna-v4", backlog: true, title: "Rename a task from the Shelf", by: "p1", madeAt: now - 5 * MIN,
+        prompt: "Double-click a Shelf item to rename its task, as tabs rename" },
     ],
   };
 };
@@ -230,7 +230,8 @@ const ago = t => { const m = Math.max(0, Math.round((Date.now() - t.parkedAt) / 
 const repoOf = w => (w && task(w.desk) ? task(w.desk).repo : w && w.repo) || s.repos[0];
 const folderOf = t => t.worktree ? `${t.repo}/.kanna-worktrees/${t.id}` : t.repo;
 const titleOf = t => t.title ? esc(t.title) : `<span class="unnamed">New task</span>`;
-const inRepo = repo => s.tasks.filter(t => t.repo === repo);
+const inRepo = repo => s.tasks.filter(t => t.repo === repo && !t.backlog);
+const backlog = repo => s.tasks.filter(t => t.repo === repo && t.backlog);
 
 function shelf(w = keyWin()) {
   const repo = repoOf(w);
@@ -252,29 +253,15 @@ function windowHTML(w) {
       <span class="where"><b>${t ? titleOf(t) : "Shelf"}</b></span><span class="spacer"></span><span class="wid">${w.id}</span></div>
     <div style="flex:1;display:flex;flex-direction:column;min-height:0">${t ? deskHTML(t) : emptyHTML(w)}</div>
     <div class="shelf" ${t ? "" : "hidden"}>${shelfHTML(w)}</div>
-    ${s.sheet && s.sheet.win === w.id ? sheetHTML(w) : ""}
   </div>`;
 }
 
 function shelfHTML(w) {
+  const waiting = backlog(repoOf(w)).length;
   return shelf(w).map((t, i) => {
     const meta = t.status === "needs" ? "needs you" : "parked " + ago(t);
     return `<span class="item ${t.status === "needs" ? "needs" : ""}" data-pull="${t.id}" title="${meta}"><span class="dot ${t.status}"></span>${titleOf(t)}<span class="meta">· ${meta}</span><span class="kb">⌘${i + 1}</span></span>`;
-  }).join("") + `<span class="new" data-new="${w.id}" title="New task (⌘N)">+</span>`;
-}
-
-function sheetHTML(w) {
-  const f = s.sheet, full = inRepo(f.repo).length >= LIMIT;
-  return `<div class="sheet-wrap"><div class="sheet">
-    <h3>New task</h3>
-    <div class="row2">
-      <label>Repo<select data-f="repo">${s.repos.map(r => `<option ${r === f.repo ? "selected" : ""}>${esc(r)}</option>`).join("")}<option value="">Other folder…</option></select></label>
-      <label>Agent<select data-f="agent">${["claude", "codex"].map(a => `<option ${a === f.agent ? "selected" : ""}>${a}</option>`).join("")}</select></label>
-    </div>
-    <label>What should it do? <span style="opacity:.8">Optional: the agent's first message. The agent names the task.</span><textarea data-f="prompt" placeholder="e.g. The tab bar ignores light mode; fix it and add a screenshot test">${esc(f.prompt)}</textarea></label>
-    <label class="check"><input type="checkbox" data-f="worktree" ${f.worktree ? "checked" : ""}> Own worktree and branch <span class="s">${f.worktree ? `.kanna-worktrees/${"p" + s.nextPane} · kanna/${"p" + s.nextPane}` : "works in " + esc(f.repo) + " as it is"}</span></label>
-    <div class="acts"><span class="err">${full ? `${esc(f.repo)} has ${LIMIT} tasks: finish one first` : ""}</span><span class="kb">⌘↩</span><button data-cancel>Cancel</button><button class="primary" data-start ${full ? "disabled" : ""}>Start task</button></div>
-  </div></div>`;
+  }).join("") + (waiting ? `<span class="backlog" title="Park to see the backlog">${waiting} in backlog</span>` : "");
 }
 
 function agentTerm(t) {
@@ -296,7 +283,7 @@ function agentTerm(t) {
     ``,
     `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : t.id === "p4" ? "Done. S36 passes; screenshots in light and dark attached." : "Found it: the query answers before the theme loads."}`,
   ];
-  return head.concat(t.log).join("\n") + `<div class="cmd"><span class="p">&gt;</span><input data-cmd="${t.id}" placeholder="kanna task new &quot;fix the S39 pinch&quot; · kanna task list · kanna task park" spellcheck="false" autocomplete="off"></div>`;
+  return head.concat(t.log).join("\n") + `<div class="cmd"><span class="p">&gt;</span><input data-cmd="${t.id}" placeholder="kanna task new &quot;Fix the S39 pinch&quot; &quot;the mark drifts…&quot; · kanna task list · kanna task park" spellcheck="false" autocomplete="off"></div>`;
 }
 
 const kindOf = f => f === "tests" || f.startsWith("shell") ? "term" : f.startsWith("localhost") || f.startsWith("http") || f.endsWith(".html") ? "web" : /\.(png|jpg|gif|pdf|mp4)$/.test(f) ? "img" : f.endsWith(".md") ? "md" : "text";
@@ -341,36 +328,19 @@ const cheers = [
 let cheerAt = location.hash.includes("picture") ? 0 : Math.floor(Math.random() * cheers.length);
 
 function emptyHTML(w) {
-  const list = shelf(w), repo = repoOf(w), count = inRepo(repo).length;
+  const list = shelf(w), repo = repoOf(w), count = inRepo(repo).length, waiting = backlog(repo), full = count >= LIMIT;
   return `<div class="empty"><p class="sub">${cheers[cheerAt]}</p>
-    <div class="group"><div class="gh"><span><b>${esc(repo)}</b></span><span>${list.length} parked · ${count} of ${LIMIT} tasks</span></div>
-      ${list.map((t, i) => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${titleOf(t)}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${ago(t)} · ${esc(t.branch)}</div></div><span class="go">⌘${i + 1} · Pull →</span></div>`).join("") || `<div class="s" style="color:var(--muted)">No tasks in this repo.</div>`}
-      <button class="start" data-new="${w.id}" ${count >= LIMIT ? "disabled title=\"Three tasks already: finish one first\"" : ""}>New task <span style="opacity:.6">⌘N</span></button></div></div>`;
+    <div class="group"><div class="gh"><span><b>Shelf</b> · ${esc(repo)}</span><span>${count} of ${LIMIT} tasks</span></div>
+      ${list.map((t, i) => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${titleOf(t)}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${ago(t)} · ${esc(t.branch)}</div></div><span class="go">⌘${i + 1} · Pull →</span></div>`).join("") || `<div class="s" style="color:var(--muted)">Nothing on the Shelf.</div>`}
+      <button class="start" data-blank="${w.id}" ${full ? "disabled" : ""} title="${full ? "Three tasks already: finish one first" : "A new agent and terminal; tell it what to do and it names the task"}">Start a task <span style="opacity:.6">⌘N</span></button></div>
+    <div class="group"><div class="gh"><span><b>Backlog</b></span><span>${waiting.length} waiting</span></div>
+      ${waiting.map(t => `<div class="row waiting" data-promote="${t.id}"><span class="dot"></span><div class="t"><div class="n">${titleOf(t)}</div><div class="s">${esc(t.prompt)} · from ${task(t.by) && task(t.by).title ? esc(task(t.by).title) : esc(t.by)}, ${ago({ parkedAt: t.madeAt })} ago</div></div><span class="go ${full ? "off" : ""}">${full ? "Shelf full" : "Move to Shelf →"}</span></div>`).join("") || `<div class="s" style="color:var(--muted)">Empty. Agents add tasks here with <code>kanna task new</code>.</div>`}
+      <p class="note">${esc(s.note)}</p></div></div>`;
 }
 
-function openSheet(wid) {
-  const w = win(wid) || keyWin();
-  if (!w) return;
-  s.key = w.id;
-  s.sheet = { win: w.id, repo: repoOf(w), agent: "claude", prompt: "", worktree: true };
-  render();
-  const box = document.querySelector(".sheet textarea");
-  if (box) box.focus();
-}
-
-function nameFrom(prompt) {
-  const words = prompt.replace(/[^\w\s'-]/g, "").split(/\s+/).filter(Boolean).slice(0, 5);
+function nameFrom(text) {
+  const words = text.replace(/[^\w\s'-]/g, "").split(/\s+/).filter(Boolean).slice(0, 5);
   return words.length ? words.join(" ").replace(/^./, c => c.toUpperCase()) : null;
-}
-
-function makeTask({ repo, agent, prompt, worktree }) {
-  const id = "p" + s.nextPane++;
-  const t = { id, repo, worktree, title: null, branch: worktree ? "kanna/" + id : "main", agent, status: prompt ? "working" : "idle", parkedAt: Date.now(), width: 0.38,
-    tabs: ["shell"], active: "shell", log: [], fresh: true, prompt };
-  s.tasks.push(t);
-  if (!s.repos.includes(repo)) s.repos.push(repo);
-  if (prompt) setTimeout(() => agentNames(t, prompt), 1400);
-  return t;
 }
 
 function agentNames(t, text) {
@@ -380,17 +350,35 @@ function agentNames(t, text) {
   render();
 }
 
-function startTask() {
-  const f = s.sheet;
-  if (!f || inRepo(f.repo).length >= LIMIT) return;
-  const w = win(f.win);
-  s.sheet = null;
-  const t = makeTask(f);
+function start(t, worktree) {
+  Object.assign(t, { backlog: false, worktree, branch: worktree ? "kanna/" + t.id : "main", agent: t.agent || "claude", status: t.prompt ? "working" : "idle",
+    parkedAt: Date.now(), width: 0.38, tabs: ["shell"], active: "shell", log: [], fresh: true });
+}
+
+function startBlank(wid) {
+  const w = win(wid) || keyWin();
+  if (!w) return;
+  const repo = repoOf(w);
+  if (inRepo(repo).length >= LIMIT) { s.note = `${repo} has ${LIMIT} tasks: finish one first`; return render(); }
+  const t = { id: "p" + s.nextPane++, repo, title: null, prompt: "" };
+  s.tasks.push(t);
+  start(t, true);
   const cur = task(w.desk);
   if (cur) parkTask(cur);
-  w.desk = t.id;
-  w.repo = t.repo;
+  Object.assign(w, { desk: t.id, repo });
   t.parkedAt = null;
+  s.key = w.id;
+  s.note = "";
+  render();
+}
+
+function promote(id) {
+  const t = task(id);
+  if (!t || !t.backlog) return;
+  if (inRepo(t.repo).length >= LIMIT) { s.note = `The Shelf is full: finish a task first`; return render(); }
+  start(t, t.worktree !== false);
+  s.order.unshift(t.id);
+  s.note = "";
   render();
 }
 
@@ -494,14 +482,14 @@ function run(t, line) {
   if (words[0] !== "kanna") { say("(typed to the agent)"); if (!t.title) setTimeout(() => agentNames(t, line), 900); return render(); }
   const [, cmd, sub, arg, more] = words;
   if (cmd === "task" && sub === "new") {
-    const quoted = line.match(/"([^"]*)"/);
-    const prompt = quoted ? quoted[1] : words.slice(3).filter(x => !x.startsWith("--")).join(" ");
+    const quoted = [...line.matchAll(/"([^"]*)"/g)].map(m => m[1]);
+    if (!quoted.length) { say(`kanna: task new "NAME" ["FIRST MESSAGE"] [--no-worktree] [--repo PATH]`); return render(); }
     const repoAt = words.indexOf("--repo");
     const repo = repoAt > 0 ? words[repoAt + 1] : t.repo;
-    if (inRepo(repo).length >= LIMIT) { say(`kanna: ${repo} has ${LIMIT} tasks already; finish one with kanna task done first`); return render(); }
-    const made = makeTask({ repo, agent: t.agent, prompt, worktree: !words.includes("--no-worktree") });
-    s.order.unshift(made.id);
-    say(`made ${made.id} on the Shelf: ${made.worktree ? `worktree ${folderOf(made)}, branch ${made.branch}` : `in ${repo}`}; its agent is starting`);
+    const made = { id: "p" + s.nextPane++, repo, backlog: true, title: quoted[0], prompt: quoted[1] || quoted[0], by: t.id, madeAt: Date.now(), worktree: !words.includes("--no-worktree") };
+    s.tasks.push(made);
+    if (!s.repos.includes(repo)) s.repos.push(repo);
+    say(`added ${made.id} "${made.title}" to ${repo}'s backlog (${backlog(repo).length} waiting)`);
     return render();
   }
   if (cmd === "task" && sub === "name") {
@@ -511,7 +499,7 @@ function run(t, line) {
     return render();
   }
   if (cmd === "task" && sub === "list") {
-    say(["ID   WHERE   STATUS     REPO              NAME"].concat(s.tasks.map(x => `${x.id.padEnd(4)} ${(deskOf(x.id) ? deskOf(x.id).id : "Shelf").padEnd(7)} ${statusText[x.status].padEnd(10)} ${x.repo.replace("~/work/", "").padEnd(17)} ${x.title || "(unnamed)"}`)).join("\n"));
+    say(["ID   WHERE   STATUS     REPO              NAME"].concat(s.tasks.map(x => `${x.id.padEnd(4)} ${(x.backlog ? "Backlog" : deskOf(x.id) ? deskOf(x.id).id : "Shelf").padEnd(7)} ${(x.backlog ? "waiting" : statusText[x.status]).padEnd(10)} ${x.repo.replace("~/work/", "").padEnd(17)} ${x.title || "(unnamed)"}`)).join("\n"));
     return render();
   }
   if (cmd === "task" && sub === "pull") {
@@ -530,7 +518,7 @@ function run(t, line) {
     const id = arg || t.id;
     if (!task(id)) { say(`kanna: no task "${id}"`); return render(); }
     const d = task(id);
-    say(`done: closed ${id}'s panes${d.worktree ? `; kept its worktree ${folderOf(d)} and branch ${d.branch}` : ""}`);
+    say(d.backlog ? `done: took ${id} off the backlog` : `done: closed ${id}'s panes${d.worktree ? `; kept its worktree ${folderOf(d)} and branch ${d.branch}` : ""}`);
     return done(id);
   }
   if (cmd === "open" && (sub === "md" || sub === "web") && arg) {
@@ -545,10 +533,8 @@ document.addEventListener("click", e => {
   const el = sel => e.target.closest(sel);
   const w = el("[data-win]");
   if (w && w.dataset.win !== s.key && !el("[data-closewin]")) { s.key = w.dataset.win; }
-  if (el("[data-cancel]")) { s.sheet = null; return render(); }
-  if (el("[data-start]")) return startTask();
-  if (el(".sheet")) return;
-  if (el("[data-new]")) return openSheet(el("[data-new]").dataset.new);
+  if (el("[data-blank]")) return startBlank(el("[data-blank]").dataset.blank);
+  if (el("[data-promote]")) return promote(el("[data-promote]").dataset.promote);
   if (el("[data-closewin]")) return closeWindow(el("[data-closewin]").dataset.closewin);
   if (el("[data-park]")) return park(el("[data-park]").dataset.park);
   if (el("[data-pull]")) return pull(el("[data-pull]").dataset.pull, w && w.dataset.win);
@@ -569,10 +555,8 @@ document.addEventListener("keydown", e => {
     if (again) again.focus();
     return;
   }
-  if (s.sheet && e.key === "Escape") { s.sheet = null; return render(); }
-  if (s.sheet && e.metaKey && e.key === "Enter") { e.preventDefault(); return startTask(); }
   if (!e.metaKey) return;
-  if (!e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); return openSheet(s.key); }
+  if (!e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); return startBlank(s.key); }
   if (!e.shiftKey && /^[1-9]$/.test(e.key)) {
     const t = shelf()[Number(e.key) - 1];
     if (t) { e.preventDefault(); pull(t.id); }
@@ -580,18 +564,6 @@ document.addEventListener("keydown", e => {
   else if (e.shiftKey && e.key === "ArrowRight") { e.preventDefault(); step(1); }
   else if (e.shiftKey && e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
   else if (e.shiftKey && e.key.toLowerCase() === "a") { e.preventDefault(); waitingLongest(); }
-});
-
-document.addEventListener("input", e => {
-  const f = e.target.dataset && e.target.dataset.f;
-  if (!f || !s.sheet) return;
-  if (f === "repo" && !e.target.value) {
-    const path = prompt("Repo folder", "~/work/");
-    if (path) s.sheet.repo = path;
-    return render();
-  }
-  s.sheet[f] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
-  if (f !== "prompt") render();
 });
 
 let drag = null;
@@ -620,7 +592,7 @@ if (location.hash.includes("picture")) document.body.classList.add("picture");
 if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
 if (location.hash.includes("empty")) { parkTask(task("p1")); s.windows[0].desk = null; }
 if (location.hash.includes("needs")) { task("p4").status = "needs"; task("p4").needsAt = Date.now(); }
-setInterval(() => { if (!drag && !s.sheet && !document.activeElement?.closest?.("[data-cmd]")) render(); }, 30000);
+setInterval(() => { if (!drag && !document.activeElement?.closest?.("[data-cmd]")) render(); }, 30000);
 render();
 </script>
 </body>
