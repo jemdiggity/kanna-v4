@@ -187,7 +187,7 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     let dir = scratch("help");
     let nowhere = dir.join("nothing.sock");
     let overview = kanna_at(&dir, Some(&nowhere), &[]).ok();
-    assert!(overview.starts_with("kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\nusage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n\nPanes:\n  open "), "{overview}");
+    assert!(overview.starts_with("kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\nusage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n       kanna PATH                           (a new window in the folder PATH, on its repo)\n\nPanes:\n  open "), "{overview}");
     assert!(overview.contains("Kanna isn't running, so help can't check which commands it supports."), "{overview}");
     assert!(overview.contains(&format!("Instance: default at {}", nowhere.display())), "{overview}");
     assert!(overview.contains("6 needs Kanna.app, which isn't attached and wasn't started."), "{overview}");
@@ -304,4 +304,18 @@ fn the_kmux_backend_is_kmux_through_kannas_cli() {
     command.env("KANNA_MUX", "kmux").env("KMUX_SOCKET", &socket);
     assert_eq!(Run::from(&["list"], command.arg("list").output().unwrap()).ok(), "no windows (open one with `kanna open`)");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_folder_for_a_command_opens_a_window_there() {
+    let daemon = Daemon::start();
+    let _app = daemon.app();
+    std::fs::create_dir_all(daemon.dir.join("project")).unwrap();
+    let opened = daemon.kanna(&["project"]).ok();
+    assert_eq!(opened, "opened p1 docked left in window w1: running");
+    let list = daemon.kanna(&["list", "--json"]).json();
+    let pane = list["panes"].as_array().unwrap().iter().find(|p| p["id"] == "p1").unwrap().clone();
+    assert_eq!(pane["cwd"], json!(daemon.dir.join("project").to_string_lossy()), "{pane}");
+    assert_eq!(list["windows"][0]["dock"]["pane"], json!("p1"), "{list}");
+    daemon.kanna(&["nowhere"]).fails(2, "unknown command \"nowhere\"");
 }

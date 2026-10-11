@@ -102,12 +102,17 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         _ => {}
     }
 
-    let command = lookup(&name)?;
-    if wants_help {
-        println!("{}", help(command, &target));
-        return Ok(());
-    }
-    let request = (command.parse)(&mut args)?;
+    let (command, request) = match project_folder(&name) {
+        Some(folder) => (lookup("open")?, json!({ "type": "term", "dock": "left", "window": "new", "cwd": folder })),
+        None => {
+            let command = lookup(&name)?;
+            if wants_help {
+                println!("{}", help(command, &target));
+                return Ok(());
+            }
+            (command, (command.parse)(&mut args)?)
+        }
+    };
     if let Some(extra) = args.first() {
         return Err(commands::usage(command.name, &format!("unexpected argument \"{extra}\"")));
     }
@@ -133,6 +138,15 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         }
     }
     Ok(())
+}
+
+/// `kanna PATH`: a word that isn't a command but is a folder opens a window there.
+fn project_folder(name: &str) -> Option<String> {
+    if commands::find(name).is_some() {
+        return None;
+    }
+    let folder = std::fs::canonicalize(commands::absolute(name)).ok().filter(|p| p.is_dir())?;
+    Some(folder.to_string_lossy().into_owned())
 }
 
 fn lookup(name: &str) -> Result<&'static Command, Failure> {
@@ -254,7 +268,8 @@ fn overview(target: &Target) -> String {
     let mut out = String::from(
         "kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\
          \n\
-         usage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n",
+         usage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n\
+         \x20      kanna PATH                           (a new window in the folder PATH, on its repo)\n",
     );
     for group in GROUPS {
         out += &format!("\n{group}:\n");
