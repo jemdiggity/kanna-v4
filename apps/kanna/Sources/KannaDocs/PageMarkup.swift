@@ -158,6 +158,9 @@ public final class PageMarkupView: NSView {
     }
     public var areaRects: [String: NSRect] { overlay.areas.mapValues { overlay.convert($0.frame, to: self) } }
     public var pageHash: String { pageHashValue }
+    public var cardRects: [String: (rect: NSRect, reply: Bool)] {
+        Dictionary(panel.cards.map { ($0.thread.id, ($0.convert($0.bounds, to: self), $0.field.superview != nil)) }, uniquingKeysWith: { a, _ in a })
+    }
 
     public func rect(of selector: String) async -> NSRect? {
         Self.rect(await call("return kannaMarkup.rectOf(selector)", ["selector": selector])).map { overlay.convert($0, to: self) }

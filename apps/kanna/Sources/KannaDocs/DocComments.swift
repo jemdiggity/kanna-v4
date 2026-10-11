@@ -379,6 +379,12 @@ package final class ThreadCard: FlippedView {
         }
     }
 
+    package override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        guard !active, let hit else { return hit }
+        return hit === act || hit.isDescendant(of: act) ? hit : self
+    }
+
     package override func mouseDown(with event: NSEvent) {
         if !active { onSelect?() }
     }

@@ -122,6 +122,7 @@ extension AppController {
                 guard let rect = await markup.rect(of: selector) else { throw KannaError("not_found", "nothing matches \(selector)") }
                 return ["at": point(rect), "width": .number(Double(rect.width)), "height": .number(Double(rect.height))]
             }
+            reply["cards"] = .object(markup.cardRects.mapValues { ["at": point($0.rect), "reply": .bool($0.reply)] })
             reply["threads"] = .array(markup.threads.map { thread in
                 var fields: [String: JSON] = ["id": .string(thread.id), "quote": .string(thread.quote), "line": .number(Double(thread.line)), "state": .string(thread.state),
                                               "status": thread.status.map { .string($0) } ?? .null, "error": thread.error.map { .string($0) } ?? .null,
