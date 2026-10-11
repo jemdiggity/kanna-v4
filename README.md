@@ -22,18 +22,20 @@ flowchart TB
 Kanna builds against Ghostty from the `kanna4` branch of [jemdiggity/ghostty](https://github.com/jemdiggity/ghostty/tree/kanna4), which the scripts clone and pin (`scripts/env.sh`).
 
 ```sh
-scripts/build.sh                  # everything: libghostty-vt, the daemon, keeper and CLI, and target/Kanna.app
+scripts/build.sh                  # everything, on a fresh clone or worktree: target/Kanna.app and the CLI, daemon and keeper
 ```
 
-It runs these, which also work on their own:
+It runs these in order, each of which also works on its own:
 
 ```sh
-scripts/build-ghostty-vt.sh       # libghostty-vt for the daemon (skipped when it's already the pinned Ghostty)
-cargo build --workspace --release # daemon, keeper, CLI
-scripts/build-kanna-app.sh        # target/Kanna.app, with the daemon and keeper inside
+scripts/build-ghostty-vt.sh       # libghostty-vt for the daemon (build.sh skips it when it's already the pinned Ghostty)
+scripts/build-ghosttykit.sh       # GhosttyKit for the app (likewise)
+cargo build --workspace --release # CLI, daemon, keeper, and libkanna_layout for the app
+scripts/build-merman.sh           # merman for the app's diagrams
+scripts/build-kanna-app.sh        # the Swift app and target/Kanna.app, with the daemon and keeper inside
 ```
 
-The first build compiles Ghostty with Zig (downloaded if the right version isn't installed), which takes a while. A git worktree of this repo (a Kanna task's, say) reuses the main checkout's Ghostty builds when they're the pinned commit, linking them into its own `target/`, so building there skips Ghostty.
+A bare `cargo build` or `swift build` misses steps, so start with `scripts/build.sh`. A second run is quick: Ghostty is skipped and the rest is cargo's and SwiftPM's incremental builds. The first build compiles Ghostty with Zig (downloaded if the right version isn't installed), which takes a while. A git worktree of this repo (a Kanna task's, say) reuses the main checkout's Ghostty builds when they're the pinned commit, linking them into its own `target/`, so building there skips Ghostty.
 
 ## Use
 

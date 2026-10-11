@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 app="$repo_root/target/Kanna.app/Contents/MacOS/Kanna"
-[[ -x "$app" ]] || { echo "FAIL: build first: scripts/build-kanna-app.sh" >&2; exit 1; }
+[[ -x "$app" ]] || { echo "FAIL: build first: scripts/build.sh" >&2; exit 1; }
 out="$repo_root/target/check-kanna-app"
 mkdir -p "$out"
 dir="$(mktemp -d "${TMPDIR:-/tmp}/kanna-check.XXXXXX")"
