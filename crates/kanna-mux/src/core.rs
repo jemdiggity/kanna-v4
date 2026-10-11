@@ -30,7 +30,7 @@ pub type CommandHandler = Rc<dyn Fn(Value, Responder)>;
 
 pub type PrefixHandler = Rc<dyn Fn(&str, Value, Responder)>;
 
-pub const CORE_COMMANDS: [&str; 9] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read", "markup"];
+pub const CORE_COMMANDS: [&str; 10] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read", "markup", "rename-pane"];
 
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
 
@@ -373,6 +373,7 @@ impl CoreHandle {
             "read" => self.read(&args),
             "navigate" => self.navigate(&args).await,
             "markup" => self.markup(&args).await,
+            "rename-pane" => self.rename_pane(&args).await,
             "debug.saveState" => {
                 let state = self.export_state().await?;
                 self.state().saved_state = Some(state.clone());
@@ -739,6 +740,22 @@ impl CoreHandle {
         }
         let snapshot = self.reload(&pane.id, false).await;
         Ok(reply([("pane", self.summary(&pane.id, &snapshot))]))
+    }
+
+    async fn rename_pane(&self, args: &Value) -> Result<Map, KmuxError> {
+        let pane = self.need_pane(string(args, "pane"))?;
+        let name = string(args, "name").map(str::trim).filter(|n| !n.is_empty()).map(String::from);
+        if let Some(name) = &name {
+            if self.state().panes.pane(name).is_some_and(|other| other.id != pane.id) {
+                return Err(KmuxError::new("name_taken", format!("a pane named \"{name}\" already exists")));
+            }
+        }
+        if let Some(found) = self.state().panes.get_mut(&pane.id) {
+            found.name = name;
+        }
+        self.changed();
+        let _ = self.layout(json!({ "op": "windows" })).await;
+        Ok(reply([("pane", self.summary(&pane.id, &pane))]))
     }
 
     async fn export_state(&self) -> Result<Value, KmuxError> {

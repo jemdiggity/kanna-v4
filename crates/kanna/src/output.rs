@@ -89,6 +89,15 @@ pub fn renamed(_: &Value, reply: &Value) -> String {
     format!("{} is now \"{}\"", reply["tab"].as_str().unwrap_or("?"), reply["title"].as_str().unwrap_or(""))
 }
 
+pub fn pane_renamed(_: &Value, reply: &Value) -> String {
+    let pane = &reply["pane"];
+    let id = pane["id"].as_str().unwrap_or("?");
+    match pane["name"].as_str() {
+        Some(name) => format!("{id} is now \"{name}\""),
+        None => format!("{id} has no name"),
+    }
+}
+
 pub fn tabs(_: &Value, reply: &Value) -> String {
     format!("{}: {}", reply["window"].as_str().unwrap_or("?"), join(&reply["tabs"]))
 }

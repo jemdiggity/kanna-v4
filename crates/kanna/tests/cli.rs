@@ -48,6 +48,12 @@ fn every_command_works_through_the_daemon_and_the_app() {
 
     assert_eq!(daemon.kanna(&["open", "--tab", "--name", "c"]).ok(), "opened p3 (c) in window w1, tab t2: running");
     assert_eq!(daemon.kanna(&["rename-tab", "t2", "my", "servers"]).ok(), "t2 is now \"my servers\"");
+    assert_eq!(daemon.kanna(&["rename-pane", "c", "logs"]).ok(), "p3 is now \"logs\"");
+    assert!(daemon.kanna(&["list"]).ok().contains("p3    logs"), "{}", daemon.kanna(&["list"]).ok());
+    daemon.kanna(&["rename-pane", "logs", "a"]).fails(1, "a pane named \"a\" already exists");
+    daemon.kanna(&["rename-pane", "logs", "p1"]).fails(1, "a pane named \"p1\" already exists");
+    assert_eq!(daemon.kanna(&["rename-pane", "logs", ""]).ok(), "p3 has no name");
+    assert_eq!(daemon.kanna(&["rename-pane", "p3", "c"]).ok(), "p3 is now \"c\"");
     assert_eq!(daemon.kanna(&["move-tab", "t2", "--index", "0"]).ok(), "w1: t2, t1");
     assert_eq!(daemon.kanna(&["focus", "--tab", "t1"]).ok(), "switched to t1 (key window w1)");
     let opened = daemon.kanna(&["open", "--window", "new", "--name", "d", "--no-wait"]).ok();
@@ -84,7 +90,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["markup", "doc", "--off"]).ok(), "comments off in p6 (doc)");
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();
-    assert!(capabilities.starts_with("pane types: term, web, ios, md\ncommands: arrange, capabilities, close, focus, list, markup, move, move-tab, navigate, open, read, rename-tab, resize, restart, send, status, zoom"), "{capabilities}");
+    assert!(capabilities.starts_with("pane types: term, web, ios, md\ncommands: arrange, capabilities, close, focus, list, markup, move, move-tab, navigate, open, read, rename-pane, rename-tab, resize, restart, send, status, zoom"), "{capabilities}");
     assert!(capabilities.ends_with("Kanna.app: attached"), "{capabilities}");
     let raw = daemon.kanna(&["raw", r#"{"cmd":"debug.anything","args":{"pane":"a"}}"#]).json();
     assert_eq!(raw, json!({ "cmd": "debug.anything", "args": { "pane": "p1" } }));
@@ -183,11 +189,11 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     assert!(kanna_at(&dir, Some(&nowhere), &["raw", "--help"]).ok().starts_with("usage: kanna raw REQUEST"));
     kanna_at(&dir, Some(&nowhere), &["help", "nope"]).fails(2, "unknown command \"nope\"");
     let commands = kanna_at(&dir, Some(&nowhere), &["commands"]).ok();
-    assert_eq!(commands.lines().count(), 17);
+    assert_eq!(commands.lines().count(), 18);
     assert!(commands.starts_with("open          Open a terminal"), "{commands}");
     let described = kanna_at(&dir, Some(&nowhere), &["commands", "--json"]).json();
     assert_eq!(described["running"], false);
-    assert_eq!(described["commands"].as_array().unwrap().len(), 17);
+    assert_eq!(described["commands"].as_array().unwrap().len(), 18);
     assert_eq!(described["exitCodes"]["6"], "needs Kanna.app, which isn't attached and wasn't started");
     assert!(described["globalOptions"].as_array().unwrap().iter().any(|o| o["flag"] == "--"));
 

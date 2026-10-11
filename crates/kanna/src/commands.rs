@@ -251,6 +251,21 @@ pub static COMMANDS: &[Command] = &[
         show: output::tabs,
     },
     Command {
+        name: "rename-pane",
+        group: "Panes",
+        summary: "Give a pane a name, change it, or clear it.",
+        usage: "kanna rename-pane PANE NAME",
+        options: &[],
+        notes: "PANE is the pane's current name or its ID (see `kanna list`). An empty NAME (\"\") clears the name, so the pane goes by its ID. No two panes share a name, and a name can't be another pane's ID.",
+        examples: &[("kanna rename-pane p3 server", "Call pane p3 \"server\"."), ("kanna rename-pane server \"\"", "Clear the name; refer to it as p3 again.")],
+        parse: |args| {
+            let pane = args.positional().ok_or_else(|| usage("rename-pane", "missing PANE"))?;
+            let name = args.positional().ok_or_else(|| usage("rename-pane", "missing NAME (\"\" to clear it)"))?;
+            Ok(json!({ "pane": pane, "name": name }))
+        },
+        show: output::pane_renamed,
+    },
+    Command {
         name: "navigate",
         group: "Panes",
         summary: "Point a web pane at a new URL (or go back or forward), or a markdown pane at another file.",
