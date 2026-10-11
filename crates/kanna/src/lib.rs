@@ -155,6 +155,7 @@ fn wire(command: &Command, request: &Value) -> &'static str {
     match command.name {
         "markup" if request.get("type").is_some() => "open",
         "task" if request["action"] == "done" => "close",
+        "task" if request["action"] == "name" => "rename-pane",
         name => name,
     }
 }
