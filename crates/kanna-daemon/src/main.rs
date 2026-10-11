@@ -54,7 +54,7 @@ pub enum Event {
     Drained { pane: String, serial: u64 },
     Status { pane: String, serial: u64, status: Option<&'static str> },
     RulesUpdated { token: u64, report: kanna_detect::Report },
-    Worktree { token: u64, result: Result<String, String> },
+    Worktree { token: u64, result: Result<(String, String), String> },
     KeeperReadable,
     KeeperExits,
     KeeperLost(String),

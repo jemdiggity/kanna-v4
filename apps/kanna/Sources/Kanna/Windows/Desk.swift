@@ -220,7 +220,7 @@ extension AppController {
         guard let controller = controllers[window] else { return }
         controller.note = ""
         let root = controller.projectRoot ?? NSHomeDirectory()
-        let args: [String: JSON] = ["action": "blank", "repo": .string(root), "window": .string(window), "worktree": .bool(GitPlace.of(root) != nil)]
+        let args: [String: JSON] = ["action": "blank", "repo": .string(root), "window": .string(window)]
         request("backlog", args) { [weak self] reply in self?.noted(window, reply) }
     }
 

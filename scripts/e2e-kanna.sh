@@ -1321,15 +1321,17 @@ S44() {
   repo="$(cd "$repo" && pwd -P)"
   in_repo() { (cd "$repo" && kanna "$@"); }
   expected="added t1 \"Fix it\" to the backlog of $repo"; says in_repo task new "Fix it" "say hi" --agent "$agent" || { echo "S44 line $LINENO"; return 1; }
-  in_repo task new "Plain" --no-worktree >/dev/null || { echo "S44 line $LINENO"; return 1; }
+  in_repo task new "Plain" >/dev/null || { echo "S44 line $LINENO"; return 1; }
   [[ "$(cd "$KANNA_STATE_DIR" && kanna task new "Nowhere" 2>&1)" == *"belongs to a git repo"* ]] || { echo "S44 line $LINENO"; return 1; }
   in_repo task list | grep -qE '^t1 +Fix it +Backlog +made' || { in_repo task list; return 1; }
   expected="took t2 off the backlog"; says kanna task done t2 || { echo "S44 line $LINENO"; return 1; }
   stop_app; stop_daemon; start_daemon && start_app || { echo "S44 line $LINENO"; return 1; }
   in_repo task list | grep -qE '^t1 +Fix it +Backlog' || { echo "the backlog didn't survive a restart"; in_repo task list; return 1; }
-  expected="started t1 on the Shelf: p1 in $repo/.kanna-worktrees/t1 (kanna/t1)"; says kanna task start t1 || { echo "S44 line $LINENO"; return 1; }
+  local started wt; started="$(kanna task start t1)" || { echo "S44 line $LINENO"; return 1; }
+  [[ "$started" =~ ^"started t1 on the Shelf: p1 in $repo/.kanna-worktrees/"([0-9a-f]{8})" (kanna/"([0-9a-f]{8})")"$ && "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] || { echo "S44 line $LINENO: $started"; return 1; }
+  wt="$repo/.kanna-worktrees/${BASH_REMATCH[1]}"
   check wait_for 5 eval '[[ "$(pane "Fix it" id)" == p1 ]]' || { echo "S44 line $LINENO"; return 1; }
-  check test "$(git -C "$repo/.kanna-worktrees/t1" branch --show-current)" == kanna/t1 || { echo "S44 line $LINENO"; return 1; }
+  check test "$(git -C "$wt" branch --show-current)" == "kanna/${wt##*/}" || { echo "S44 line $LINENO"; return 1; }
   check test -z "$(git -C "$repo" status --porcelain)" || { echo "S44 line $LINENO"; return 1; }
   in_repo task list | grep -qE '^p1 +Fix it +Shelf' || { in_repo task list; return 1; }
   in_repo task list | grep -q '^t1 ' && { echo "S44 line $LINENO"; return 1; }
@@ -1340,7 +1342,7 @@ S44() {
   kanna task start t5 2>"$KANNA_STATE_DIR/s44-limit" && { echo "S44 line $LINENO"; return 1; }
   grep -q "has 3 tasks running" "$KANNA_STATE_DIR/s44-limit" || { cat "$KANNA_STATE_DIR/s44-limit"; return 1; }
   in_repo task list | grep -q '^t5 .*Backlog' || { echo "S44 line $LINENO"; return 1; }
-  check test ! -e "$repo/.kanna-worktrees/t5" || { echo "S44 line $LINENO"; return 1; }
+  check test "$(ls "$repo/.kanna-worktrees" | wc -l | tr -d ' ')" == 3 || { echo "S44 line $LINENO"; return 1; }
   in_repo open --name plain >/dev/null || { echo "S44 line $LINENO"; return 1; }
   in_repo move plain --dock 2>"$KANNA_STATE_DIR/s44-dock" && { echo "S44 line $LINENO"; return 1; }
   grep -q "plain isn't a task, and only a task's agent docks" "$KANNA_STATE_DIR/s44-dock" || { cat "$KANNA_STATE_DIR/s44-dock"; return 1; }
@@ -1350,7 +1352,7 @@ S44() {
   kanna close plain >/dev/null || { echo "S44 line $LINENO"; return 1; }
   kanna task done Fixed >/dev/null || { echo "S44 line $LINENO"; return 1; }
   kanna task start t5 >/dev/null || { echo "S44 line $LINENO"; return 1; }
-  check test -d "$repo/.kanna-worktrees/t1" || { echo "S44 line $LINENO"; return 1; }
+  check test -d "$wt" || { echo "S44 line $LINENO"; return 1; }
 }
 
 S45() {
@@ -1374,7 +1376,7 @@ S45() {
   sleep 0.5; snap w1 s45-backlog >/dev/null
   raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t1","window":"w1"}}' >/dev/null
   check wait_for 10 eval '[[ "$(desk backlog)" == "[\"t2\"]" && "$(desk shelf.0.title)" == First ]]' || { desk shelf; return 1; }
-  check test -d "$repo/.kanna-worktrees/t1" || { echo "S45 line $LINENO"; return 1; }
+  check test "$(ls "$repo/.kanna-worktrees" | wc -l | tr -d ' ')" == 1 || { echo "S45 line $LINENO"; return 1; }
   check wait_for 5 shows First "mock-agent" || { echo "S45 line $LINENO"; return 1; }
   kanna task start t2 >/dev/null || { echo "S45 line $LINENO"; return 1; }
   (cd "$repo" && kanna task new "Third") >/dev/null || { echo "S45 line $LINENO"; return 1; }
@@ -1385,7 +1387,7 @@ S45() {
   check wait_for 5 eval '[[ "$(desk blank)" == True ]]' || { echo "S45 line $LINENO"; return 1; }
   key cmd+n
   check wait_for 10 eval '[[ "$(win w1 dock.pane)" != None && "$(win w1 dock.pane)" != p1 ]]' || { kanna list; return 1; }
-  check test -d "$repo/.kanna-worktrees/t4" || { echo "S45 line $LINENO"; return 1; }
+  check test "$(ls "$repo/.kanna-worktrees" | wc -l | tr -d ' ')" == 3 || { echo "S45 line $LINENO"; return 1; }
   local elsewhere="$KANNA_STATE_DIR/elsewhere"
   mkdir -p "$elsewhere" && git -C "$elsewhere" init -q -b main && git -C "$elsewhere" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || return 1
   local refused; refused="$(raw "{\"id\":1,\"cmd\":\"backlog\",\"args\":{\"action\":\"blank\",\"repo\":\"$elsewhere\"}}")"

@@ -37,7 +37,8 @@ stateDiagram-v2
 
 - **One repo.** A task belongs to the repo it was made in, so it can later be sent to another machine or person with that repo.
 - **A name and a first message.** In the backlog, that's all a task is.
-- **On the Shelf, it runs:** its own worktree `<repo>/.kanna-worktrees/<ID>` on branch `kanna/<ID>`, made from the repo's checked-out commit, and an agent there that gets the first message. `--no-worktree` makes a task work in the repo itself.
+- **On the Shelf, it runs:** its own worktree `<repo>/.kanna-worktrees/<NAME>` on branch `kanna/<NAME>`, made from the repo's checked-out commit, and an agent there that gets the first message. NAME is the first 32 bits of a fresh random UUID in hex (`3f9a1c2e`), so it never collides with another worktree or branch; the agent renames the branch once it knows the work ([4](#4-naming)).
+- **Every task works in a worktree.** All development happens in one, never in the repo's own checkout, so a task can only be made in a git repo.
 - **At most three run per repo**: the one on the Desk and two on the Shelf. The backlog has no limit.
 
 ## 2. How tasks are made
@@ -57,6 +58,7 @@ stateDiagram-v2
 - **The agent names its task** with `kanna task name "NAME"` once it knows what the work is. Until then it shows its agent's terminal title as is, status glyph and all (`◑ Claude Code`), or "New task" when there isn't one.
 - **It learns how from Kanna's `kanna-tasks` skill** ([`.agents/kanna-skills/skills/kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md)), which also tells it to write backlog first messages that stand alone and to leave starting tasks to you.
 - **A backlog task's name** is the one its maker gave it, kept when it starts.
+- **The agent renames its branch** too, with `git branch -m NEW` in its worktree, from `kanna/3f9a1c2e` to a short name for the work. The worktree's folder keeps its name: the agent and its terminals are in it.
 
 ## 5. Done
 
@@ -67,7 +69,7 @@ stateDiagram-v2
 
 | Command | Does |
 |---|---|
-| `kanna task new NAME [FIRST-MESSAGE] [--no-worktree] [--agent CMD]` | Add a task to this repo's backlog (the agent defaults to `$KANNA_AGENT`, else `claude`, and starts without asking permission) |
+| `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog (the agent defaults to `$KANNA_AGENT`, else `claude`, and starts without asking permission) |
 | `kanna task start TASK [--window WINDOW]` | Move a backlog task to the Shelf (or onto that Desk): worktree, agent, first message |
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
 | `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
@@ -88,6 +90,7 @@ flowchart TB
 - **A running task is its docked agent pane**, as on the [Desk](desk.md): its name is the pane's name, its repo the pane's folder.
 - **Only a task's agent docks.** `kanna move PANE --dock` moves the docked pane to the other edge or another window, and refuses any other pane (`not_a_task`), so a task starts only by starting one and the limit holds.
 - **Starting** a backlog task checks the limit, runs `git worktree add`, opens the agent docked straight onto the Shelf in that folder with the first message, names the pane, and drops the backlog entry.
+- **An ID is never handed out twice.** A new task's ID is saved as it's made, whether it waits in the backlog or starts at once (Start a task), so a restart can't reuse one. IDs name backlog entries only; worktrees and branches get their own random names, so a lost `backlog.json` or another Kanna on the same repo can't collide with them.
 - **A task's agent doesn't ask permission.** Starting one adds the agent's own flag for that (`claude --dangerously-skip-permissions`, `codex --yolo`) unless its command already says how to ask (`--permission-mode`, `--ask-for-approval`/`-a`). The task works in its own worktree, and you watch it on the Desk. The backlog keeps the command as written.
 
 ## 8. Open questions
