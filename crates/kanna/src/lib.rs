@@ -72,6 +72,13 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
             }
             return Ok(());
         }
+        "config" => {
+            match args.positional().as_deref() {
+                Some("schema") => print!("{CONFIG_SCHEMA}"),
+                _ => println!("{CONFIG_HELP}"),
+            }
+            return Ok(());
+        }
         "completions" => {
             match args.positional().as_deref() {
                 Some("zsh") => print!("{}", complete::ZSH),
@@ -201,6 +208,10 @@ fn mark(command: &Command, supported: Option<&[String]>, target: &Target) -> Str
 }
 
 const COMPLETIONS_HELP: &str = "usage: kanna completions zsh|bash\n\nPrints the tab-completion script for your shell. Load it from your shell's startup file:\n  zsh:  source <(kanna completions zsh)     in ~/.zshrc\n  bash: eval \"$(kanna completions bash)\"  in ~/.bashrc\n\nTab then completes commands, options, pane names and IDs, tabs, windows, instances,\nand files of the kind a command takes (markdown for open md, HTML for markup).";
+
+pub const CONFIG_SCHEMA: &str = include_str!("../../../schemas/config.schema.json");
+
+const CONFIG_HELP: &str = "usage: kanna config schema\n\nKanna's settings are ~/.kanna-v4/config.json, overridden key by key by a repo's .kanna/config.json, e.g.\n  { \"version\": 1, \"planning\": { \"context\": 300000 } }\n\n`kanna config schema` prints their JSON Schema: every key, its type, default and what it does.";
 
 const RAW_HELP: &str = "usage: kanna raw REQUEST\n\nSends one control-protocol request as JSON and prints the reply, e.g.\n  kanna raw '{\"cmd\":\"list\"}'\n  kanna raw '{\"cmd\":\"open\",\"args\":{\"type\":\"term\",\"name\":\"a\"}}'";
 
@@ -335,12 +346,13 @@ fn overview(target: &Target) -> String {
         }
     }
     out += &format!(
-        "\nMore:\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n",
+        "\nMore:\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n  {:<13} {}\n",
         "help COMMAND", "Details, options and examples for one command (or: kanna COMMAND --help).",
         "commands", "All commands with summaries; `kanna commands --json` describes them for scripts.",
         "raw REQUEST", "Send a control-protocol request as JSON, e.g. kanna raw '{\"cmd\":\"list\"}'.",
         "instances", "List the running Kanna instances (separate daemons and apps, each with its own panes).",
         "completions", "Tab completion for zsh or bash: source <(kanna completions zsh) in ~/.zshrc.",
+        "config schema", "The JSON Schema of Kanna's settings (~/.kanna-v4/config.json, a repo's .kanna/config.json).",
     );
     let name = target.name();
     let running = match &supported {

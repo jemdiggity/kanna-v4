@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kanna.dev/schemas/config/v1.schema.json",
+  "title": "Kanna settings",
+  "description": "Kanna's settings, version 1: ~/.kanna-v4/config.json, overridden key by key by a repo's .kanna/config.json. Print this with `kanna config schema`.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "This schema, for editors.",
+      "type": "string"
+    },
+    "version": {
+      "description": "The settings format this file is written for. Kanna skips a file with a version newer than it knows, and says so in its log.",
+      "const": 1,
+      "default": 1
+    },
+    "planning": {
+      "description": "The planning terminal: the terminal docked beside the full Shelf while no task is on a Desk.",
+      "type": "object",
+      "properties": {
+        "context": {
+          "description": "Tokens a claude agent's context grows to in the planning terminal before it compacts (CLAUDE_CODE_AUTO_COMPACT_WINDOW), or \"auto\" for claude's own. Read when a planning terminal is made.",
+          "default": 300000,
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 100000,
+              "maximum": 1000000
+            },
+            {
+              "const": "auto"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

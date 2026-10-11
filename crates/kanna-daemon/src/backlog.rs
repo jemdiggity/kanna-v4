@@ -84,6 +84,11 @@ impl Entry {
 /// How big the context of a claude agent in a planning terminal gets before it compacts, by default: long-lived agents do better kept small.
 pub const PLANNING_CONTEXT: u64 = 300_000;
 
+const CONTEXT_RANGE: std::ops::RangeInclusive<u64> = 100_000..=1_000_000;
+
+/// The settings format this Kanna reads: a file without a `version` is this one, and one written for a newer Kanna is skipped.
+const CONFIG_VERSION: u64 = 1;
+
 /// Kanna's settings files for a folder, the first that sets a key winning: the repo's `.kanna/config.json`, then `~/.kanna-v4/config.json`.
 pub fn config_files(folder: &Path) -> Vec<PathBuf> {
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
@@ -96,9 +101,13 @@ pub fn planning_context(files: &[PathBuf]) -> Option<u64> {
     for file in files {
         let Some(text) = fs::metadata(file).ok().filter(|m| m.len() <= 64 << 10).and_then(|_| fs::read_to_string(file).ok()) else { continue };
         let value = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
+        if let Some(version) = value.get("version").and_then(Value::as_u64).filter(|v| *v > CONFIG_VERSION) {
+            eprintln!("kanna-daemon: {}: settings version {version} is newer than this Kanna's ({CONFIG_VERSION}); skipping it", file.display());
+            continue;
+        }
         match value.get("planning").and_then(|p| p.get("context")) {
             Some(Value::String(auto)) if auto == "auto" => return None,
-            Some(tokens) => match tokens.as_u64().filter(|t| (100_000..=1_000_000).contains(t)) {
+            Some(tokens) => match tokens.as_u64().filter(|t| CONTEXT_RANGE.contains(t)) {
                 Some(tokens) => return Some(tokens),
                 None => eprintln!("kanna-daemon: {}: planning.context is a number of tokens from 100000 to 1000000, or \"auto\"", file.display()),
             },
@@ -600,6 +609,19 @@ mod tests {
     }
 
     #[test]
+    fn the_settings_schema_agents_read_matches_what_the_daemon_reads() {
+        let schema: Value = serde_json::from_str(include_str!("../../../schemas/config.schema.json")).unwrap();
+        let context = &schema["properties"]["planning"]["properties"]["context"];
+        assert_eq!(context["default"], json!(PLANNING_CONTEXT));
+        assert_eq!((context["oneOf"][0]["minimum"].clone(), context["oneOf"][0]["maximum"].clone()), (json!(CONTEXT_RANGE.start()), json!(CONTEXT_RANGE.end())));
+        assert_eq!(context["oneOf"][1]["const"], "auto");
+        assert_eq!(schema["properties"]["version"]["const"], json!(CONFIG_VERSION));
+        assert!(schema["$id"].as_str().unwrap().ends_with(&format!("/v{CONFIG_VERSION}.schema.json")));
+        let keys: Vec<&String> = schema["properties"]["planning"]["properties"].as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["context"], "a key in the schema the daemon doesn't read, or the other way round");
+    }
+
+    #[test]
     fn the_planning_context_comes_from_the_repos_config_then_yours() {
         let dir = std::env::temp_dir().join(format!("kanna-planning-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -614,6 +636,10 @@ mod tests {
         assert_eq!(planning_context(&files), None, "the repo's wins");
         fs::write(&repo, r#"{"other": 1}"#).unwrap();
         assert_eq!(planning_context(&files), Some(500_000), "a file that doesn't set it leaves it to the next");
+        fs::write(&repo, r#"{"version": 2, "planning": {"context": "auto"}}"#).unwrap();
+        assert_eq!(planning_context(&files), Some(500_000), "a file for a newer Kanna is skipped");
+        fs::write(&repo, r#"{"version": 1, "planning": {"context": "auto"}}"#).unwrap();
+        assert_eq!(planning_context(&files), None);
         for (text, context) in [(r#"{"planning": {"context": 50}}"#, Some(PLANNING_CONTEXT)), ("not json", Some(PLANNING_CONTEXT))] {
             fs::write(&mine, text).unwrap();
             assert_eq!(planning_context(&[mine.clone()]), context, "{text}");

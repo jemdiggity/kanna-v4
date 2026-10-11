@@ -37,6 +37,7 @@ const MORE: &[(&str, &str)] = &[
     ("instances", "List the running Kanna instances."),
     ("raw", "Send a control-protocol request as JSON."),
     ("completions", "Tab completion for zsh or bash."),
+    ("config", "Kanna's settings: config schema prints their JSON Schema."),
 ];
 
 const TYPES: &[(&str, &str)] = &[
