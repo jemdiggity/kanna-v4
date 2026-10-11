@@ -18,6 +18,9 @@ final class WindowController: NSObject, NSWindowDelegate {
     var shelf: [ShelfTask] = []
     var project = ""
     var cheer = ShelfPage.cheers[0]
+    let agentHeader = AgentHeader()
+    var headerText = ""
+    var taskTitle: String?
     private(set) var desk = false
     private(set) var emptyDesk = false
     var onCloseRequest: (() -> Void)?
@@ -46,6 +49,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         content.addSubview(stage)
         content.addSubview(tabBar)
         content.addSubview(dockStage)
+        dockStage.addSubview(agentHeader)
         content.addSubview(shelfStrip)
         content.addSubview(shelfPage)
         shelfStrip.isHidden = true
@@ -61,14 +65,15 @@ final class WindowController: NSObject, NSWindowDelegate {
     func render(_ state: JSON, _ panes: PaneViews) {
         tab = state["tab"]?.string
         let instance = AppController.instanceName
-        window.title = "\(state["title"]?.string ?? "Kanna") — \(id)" + (instance == "default" ? "" : " · \(instance)")
+        desk = state["desk"]?.bool == true
+        let named = desk ? taskTitle ?? "Shelf" : "\(state["title"]?.string ?? "Kanna") — \(id)"
+        window.title = named + (instance == "default" ? "" : " · \(instance)")
         tabBar.show(state)
         let root = state["root"] ?? .null
         let dock = state["dock"].flatMap { $0["pane"]?.string == nil ? nil : $0 }
         let docked = dock?["pane"]?.string
         let ids = Self.paneIDs(root)
         shown = Self.shownPanes(state)
-        desk = state["desk"]?.bool == true
         emptyDesk = desk && docked == nil && ids.isEmpty
         arrange(dock, zoomed: docked != nil && state["zoomed"]?.string == docked)
         let visible = Set(ids)
@@ -79,9 +84,13 @@ final class WindowController: NSObject, NSWindowDelegate {
         place(root, path: [], in: stage.bounds, panes)
         dividers.forEach { stage.addSubview($0) }
         if let dock, let docked, let view = panes.view(docked, type: dock["type"]?.string ?? "term") {
-            if view.superview !== dockStage { dockStage.addSubview(view) }
-            view.frame = dockStage.bounds
+            if view.superview !== dockStage { dockStage.addSubview(view, positioned: .below, relativeTo: agentHeader) }
+            let header = self.desk ? AgentHeader.height : 0
+            view.frame = NSRect(x: 0, y: 0, width: dockStage.bounds.width, height: dockStage.bounds.height - header)
             view.autoresizingMask = []
+            agentHeader.isHidden = !self.desk
+            agentHeader.frame = NSRect(x: 0, y: dockStage.bounds.height - header, width: dockStage.bounds.width, height: header)
+            agentHeader.show(headerText)
         }
         window.invalidateCursorRects(for: content)
         let focusedID = state["focused"]?.string

@@ -1222,12 +1222,15 @@ S41() {
 S43() {
   start_daemon && start_app || return 1
   desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"${2:-w1}\"}}" | field "$1"; }
-  kanna open --name agent --dock >/dev/null || return 1
+  kanna open --name agent --dock --cwd "$repo_root" >/dev/null || return 1
   kanna open --name notes --tab >/dev/null || return 1
   check test "$(win w1 dock.pane)" == agent || return 1
   check test "$(desk desk)" == True || return 1
   check test "$(desk strip)" == True || return 1
+  check test "$(desk title)" == agent || return 1
+  check wait_for 5 eval '[[ "$(desk header)" == "${repo_root/#$HOME/~} · $(git -C "$repo_root" branch --show-current)" ]]' || { desk header; return 1; }
   expected="parked p1; w1 is an empty Desk"; says kanna task park agent || return 1
+  check test "$(desk title)" == Shelf || return 1
   check test "$(desk empty)" == True || return 1
   check test "$(desk page)" == True || return 1
   check test "$(desk shelf.0.task)" == p1 || return 1
@@ -1246,6 +1249,10 @@ S43() {
   expected="pulled p1 onto w1"; says kanna task pull agent || return 1
   check wait_for 5 eval '[[ "$(win w1 tabs.0.layout.pane)" == notes ]]' || return 1
   sleep 0.5; check drawn "$(snap w1 s43-desk)" 2 || return 1
+  raw '{"id":1,"cmd":"debug.click","args":{"park":"w1"}}' >/dev/null
+  check wait_for 5 eval '[[ "$(desk empty)" == True ]]' || return 1
+  raw '{"id":1,"cmd":"debug.click","args":{"shelf":"p1","window":"w1"}}' >/dev/null
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == agent ]]' || return 1
   key cmd+shift+w
   check wait_for 5 eval 'kanna task list | grep -q "p1 .*Shelf"' || { kanna task list; return 1; }
   check test "$(pane agent state)" == running || return 1

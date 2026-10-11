@@ -237,7 +237,8 @@ private final class ShelfRow: NSView {
         name.font = .systemFont(ofSize: 13, weight: .semibold)
         name.lineBreakMode = .byTruncatingTail
         name.frame = NSRect(x: 30, y: 8, width: width - 140, height: 18)
-        let sub = NSTextField(labelWithString: task.detail.isEmpty ? task.meta : "\(task.detail) · \(task.meta)")
+        let status = task.status.map { $0 == "needs-you" ? "needs you" : $0 }
+        let sub = NSTextField(labelWithString: [status, task.detail.isEmpty ? nil : task.detail, "parked " + ShelfTask.ago(task.parkedAt)].compactMap { $0 }.joined(separator: " · "))
         sub.font = .systemFont(ofSize: 12)
         sub.textColor = .secondaryLabelColor
         sub.lineBreakMode = .byTruncatingTail

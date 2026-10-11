@@ -268,11 +268,17 @@ fn run() -> Result<(), String> {
                 None => core.handle(request, reply),
             },
             Event::Wake => {}
-            Event::Output { pane, serial } => match terminals.output(&pane, serial) {
-                Some(Taken::Bytes(bytes)) => app.output(&pane, &bytes),
-                Some(Taken::Overflowed) => app.resync(&pane),
-                None => {}
-            },
+            Event::Output { pane, serial } => {
+                let (taken, cwd) = terminals.output(&pane, serial);
+                if let Some(cwd) = cwd {
+                    app.folder(&pane, &cwd);
+                }
+                match taken {
+                    Some(Taken::Bytes(bytes)) => app.output(&pane, &bytes),
+                    Some(Taken::Overflowed) => app.resync(&pane),
+                    None => {}
+                }
+            }
             Event::Drained { pane, serial } => {
                 if let Some(code) = terminals.drained(&pane, serial) {
                     app.exited(&pane, code);

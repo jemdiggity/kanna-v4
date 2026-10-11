@@ -1,0 +1,160 @@
+import AppKit
+
+struct GitPlace: Equatable {
+    let root: String
+    let branch: String?
+
+    static func of(_ folder: String) -> GitPlace? {
+        var url = URL(fileURLWithPath: folder).standardizedFileURL
+        while true {
+            let git = url.appendingPathComponent(".git")
+            var isFolder: ObjCBool = false
+            if FileManager.default.fileExists(atPath: git.path, isDirectory: &isFolder) {
+                let dir = isFolder.boolValue ? git : gitdir(from: git, base: url)
+                return GitPlace(root: url.path, branch: dir.flatMap(branch))
+            }
+            let parent = url.deletingLastPathComponent()
+            if parent.path == url.path { return nil }
+            url = parent
+        }
+    }
+
+    private static func gitdir(from file: URL, base: URL) -> URL? {
+        guard let text = try? String(contentsOf: file, encoding: .utf8), let line = text.split(separator: "\n").first, line.hasPrefix("gitdir: ") else { return nil }
+        let path = String(line.dropFirst("gitdir: ".count)).trimmingCharacters(in: .whitespaces)
+        return path.hasPrefix("/") ? URL(fileURLWithPath: path) : base.appendingPathComponent(path).standardizedFileURL
+    }
+
+    private static func branch(_ dir: URL) -> String? {
+        guard let head = try? String(contentsOf: dir.appendingPathComponent("HEAD"), encoding: .utf8) else { return nil }
+        let text = head.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("ref: refs/heads/") { return String(text.dropFirst("ref: refs/heads/".count)) }
+        return String(text.prefix(7))
+    }
+}
+
+func tilde(_ path: String) -> String {
+    let home = NSHomeDirectory()
+    return path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+}
+
+@MainActor
+final class AgentHeader: NSView {
+    static let height: CGFloat = 34
+    var onPark: (() -> Void)?
+    private let label = NSTextField(labelWithString: "")
+    private let park = ParkButton()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        label.font = .systemFont(ofSize: 12)
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingMiddle
+        addSubview(label)
+        park.toolTip = "Park"
+        park.onPress = { [weak self] in self?.onPark?() }
+        addSubview(park)
+        paint()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
+    private func paint() { layer?.backgroundColor = resolved(.windowBackgroundColor) }
+
+    var parkCenter: NSPoint { park.convert(NSPoint(x: park.bounds.midX, y: park.bounds.midY), to: nil) }
+    var text: String { label.stringValue }
+
+    func show(_ text: String) {
+        if label.stringValue != text { label.stringValue = text }
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        park.frame = NSRect(x: bounds.width - 30, y: (bounds.height - 22) / 2, width: 22, height: 22)
+        label.sizeToFit()
+        label.frame = NSRect(x: 14, y: (bounds.height - label.frame.height) / 2, width: max(0, park.frame.minX - 22), height: label.frame.height)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.separatorColor.setFill()
+        NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
+    }
+}
+
+@MainActor
+private final class ParkButton: NSView {
+    var onPress: (() -> Void)?
+    private var hover = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if hover {
+            NSColor.quaternaryLabelColor.setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5).fill()
+        }
+        let scale = bounds.width / 22
+        let transform = AffineTransform(translationByX: 3 * scale, byY: 3 * scale)
+        (hover ? NSColor.labelColor : NSColor.secondaryLabelColor).setStroke()
+        let frame = NSBezierPath(roundedRect: NSRect(x: 2, y: 2, width: 12, height: 12), xRadius: 2, yRadius: 2)
+        let chevron = NSBezierPath()
+        chevron.move(to: NSPoint(x: 5.5, y: 5.5))
+        chevron.line(to: NSPoint(x: 8, y: 8))
+        chevron.line(to: NSPoint(x: 10.5, y: 5.5))
+        let shelf = NSBezierPath()
+        shelf.move(to: NSPoint(x: 5, y: 11))
+        shelf.line(to: NSPoint(x: 11, y: 11))
+        for (path, width) in [(frame, 1.4), (chevron, 1.4), (shelf, 2.0)] {
+            path.transform(using: transform)
+            path.lineWidth = width
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            path.stroke()
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) { hover = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hover = false; needsDisplay = true }
+    override func mouseDown(with event: NSEvent) { onPress?() }
+}
+
+extension AppController {
+    func isTask(_ pane: String) -> Bool {
+        windows.contains { $0["dock"]?["pane"]?.string == pane } || shelfEntries.contains { $0["task"]?.string == pane }
+    }
+
+    func place(of pane: String) -> (folder: String, git: GitPlace?)? {
+        guard let folder = folders[pane] else { return nil }
+        return (folder, GitPlace.of(folder))
+    }
+
+    func headerText(_ pane: String) -> String {
+        guard let place = place(of: pane) else { return "" }
+        return [tilde(place.folder), place.git?.branch].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    func projectName(_ tasks: [String]) -> String {
+        for task in tasks {
+            if let place = place(of: task) { return tilde(place.git?.root ?? place.folder) }
+        }
+        return "Shelf"
+    }
+
+    func taskDetail(_ pane: String) -> String {
+        place(of: pane)?.git?.branch ?? ""
+    }
+}

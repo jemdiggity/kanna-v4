@@ -4,6 +4,7 @@ import KannaStatus
 extension AppController {
     func installAgentStatus() {
         daemon?.onStatus = { [weak self] pane, status in self?.statusChanged(pane, status) }
+        daemon?.onFolder = { [weak self] pane, cwd in self?.folderChanged(pane, cwd) }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.statusSeen() }
         }
@@ -32,6 +33,13 @@ extension AppController {
 
     func statusChanged(_ pane: String, _ status: String?) {
         agentStatuses.set(pane, status, looking: lookingAt.contains(pane))
+        if isTask(pane) { refresh() }
+    }
+
+    func folderChanged(_ pane: String, _ cwd: String) {
+        guard folders[pane] != cwd else { return }
+        folders[pane] = cwd
+        if isTask(pane) { refresh() }
     }
 
     func statusSeen() {

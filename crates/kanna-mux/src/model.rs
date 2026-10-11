@@ -979,6 +979,7 @@ impl LayoutHost for Model {
             }
             Scope::Window(reference) => {
                 let w = self.target_window(reference.as_deref())?;
+                self.windows[w].desk = false;
                 let window = &self.windows[w];
                 Ok(window.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(window.dock.iter().map(|d| d.pane.clone())).collect())
             }

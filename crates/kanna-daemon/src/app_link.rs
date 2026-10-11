@@ -199,6 +199,16 @@ impl AppLink {
         for (pane, status) in statuses {
             self.status(&pane, Some(&status));
         }
+        let folders: Vec<(String, String)> = self.core.upgrade().map_or(vec![], |core| {
+            core.with_panes(|panes| panes.iter().filter_map(|p| p.cwd.clone().map(|cwd| (p.id.clone(), cwd))).collect())
+        });
+        for (pane, cwd) in folders {
+            self.folder(&pane, &cwd);
+        }
+    }
+
+    pub fn folder(&self, pane: &str, cwd: &str) {
+        self.notify("folder", json!({ "pane": pane, "cwd": cwd }));
     }
 
     pub fn status(&self, pane: &str, status: Option<&str>) {
@@ -406,6 +416,9 @@ impl AppLink {
     pub fn started(&self, pane: &str) {
         if self.shows(pane) {
             self.attach(pane);
+        }
+        if let Some(cwd) = self.core.upgrade().and_then(|core| core.pane(pane)).and_then(|p| p.cwd) {
+            self.folder(pane, &cwd);
         }
     }
 

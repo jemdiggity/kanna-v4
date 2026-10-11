@@ -24,6 +24,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     var paneMenu: NSMenu?
     var testingDrag = false
     var agentStatuses = AgentStatuses()
+    var folders: [String: String] = [:]
 
     static var daemonSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_SOCKET"], !path.isEmpty { return path }
@@ -234,7 +235,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     var shelfTasks: [ShelfTask] {
         let tasks = shelfEntries.compactMap { entry -> ShelfTask? in
             guard let id = entry["task"]?.string else { return nil }
-            return ShelfTask(id: id, title: taskTitle(id, name: entry["name"]?.string), parkedAt: entry["parkedAt"]?.number, status: agentStatuses.statuses[id], detail: "")
+            return ShelfTask(id: id, title: taskTitle(id, name: entry["name"]?.string), parkedAt: entry["parkedAt"]?.number, status: agentStatuses.statuses[id], detail: taskDetail(id))
         }
         let waiting: [ShelfTask] = tasks.filter { $0.status == "needs-you" }
         let rest: [ShelfTask] = tasks.filter { $0.status != "needs-you" }
@@ -355,8 +356,11 @@ final class AppController: NSObject, NSApplicationDelegate {
         for window in windows {
             guard let id = window["id"]?.string else { continue }
             let controller = controllers[id] ?? makeController(id, window)
+            let docked = window["dock"]?["pane"]?.string
             controller.shelf = tasks
-            controller.project = "Shelf"
+            controller.project = projectName((docked.map { [$0] } ?? []) + tasks.map(\.id))
+            controller.taskTitle = docked.map { taskTitle($0, name: window["dock"]?["name"]?.string) }
+            controller.headerText = docked.map(headerText) ?? ""
             controller.render(window, panes)
         }
         if let key = state["key"]?.string, let controller = controllers[key], !controller.window.isKeyWindow {
@@ -398,6 +402,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         controller.tabBar.onRename = { [weak self] tab, title in self?.layoutCommand("rename-tab", ["tab": .string(tab), "title": .string(title)]) }
         controller.onCloseRequest = { [weak self] in self?.close(window: id) }
         controller.shelfStrip.onPull = { [weak self] task in self?.pullTask(task, into: id) }
+        controller.agentHeader.onPark = { [weak self] in self?.layoutCommand("task", ["action": "park", "window": .string(id)]) }
         controller.shelfPage.onPull = { [weak self] task in self?.pullTask(task, into: id) }
         controller.onBecomeKey = { [weak self, weak controller] in
             guard let self, let controller, let appLayout else { return }

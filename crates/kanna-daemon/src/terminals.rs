@@ -136,17 +136,17 @@ impl Terminals {
         self.live.borrow().get(id).is_some_and(|t| t.serial == serial && t.exit_code.is_none())
     }
 
-    pub fn output(&self, id: &str, serial: u64) -> Option<Taken> {
+    pub fn output(&self, id: &str, serial: u64) -> (Option<Taken>, Option<String>) {
         let (taken, cwd) = {
             let live = self.live.borrow();
-            let terminal = live.get(id).filter(|t| t.serial == serial)?;
+            let Some(terminal) = live.get(id).filter(|t| t.serial == serial) else { return (None, None) };
             let mut feed = Feed::lock(&terminal.feed);
             (feed.take(), feed.take_cwd())
         };
-        if let Some(cwd) = cwd {
-            self.moved(id, cwd);
+        if let Some(cwd) = &cwd {
+            self.moved(id, cwd.clone());
         }
-        taken
+        (taken, cwd)
     }
 
     fn moved(&self, id: &str, cwd: String) {

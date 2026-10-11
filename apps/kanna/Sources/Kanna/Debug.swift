@@ -113,7 +113,8 @@ extension AppController {
             guard let controller = controllers[id] else { throw KannaError("not_found", "no window \"\(id)\"") }
             let tasks = controller.shelf.map { task -> JSON in ["task": .string(task.id), "title": .string(task.title), "status": task.status.map { .string($0) } ?? .null] }
             return ["desk": .bool(controller.desk), "empty": .bool(controller.emptyDesk), "shelf": .array(tasks),
-                    "strip": .bool(!controller.shelfStrip.isHidden), "page": .bool(!controller.shelfPage.isHidden), "title": .string(controller.window.title)]
+                    "strip": .bool(!controller.shelfStrip.isHidden), "page": .bool(!controller.shelfPage.isHidden), "title": .string(controller.window.title),
+                    "header": controller.agentHeader.isHidden ? .null : .string(controller.agentHeader.text)]
         }
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
@@ -243,6 +244,10 @@ extension AppController {
             guard let spot = spots.first(where: { $0.task == task }) else { throw KannaError("not_found", "\(task) is not on \(id)'s Shelf") }
             window = controller.window
             point = spot.center
+        } else if let id = args["park"]?.string {
+            guard let controller = controllers[id], !controller.agentHeader.isHidden else { throw KannaError("not_found", "\(id) shows no agent header") }
+            window = controller.window
+            point = controller.agentHeader.parkCenter
         } else {
             let id = args["tab"]?.string ?? ""
             guard let state = windowOf(tab: id), let controller = state["id"]?.string.flatMap({ controllers[$0] }),

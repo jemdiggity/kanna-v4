@@ -208,6 +208,7 @@ impl LayoutOwner {
                     let mut node = self.node(&Node::Pane(d.pane.clone()));
                     node["edge"] = d.edge.as_str().into();
                     node["width"] = num(d.width);
+                    node["name"] = self.panes.get(&d.pane).and_then(|p| p.name.clone()).map_or(Value::Null, Value::String);
                     node
                 });
                 let title = tab.map(|t| t.title.clone()).or_else(|| window.dock.as_ref().map(|d| self.panes.display(&d.pane)));
@@ -539,7 +540,7 @@ mod tests {
         place(&mut owner, "p1", json!({}));
         place(&mut owner, "p2", json!({ "dock": "right" }));
         let window = |owner: &LayoutOwner| owner.view()["windows"][0].clone();
-        assert_eq!(window(&owner)["dock"], json!({ "pane": "p2", "type": "term", "edge": "right", "width": 0.4 }));
+        assert_eq!(window(&owner)["dock"], json!({ "pane": "p2", "name": null, "type": "term", "edge": "right", "width": 0.4 }));
         assert_eq!(window(&owner)["root"], json!({ "pane": "p1", "type": "term" }));
         assert_eq!(window(&owner)["focused"], "p2");
         assert_eq!(owner.handle(&json!({ "call": "focused", "pane": "p1" }))["changed"], true);
