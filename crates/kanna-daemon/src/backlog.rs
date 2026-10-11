@@ -99,7 +99,13 @@ fn failed(value: &Value) -> Option<KmuxError> {
 pub fn make_worktree(repo: &Path, id: &str) -> Result<String, String> {
     let folder = repo.join(WORKTREES).join(id);
     let git = |args: &[&str]| {
-        let out = Command::new("git").arg("-C").arg(repo).args(args).output().map_err(|e| format!("can't run git: {e}"))?;
+        let out = Command::new("git")
+            .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .map_err(|e| format!("can't run git: {e}"))?;
         if out.status.success() {
             Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
         } else {
@@ -187,7 +193,7 @@ impl Backlog {
     }
 
     fn mint(&self, args: &Value, name: Option<String>, message: Option<String>) -> Result<Entry, KmuxError> {
-        let repo = string(args, "repo").filter(|r| Path::new(r).is_absolute()).ok_or_else(|| bad("a task needs its repo, as an absolute path"))?;
+        let repo = string(args, "repo").filter(|r| Path::new(r).is_absolute() && Path::new(r).is_dir()).ok_or_else(|| bad("a task needs its repo: an absolute path to a folder"))?;
         let by = string(args, "by").and_then(|by| self.core.upgrade()?.pane(by)).map(|pane| pane.id);
         self.counter.set(self.counter.get() + 1);
         Ok(Entry {
@@ -363,7 +369,12 @@ mod tests {
         assert_eq!(project(Some(dir.to_str().unwrap())).map(canonical), Some(canonical(dir.clone())));
         let status = Command::new("git").arg("-C").arg(&dir).args(["status", "--porcelain"]).output().unwrap();
         assert_eq!(String::from_utf8_lossy(&status.stdout), "");
+        let hook = dir.join(".git/hooks/post-checkout");
+        let marker = dir.join("hooked");
+        fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+        fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         make_worktree(&dir, "t4").unwrap();
+        assert!(!marker.exists(), "a repo's hooks ran");
         let exclude = fs::read_to_string(dir.join(".git/info/exclude")).unwrap();
         assert_eq!(exclude.matches("/.kanna-worktrees/").count(), 1);
         fs::remove_dir_all(&dir).unwrap();

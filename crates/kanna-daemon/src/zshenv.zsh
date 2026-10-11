@@ -17,7 +17,7 @@ fi
       (( $+commands[kanna] )) && builtin source <(command kanna completions zsh)
     }
     precmd_functions+=(_kanna_completion)
-    _kanna_cwd() { builtin print -nr -- $'\e]7;kitty-shell-cwd://'"$PWD"$'\a' }
+    _kanna_cwd() { [[ $PWD == *[[:cntrl:]]* ]] || builtin print -nr -- $'\e]7;kitty-shell-cwd://'"$PWD"$'\a' }
     _kanna_first_cwd() {
       precmd_functions=(${precmd_functions:#_kanna_first_cwd})
       builtin unfunction _kanna_first_cwd
