@@ -15,12 +15,13 @@ Each Desk window has a **planning agent**: a standing agent you make and manage 
 3. [Getting started](#3-getting-started)
 4. [The window's project](#4-the-windows-project)
 5. [When its agent exits](#5-when-its-agent-exits)
-6. [Skills](#6-skills)
-7. [CLI](#7-cli)
-8. [How it's built](#8-how-its-built)
-9. [Rejected](#9-rejected)
-10. [Open questions](#10-open-questions)
-11. [Glossary](#11-glossary)
+6. [Settings](#6-settings)
+7. [Skills](#7-skills)
+8. [CLI](#8-cli)
+9. [How it's built](#9-how-its-built)
+10. [Rejected](#10-rejected)
+11. [Open questions](#11-open-questions)
+12. [Glossary](#12-glossary)
 
 ## 1. When it shows
 
@@ -46,6 +47,7 @@ stateDiagram-v2
 - **Not a task.** It isn't on the Shelf, the strip or in `kanna task list`, doesn't take one of the project's three running slots, can't be parked, pulled, moved or docked elsewhere, and has no Park button. Its header says **Planning** and the project.
 - **In the project's main checkout,** not a worktree: it plans and doesn't write code. It sees the whole project: every running task, its status, and the backlog.
 - **Its agent** is `$KANNA_AGENT`, else `claude`, as for tasks, but it asks permission as usual, since it's in your checkout.
+- **Its context is kept small:** it compacts at 300K tokens by default ([settings](#6-settings)).
 - **Its first message** says it's this window's planning agent, that it doesn't write code, to use the `kanna-planning` skill (and `kanna-new-project` for an empty folder), and to start by saying what's running and waiting.
 
 ## 3. Getting started
@@ -75,7 +77,19 @@ flowchart LR
 - **The terminal says so and waits:** "The planning agent stopped. Press Return to start it again."
 - **Return starts it again.** A claude agent comes back to its conversation: Kanna starts it with `--session-id UUID` and resumes with `--resume UUID`. Other agents start afresh with the first message.
 
-## 6. Skills
+## 6. Settings
+
+`~/.config/kanna/planning.json` (or under `$XDG_CONFIG_HOME/kanna/`), read when a window's planning agent is made, so a change applies to the next one (Return after an exit keeps the old setting):
+
+```json
+{ "context": 300000 }
+```
+
+| Key | Default | Does |
+|---|---|---|
+| `context` | `300000` | Tokens the agent's context grows to before it compacts, from 100000 to 1000000, or `"auto"` for the agent's own. A long-lived agent works better kept small (context rot). A claude agent gets `--autocompact N` on its start and every resume, unless its command already sets `--autocompact` (a `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in your environment wins over both); other agents have no such setting yet. A value out of range uses the default, and the daemon's log says so. |
+
+## 7. Skills
 
 | Skill | For |
 |---|---|
@@ -83,7 +97,7 @@ flowchart LR
 | [`kanna-new-project`](../../.agents/kanna-skills/skills/kanna-new-project/SKILL.md) | An empty folder or one that isn't a repo: decide what the project is, set it up with your say-so, plan its first tasks |
 | [`kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md) | A task's agent; it sends a planning agent to `kanna-planning` and tells it not to name itself |
 
-## 7. CLI
+## 8. CLI
 
 The planning agent uses the [task commands](tasks.md#6-cli) (`list`, `new`, `start`, `pull`, `defer`, `done`) from its terminal, and:
 
@@ -91,7 +105,7 @@ The planning agent uses the [task commands](tasks.md#6-cli) (`list`, `new`, `sta
 |---|---|
 | `kanna PATH` | Opens a new Desk on PATH's project; run by the planning agent of a window with no project, gives that window the project instead and restarts its planning agent there |
 
-## 8. How it's built
+## 9. How it's built
 
 ```mermaid
 flowchart TB
@@ -106,7 +120,7 @@ flowchart TB
 - **The daemon builds the command:** the getting-started text, the agent with its first message (and a claude session ID), and the wait-for-Return loop. It opens it with the `planner` placement in the project's folder, outside the task limit.
 - **`task desk`** takes no project (Kanna opening with nothing), or a window to give one to; from a planning agent whose window has no project, it gives that window the project and the CLI closes the old agent.
 
-## 9. Rejected
+## 10. Rejected
 
 - **One Shelf window for every project, with one planning agent:** each window stays an independent Desk, so a planning agent belongs to its window and its project.
 - **The planning agent as a task** (docked like one, in a worktree): it would take one of the three slots, show on the Shelf, and park away. It plans, so it stays in the main checkout and outside the task rules.
@@ -117,11 +131,12 @@ flowchart TB
 - **Skipping permission prompts, as tasks do:** a task works in its own worktree; the planning agent is in your checkout.
 - **Carrying the no-project conversation into the new folder:** claude resumes a session only in the folder it started in, and the conversation is just "which folder?".
 
-## 10. Open questions
+## 11. Open questions
 
 1. **Resuming other agents** after they exit, as claude does (as for tasks, backlog task t15).
+2. **Context limits for other agents:** `context` is claude's `--autocompact`; codex and others need their own, if they have one.
 
-## 11. Glossary
+## 12. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -129,3 +144,4 @@ flowchart TB
 | **Full Shelf** | The right side of a Desk with no task: the project's running tasks and backlog |
 | **Main checkout** | The repo's own folder, as opposed to a task's worktree |
 | **Project** | The git repo (else folder) a window works on |
+| **Compact** | An agent summarising its conversation to shrink its context, keeping what matters |
