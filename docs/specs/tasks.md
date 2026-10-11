@@ -55,6 +55,7 @@ stateDiagram-v2
 ## 4. Naming
 
 - **The agent names its task** with `kanna task name "NAME"` once it knows what the work is. Until then it's "New task".
+- **It learns how from Kanna's `kanna-tasks` skill** ([`.agents/kanna-skills/skills/kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md)), which also tells it to write backlog first messages that stand alone and to leave starting tasks to you.
 - **A backlog task's name** is the one its maker gave it, kept when it starts.
 
 ## 5. Done
@@ -89,8 +90,7 @@ flowchart TB
 
 ## 8. Open questions
 
-1. **How the agent learns to name its task:** a line in Kanna's agent skill, or one Kanna adds to the first message.
-2. **Task IDs that travel:** backlog IDs (`t4`) are this machine's; sending tasks elsewhere will want IDs that don't clash.
+1. **Task IDs that travel:** backlog IDs (`t4`) are this machine's; sending tasks elsewhere will want IDs that don't clash.
 
 ## 9. Glossary
 

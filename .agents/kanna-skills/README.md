@@ -7,6 +7,8 @@ Skills for coding agents (Claude Code and Codex), usable in any project.
 | [`reference-driven-design`](skills/reference-driven-design/SKILL.md) | Build from a living reference (mockup, prototype or benchmark) instead of a long spec; integrate first, in small committed steps. |
 | [`spec-docs`](skills/spec-docs/SKILL.md) | Write specs in plain English with a table of contents, a glossary and diagrams, high level first. |
 | [`layer-diagrams`](skills/layer-diagrams/SKILL.md) | Draw architecture as a layer stack (UI on top, like OSI): processes as boxes, layers as bars, colour by owner, clients on top, rendered and checked before showing. |
+| [`kanna-markup`](skills/kanna-markup/SKILL.md) | Answer the user's comments on a doc or mockup they review in Kanna, in the comment's thread. |
+| [`kanna-tasks`](skills/kanna-tasks/SKILL.md) | In a Kanna terminal: name your task, and add follow-up work to the repo's backlog with a first message that stands alone. |
 
 ## Install into a project
 
