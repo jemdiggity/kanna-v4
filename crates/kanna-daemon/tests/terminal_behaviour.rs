@@ -64,3 +64,24 @@ fn the_shells_folder_is_the_panes_cwd() {
     let found = listed["panes"].as_array().unwrap().iter().any(|p| p["name"] == "cwd" && p["cwd"] == "/private/tmp");
     assert!(found, "{listed}");
 }
+
+#[test]
+fn a_new_terminal_in_a_task_window_starts_in_the_tasks_folder() {
+    let instance = Instance::start();
+    let _answering = instance.app().answering();
+    let folder = std::env::temp_dir().join(format!("kanna-task-{}", std::process::id()));
+    std::fs::create_dir_all(folder.join("sub")).unwrap();
+    let folder = folder.canonicalize().unwrap();
+    let opened = instance.call("open", json!({"type": "term", "name": "task", "dock": "left", "cwd": folder, "cmd": "cd sub; printf '\\033]7;file://localhost/usr\\007'; exec cat"}));
+    assert_eq!(opened["ok"], true, "{opened}");
+    wait_for("the printed folder", || instance.pane("task")["cwd"] == "/usr");
+    let window = opened["window"].clone();
+    for at in [json!({"split": "right", "window": window}), json!({"tab": true, "window": window}), json!({})] {
+        let mut args = json!({"type": "term", "cmd": "pwd; exec cat"});
+        args.as_object_mut().unwrap().extend(at.as_object().unwrap().clone());
+        let beside = instance.call("open", args);
+        let beside = beside["pane"]["id"].as_str().unwrap_or_else(|| panic!("{beside}")).to_string();
+        wait_for("the task's folder", || instance.screen(&beside).lines().any(|line| line == folder.to_string_lossy()));
+    }
+    std::fs::remove_dir_all(&folder).unwrap();
+}

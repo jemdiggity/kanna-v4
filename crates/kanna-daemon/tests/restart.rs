@@ -184,3 +184,19 @@ fn keeper(instance: &Instance, request: Value) -> Value {
         }
     }
 }
+
+#[test]
+fn a_task_keeps_the_folder_it_opened_in_across_a_restart() {
+    let mut instance = Instance::start();
+    let folder = std::env::temp_dir().join(format!("kanna-kept-{}", std::process::id()));
+    std::fs::create_dir_all(folder.join("sub")).unwrap();
+    let folder = folder.canonicalize().unwrap();
+    let opened = instance.call("open", json!({"type": "term", "name": "task", "cwd": folder, "cmd": "cd sub; exec cat"}));
+    let task = opened["pane"]["id"].as_str().unwrap_or_else(|| panic!("{opened}")).to_string();
+    instance.restart(libc::SIGTERM);
+    let _answering = instance.app().answering();
+    let beside = instance.call("open", json!({"type": "term", "from": task, "cmd": "pwd; exec cat"}));
+    let beside = beside["pane"]["id"].as_str().unwrap_or_else(|| panic!("{beside}")).to_string();
+    wait_for("the task's folder", || instance.screen(&beside).lines().any(|line| line == folder.to_string_lossy()));
+    std::fs::remove_dir_all(&folder).unwrap();
+}

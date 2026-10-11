@@ -544,6 +544,11 @@ impl CoreHandle {
         let id = self.state().panes.next_id();
         let placeless = !new_tab && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none();
         let from = string(args, "from").filter(|_| placeless).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
+        let cwd = match string(args, "cwd") {
+            Some(cwd) => Some(cwd.to_string()),
+            None if kind == PaneType::Term && dock.is_none() => self.task_folder(from.as_deref(), string(args, "window")).await,
+            None => None,
+        };
         let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, from.as_deref(), shelf)).await?;
         let placed = Value::Object(placed);
         {
@@ -551,7 +556,8 @@ impl CoreHandle {
             let pane = s.panes.make(kind, name);
             let field = |key: &str| string(args, key).map(String::from);
             pane.command = field("cmd");
-            pane.cwd = field("cwd");
+            pane.cwd = cwd.clone();
+            pane.opened_in = cwd;
             pane.url = string(args, "url").map(normalize_url);
             pane.app = field("app");
             pane.device = field("device");
@@ -575,6 +581,21 @@ impl CoreHandle {
         let summary = self.summary(&id, &snapshot);
         let location = Value::Object(self.layout(json!({ "op": "location", "pane": id })).await.unwrap_or_default());
         Ok(opened(summary, &location, &placed))
+    }
+
+    async fn task_folder(&self, from: Option<&str>, window: Option<&str>) -> Option<String> {
+        let task = match from {
+            Some(from) => from.to_string(),
+            None => {
+                let windows = self.layout(json!({ "op": "windows" })).await.ok()?.remove("windows")?;
+                let window = windows.as_array()?.iter().find(|w| match window {
+                    Some(id) => w["id"] == id,
+                    None => w["key"] == true,
+                })?;
+                string(&window["dock"], "pane")?.to_string()
+            }
+        };
+        self.state().panes.pane(&task)?.opened_in.clone()
     }
 
     async fn refuse_docked(&self, id: &str) -> Result<(), KmuxError> {
