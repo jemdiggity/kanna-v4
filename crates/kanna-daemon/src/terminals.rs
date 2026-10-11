@@ -332,6 +332,7 @@ impl Terminals {
                 Some(pty) => {
                     let snapshot = (i64::from(pty.pid) == record.pid).then(|| self.store.snapshot(&record.id)).flatten();
                     pane.pid = Some(pty.pid as i64);
+                    pane.opened_in = Some(pty.cwd.clone()).filter(|cwd| !cwd.is_empty());
                     pane.state = PaneState::Running;
                     exits.extend(pty.exit.map(|code| (record.keeper.clone(), pty.pid, code)));
                     restored.adopted += 1;
@@ -374,6 +375,7 @@ impl Terminals {
                 _ => None,
             };
             pane.cwd = Some(pty.cwd.clone()).filter(|cwd| !cwd.is_empty());
+            pane.opened_in = pane.cwd.clone();
             pane.pid = Some(pty.pid as i64);
             pane.state = PaneState::Running;
             let keeper = pty.id.clone();

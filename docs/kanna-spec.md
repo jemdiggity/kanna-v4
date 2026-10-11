@@ -656,6 +656,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 | The app closed | (the app is kmux) | `open` prints "opened p3 (logs), unplaced until Kanna.app opens"; `list` lists the terminals under "no windows: Kanna.app isn't open" | the terminals still run |
 | An instance | an app with its own socket, `kmux-NAME.sock` | a folder, `kanna-dev-NAME` (below) | a daemon needs a folder of its own |
 | `open --cwd DIR` | sent as given | made absolute where kanna runs | the daemon's directory isn't yours |
+| `open` a terminal without `--cwd` (and every new tab, split and window from the app) | starts in `$HOME` | starts in its task's folder: the folder the task's agent opened in (its worktree, or the repo for a task without one), the agent being the terminal it opens from or the docked pane of the window it opens in; the agent moving or printing another folder changes nothing; `$HOME` outside a task | a task's terminals work on the task |
 | `capabilities` | kmux's fields | kmux's fields, `read` among the commands, and `app`: whether Kanna.app is attached (its own line in the text) | so a script can tell |
 | `raw REQUEST` | sends it | sends it, and starts the app on `no_app` like any command | one way of reaching Kanna |
 | `kanna mux` | — | gone (M0's): `capabilities` and `instances` say what it said | kmux has no such command |
