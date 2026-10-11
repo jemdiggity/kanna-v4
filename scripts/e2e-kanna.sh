@@ -1375,6 +1375,11 @@ S45() {
   key cmd+n
   check wait_for 10 eval '[[ "$(win w1 dock.pane)" != None && "$(win w1 dock.pane)" != p1 ]]' || { kanna list; return 1; }
   check test -d "$repo/.kanna-worktrees/t4" || { echo "S45 line $LINENO"; return 1; }
+  local elsewhere="$KANNA_STATE_DIR/elsewhere"
+  mkdir -p "$elsewhere" && git -C "$elsewhere" init -q -b main && git -C "$elsewhere" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || return 1
+  local refused; refused="$(raw "{\"id\":1,\"cmd\":\"backlog\",\"args\":{\"action\":\"blank\",\"repo\":\"$elsewhere\"}}")"
+  [[ "$refused" == *'"ok":false'* && "$refused" == *"cd there first"* ]] || { echo "S45 line $LINENO: $refused"; return 1; }
+  check test ! -e "$elsewhere/.kanna-worktrees" || { echo "S45 line $LINENO"; return 1; }
 }
 
 S42() {

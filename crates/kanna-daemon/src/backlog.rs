@@ -96,6 +96,23 @@ fn failed(value: &Value) -> Option<KmuxError> {
     Some(KmuxError::new(string(&error, "code").unwrap_or("failed"), string(&error, "message").unwrap_or("it failed")))
 }
 
+#[cfg(target_os = "macos")]
+pub fn process_cwd(pid: i64) -> Option<String> {
+    let mut info: libc::proc_vnodepathinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_vnodepathinfo>() as libc::c_int;
+    let got = unsafe { libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDVNODEPATHINFO, 0, (&mut info as *mut libc::proc_vnodepathinfo).cast(), size) };
+    if got != size {
+        return None;
+    }
+    let bytes: Vec<u8> = info.pvi_cdir.vip_path.iter().flatten().map(|&c| c as u8).take_while(|&b| b != 0).collect();
+    Some(String::from_utf8_lossy(&bytes).into_owned()).filter(|p| !p.is_empty())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn process_cwd(pid: i64) -> Option<String> {
+    fs::read_link(format!("/proc/{pid}/cwd")).ok().map(|p| p.to_string_lossy().into_owned())
+}
+
 pub fn make_worktree(repo: &Path, id: &str) -> Result<String, String> {
     let folder = repo.join(WORKTREES).join(id);
     let git = |args: &[&str]| {
@@ -238,6 +255,13 @@ impl Backlog {
     }
 
     fn blank(self: &Rc<Self>, args: &Value, responder: Responder) {
+        let here = project(string(args, "repo"));
+        let real = self.core.upgrade().is_some_and(|core| {
+            core.with_panes(|panes| panes.iter().filter_map(|p| p.pid).filter_map(process_cwd).any(|cwd| project(Some(&cwd)) == here))
+        });
+        if !real {
+            return responder.reply(Err(bad("Start a task works in a repo a Kanna terminal is in: cd there first")));
+        }
         match self.mint(args, None, None) {
             Ok(entry) => self.room(entry, string(args, "window").map(String::from), responder),
             Err(error) => responder.reply(Err(error)),
@@ -334,6 +358,14 @@ impl Backlog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_process_folder_comes_from_the_system() {
+        let here = std::env::current_dir().unwrap().canonicalize().unwrap();
+        let seen = process_cwd(std::process::id() as i64).map(|p| PathBuf::from(p).canonicalize().unwrap());
+        assert_eq!(seen, Some(here));
+        assert_eq!(process_cwd(i32::MAX as i64), None);
+    }
 
     #[test]
     fn a_first_message_is_quoted_for_the_shell() {
