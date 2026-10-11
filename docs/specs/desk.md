@@ -35,7 +35,7 @@ stateDiagram-v2
 - **A window with a docked pane is a Desk**; its contents are its task. Make one with `kanna open --dock --cmd claude`, then open tabs. A UI for starting tasks comes later.
 - **Its name** is the docked pane's name, else its terminal's title. **Its folder and branch** are the docked pane's working directory and that folder's git branch, shown, never changed.
 - **Done** closes the task's panes, ending its agent and terminals.
-- **A task belongs to a project**: the git repository its folder is in (else the folder), and a Desk's Shelf shows its project's tasks. A richer task concept (choosing a project, starting a task from the UI) gets its own spec.
+- **A task belongs to a project**: the git repository its folder is in (else the folder), and a Desk's Shelf shows its project's tasks. Making and naming tasks: [tasks](tasks.md).
 
 ## 2. The Desk
 
@@ -94,7 +94,7 @@ flowchart TB
 
 ## 6. Open questions
 
-1. Choosing a project other than the git repository, and starting a task from the UI: for the task-concept spec.
+1. Making tasks, and what a task is: [tasks](tasks.md).
 
 ## 7. Glossary
 
