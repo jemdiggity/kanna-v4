@@ -103,8 +103,9 @@ pub fn task(request: &Value, reply: &Value) -> String {
     match request["action"].as_str() {
         Some("list") => {
             let tasks = reply["tasks"].as_array().cloned().unwrap_or_default();
-            if tasks.is_empty() {
-                return "no tasks: dock an agent with `kanna open --dock --cmd claude`".into();
+            let waiting = reply["backlog"].as_array().cloned().unwrap_or_default();
+            if tasks.is_empty() && waiting.is_empty() {
+                return "no tasks: add one with `kanna task new NAME \"FIRST MESSAGE\"`, or dock an agent with `kanna open --dock --cmd claude`".into();
             }
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
             let rows: Vec<[String; 4]> = tasks
@@ -114,6 +115,10 @@ pub fn task(request: &Value, reply: &Value) -> String {
                     let parked = t["parkedAt"].as_f64().map_or(String::new(), |at| format!("parked {}", ago(now - at)));
                     [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), place, parked]
                 })
+                .chain(waiting.iter().map(|t| {
+                    let made = t["madeAt"].as_f64().map_or(String::new(), |at| format!("made {} · {}", ago(now - at), tilde(t["repo"].as_str().unwrap_or(""))));
+                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), "Backlog".into(), made]
+                }))
                 .collect();
             let width = |i: usize| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0).max(["TASK", "NAME", "WHERE", ""][i].len());
             let line = |r: [&str; 4]| format!("{:w0$}  {:w1$}  {:w2$}  {}", r[0], r[1], r[2], r[3], w0 = width(0), w1 = width(1), w2 = width(2)).trim_end().to_string();
@@ -123,9 +128,27 @@ pub fn task(request: &Value, reply: &Value) -> String {
         Some("park") => format!("{id} is already on the Shelf"),
         Some("pull") if reply["moved"] == Value::Bool(true) => format!("pulled {id} onto {}", reply["window"].as_str().unwrap_or("?")),
         Some("pull") => format!("{id} is on {}; brought it forward", reply["window"].as_str().unwrap_or("?")),
+        Some("new") => format!("added {} \"{}\" to the backlog of {}", reply["task"]["id"].as_str().unwrap_or("?"), reply["task"]["name"].as_str().unwrap_or(""), tilde(reply["task"]["repo"].as_str().unwrap_or("?"))),
+        Some("start") => format!(
+            "started {} on the {}: {} in {}{}",
+            reply["task"].as_str().unwrap_or("?"),
+            reply["window"].as_str().map_or("Shelf".to_string(), |w| format!("Desk {w}")),
+            reply["pane"].as_str().unwrap_or("?"),
+            tilde(reply["folder"].as_str().unwrap_or("?")),
+            reply["branch"].as_str().map_or(String::new(), |b| format!(" ({b})"))
+        ),
+        Some("done") if reply.get("closed").is_none() => format!("took {} off the backlog", reply["task"]["id"].as_str().unwrap_or("?")),
         Some("name") => format!("named {} \"{}\"", request["pane"].as_str().unwrap_or("?"), request["name"].as_str().unwrap_or("")),
         Some("done") => format!("{} is done: closed {}", request["task"].as_str().unwrap_or("?"), join(&reply["closed"])),
         _ => String::new(),
+    }
+}
+
+fn tilde(path: &str) -> String {
+    match std::env::var("HOME").ok().filter(|h| !h.is_empty()) {
+        Some(home) if path == home => "~".into(),
+        Some(home) if path.starts_with(&format!("{home}/")) => format!("~{}", &path[home.len()..]),
+        _ => path.into(),
     }
 }
 

@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S43) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S44) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-3]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-4]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -1310,6 +1310,38 @@ S43() {
   check test "$(desk shelf "$away")" == "[]" || return 1
 }
 
+S44() {
+  start_daemon && start_app || { echo "S44 line $LINENO"; return 1; }
+  local repo="$KANNA_STATE_DIR/repo" agent="$repo_root/tools/mock-agent/mock-agent"
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S44 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  in_repo() { (cd "$repo" && kanna "$@"); }
+  expected="added t1 \"Fix it\" to the backlog of $repo"; says in_repo task new "Fix it" "say hi" --agent "$agent" || { echo "S44 line $LINENO"; return 1; }
+  in_repo task new "Plain" --no-worktree >/dev/null || { echo "S44 line $LINENO"; return 1; }
+  [[ "$(cd "$KANNA_STATE_DIR" && kanna task new "Nowhere" 2>&1)" == *"belongs to a git repo"* ]] || { echo "S44 line $LINENO"; return 1; }
+  in_repo task list | grep -qE '^t1 +Fix it +Backlog +made' || { in_repo task list; return 1; }
+  expected="took t2 off the backlog"; says kanna task done t2 || { echo "S44 line $LINENO"; return 1; }
+  stop_app; stop_daemon; start_daemon && start_app || { echo "S44 line $LINENO"; return 1; }
+  in_repo task list | grep -qE '^t1 +Fix it +Backlog' || { echo "the backlog didn't survive a restart"; in_repo task list; return 1; }
+  expected="started t1 on the Shelf: p1 in $repo/.kanna-worktrees/t1 (kanna/t1)"; says kanna task start t1 || { echo "S44 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(pane "Fix it" id)" == p1 ]]' || { echo "S44 line $LINENO"; return 1; }
+  check test "$(git -C "$repo/.kanna-worktrees/t1" branch --show-current)" == kanna/t1 || { echo "S44 line $LINENO"; return 1; }
+  check test -z "$(git -C "$repo" status --porcelain)" || { echo "S44 line $LINENO"; return 1; }
+  in_repo task list | grep -qE '^p1 +Fix it +Shelf' || { in_repo task list; return 1; }
+  in_repo task list | grep -q '^t1 ' && { echo "S44 line $LINENO"; return 1; }
+  check wait_for 5 is "Fix it" status idle || { echo "S44 line $LINENO"; return 1; }
+  expected='named p1 "Fixed"'; says kanna task name p1 Fixed || { echo "S44 line $LINENO"; return 1; }
+  for n in 3 4 5; do in_repo task new "More $n" --agent "$agent" >/dev/null || return 1; done
+  kanna task start t3 >/dev/null && kanna task start t4 >/dev/null || { echo "S44 line $LINENO"; return 1; }
+  kanna task start t5 2>"$KANNA_STATE_DIR/s44-limit" && { echo "S44 line $LINENO"; return 1; }
+  grep -q "has 3 tasks running" "$KANNA_STATE_DIR/s44-limit" || { cat "$KANNA_STATE_DIR/s44-limit"; return 1; }
+  in_repo task list | grep -q '^t5 .*Backlog' || { echo "S44 line $LINENO"; return 1; }
+  check test ! -e "$repo/.kanna-worktrees/t5" || { echo "S44 line $LINENO"; return 1; }
+  kanna task done Fixed >/dev/null || { echo "S44 line $LINENO"; return 1; }
+  kanna task start t5 >/dev/null || { echo "S44 line $LINENO"; return 1; }
+  check test -d "$repo/.kanna-worktrees/t1" || { echo "S44 line $LINENO"; return 1; }
+}
+
 S42() {
   SHELL=/bin/bash PATH="$bin:$PATH" start_daemon && start_app || return 1
   kanna open --name s42 >/dev/null || return 1
@@ -1321,9 +1353,9 @@ S42() {
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-3]) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-4]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

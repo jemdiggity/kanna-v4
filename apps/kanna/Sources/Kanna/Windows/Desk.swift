@@ -3,6 +3,7 @@ import AppKit
 struct GitPlace: Equatable {
     let root: String
     let branch: String?
+    let main: String
 
     static func of(_ folder: String) -> GitPlace? {
         var url = URL(fileURLWithPath: folder).standardizedFileURL
@@ -11,12 +12,18 @@ struct GitPlace: Equatable {
             var isFolder: ObjCBool = false
             if FileManager.default.fileExists(atPath: git.path, isDirectory: &isFolder) {
                 let dir = isFolder.boolValue ? git : gitdir(from: git, base: url)
-                return GitPlace(root: url.path, branch: dir.flatMap(branch))
+                let main = isFolder.boolValue ? nil : dir.flatMap(mainRepo)
+                return GitPlace(root: url.path, branch: dir.flatMap(branch), main: main ?? url.path)
             }
             let parent = url.deletingLastPathComponent()
             if parent.path == url.path { return nil }
             url = parent
         }
+    }
+
+    private static func mainRepo(_ gitdir: URL) -> String? {
+        let text = gitdir.path
+        return text.range(of: "/.git/worktrees/").map { String(text[..<$0.lowerBound]) }
     }
 
     private static func gitdir(from file: URL, base: URL) -> URL? {
@@ -158,7 +165,7 @@ extension AppController {
     }
 
     func projectRoot(_ pane: String) -> String? {
-        place(of: pane).map { $0.git?.root ?? $0.folder }
+        place(of: pane).map { $0.git?.main ?? $0.folder }
     }
 
     func projectName(_ tasks: [String]) -> String {

@@ -115,10 +115,15 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         return threads::run(&request, json_output);
     }
     let mut mux = Session::connect(&target, env)?;
-    let reply = match mux.call(wire(command, &request), request.clone()) {
+    let mut reply = match mux.call(wire(command, &request), request.clone()) {
         Ok(reply) => reply,
         Err(failure) => return Err(explain(command, failure, &mut mux, &target)),
     };
+    if command.name == "task" && request["action"] == "list" {
+        if let Ok(backlog) = mux.call("backlog", serde_json::json!({ "action": "list" })) {
+            reply["backlog"] = backlog["tasks"].clone();
+        }
+    }
     if json_output {
         println!("{reply}");
     } else {
@@ -154,6 +159,8 @@ fn explain(command: &Command, mut failure: Failure, mux: &mut Session, target: &
 fn wire(command: &Command, request: &Value) -> &'static str {
     match command.name {
         "markup" if request.get("type").is_some() => "open",
+        "task" if ["new", "start"].contains(&request["action"].as_str().unwrap_or("")) => "backlog",
+        "task" if request["action"] == "done" && request["task"].as_str().is_some_and(commands::is_backlog_task) => "backlog",
         "task" if request["action"] == "done" => "close",
         "task" if request["action"] == "name" => "rename-pane",
         name => name,

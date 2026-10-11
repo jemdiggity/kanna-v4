@@ -927,6 +927,10 @@ impl LayoutHost for Model {
     }
 
     fn place(&mut self, pane: &str, at: &Placement) -> Result<Option<String>, KmuxError> {
+        if let (true, Some(edge)) = (at.shelf, at.dock) {
+            self.shelve(pane, edge);
+            return Ok(None);
+        }
         if let Some(placed) = at.from.as_deref().and_then(|from| self.place_on_task(pane, from)) {
             return Ok(placed);
         }

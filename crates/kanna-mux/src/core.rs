@@ -34,7 +34,18 @@ pub const TASKS_PER_PROJECT: usize = 3;
 
 pub fn project(cwd: Option<&str>) -> Option<std::path::PathBuf> {
     let start = std::path::Path::new(cwd?);
-    Some(start.ancestors().find(|dir| dir.join(".git").exists()).unwrap_or(start).to_path_buf())
+    let Some(root) = start.ancestors().find(|dir| dir.join(".git").exists()) else { return Some(start.to_path_buf()) };
+    let marker = root.join(".git");
+    let main = std::fs::metadata(&marker)
+        .ok()
+        .filter(|m| m.is_file() && m.len() <= 4096)
+        .and_then(|_| std::fs::read_to_string(&marker).ok())
+        .and_then(|text| text.lines().next()?.strip_prefix("gitdir: ").map(|dir| root.join(dir.trim())))
+        .and_then(|dir| {
+            let text = dir.to_string_lossy().to_string();
+            text.find("/.git/worktrees/").map(|at| std::path::PathBuf::from(&text[..at]))
+        });
+    Some(main.unwrap_or_else(|| root.to_path_buf()))
 }
 
 pub const CORE_COMMANDS: [&str; 10] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read", "markup", "rename-pane"];
@@ -518,6 +529,10 @@ impl CoreHandle {
         if dock.is_some() && (args.get("split").is_some() || args.get("size").is_some() || new_tab) {
             return Err(bad_request("a docked pane takes no split, size or tab"));
         }
+        let shelf = is_true(args, "shelf");
+        if shelf && (dock.is_none() || args.get("window").is_some()) {
+            return Err(bad_request("shelf is for a docked pane, without a window"));
+        }
 
         let turn = self.0.turns.take().await;
         taken(self)?;
@@ -527,7 +542,7 @@ impl CoreHandle {
         let id = self.state().panes.next_id();
         let placeless = !new_tab && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none();
         let from = string(args, "from").filter(|_| placeless).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, from.as_deref())).await?;
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, from.as_deref(), shelf)).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();

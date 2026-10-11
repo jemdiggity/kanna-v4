@@ -1,4 +1,5 @@
 mod app_link;
+mod backlog;
 mod host;
 mod keeper;
 mod pty;
@@ -53,6 +54,7 @@ pub enum Event {
     Drained { pane: String, serial: u64 },
     Status { pane: String, serial: u64, status: Option<&'static str> },
     RulesUpdated { token: u64, report: kanna_detect::Report },
+    Worktree { token: u64, result: Result<String, String> },
     KeeperReadable,
     KeeperExits,
     KeeperLost(String),
@@ -159,6 +161,8 @@ fn run() -> Result<(), String> {
     *terminals.detector.borrow_mut() = Some(detector.clone());
     let status_commands = Rc::new(status_command::StatusCommand::new(detector.clone(), events.clone()));
     status_commands.install(&core);
+    let backlog = Rc::new(backlog::Backlog::open(&state_dir, core.weak(), events.clone()));
+    backlog.install(&core);
     let host = Rc::new(Host::new(terminals.clone()));
     core.set_host(Some(host.clone()));
     let on_change = Rc::downgrade(&terminals);
@@ -193,6 +197,7 @@ fn run() -> Result<(), String> {
     let app_timeout = std::env::var("KANNA_APP_TIMEOUT_MS").ok().and_then(|ms| ms.parse().ok()).map(Duration::from_millis).unwrap_or(APP_TIMEOUT);
     let app = Rc::new(AppLink::new(core.weak(), terminals.clone(), app_timeout));
     layout.connect(&app);
+    app.connect_backlog(&backlog);
     host.connect(&app);
     let on_start = Rc::downgrade(&app);
     *terminals.on_start.borrow_mut() = Some(Box::new(move |pane| {
@@ -292,6 +297,7 @@ fn run() -> Result<(), String> {
                 }
             }
             Event::RulesUpdated { token, report } => status_commands.updated(token, report),
+            Event::Worktree { token, result } => backlog.worktree_made(token, result),
             Event::KeeperReadable | Event::KeeperExits => {
                 let exits = keeper.take_exits();
                 if matches!(event, Event::KeeperReadable) {

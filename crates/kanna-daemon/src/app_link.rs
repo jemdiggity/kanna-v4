@@ -117,6 +117,7 @@ pub struct AppLink {
     next_id: Cell<u64>,
     attached: RefCell<HashSet<String>>,
     unsent: RefCell<HashMap<String, Instant>>,
+    backlog: RefCell<Option<Weak<crate::backlog::Backlog>>>,
 }
 
 impl AppLink {
@@ -126,6 +127,7 @@ impl AppLink {
             terminals,
             app: RefCell::new(None),
             pending: RefCell::default(),
+            backlog: RefCell::default(),
             timeout,
             next_id: Cell::new(0),
             attached: RefCell::default(),
@@ -205,6 +207,20 @@ impl AppLink {
         for (pane, cwd) in folders {
             self.folder(&pane, &cwd);
         }
+        let tasks = self.backlog.borrow().as_ref().and_then(|b| b.upgrade()).map(|b| b.view());
+        if let Some(tasks) = tasks {
+            self.notify("backlog", json!({ "tasks": tasks }));
+        }
+    }
+
+    pub fn connect_backlog(self: &Rc<Self>, backlog: &Rc<crate::backlog::Backlog>) {
+        *self.backlog.borrow_mut() = Some(Rc::downgrade(backlog));
+        let link = Rc::downgrade(self);
+        *backlog.on_change.borrow_mut() = Some(Box::new(move |tasks| {
+            if let Some(link) = link.upgrade() {
+                link.notify("backlog", json!({ "tasks": tasks }));
+            }
+        }));
     }
 
     pub fn folder(&self, pane: &str, cwd: &str) {

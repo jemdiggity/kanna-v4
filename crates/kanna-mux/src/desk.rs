@@ -1,6 +1,7 @@
 use crate::error::KmuxError;
 use crate::json::{num, Map, Value};
-use crate::model::{bad_request, normalize, not_found, pane_ids, Child, Model, Node, Split, Tab, Window};
+use crate::layout::Edge;
+use crate::model::{bad_request, normalize, not_found, pane_ids, Child, Dock, Model, Node, Split, Tab, Window, DOCK_WIDTH};
 use crate::pane::Panes;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -55,6 +56,14 @@ impl Model {
             window.focused = orphan.focused;
             window.settle_focus();
         }
+    }
+
+    pub(crate) fn shelve(&mut self, pane: &str, edge: Edge) {
+        let mut parked = Window::new(pane.into());
+        parked.dock = Some(Dock { pane: pane.into(), edge, width: DOCK_WIDTH });
+        parked.desk = true;
+        parked.parked_at = Some(now());
+        self.shelf.insert(0, parked);
     }
 
     pub(crate) fn task_panes(&mut self, task: &str) -> Result<Vec<String>, KmuxError> {
