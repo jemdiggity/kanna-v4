@@ -957,7 +957,11 @@ S38() {
   kanna move agent --tab >/dev/null || return 1
   check test "$(win w1 dock)" == None || return 1
   check test "$(win w1 tabs | count)" == 2 || return 1
-  kanna move agent --dock >/dev/null || return 1
+  refused="$(kanna move agent --dock 2>&1)" && { echo "docking a pane that isn't a task should fail"; return 1; }
+  [[ "$refused" == *"agent isn't a task, and only a task's agent docks"* ]] || { echo "docking a pane that isn't a task should say why: $refused"; return 1; }
+  check test "$(win w1 dock)" == None || return 1
+  kanna close agent >/dev/null || return 1
+  kanna open --name agent --dock --cmd "printf 'DOCK AGENT\n'; exec sleep 600" >/dev/null || return 1
   kanna close dt2 >/dev/null || return 1
   check test "$(win w1 tabs)" == '[]' || return 1
   check test "$(win w1 dock.pane)" == agent || return 1
@@ -1337,6 +1341,13 @@ S44() {
   grep -q "has 3 tasks running" "$KANNA_STATE_DIR/s44-limit" || { cat "$KANNA_STATE_DIR/s44-limit"; return 1; }
   in_repo task list | grep -q '^t5 .*Backlog' || { echo "S44 line $LINENO"; return 1; }
   check test ! -e "$repo/.kanna-worktrees/t5" || { echo "S44 line $LINENO"; return 1; }
+  in_repo open --name plain >/dev/null || { echo "S44 line $LINENO"; return 1; }
+  in_repo move plain --dock 2>"$KANNA_STATE_DIR/s44-dock" && { echo "S44 line $LINENO"; return 1; }
+  grep -q "plain isn't a task, and only a task's agent docks" "$KANNA_STATE_DIR/s44-dock" || { cat "$KANNA_STATE_DIR/s44-dock"; return 1; }
+  in_repo task list | grep -q ' plain$' && { echo "S44 line $LINENO"; return 1; }
+  kanna task pull Fixed >/dev/null || { echo "S44 line $LINENO"; return 1; }
+  check test "$(kanna move Fixed --dock right --json | field dock.edge)" == right || { echo "S44 line $LINENO"; return 1; }
+  kanna close plain >/dev/null || { echo "S44 line $LINENO"; return 1; }
   kanna task done Fixed >/dev/null || { echo "S44 line $LINENO"; return 1; }
   kanna task start t5 >/dev/null || { echo "S44 line $LINENO"; return 1; }
   check test -d "$repo/.kanna-worktrees/t1" || { echo "S44 line $LINENO"; return 1; }

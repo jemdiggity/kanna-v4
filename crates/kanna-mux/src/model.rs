@@ -665,6 +665,9 @@ impl Model {
             if args.get("to").is_some() || args.get("tab").is_some() {
                 return Err(bad_request("move takes one of to + side, tab, window or dock"));
             }
+            if self.dock_window(&id).is_none() {
+                return Err(KmuxError::new("not_a_task", format!("{} isn't a task, and only a task's agent docks: start one with `kanna task new` and `kanna task start`", panes.display(&id))));
+            }
             let w = if args.get("window").is_some() { self.target_window(string(args, "window"))? } else { from_w };
             match self.windows[w].dock.as_mut() {
                 Some(dock) if dock.pane == id => dock.edge = edge,

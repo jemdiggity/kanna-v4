@@ -6,6 +6,12 @@ use std::path::PathBuf;
 
 pub type Send = Box<dyn FnMut(Value) -> Value>;
 
+const KANNA_DIFFERS: [(&str, &str); 3] = [
+    ("dock.json: move docks a pane, moves the docked pane to the other edge, and undocks it into a tab", "only a task's agent docks"),
+    ("dock.json: docking where a pane is docked sends that one to a new tab, not shown", "only a task's agent docks"),
+    ("dock.json: moving the docked pane to another window or beside a pane undocks it; dropping on it swaps", "only a task's agent docks"),
+];
+
 pub fn cases_directory() -> PathBuf {
     let kmux = std::env::var_os("KMUX_DIR").map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../references/kmux"));
@@ -54,6 +60,10 @@ pub fn run_cases(label: &str, make: &dyn Fn() -> Send) -> usize {
         for case in &cases {
             let title = format!("{name}: {}", case["name"].as_str().unwrap_or("?"));
             let Some(steps) = case["steps"].as_array() else { continue };
+            if let Some((_, why)) = KANNA_DIFFERS.iter().find(|(differs, _)| *differs == title) {
+                skipped.push(format!("{title} (Kanna differs: {why})"));
+                continue;
+            }
             let mut missing: Vec<String> = steps
                 .iter()
                 .filter_map(|step| {
@@ -94,6 +104,8 @@ pub fn run_cases(label: &str, make: &dyn Fn() -> Send) -> usize {
     for skip in &skipped {
         println!("  skipped {skip}");
     }
+    let unmatched: Vec<&str> = KANNA_DIFFERS.iter().map(|(title, _)| *title).filter(|title| !skipped.iter().any(|s| s.starts_with(title))).collect();
+    assert!(unmatched.is_empty(), "kmux has no such cases any more: {}", unmatched.join("; "));
     assert!(failed.is_empty(), "{} cases failed:\n{}", failed.len(), failed.join("\n"));
     passed
 }

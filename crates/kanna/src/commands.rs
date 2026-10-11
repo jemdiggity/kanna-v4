@@ -158,7 +158,7 @@ pub static COMMANDS: &[Command] = &[
             ("--window WINDOW|new", "Move into that window's active tab, or a new window."),
             ("--dock [left|right]", "Make it its window's docked pane (or that window's), on the left (default) or right edge; or move the docked pane to that edge. A pane already docked there moves to a new tab."),
         ],
-        notes: "Moving a docked pane to a tab, a window or beside a pane undocks it. A docked pane can't be split: --to it only swaps.",
+        notes: "Moving a docked pane to a tab, a window or beside a pane undocks it. A docked pane can't be split: --to it only swaps. A docked pane is a running task, so --dock moves only the pane that's docked already: start a task with `kanna task start`.",
         examples: &[
             ("kanna move logs --to server --side bottom", "Put logs below server."),
             ("kanna move logs --window new", "Move logs into a new window."),

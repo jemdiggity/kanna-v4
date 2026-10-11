@@ -86,6 +86,7 @@ flowchart TB
 
 - **The daemon keeps the backlog**, saved with the terminals, so agents add tasks with or without the app.
 - **A running task is its docked agent pane**, as on the [Desk](desk.md): its name is the pane's name, its repo the pane's folder.
+- **Only a task's agent docks.** `kanna move PANE --dock` moves the docked pane to the other edge or another window, and refuses any other pane (`not_a_task`), so a task starts only by starting one and the limit holds.
 - **Starting** a backlog task checks the limit, runs `git worktree add`, opens the agent docked straight onto the Shelf in that folder with the first message, names the pane, and drops the backlog entry.
 
 ## 8. Open questions
