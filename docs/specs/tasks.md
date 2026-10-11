@@ -2,11 +2,11 @@
 
 **Status:** built · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: no tasks; park to see the backlog; `kanna task new` in an agent's pane) · **Builds on:** [Desk](desk.md) · **From:** Kanna v2's tasks (a worktree per task) and v3's (a task belongs to a repo, and waits until it's pulled)
 
-A **task** is one agent's work in one repo. Agents make tasks: they add them to the repo's **backlog**, and you move the ones you want to the Shelf, where each gets its own agent, branch and worktree. There's no form: a repo with no tasks starts you on a terminal where you run your agent and tell it what you want.
+A **task** is one agent's work in one repo. Agents make tasks: they add them to the repo's **backlog**, and you move the ones you want to the Shelf, where each gets its own agent, branch and worktree. There's no form: you tell the window's [planning agent](desk.md#4-the-planning-agent) what you want, and it makes the tasks.
 
-![A repo with no tasks: a terminal for your agent, and how to start](task-start.png)
+![A window with nothing in it: the planning agent's terminal prints how to start, then runs the agent](task-start.png)
 
-![An empty Desk: the Shelf's tasks above, the backlog below](task-backlog.png)
+![An empty Desk: the planning agent, and the Shelf's tasks above the backlog](task-backlog.png)
 
 ## Contents
 
@@ -44,10 +44,11 @@ stateDiagram-v2
 
 ## 2. How tasks are made
 
-- **By an agent:** `kanna task new "NAME" "FIRST MESSAGE"` adds a task to the backlog of the repo it runs in. An agent planning with you, or one splitting its own work, makes tasks this way.
+- **By an agent:** `kanna task new "NAME" "FIRST MESSAGE"` adds a task to the backlog of the repo it runs in. The planning agent makes them as you plan with it, and a task's agent splitting off its own work does too.
 - **Start a task** (⌘N on a Desk, where it takes over from New Window; or the button on an empty Desk): a new task on this Desk with an agent in its own worktree and no first message. You tell the agent what to do; it names the task.
-- **A repo with no tasks** starts on a task with a plain terminal and a Getting started tab (pictured above): when Kanna opens with nothing, and when a Desk empties with no tasks running or waiting. You `cd` to your repo and run your agent there; the Desk follows the terminal's folder.
-- **`kanna PATH` opens a Desk on a project:** a new window on the project PATH is in, with nothing docked. It shows the project's Shelf and backlog, or the starter terminal (in PATH) when the project has no tasks, and takes none of its three running slots. The window keeps the project across a relaunch, until a task from another project is pulled onto it.
+- **A window with nothing in it** starts on the Shelf with its planning agent (pictured above): when Kanna opens with nothing, and in every new Desk window. With no tasks running or waiting, its terminal first prints how to start ([`getting-started.md`](../../apps/kanna/Resources/getting-started.md)).
+- **`kanna PATH` opens a Desk on a project:** a new window on the project PATH is in, with nothing docked: its planning agent (in PATH) beside the project's Shelf and backlog, taking none of its three running slots. The window keeps the project across a relaunch, until a task from another project is pulled onto it. Run by the planning agent of a window with no project, it gives that window the project instead, and the planning agent starts again in PATH.
+- **A new or empty project** (an empty folder, or not a git repo yet): the planning agent helps you decide what it is, sets it up (`git init` and a first commit only when you agree), and turns the plan into backlog tasks, with Kanna's `kanna-new-project` skill.
 
 ## 3. The backlog
 
@@ -58,7 +59,7 @@ stateDiagram-v2
 ## 4. Naming
 
 - **The agent names its task** with `kanna task name "NAME"` once it knows what the work is. Until then it shows its agent's terminal title as is, status glyph and all (`◑ Claude Code`), or "New task" when there isn't one.
-- **It learns how from Kanna's `kanna-tasks` skill** ([`.agents/kanna-skills/skills/kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md)), which also tells it to write backlog first messages that stand alone and to leave starting tasks to you.
+- **It learns how from Kanna's `kanna-tasks` skill** ([`.agents/kanna-skills/skills/kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md)), which also tells it to write backlog first messages that stand alone and to leave starting tasks to you. The planning agent has its own, [`kanna-planning`](../../.agents/kanna-skills/skills/kanna-planning/SKILL.md), and [`kanna-new-project`](../../.agents/kanna-skills/skills/kanna-new-project/SKILL.md) for a project that's empty or not a repo yet.
 - **A backlog task's name** is the one its maker gave it, kept when it starts.
 - **The agent renames its branch** too, with `git branch -m NEW` in its worktree, from `task-3f9a1c2e` to a short name for the work. The worktree's folder keeps its name: the agent and its terminals are in it.
 
@@ -81,7 +82,7 @@ stateDiagram-v2
 | `kanna task defer [TASK]` | Move a running task back to the backlog, keeping its worktree and its claude session (default: the one you're in) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
 
-`park` and `pull` are the [Desk's](desk.md#4-cli).
+`park` and `pull` are the [Desk's](desk.md#5-cli).
 
 ## 7. How it's built
 
@@ -89,10 +90,12 @@ stateDiagram-v2
 flowchart TB
     CLI["kanna task new / start / name"] --> D
     APP["Kanna.app: empty Desk"] --> D
+    APP -->|"plan: the window's planning agent"| D
     D["daemon: the backlog<br/>ID · name · repo · first message · maker"] -->|"start: git worktree add, open --dock on the Shelf"| L["layout: Desk / Shelf"]
 ```
 
 - **The daemon keeps the backlog**, saved with the terminals, so agents add tasks with or without the app.
+- **The daemon starts planning agents** (`backlog` `plan`): it makes the command (the getting-started text when asked, the agent with its first message and a claude session ID, and the wait-and-resume loop when it exits) and opens it as the window's planner in the project's folder.
 - **A running task is its docked agent pane**, as on the [Desk](desk.md): its name is the pane's name, its repo the pane's folder.
 - **Only a task's agent docks.** `kanna move PANE --dock` moves the docked pane to the other edge or another window, and refuses any other pane (`not_a_task`), so a task starts only by starting one and the limit holds.
 - **Starting** a backlog task checks the limit, runs `git worktree add`, opens the agent docked straight onto the Shelf in that folder with the first message, names the pane, and drops the backlog entry.
