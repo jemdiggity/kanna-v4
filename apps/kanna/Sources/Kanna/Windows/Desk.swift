@@ -234,6 +234,7 @@ extension AppController {
         request("open", args) { [weak self] reply in
             guard let self else { return }
             starting.remove(key)
+            if let window { noted(window, reply) }
             guard reply["ok"]?.bool == true, let placed = reply["window"]?.string,
                   let guide = Bundle.main.url(forResource: "getting-started", withExtension: "md") else { return }
             request("open", ["type": "md", "path": .string(guide.path), "window": .string(placed), "tab": true])
@@ -241,7 +242,7 @@ extension AppController {
     }
 
     func wantsStarter(_ window: JSON, root: String?) -> Bool {
-        guard window["desk"]?.bool == true, window["dock"] == nil, case .array(let tabs)? = window["tabs"], tabs.isEmpty else { return false }
+        guard window["desk"]?.bool == true, window["dock"]?["pane"] == nil, case .array(let tabs)? = window["tabs"], tabs.isEmpty else { return false }
         return runningTasks(in: root) == 0 && backlogTasks(in: root).isEmpty
     }
 }
