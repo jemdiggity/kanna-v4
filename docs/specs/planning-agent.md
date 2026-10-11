@@ -18,8 +18,7 @@ Each Desk window has a **planning terminal**: while no task is on the Desk, it's
 6. [Skills](#6-skills)
 7. [How it's built](#7-how-its-built)
 8. [Rejected](#8-rejected)
-9. [Open questions](#9-open-questions)
-10. [Glossary](#10-glossary)
+9. [Glossary](#9-glossary)
 
 ## 1. When it shows
 
@@ -79,7 +78,7 @@ Kanna's settings live in `~/.kanna-v4/config.json`, and a repo can override them
 
 | Key | Default | Does |
 |---|---|---|
-| `planning.context` | `300000` | Tokens a claude agent's context grows to in the planning terminal before it compacts, from 100000 to 1000000, or `"auto"` for claude's own. A long-lived agent works better kept small (context rot). Kanna sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the terminal, unless your environment already sets it. A value out of range uses the default, and the daemon's log says so. |
+| `planning.context` | `300000` | Tokens a claude agent's context grows to in the planning terminal before it compacts, from 100000 to 1000000, or `"auto"` for claude's own. A long-lived agent works better kept small (context rot). Kanna sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the terminal, unless your environment already sets it. A value out of range uses the default, and the daemon's log says so. Other agents keep their own limit (codex's is already shorter); each gets this setting as Kanna supports it. |
 
 ## 6. Skills
 
@@ -115,11 +114,7 @@ flowchart TB
 - **Tabs on the Shelf** (⌘T there, covering the full Shelf until closed): the Shelf is the Shelf; work with tabs belongs to a task.
 - **Settings in `~/.config/kanna/`:** `~/.kanna-v4/` and a repo's `.kanna/` keep Kanna's settings together, with a repo override beside the repo's other Kanna files.
 
-## 9. Open questions
-
-1. **Context limits for other agents:** `planning.context` is claude's `CLAUDE_CODE_AUTO_COMPACT_WINDOW`; codex and others need their own, if they have one.
-
-## 10. Glossary
+## 9. Glossary
 
 | Term | Meaning |
 |---|---|
