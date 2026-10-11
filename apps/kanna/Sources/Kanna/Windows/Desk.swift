@@ -243,7 +243,7 @@ extension AppController {
         }
         request("backlog", args) { [weak self] reply in
             guard let self else { return }
-            starting.remove(window)
+            if reply["ok"]?.bool == true { starting.remove(window) }
             noted(window, reply)
         }
     }
