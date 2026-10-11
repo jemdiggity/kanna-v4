@@ -130,54 +130,116 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .shelf .spacer { flex: 1; }
 .shelf .hint { color: var(--muted); white-space: nowrap; }
 
+
+.stage { display: flex; flex-direction: column; gap: 22px; }
+.window.key { outline: 2px solid var(--accent); outline-offset: 3px; }
+body.picture .window.key { outline: 0; }
+.window.flash { animation: flash .9s ease-out; }
+@keyframes flash { 0% { outline-color: var(--warn); outline-width: 5px; } 100% { outline-color: var(--accent); outline-width: 2px; } }
+.lights i.close { background: #ef6b6b; cursor: pointer; }
+body.picture .lights i.close { background: var(--line); }
+.bar .wid { color: var(--muted); font: 11px var(--mono); }
+body.picture .bar .wid { display: none; }
+.grip { flex: 0 0 5px; margin: 0 -2px; cursor: col-resize; position: relative; z-index: 2; }
+.grip:hover, .grip.drag { background: var(--tint); }
+.agent { border-right: 0; }
+.docs { border-left: 1px solid var(--line); }
+.cmd { display: flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin-top: 8px; }
+.cmd input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text); font: 12px var(--mono); }
+.cmd input::placeholder { color: var(--muted); }
+body.picture .cmd input::placeholder { color: transparent; }
+.term .out { color: var(--muted); }
+.doc a { color: var(--accent); cursor: pointer; text-decoration: none; }
+.doc a:hover { text-decoration: underline; }
+.keys { color: var(--muted); font-size: 12px; margin: -6px 0 14px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.keys kbd { font: 11px var(--mono); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; background: var(--panel2); }
+.keys .proposed { color: var(--warn); }
+.nowin { color: var(--muted); padding: 40px; text-align: center; border: 1px dashed var(--line); border-radius: 10px; }
+.shelf .item.needs { color: var(--warn); }
 </style>
 </head>
 <body>
 <main>
   <div class="intro">
     <h1>Desk: one task per window, the rest on the Shelf</h1>
-    <p>A task is what a Desk holds: its agent, docked on the left, and its tabs. The Desk shows one; the Shelf below holds the others, their agents still running. Click a Shelf item to swap, or Park to clear the Desk.</p>
+    <p>A task is what a Desk holds: its agent, docked on the left, and its tabs. The Desk shows one; the Shelf below holds the project's other tasks, their agents still running. Click a Shelf item to swap, Park to clear the Desk, drag the line between the agent and the tabs, or type a <code>kanna</code> command in the agent's pane as the agent would.</p>
     <div class="controls">
       <button id="theme">Light / dark</button>
-      <button id="park">Park</button>
-      <button id="ring" title="A parked task's agent stops to ask you something: its Shelf item turns orange, needs you">Simulate: a parked agent needs you</button>
+      <button id="newwin">New Desk window</button>
+      <button id="ring" title="A parked task's agent stops to ask you something: it moves to the front of the Shelf, needs you">Simulate: a parked agent needs you</button>
       <button id="reset">Reset</button>
     </div>
-  </div>
-  <div class="window" id="win">
-    <div class="bar">
-      <span class="lights"><i></i><i></i><i></i></span>
-      <span class="where" id="where"></span>
-      <span class="spacer"></span>
+    <div class="keys">
+      <span><kbd>⌘1</kbd>…<kbd>⌘9</kbd> pull the Shelf's 1st…9th</span>
+      <span class="proposed">proposed:</span>
+      <span><kbd>⌘.</kbd> Park</span>
+      <span><kbd>⇧⌘→</kbd> <kbd>⇧⌘←</kbd> next / previous Shelf task</span>
+      <span><kbd>⇧⌘A</kbd> the task waiting longest for you</span>
     </div>
-    <div id="desk" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>
-    <div class="shelf" id="shelf"></div>
   </div>
+  <div class="stage" id="stage"></div>
 </main>
 <script>
-const initial = () => ({
-  desk: "doc-markup",
-  tasks: [
-    { id: "doc-markup", title: "Doc markup reference model", repo: "kanna-v4", branch: "main", agent: "claude", status: "working", parked: null, kind: "doc" },
-    { id: "tab-bar-light", title: "Tab bar follows light mode", repo: "kanna-v4", branch: "tab-bar-light", agent: "codex", status: "idle", parked: "12m", kind: "web" },
-    { id: "s30-colours", title: "S30 colour queries fail", repo: "kanna-v4", branch: "s30-colours", agent: "claude", status: "idle", parked: "1h", kind: "doc" },
-  ],
-});
+const MIN = 60000;
+const initial = () => {
+  const now = Date.now();
+  return {
+    project: "kanna-v4",
+    key: "w1",
+    windows: [{ id: "w1", desk: "p1" }],
+    order: ["p7", "p4"],
+    nextWindow: 2,
+    nextPane: 10,
+    tasks: [
+      { id: "p1", title: "Doc markup reference model", branch: "main", agent: "claude", status: "working", parkedAt: null, width: 0.38,
+        tabs: ["docs/specs/doc-markup.md", "references/mockups/doc-markup.html", "docs/specs/doc-markup.png", "tests"], active: "docs/specs/doc-markup.md", log: [] },
+      { id: "p4", title: "Tab bar follows light mode", branch: "tab-bar-light", agent: "codex", status: "idle", parkedAt: now - 12 * MIN, width: 0.38,
+        tabs: ["localhost:5173", "target/tmp/s36-2-light.png"], active: "localhost:5173", log: [] },
+      { id: "p7", title: "S30 colour queries fail", branch: "s30-colours", agent: "claude", status: "idle", parkedAt: now - 64 * MIN, width: 0.32,
+        tabs: ["docs/kanna-spec.md", "tests"], active: "tests", log: [] },
+    ],
+  };
+};
 let s = initial();
 const statusText = { working: "working", needs: "needs you", idle: "idle", exited: "exited" };
 const task = id => s.tasks.find(t => t.id === id);
+const win = id => s.windows.find(w => w.id === id);
+const deskOf = id => s.windows.find(w => w.desk === id);
+const keyWin = () => win(s.key) || s.windows[0];
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ago = t => { const m = Math.max(0, Math.round((Date.now() - t.parkedAt) / MIN)); return m < 1 ? "now" : m < 60 ? m + "m" : Math.round(m / 60) + "h"; };
+
+function shelf() {
+  const parked = s.order.map(task).filter(t => t && !deskOf(t.id));
+  return parked.filter(t => t.status === "needs").concat(parked.filter(t => t.status !== "needs"));
+}
 
 function render() {
-  const t = task(s.desk);
-  document.getElementById("where").innerHTML = t ? `<b>${t.title}</b>` : "<b>Shelf</b>";
-  const desk = document.getElementById("desk");
-  desk.innerHTML = t ? deskHTML(t) : emptyHTML();
-  desk.querySelectorAll("[data-pull]").forEach(el => el.onclick = () => pull(el.dataset.pull));
-  renderShelf();
+  const stage = document.getElementById("stage");
+  stage.innerHTML = s.windows.length ? s.windows.map(windowHTML).join("") : `<div class="nowin">No Desk windows. <button id="again">New Desk window</button></div>`;
+  const again = document.getElementById("again");
+  if (again) again.onclick = newWindow;
+}
+
+function windowHTML(w) {
+  const t = task(w.desk);
+  return `<div class="window ${w.id === s.key && s.windows.length > 1 ? "key" : ""}" id="${w.id}" data-win="${w.id}">
+    <div class="bar"><span class="lights"><i class="close" data-closewin="${w.id}" title="Close window (parks its task)"></i><i></i><i></i></span>
+      <span class="where"><b>${t ? esc(t.title) : "Shelf"}</b></span><span class="spacer"></span><span class="wid">${w.id}</span></div>
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0">${t ? deskHTML(t) : emptyHTML()}</div>
+    <div class="shelf" ${t ? "" : "hidden"}>${shelfHTML()}</div>
+  </div>`;
+}
+
+function shelfHTML() {
+  return shelf().map((t, i) => {
+    const meta = t.status === "needs" ? "needs you" : "parked " + ago(t);
+    return `<span class="item ${t.status === "needs" ? "needs" : ""}" data-pull="${t.id}" title="${meta}"><span class="dot ${t.status}"></span>${esc(t.title)}<span class="meta">· ${meta}</span>${i < 9 ? `<span class="kb">⌘${i + 1}</span>` : ""}</span>`;
+  }).join("");
 }
 
 function agentTerm(t) {
-  if (t.id === "doc-markup") return [
+  const head = t.id === "p1" ? [
     `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> claude`,
     ``,
     `<span class="p">&gt;</span> [kanna comment c2 · docs/specs/doc-markup.md:58]`,
@@ -188,79 +250,44 @@ function agentTerm(t) {
     `  kanna markup reply c2 "Added: the toolbar says it wasn't sent."`,
     ``,
     `<span class="m">✻</span> <span class="g">Working… reading the prototype README</span>`,
-    `<div class="box"><span class="p">&gt;</span> <span class="g">Try "add a test for detached threads"</span></div>`,
-  ].join("\n");
-  return [
+  ] : [
     `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> ${t.agent}`,
     ``,
-    `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : "Done. S36 passes; screenshots in light and dark attached."}`,
-    `<div class="box"><span class="p">&gt;</span> <span class="g">…</span></div>`,
-  ].join("\n");
+    `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : t.id === "p4" ? "Done. S36 passes; screenshots in light and dark attached." : "Found it: the query answers before the theme loads."}`,
+  ];
+  return head.concat(t.log).join("\n") + `<div class="cmd"><span class="p">&gt;</span><input data-cmd="${t.id}" placeholder="kanna task list · kanna open md docs/specs/desk.md · kanna task park" spellcheck="false" autocomplete="off"></div>`;
 }
 
-const opened = {
-  "doc-markup": ["docs/specs/doc-markup.md", "references/mockups/doc-markup.html", "docs/specs/doc-markup.png", "tests"],
-  "tab-bar-light": ["localhost:5173", "target/tmp/s36-2-light.png"],
-  "s30-colours": ["docs/kanna-spec.md", "tests"],
-};
-const active = { "doc-markup": "docs/specs/doc-markup.md", "tab-bar-light": "localhost:5173", "s30-colours": "tests" };
-const kindOf = f => f === "tests" ? "term" : f.startsWith("localhost") || f.endsWith(".html") ? "web" : f.endsWith(".png") ? "img" : f.endsWith(".md") ? "md" : "text";
-const icon = { md: "¶", web: "◎", img: "▣", term: "›_", text: "≡" };
-const label = f => f === "tests" ? "tests" : f.split("/").pop();
+const kindOf = f => f === "tests" || f.startsWith("shell") ? "term" : f.startsWith("localhost") || f.startsWith("http") || f.endsWith(".html") ? "web" : /\.(png|jpg|gif|pdf|mp4)$/.test(f) ? "img" : f.endsWith(".md") ? "md" : "text";
+const label = f => kindOf(f) === "term" ? f : f.split("/").pop();
 
 function viewHTML(f) {
   const k = kindOf(f);
-  if (k === "md" && f.endsWith("doc-markup.md")) return `<div class="doc"><h2>Doc Markup</h2><p class="sub">Comment on a markdown file in its pane, and the agent that opened it answers.</p>
+  if (k === "md" && f.endsWith("doc-markup.md")) return `<div class="doc"><h2>Doc Markup</h2><p class="sub">Comment on a markdown file in its pane, and the agent that opened it answers. Builds on the <a data-link="docs/specs/docked-pane.md">docked pane</a> and <a data-link="docs/specs/agent-status.md">agent status</a>.</p>
     <h3>Reaching the agent</h3><ul><li><mark>A comment is typed into the agent that opened the doc</mark>, as kanna send would, the moment you post it.</li><li>Sent at once, never held. Claude Code and Codex queue input that arrives during a turn.</li><li>No agent: posting still saves the thread, and the toolbar says it wasn't sent.</li></ul>
     <h3>How it's built</h3><p>Threads live in the daemon, beside the terminals they're typed into, so reply and resolve work the same with the app closed.</p></div>
     <div class="threads"><div class="card"><div class="h">c3 · line 54</div><div class="q">A comment is typed into the agent that opened the doc</div><div><b>you</b> What if that pane was restarted?</div></div></div>`;
-  if (k === "md") return `<div class="doc"><h2>${label(f).replace(".md", "")}</h2><p class="sub">${f}</p><p>Rendered markdown, with comments, as any markdown pane.</p></div>`;
+  if (k === "md") return `<div class="doc"><h2>${esc(label(f).replace(".md", ""))}</h2><p class="sub">${esc(f)}</p><p>Rendered markdown, with comments, as any markdown pane. Links open tabs too: <a data-link="docs/specs/desk.md">desk.md</a>, <a data-link="docs/specs/doc-markup.md">doc-markup.md</a>.</p></div>`;
   if (k === "web") return `<div class="web"><div class="site"><div class="row acc"></div><div class="row"></div><div class="row short"></div><div class="row"></div></div></div>`;
-  if (k === "img") return `<div class="imgview"><div class="shot">${label(f)}</div></div>`;
-  if (k === "term") return `<div class="tterm"><span class="c">~/work/kanna-v4</span> <span class="p">❯</span> cargo test -p kanna-daemon\n<span class="g">running 48 tests</span>\n<span class="ok">test result: ok. 48 passed</span></div>`;
-  return `<div class="tterm">${f}</div>`;
-}
-
-function docsHTML(t) {
-  const list = opened[t.id], cur = active[t.id];
-  return `<div class="docs">
-    <div class="dtabs">${list.map((f, i) => `<div class="dtab ${f === cur ? "on" : ""}" data-tab="${f}"><span class="ic">${icon[kindOf(f)]}</span><span class="nm">${label(f)}</span><span class="x" data-close="${f}">×</span></div>`).join("")}<span class="add" title="New tab">+</span></div>
-    <div class="dbody"><div class="view">${viewHTML(cur)}</div></div></div>`;
+  if (k === "img") return `<div class="imgview"><div class="shot">${esc(label(f))}</div></div>`;
+  if (f === "tests") return `<div class="tterm"><span class="c">~/work/kanna-v4</span> <span class="p">❯</span> cargo test -p kanna-daemon\n<span class="g">running 48 tests</span>\n<span class="ok">test result: ok. 48 passed</span></div>`;
+  if (k === "term") return `<div class="tterm"><span class="c">~/work/kanna-v4</span> <span class="p">❯</span> </div>`;
+  return `<div class="tterm">${esc(f)}</div>`;
 }
 
 function deskHTML(t) {
-  return `<div class="content">
-    <div class="agent">
-      <div class="head">~/work/${t.repo} · ${t.branch}<span class="spacer"></span><span class="pill icon" data-park title="Park"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5.5 5.5 8 8l2.5-2.5"/><path d="M5 11h6" stroke-width="2"/></svg></span></div>
+  return `<div class="content" data-content="${t.id}">
+    <div class="agent" style="flex:0 0 ${(t.width * 100).toFixed(1)}%">
+      <div class="head">~/work/${s.project} · ${esc(t.branch)}<span class="spacer"></span><span class="pill icon" data-park="${t.id}" title="Park"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5.5 5.5 8 8l2.5-2.5"/><path d="M5 11h6" stroke-width="2"/></svg></span></div>
       <div class="term">${agentTerm(t)}</div>
     </div>
-    ${docsHTML(t)}
+    <div class="grip" data-grip="${t.id}" title="Drag to resize; the width is this task's"></div>
+    <div class="docs">
+      <div class="dtabs">${t.tabs.map(f => `<div class="dtab ${f === t.active ? "on" : ""}" data-tab="${esc(f)}" data-task="${t.id}"><span class="nm">${esc(label(f))}</span><span class="x" data-close="${esc(f)}" data-task="${t.id}">×</span></div>`).join("")}<span class="add" data-add="${t.id}" title="New tab">+</span></div>
+      <div class="dbody"><div class="view">${viewHTML(t.active)}</div></div>
+    </div>
   </div>`;
 }
-
-function openDoc(f) {
-  const t = task(s.desk);
-  if (!opened[t.id].includes(f)) opened[t.id].push(f);
-  active[t.id] = f;
-  render();
-}
-function closeDoc(f) {
-  const t = task(s.desk), list = opened[t.id], i = list.indexOf(f);
-  list.splice(i, 1);
-  if (active[t.id] === f) active[t.id] = list[Math.min(i, list.length - 1)] || "tests";
-  if (!list.length) list.push("tests");
-  render();
-}
-document.addEventListener("click", e => {
-  const close = e.target.closest("[data-close]");
-  if (close) { e.stopPropagation(); return closeDoc(close.dataset.close); }
-  const tab = e.target.closest("[data-tab]"); if (tab) return openDoc(tab.dataset.tab);
-});
-document.addEventListener("keydown", e => {
-  if (!e.metaKey || !/^[1-9]$/.test(e.key)) return;
-  const t = s.tasks.filter(t => t.id !== s.desk)[Number(e.key) - 1];
-  if (t) { e.preventDefault(); pull(t.id); }
-});
 
 const cheers = [
   "Clear desk, clear mind. Pick what's next.",
@@ -271,45 +298,210 @@ const cheers = [
   "Breathe. Then pick the next one.",
 ];
 let cheerAt = location.hash.includes("picture") ? 0 : Math.floor(Math.random() * cheers.length);
-const cheer = () => cheers[cheerAt];
 
 function emptyHTML() {
-  const waiting = s.tasks.filter(t => t.id !== s.desk);
-  const byRepo = {};
-  waiting.forEach(t => (byRepo[t.repo] = byRepo[t.repo] || []).push(t));
-  return `<div class="empty"><p class="sub">${cheer()}</p>
-    ${Object.entries(byRepo).map(([repo, list]) => `<div class="group"><div class="gh"><span><b>~/work/${repo}</b></span><span>${list.length} parked</span></div>
-      ${list.map(t => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${t.title}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${t.parked || "now"} · ${t.branch}</div></div><span class="go">Pull →</span></div>`).join("")}</div>`).join("")}</div>`;
+  const list = shelf();
+  return `<div class="empty"><p class="sub">${cheers[cheerAt]}</p>
+    <div class="group"><div class="gh"><span><b>~/work/${s.project}</b></span><span>${list.length} parked</span></div>
+      ${list.map((t, i) => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${esc(t.title)}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${ago(t)} · ${esc(t.branch)}</div></div><span class="go">${i < 9 ? `⌘${i + 1} · ` : ""}Pull →</span></div>`).join("") || `<div class="s" style="color:var(--muted)">No tasks. Start one with <code>kanna open --dock --cmd claude</code>.</div>`}</div></div>`;
 }
 
-function renderShelf() {
-  const shelf = document.getElementById("shelf");
-  shelf.hidden = !task(s.desk);
-  const parked = s.tasks.filter(t => t.id !== s.desk);
-  shelf.innerHTML = parked.map((t, i) => `<span class="item" data-pull="${t.id}" title="${t.status === "needs" ? "needs you" : "parked " + (t.parked || "now")}"><span class="dot ${t.status}"></span>${t.title}<span class="meta">· ${t.status === "needs" ? "needs you" : "parked " + (t.parked || "now")}</span>${i < 9 ? `<span class="kb">⌘${i + 1}</span>` : ""}</span>`).join("");
-  shelf.querySelectorAll("[data-pull]").forEach(el => el.onclick = () => pull(el.dataset.pull));
-  document.querySelectorAll("[data-park]").forEach(el => el.onclick = park);
+function parkTask(t) {
+  t.parkedAt = Date.now();
+  s.order = s.order.filter(id => id !== t.id).concat(t.id);
 }
 
-function pull(id) {
-  const cur = task(s.desk);
-  if (cur) cur.parked = "now";
-  s.desk = id;
+function bringForward(w) {
+  s.key = w.id;
+  render();
+  const el = document.getElementById(w.id);
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add("flash");
+}
+
+function pull(id, into) {
   const t = task(id);
-  t.parked = null;
+  if (!t) return;
+  const w = win(into) || keyWin();
+  if (!w) return;
+  const there = deskOf(id);
+  if (there && there.id !== w.id) return bringForward(there);
+  if (there) return;
+  const cur = task(w.desk);
+  if (cur) parkTask(cur);
+  s.order = s.order.filter(x => x !== id);
+  t.parkedAt = null;
   if (t.status === "needs") t.status = "idle";
+  w.desk = id;
+  s.key = w.id;
   render();
 }
-function park() { const cur = task(s.desk); if (cur) { cur.parked = "now"; s.desk = null; cheerAt = (cheerAt + 1) % cheers.length; } render(); }
 
-document.getElementById("park").onclick = park;
-document.getElementById("ring").onclick = () => { const t = s.tasks.find(t => t.id !== s.desk); if (t) { t.status = "needs"; render(); } };
+function park(id) {
+  const w = id ? deskOf(id) : keyWin();
+  const t = w && task(w.desk);
+  if (!t) return;
+  parkTask(t);
+  w.desk = null;
+  s.key = w.id;
+  cheerAt = (cheerAt + 1) % cheers.length;
+  render();
+}
+
+function done(id) {
+  const w = deskOf(id);
+  if (w) w.desk = null;
+  s.tasks = s.tasks.filter(t => t.id !== id);
+  s.order = s.order.filter(x => x !== id);
+  render();
+}
+
+function openTab(t, f) {
+  if (!t.tabs.includes(f)) t.tabs.push(f);
+  t.active = f;
+  render();
+}
+
+function closeTab(t, f) {
+  const i = t.tabs.indexOf(f);
+  t.tabs.splice(i, 1);
+  if (!t.tabs.length) t.tabs.push("shell");
+  if (t.active === f) t.active = t.tabs[Math.min(i, t.tabs.length - 1)];
+  render();
+}
+
+function newWindow() {
+  const id = "w" + s.nextWindow++;
+  s.windows.push({ id, desk: null });
+  s.key = id;
+  render();
+  document.getElementById(id).scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function closeWindow(id) {
+  const w = win(id), t = w && task(w.desk);
+  if (t) parkTask(t);
+  s.windows = s.windows.filter(x => x.id !== id);
+  if (s.key === id) s.key = s.windows.length ? s.windows[s.windows.length - 1].id : null;
+  render();
+}
+
+function step(dir) {
+  const list = shelf();
+  if (!list.length) return;
+  const w = keyWin();
+  if (!w) return;
+  pull(dir > 0 ? list[0].id : list[list.length - 1].id, w.id);
+}
+
+function waitingLongest() {
+  const t = s.order.map(task).filter(t => t && !deskOf(t.id) && t.status === "needs").sort((a, b) => (a.needsAt || 0) - (b.needsAt || 0))[0];
+  if (t) pull(t.id);
+}
+
+function run(t, line) {
+  const words = line.trim().split(/\s+/);
+  const say = text => t.log.push(`<span class="p">❯</span> ${esc(line.trim())}`, ...text.split("\n").map(l => `<span class="out">${esc(l)}</span>`));
+  if (words[0] !== "kanna") { say("(typed to the agent)"); return render(); }
+  const [, cmd, sub, arg, more] = words;
+  if (cmd === "task" && sub === "list") {
+    say(["ID   WHERE   STATUS     NAME"].concat(s.tasks.map(x => `${x.id.padEnd(4)} ${(deskOf(x.id) ? deskOf(x.id).id : "Shelf").padEnd(7)} ${statusText[x.status].padEnd(10)} ${x.title}`)).join("\n"));
+    return render();
+  }
+  if (cmd === "task" && sub === "pull") {
+    if (!task(arg)) { say(`kanna: no task "${arg || ""}"`); return render(); }
+    const into = keyWin(), there = deskOf(arg);
+    say(there && there.id !== into.id ? `${arg} is on ${there.id}'s Desk: brought that window forward` : there ? `${arg} is already on this Desk` : `pulled ${arg} onto ${into.id}'s Desk`);
+    return pull(arg, into.id);
+  }
+  if (cmd === "task" && sub === "park") {
+    const id = arg || t.id;
+    if (!task(id)) { say(`kanna: no task "${id}"`); return render(); }
+    say(`parked ${id}`);
+    return deskOf(id) ? park(id) : render();
+  }
+  if (cmd === "task" && sub === "done") {
+    const id = arg || t.id;
+    if (!task(id)) { say(`kanna: no task "${id}"`); return render(); }
+    say(`done: closed ${id}'s panes`);
+    return done(id);
+  }
+  if (cmd === "open" && (sub === "md" || sub === "web") && arg) {
+    say(`opened ${arg} in a tab`);
+    return openTab(t, arg);
+  }
+  if (cmd === "open" && sub === "--dock") {
+    const id = "p" + s.nextPane++;
+    s.tasks.push({ id, title: more ? more : "new task", branch: "main", agent: "claude", status: "working", parkedAt: Date.now(), width: 0.38, tabs: ["shell"], active: "shell", log: [] });
+    s.order.push(id);
+    say(`opened ${id}, docked: a new task on the Shelf`);
+    return render();
+  }
+  say("kanna: try task list|pull ID|park [ID]|done [ID], open md|web FILE");
+  render();
+}
+
+document.addEventListener("click", e => {
+  const el = sel => e.target.closest(sel);
+  const w = el("[data-win]");
+  if (w && w.dataset.win !== s.key && !el("[data-closewin]")) { s.key = w.dataset.win; }
+  if (el("[data-closewin]")) return closeWindow(el("[data-closewin]").dataset.closewin);
+  if (el("[data-park]")) return park(el("[data-park]").dataset.park);
+  if (el("[data-pull]")) return pull(el("[data-pull]").dataset.pull, w && w.dataset.win);
+  if (el("[data-close]")) { e.stopPropagation(); const c = el("[data-close]"); return closeTab(task(c.dataset.task), c.dataset.close); }
+  if (el("[data-tab]")) { const c = el("[data-tab]"); return openTab(task(c.dataset.task), c.dataset.tab); }
+  if (el("[data-add]")) { const t = task(el("[data-add]").dataset.add); let n = 1; while (t.tabs.includes(n === 1 ? "shell" : "shell " + n)) n++; return openTab(t, n === 1 ? "shell" : "shell " + n); }
+  if (el("[data-link]")) { const t = task(keyWin().desk); return t && openTab(t, el("[data-link]").dataset.link); }
+  if (w) render();
+});
+
+document.addEventListener("keydown", e => {
+  const input = e.target.closest && e.target.closest("[data-cmd]");
+  if (input && e.key === "Enter" && input.value.trim()) {
+    const t = task(input.dataset.cmd), line = input.value;
+    s.key = deskOf(t.id) ? deskOf(t.id).id : s.key;
+    run(t, line);
+    const again = document.querySelector(`[data-cmd="${t.id}"]`);
+    if (again) again.focus();
+    return;
+  }
+  if (!e.metaKey) return;
+  if (!e.shiftKey && /^[1-9]$/.test(e.key)) {
+    const t = shelf()[Number(e.key) - 1];
+    if (t) { e.preventDefault(); pull(t.id); }
+  } else if (!e.shiftKey && e.key === ".") { e.preventDefault(); park(); }
+  else if (e.shiftKey && e.key === "ArrowRight") { e.preventDefault(); step(1); }
+  else if (e.shiftKey && e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+  else if (e.shiftKey && e.key.toLowerCase() === "a") { e.preventDefault(); waitingLongest(); }
+});
+
+let drag = null;
+document.addEventListener("mousedown", e => {
+  const g = e.target.closest("[data-grip]");
+  if (!g) return;
+  e.preventDefault();
+  drag = { t: task(g.dataset.grip), box: g.parentElement.getBoundingClientRect(), grip: g };
+  g.classList.add("drag");
+});
+document.addEventListener("mousemove", e => {
+  if (!drag) return;
+  drag.t.width = Math.min(0.7, Math.max(0.2, (e.clientX - drag.box.left) / drag.box.width));
+  drag.grip.previousElementSibling.style.flex = `0 0 ${(drag.t.width * 100).toFixed(1)}%`;
+});
+document.addEventListener("mouseup", () => { if (drag) { drag.grip.classList.remove("drag"); drag = null; } });
+
+document.getElementById("newwin").onclick = newWindow;
+document.getElementById("ring").onclick = () => {
+  const t = shelf().filter(t => t.status !== "needs").pop();
+  if (t) { t.status = "needs"; t.needsAt = Date.now(); render(); }
+};
 document.getElementById("theme").onclick = () => { const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "" : "light"; };
 document.getElementById("reset").onclick = () => { s = initial(); render(); };
 if (location.hash.includes("picture")) document.body.classList.add("picture");
 if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
-if (location.hash.includes("empty")) { s.desk = null; }
-if (location.hash.includes("needs")) s.tasks[1].status = "needs";
+if (location.hash.includes("empty")) { parkTask(task("p1")); s.windows[0].desk = null; }
+if (location.hash.includes("needs")) { task("p7").status = "needs"; task("p7").needsAt = Date.now(); }
+setInterval(() => { if (!drag && !document.activeElement?.closest?.("[data-cmd]")) render(); }, 30000);
 render();
 </script>
 </body>
