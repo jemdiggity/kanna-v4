@@ -20,16 +20,26 @@ struct GitPlace: Equatable {
     }
 
     private static func gitdir(from file: URL, base: URL) -> URL? {
-        guard let text = try? String(contentsOf: file, encoding: .utf8), let line = text.split(separator: "\n").first, line.hasPrefix("gitdir: ") else { return nil }
+        guard let text = small(file), let line = text.split(separator: "\n").first, line.hasPrefix("gitdir: ") else { return nil }
         let path = String(line.dropFirst("gitdir: ".count)).trimmingCharacters(in: .whitespaces)
         return path.hasPrefix("/") ? URL(fileURLWithPath: path) : base.appendingPathComponent(path).standardizedFileURL
     }
 
     private static func branch(_ dir: URL) -> String? {
-        guard let head = try? String(contentsOf: dir.appendingPathComponent("HEAD"), encoding: .utf8) else { return nil }
-        let text = head.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("ref: refs/heads/") { return String(text.dropFirst("ref: refs/heads/".count)) }
-        return String(text.prefix(7))
+        guard let text = small(dir.appendingPathComponent("HEAD"))?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        if text.hasPrefix("ref: refs/heads/") {
+            let name = text.dropFirst("ref: refs/heads/".count)
+            return !name.isEmpty && name.unicodeScalars.allSatisfy({ $0.value > 0x20 && $0.value != 0x7f && $0 != "\\" }) ? String(name) : nil
+        }
+        return text.count >= 40 && text.allSatisfy(\.isHexDigit) ? String(text.prefix(7)) : nil
+    }
+
+    private static func small(_ file: URL) -> String? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let size = attributes[.size] as? Int, size <= 4096,
+              let data = FileManager.default.contents(atPath: file.path) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
 

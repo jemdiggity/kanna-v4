@@ -52,6 +52,7 @@ pub struct Placement {
     pub size: f64,
     pub new_tab: bool,
     pub dock: Option<Edge>,
+    pub from: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -131,8 +132,11 @@ impl LayoutLink for LocalLayout {
     }
 }
 
-pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>) -> Value {
+pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>, from: Option<&str>) -> Value {
     let mut at = Map::new();
+    if let Some(from) = from {
+        at.insert("from".into(), from.into());
+    }
     if let Some(dock) = dock {
         at.insert("dock".into(), dock.as_str().into());
     }
@@ -212,7 +216,7 @@ pub fn placement(at: &Value) -> Result<Placement, KmuxError> {
         Some(size) => size.as_f64().filter(|s| *s > 0.0 && *s < 1.0).ok_or_else(|| bad("size must be a fraction between 0 and 1"))?,
     };
     let dock = Edge::read(at.get("dock")).map_err(|_| bad("dock must be left or right"))?;
-    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock })
+    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock, from: string(at, "from").map(String::from) })
 }
 
 fn spot(reply: &mut Map, spot: Option<Spot>, window: Option<String>) {

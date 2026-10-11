@@ -515,7 +515,9 @@ impl CoreHandle {
         let turn = self.0.turns.take().await;
         taken(self)?;
         let id = self.state().panes.next_id();
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock)).await?;
+        let placeless = !new_tab && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none();
+        let from = string(args, "from").filter(|_| placeless).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, from.as_deref())).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();

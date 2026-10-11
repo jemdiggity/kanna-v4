@@ -77,6 +77,13 @@ extension AppController {
             ("Zoom Out", #selector(zoomOut), "decrease_font_size:1", .cmd("-")),
             ("Actual Size", #selector(actualSize), "reset_font_size", .cmd("0")),
         ])
+        _ = menu("Task", [
+            ("Park", #selector(parkTask), nil, nil),
+            nil,
+            ("Pull Shelf Task 1", #selector(pullShelf1), "goto_tab:1", .cmd("1")),
+            ("Pull Shelf Task 2", #selector(pullShelf2), "goto_tab:2", .cmd("2")),
+            ("Pull Shelf Task 3", #selector(pullShelf3), "goto_tab:3", .cmd("3")),
+        ])
         let windowMenu = menu("Window", [
             ("New Window", #selector(newWindow), "new_window", .cmd("n")),
             ("Close Window", #selector(closeWindow), "close_window", .shiftCmd("w")),
@@ -186,6 +193,10 @@ extension AppController {
         case #selector(closeFocusedPane): return focusedPane.map { !docked($0) } ?? false
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
+        case #selector(parkTask): return keyWindow?["dock"] != nil
+        case #selector(pullShelf1): return shelfPull(1) != nil
+        case #selector(pullShelf2): return shelfPull(2) != nil
+        case #selector(pullShelf3): return shelfPull(3) != nil
         default: return true
         }
     }
@@ -282,6 +293,26 @@ extension AppController {
         }
     }
 
+    @objc func parkTask() {
+        guard let window = keyWindow?["id"]?.string else { return }
+        layoutCommand("task", ["action": "park", "window": .string(window)])
+    }
+
+    @objc func pullShelf1() { pullShelf(1) }
+    @objc func pullShelf2() { pullShelf(2) }
+    @objc func pullShelf3() { pullShelf(3) }
+
+    private func shelfPull(_ place: Int) -> (task: String, window: String)? {
+        guard let window = keyWindow, window["desk"]?.bool == true, let id = window["id"]?.string else { return nil }
+        let tasks = shelfTasks
+        return place <= tasks.count ? (tasks[place - 1].id, id) : nil
+    }
+
+    private func pullShelf(_ place: Int) {
+        guard let (task, window) = shelfPull(place) else { return }
+        pullTask(task, into: window)
+    }
+
     @objc func nextWindow() { cycleWindow(1) }
     @objc func previousWindow() { cycleWindow(-1) }
 
@@ -305,7 +336,9 @@ extension AppController {
         case GHOSTTY_ACTION_NEW_TAB: perform = newTabInKeyWindow
         case GHOSTTY_ACTION_GOTO_TAB:
             let target = action.action.goto_tab
-            perform = target == GHOSTTY_GOTO_TAB_PREVIOUS ? previousTab : target == GHOSTTY_GOTO_TAB_NEXT ? nextTab : nil
+            let place = Int(target.rawValue)
+            perform = target == GHOSTTY_GOTO_TAB_PREVIOUS ? previousTab : target == GHOSTTY_GOTO_TAB_NEXT ? nextTab
+                : (1...3).contains(place) && shelfPull(place) != nil ? { [weak self] in self?.pullShelf(place) } : nil
         case GHOSTTY_ACTION_NEW_WINDOW: perform = newWindow
         case GHOSTTY_ACTION_CLOSE_WINDOW: perform = closeWindow
         case GHOSTTY_ACTION_GOTO_WINDOW:

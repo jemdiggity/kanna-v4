@@ -1,6 +1,6 @@
 use crate::error::KmuxError;
 use crate::json::{num, Map, Value};
-use crate::model::{bad_request, normalize, not_found, pane_ids, Child, Model, Node, Split, Window};
+use crate::model::{bad_request, normalize, not_found, pane_ids, Child, Model, Node, Split, Tab, Window};
 use crate::pane::Panes;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -55,6 +55,29 @@ impl Model {
             window.focused = orphan.focused;
             window.settle_focus();
         }
+    }
+
+    pub(crate) fn place_on_task(&mut self, pane: &str, from: &str) -> Option<Option<String>> {
+        if let Some(w) = self.dock_window(from) {
+            let t = self.make_tab(w, true);
+            let window = &mut self.windows[w];
+            window.tabs[t].root = Some(Node::Pane(pane.into()));
+            window.tabs[t].last_focus = Some(pane.into());
+            window.focused = Some(pane.into());
+            self.key = Some(window.id.clone());
+            return Some(Some(window.id.clone()));
+        }
+        let at = self.shelf.iter().position(|p| p.dock.as_ref().is_some_and(|d| d.pane == from))?;
+        self.counters.0 += 1;
+        let parked = &mut self.shelf[at];
+        parked.tab_count += 1;
+        let mut tab = Tab::new(format!("t{}", self.counters.0), format!("Tab {}", parked.tab_count));
+        tab.root = Some(Node::Pane(pane.into()));
+        tab.last_focus = Some(pane.into());
+        parked.active = Some(tab.id.clone());
+        parked.focused = Some(pane.into());
+        parked.tabs.push(tab);
+        Some(None)
     }
 
     fn is_desk(&self, w: usize) -> bool {

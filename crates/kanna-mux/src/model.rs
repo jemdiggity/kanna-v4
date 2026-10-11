@@ -57,7 +57,7 @@ pub struct Tab {
 }
 
 impl Tab {
-    fn new(id: String, title: String) -> Tab {
+    pub(crate) fn new(id: String, title: String) -> Tab {
         Tab { id, title, root: None, last_focus: None, zoomed: None }
     }
 }
@@ -159,7 +159,7 @@ pub struct Model {
     pub(crate) windows: Vec<Window>,
     pub(crate) shelf: Vec<Window>,
     pub key: Option<String>,
-    counters: (usize, usize),
+    pub(crate) counters: (usize, usize),
     pub pane_is_wide: Box<dyn Fn(&str) -> bool + Send>,
 }
 
@@ -384,7 +384,7 @@ impl Model {
         self.windows.len() - 1
     }
 
-    fn make_tab(&mut self, w: usize, activate: bool) -> usize {
+    pub(crate) fn make_tab(&mut self, w: usize, activate: bool) -> usize {
         self.counters.0 += 1;
         let window = &mut self.windows[w];
         window.tab_count += 1;
@@ -914,7 +914,7 @@ struct Restored {
     windows: Vec<Window>,
     shelf: Vec<Window>,
     key: Option<String>,
-    counters: (usize, usize),
+    pub(crate) counters: (usize, usize),
 }
 
 impl LayoutHost for Model {
@@ -927,6 +927,9 @@ impl LayoutHost for Model {
     }
 
     fn place(&mut self, pane: &str, at: &Placement) -> Result<Option<String>, KmuxError> {
+        if let Some(placed) = at.from.as_deref().and_then(|from| self.place_on_task(pane, from)) {
+            return Ok(placed);
+        }
         let w = self.target_window(at.window.as_deref())?;
         if let Some(edge) = at.dock {
             self.dock(pane, w, edge);

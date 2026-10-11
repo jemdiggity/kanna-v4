@@ -459,7 +459,17 @@ fn parse_markup(args: &mut Argv) -> Result<Value, Failure> {
     if let Some(agent) = agent {
         out.insert("agent".into(), json!(agent));
     }
+    from_caller(&mut out);
     Ok(Value::Object(out))
+}
+
+fn from_caller(out: &mut Map<String, Value>) {
+    if ["split", "size", "window", "dock", "tab"].iter().any(|k| out.contains_key(*k)) {
+        return;
+    }
+    if let Some(pane) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
+        out.insert("from".into(), json!(pane));
+    }
 }
 
 fn parse_thread_action(args: &mut Argv, action: &str) -> Result<Value, Failure> {
@@ -657,5 +667,6 @@ fn parse_open(args: &mut Argv) -> Result<Value, Failure> {
         out.insert("history".into(), json!(true));
     }
     out.insert("type".into(), json!(kind));
+    from_caller(&mut out);
     Ok(Value::Object(out))
 }

@@ -1253,6 +1253,24 @@ S43() {
   check wait_for 5 eval '[[ "$(desk empty)" == True ]]' || return 1
   raw '{"id":1,"cmd":"debug.click","args":{"shelf":"p1","window":"w1"}}' >/dev/null
   check wait_for 5 eval '[[ "$(win w1 dock.pane)" == agent ]]' || return 1
+  kanna open --name second --dock --window new >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(win w2 key)" == True ]]' || return 1
+  kanna task pull agent >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(win w1 key)" == True && "$(win w1 dock.pane)" == agent ]]' || return 1
+  check test "$(win w2 dock.pane)" == second || return 1
+  kanna task park agent >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(desk empty)" == True ]]' || return 1
+  key cmd+1
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == agent ]]' || return 1
+  check test "$(win w2 dock.pane)" == second || return 1
+  kanna open --name aside --window w2 --tab >/dev/null || return 1
+  KANNA_PANE=p1 kanna open --name side >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(win w1 tabs.1.layout.pane)" == side && "$(win w1 key)" == True ]]' || return 1
+  kanna task park agent >/dev/null || return 1
+  KANNA_PANE=p1 kanna open --name later >/dev/null || return 1
+  check test "$(win w1 tabs)" == "[]" || return 1
+  kanna task pull agent --window w1 >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(win w1 tabs.2.layout.pane)" == later ]]' || return 1
   key cmd+shift+w
   check wait_for 5 eval 'kanna task list | grep -q "p1 .*Shelf"' || { kanna task list; return 1; }
   check test "$(pane agent state)" == running || return 1
