@@ -66,7 +66,6 @@ flowchart LR
 
 - **The planning terminal starts in the window's folder:** the one Kanna was started in (the `kanna` CLI passes its working directory when it starts the app, as `KANNA_START_DIR`), PATH for `kanna PATH`, else your home folder.
 - **The window follows the terminal.** `cd` it elsewhere and the header and the Shelf follow, to that folder's repo. With a task on the Desk, the task's repo is the window's.
-- **An empty folder, or one that isn't a git repo yet,** is the `kanna-new-project` skill's: decide what it's for, `git init` and a first commit only when you agree, then the first backlog tasks.
 
 ## 5. Settings
 
