@@ -9,6 +9,8 @@ Skills for coding agents (Claude Code and Codex), usable in any project.
 | [`layer-diagrams`](skills/layer-diagrams/SKILL.md) | Draw architecture as a layer stack (UI on top, like OSI): processes as boxes, layers as bars, colour by owner, clients on top, rendered and checked before showing. |
 | [`kanna-markup`](skills/kanna-markup/SKILL.md) | Answer the user's comments on a doc or mockup they review in Kanna, in the comment's thread. |
 | [`kanna-tasks`](skills/kanna-tasks/SKILL.md) | In a Kanna terminal: name your task, and add follow-up work to the repo's backlog with a first message that stands alone. |
+| [`kanna-planning`](skills/kanna-planning/SKILL.md) | As a Kanna window's planning agent: say what's running and waiting, plan with the user, make backlog tasks, and start or end them only when asked. |
+| [`kanna-new-project`](skills/kanna-new-project/SKILL.md) | As a planning agent in an empty folder or one that isn't a repo yet: decide what the project is, set it up with the user's say-so, and plan its first tasks. |
 
 ## Install into a project
 
