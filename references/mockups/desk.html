@@ -170,7 +170,7 @@ body.picture .cmd input::placeholder { color: transparent; }
       <button id="reset">Reset</button>
     </div>
     <div class="keys">
-      <span><kbd>⌘1</kbd>…<kbd>⌘9</kbd> pull the Shelf's 1st…9th</span>
+      <span><kbd>⌘1</kbd> <kbd>⌘2</kbd> <kbd>⌘3</kbd> pull the Shelf's 1st, 2nd, 3rd</span>
       <span class="proposed">proposed:</span>
       <span><kbd>⌘.</kbd> Park</span>
       <span><kbd>⇧⌘→</kbd> <kbd>⇧⌘←</kbd> next / previous Shelf task</span>
@@ -181,6 +181,7 @@ body.picture .cmd input::placeholder { color: transparent; }
 </main>
 <script>
 const MIN = 60000;
+const LIMIT = 3;
 const initial = () => {
   const now = Date.now();
   return {
@@ -234,7 +235,7 @@ function windowHTML(w) {
 function shelfHTML() {
   return shelf().map((t, i) => {
     const meta = t.status === "needs" ? "needs you" : "parked " + ago(t);
-    return `<span class="item ${t.status === "needs" ? "needs" : ""}" data-pull="${t.id}" title="${meta}"><span class="dot ${t.status}"></span>${esc(t.title)}<span class="meta">· ${meta}</span>${i < 9 ? `<span class="kb">⌘${i + 1}</span>` : ""}</span>`;
+    return `<span class="item ${t.status === "needs" ? "needs" : ""}" data-pull="${t.id}" title="${meta}"><span class="dot ${t.status}"></span>${esc(t.title)}<span class="meta">· ${meta}</span><span class="kb">⌘${i + 1}</span></span>`;
   }).join("");
 }
 
@@ -302,8 +303,8 @@ let cheerAt = location.hash.includes("picture") ? 0 : Math.floor(Math.random() *
 function emptyHTML() {
   const list = shelf();
   return `<div class="empty"><p class="sub">${cheers[cheerAt]}</p>
-    <div class="group"><div class="gh"><span><b>~/work/${s.project}</b></span><span>${list.length} parked</span></div>
-      ${list.map((t, i) => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${esc(t.title)}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${ago(t)} · ${esc(t.branch)}</div></div><span class="go">${i < 9 ? `⌘${i + 1} · ` : ""}Pull →</span></div>`).join("") || `<div class="s" style="color:var(--muted)">No tasks. Start one with <code>kanna open --dock --cmd claude</code>.</div>`}</div></div>`;
+    <div class="group"><div class="gh"><span><b>~/work/${s.project}</b></span><span>${list.length} parked · ${s.tasks.length} of ${LIMIT} tasks</span></div>
+      ${list.map((t, i) => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${esc(t.title)}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${ago(t)} · ${esc(t.branch)}</div></div><span class="go">⌘${i + 1} · Pull →</span></div>`).join("") || `<div class="s" style="color:var(--muted)">No tasks. Start one with <code>kanna open --dock --cmd claude</code>.</div>`}</div></div>`;
 }
 
 function parkTask(t) {
@@ -431,6 +432,7 @@ function run(t, line) {
     return openTab(t, arg);
   }
   if (cmd === "open" && sub === "--dock") {
+    if (s.tasks.length >= LIMIT) { say(`kanna: ${s.project} has ${LIMIT} tasks already (a Desk and two on the Shelf); finish one with kanna task done first`); return render(); }
     const id = "p" + s.nextPane++;
     s.tasks.push({ id, title: more ? more : "new task", branch: "main", agent: "claude", status: "working", parkedAt: Date.now(), width: 0.38, tabs: ["shell"], active: "shell", log: [] });
     s.order.unshift(id);
