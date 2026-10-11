@@ -416,6 +416,8 @@ mod tests {
     }
 
     fn parse(line: &str) -> Result<(String, Value), Failure> {
+        // Run from a Kanna terminal, a command would name its pane as the caller.
+        std::env::remove_var("KANNA_PANE");
         let words = shell_words(line);
         assert_eq!(words[0], "kanna");
         let mut args = Argv::new(words[1..].to_vec());

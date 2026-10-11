@@ -97,6 +97,7 @@ pub fn cli(dir: &Path) -> Command {
         .env("KMUX_APP", "/nonexistent/kmux.app")
         .env_remove("KANNA_SOCKET")
         .env_remove("KANNA_INSTANCE")
+        .env_remove("KANNA_PANE")
         .env_remove("KANNA_MUX")
         .env_remove("KANNA_BG")
         .env_remove("KANNA_FRESH")

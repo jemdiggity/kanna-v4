@@ -156,6 +156,8 @@ fn every_kmux_example_and_request_parses_the_same() {
         ]
         .map(String::from),
     );
+    // Run from a Kanna terminal, kanna would name its pane as the caller, which kmux doesn't know about.
+    std::env::remove_var("KANNA_PANE");
     for line in lines {
         let kmux = kmux_parse(&line).unwrap_or_else(|f| panic!("kmux: {line}: {f:?}"));
         let kanna = kanna_parse(&line).unwrap_or_else(|f| panic!("kanna: {line}: {f:?}"));
