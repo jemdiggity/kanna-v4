@@ -51,17 +51,7 @@ stateDiagram-v2
 
 ## 4. The window's folder
 
-A window works in a folder, and its Shelf shows the tasks of that folder's repo.
-
-```mermaid
-flowchart LR
-    A{"how the window opened"} -->|"kanna PATH"| P["PATH"]
-    A -->|"Kanna started from a shell (kanna …)"| S["the shell's folder"]
-    A -->|"Kanna started from Finder or the Dock"| H["your home folder"]
-    P & S & H --> C["then: wherever you cd the planning terminal"]
-```
-
-- **The planning terminal starts in the window's folder:** the one Kanna was started in (the `kanna` CLI passes its working directory when it starts the app, as `KANNA_START_DIR`), PATH for `kanna PATH`, else your home folder.
+- **It opens in your home folder,** or in the shell's folder when Kanna is started from one (`kanna …`, which passes its working directory to the app as `KANNA_START_DIR`), or in PATH for `kanna PATH`.
 - **The window follows the terminal.** `cd` it elsewhere and the header and the Shelf follow, to that folder's repo. With a task on the Desk, the task's repo is the window's.
 
 ## 5. How it's built
