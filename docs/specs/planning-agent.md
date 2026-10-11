@@ -38,7 +38,7 @@ stateDiagram-v2
 
 ## 2. What it is
 
-- **A terminal, not an agent Kanna starts.** It prints how to start, then hands over to your login shell. You start your agent, quit it, `cd` and start it again as in any terminal; `claude --continue` picks the conversation up.
+- **Your shell, after the instructions.** It prints how to start, then hands over to your login shell, where you start your agent, quit it, `cd` and start it again as in any terminal; `claude --continue` picks the conversation up.
 - **One per window.** A Desk window gets its own the first time it shows no task, and keeps it while tasks come and go. Every window is an independent Desk; there's no shared or cross-window planning terminal. Closing the window ends it.
 - **Not a task.** It isn't on the Shelf, the strip or in `kanna task list`, doesn't take one of the repo's three running slots, can't be parked, pulled, moved or docked elsewhere, and has no Park button. Its header says **Planning**, the terminal's folder and branch.
 - **In the window's folder, the repo's main checkout,** not a worktree.
@@ -48,11 +48,10 @@ stateDiagram-v2
 
 - **A window with nothing in it starts here:** when Kanna opens with nothing, in every new Desk window, and on `kanna PATH`.
 - **The terminal first prints** [`getting-started.md`](../../apps/kanna/Resources/getting-started.md), through `glow` if it's installed, else `cat`, wrapped by the terminal so it reflows: start your agent here, tell it what you want, Move to Shelf starts a task.
-- **There's no Getting started tab** any more.
 
 ## 4. The window's folder
 
-There's no project concept yet: a window works in a folder, and its Shelf shows the tasks of that folder's repo.
+A window works in a folder, and its Shelf shows the tasks of that folder's repo.
 
 ```mermaid
 flowchart LR
