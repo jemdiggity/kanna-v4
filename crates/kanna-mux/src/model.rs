@@ -88,11 +88,13 @@ pub struct Window {
     pub frame: Option<Frame>,
     pub tab_count: usize,
     pub dock: Option<Dock>,
+    pub desk: bool,
+    pub parked_at: Option<f64>,
 }
 
 impl Window {
-    fn new(id: String) -> Window {
-        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None }
+    pub(crate) fn new(id: String) -> Window {
+        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None }
     }
 
     pub fn shown_panes(&self) -> Vec<String> {
@@ -108,7 +110,7 @@ impl Window {
         self.dock.as_ref().is_some_and(|d| d.pane == pane)
     }
 
-    fn settle_focus(&mut self) {
+    pub(crate) fn settle_focus(&mut self) {
         let shown = self.shown_panes();
         if !self.focused.as_ref().is_some_and(|f| shown.contains(f)) {
             let ids = pane_ids(self.active_tab().and_then(|t| t.root.as_ref()));
@@ -154,7 +156,8 @@ pub struct Location {
 }
 
 pub struct Model {
-    windows: Vec<Window>,
+    pub(crate) windows: Vec<Window>,
+    pub(crate) shelf: Vec<Window>,
     pub key: Option<String>,
     counters: (usize, usize),
     pub pane_is_wide: Box<dyn Fn(&str) -> bool + Send>,
@@ -162,7 +165,7 @@ pub struct Model {
 
 impl Default for Model {
     fn default() -> Model {
-        Model { windows: vec![], key: None, counters: (0, 0), pane_is_wide: Box::new(|_| true) }
+        Model { windows: vec![], shelf: vec![], key: None, counters: (0, 0), pane_is_wide: Box::new(|_| true) }
     }
 }
 
@@ -279,11 +282,11 @@ fn swift_quoted(text: &str) -> String {
     out
 }
 
-fn not_found(message: String) -> KmuxError {
+pub(crate) fn not_found(message: String) -> KmuxError {
     KmuxError::new("not_found", message)
 }
 
-fn bad_request(message: impl Into<String>) -> KmuxError {
+pub(crate) fn bad_request(message: impl Into<String>) -> KmuxError {
     KmuxError::new("bad_request", message)
 }
 
@@ -357,7 +360,7 @@ impl Model {
         changed
     }
 
-    fn window_index(&self, id: &str) -> Option<usize> {
+    pub(crate) fn window_index(&self, id: &str) -> Option<usize> {
         self.windows.iter().position(|w| w.id == id)
     }
 
@@ -373,7 +376,7 @@ impl Model {
         self.tab_index(tab).map(|(w, _)| &self.windows[w])
     }
 
-    fn make_window(&mut self) -> usize {
+    pub(crate) fn make_window(&mut self) -> usize {
         self.counters.1 += 1;
         let window = Window::new(format!("w{}", self.counters.1));
         self.key = Some(window.id.clone());
@@ -397,7 +400,7 @@ impl Model {
         self.windows.iter().position(|w| w.docks(id))
     }
 
-    fn window_containing(&self, id: &str) -> Option<usize> {
+    pub(crate) fn window_containing(&self, id: &str) -> Option<usize> {
         self.locate(id).map(|l| l.window).or_else(|| self.dock_window(id))
     }
 
@@ -408,6 +411,7 @@ impl Model {
             self.append(&old.pane, (w, t));
         }
         self.windows[w].dock = Some(Dock { pane: id.into(), edge, width: old.map_or(DOCK_WIDTH, |old| old.width) });
+        self.windows[w].desk = true;
     }
 
     fn dock_view(&self, w: usize, panes: &Panes) -> Value {
@@ -433,6 +437,9 @@ impl Model {
     }
 
     fn detach(&mut self, id: &str) {
+        if self.detach_parked(id) {
+            return;
+        }
         if let Some(w) = self.dock_window(id) {
             let window = &mut self.windows[w];
             window.dock = None;
@@ -546,7 +553,8 @@ impl Model {
             }
             window.settle_focus();
         }
-        self.windows.retain(|w| !w.tabs.is_empty() || w.dock.is_some());
+        self.windows.retain(|w| !w.tabs.is_empty() || w.dock.is_some() || w.desk);
+        self.settle_shelf();
         if self.key_window().is_none() {
             self.key = self.windows.last().map(|w| w.id.clone());
         }
@@ -904,13 +912,14 @@ fn reply<const N: usize>(fields: [(&str, Value); N]) -> Map {
 
 struct Restored {
     windows: Vec<Window>,
+    shelf: Vec<Window>,
     key: Option<String>,
     counters: (usize, usize),
 }
 
 impl LayoutHost for Model {
     fn commands(&self) -> &'static [&'static str] {
-        &["focus", "zoom", "rename-tab", "move", "move-tab", "resize", "arrange"]
+        &["focus", "zoom", "rename-tab", "move", "move-tab", "resize", "arrange", "task"]
     }
 
     fn features(&self) -> &'static [&'static str] {
@@ -993,6 +1002,7 @@ impl LayoutHost for Model {
             "move-tab" => self.move_tab(args),
             "resize" => self.resize(args, panes),
             "arrange" => self.arrange(args, panes),
+            "task" => self.task(args, panes),
             _ => Err(bad_request(format!("unknown command \"{cmd}\""))),
         }
     }
@@ -1032,10 +1042,7 @@ impl LayoutHost for Model {
     }
 
     fn export_state(&self) -> Map {
-        let windows = self
-            .windows
-            .iter()
-            .map(|window| {
+        let export = |window: &Window| {
                 let tabs = window
                     .tabs
                     .iter()
@@ -1063,14 +1070,23 @@ impl LayoutHost for Model {
                 if let Some(dock) = &window.dock {
                     out.insert("dock".into(), Value::Object(reply([("pane", dock.pane.clone().into()), ("edge", dock.edge.as_str().into()), ("width", num(dock.width))])));
                 }
+                if window.desk {
+                    out.insert("desk".into(), Value::Bool(true));
+                }
+                if let Some(at) = window.parked_at {
+                    out.insert("parkedAt".into(), num(at));
+                }
                 Value::Object(out)
-            })
-            .collect();
-        reply([
+            };
+        let mut out = reply([
             ("key", opt(self.key.as_deref())),
             ("counters", Value::Object(reply([("tab", num(self.counters.0 as f64)), ("window", num(self.counters.1 as f64))]))),
-            ("windows", Value::Array(windows)),
-        ])
+            ("windows", Value::Array(self.windows.iter().map(export).collect())),
+        ]);
+        if !self.shelf.is_empty() {
+            out.insert("shelf".into(), Value::Array(self.shelf.iter().map(export).collect()));
+        }
+        out
     }
 
     fn read_state(&self, state: &Value, panes: &HashSet<String>) -> Result<SavedLayout, KmuxError> {
@@ -1108,12 +1124,12 @@ impl LayoutHost for Model {
             Ok(Node::Split(Split { axis, kids }))
         }
 
-        let mut windows = vec![];
-        for item in saved_windows {
+        let mut read = |item: &Value, parked: bool| -> Result<Window, KmuxError> {
             let id = string(item, "id").filter(|_| item.is_object());
-            let n = id.and_then(|id| number_in(id, "w"));
+            let n = if parked { id.map(|_| 0) } else { id.and_then(|id| number_in(id, "w")) };
             let saved_tabs = item.get("tabs").and_then(Value::as_array);
             let (Some(id), Some(n), Some(saved_tabs)) = (id, n, saved_tabs) else { return Err(bad(&format!("window {}", quoted(item.get("id"))))) };
+            let _ = n;
             if !window_ids.insert(id.to_string()) {
                 return Err(bad(&format!("window {}", quoted(item.get("id")))));
             }
@@ -1177,18 +1193,31 @@ impl LayoutHost for Model {
                 window.set_zoomed(string(item, "zoomed").filter(|z| shown.iter().any(|s| s == z)).map(String::from));
             }
             window.tab_count = whole(item.get("tabCount")).unwrap_or(0).max(window.tabs.len());
-            windows.push(window);
-            counters.1 = counters.1.max(n);
+            window.desk = item.get("desk").and_then(Value::as_bool).unwrap_or(false);
+            window.parked_at = if parked { Some(item.get("parkedAt").and_then(Value::as_f64).unwrap_or(0.0)) } else { None };
+            if !parked {
+                counters.1 = counters.1.max(n);
+            }
+            Ok(window)
+        };
+        let mut windows = vec![];
+        for item in saved_windows {
+            windows.push(read(item, false)?);
         }
-        windows.retain(|w: &Window| !w.tabs.is_empty() || w.dock.is_some());
+        let mut shelf = vec![];
+        for item in state.get("shelf").and_then(Value::as_array).into_iter().flatten() {
+            shelf.push(read(item, true)?);
+        }
+        windows.retain(|w: &Window| !w.tabs.is_empty() || w.dock.is_some() || w.desk);
         let key = string(state, "key").filter(|k| windows.iter().any(|w| w.id == *k)).map(String::from).or_else(|| windows.last().map(|w| w.id.clone()));
 
-        Ok(SavedLayout { placed, layout: Box::new(Restored { windows, key, counters }) })
+        Ok(SavedLayout { placed, layout: Box::new(Restored { windows, shelf, key, counters }) })
     }
 
     fn install_state(&mut self, saved: SavedLayout) {
         let Ok(restored) = saved.layout.downcast::<Restored>() else { return };
         self.windows = restored.windows;
+        self.shelf = restored.shelf;
         self.key = restored.key;
         self.counters = (self.counters.0.max(restored.counters.0), self.counters.1.max(restored.counters.1));
         self.drop_empty();

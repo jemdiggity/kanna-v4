@@ -98,6 +98,45 @@ pub fn pane_renamed(_: &Value, reply: &Value) -> String {
     }
 }
 
+pub fn task(request: &Value, reply: &Value) -> String {
+    let id = reply["task"].as_str().unwrap_or("?");
+    match request["action"].as_str() {
+        Some("list") => {
+            let tasks = reply["tasks"].as_array().cloned().unwrap_or_default();
+            if tasks.is_empty() {
+                return "no tasks: dock an agent with `kanna open --dock --cmd claude`".into();
+            }
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+            let rows: Vec<[String; 4]> = tasks
+                .iter()
+                .map(|t| {
+                    let place = t["window"].as_str().map_or("Shelf".to_string(), |w| format!("Desk {w}"));
+                    let parked = t["parkedAt"].as_f64().map_or(String::new(), |at| format!("parked {}", ago(now - at)));
+                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), place, parked]
+                })
+                .collect();
+            let width = |i: usize| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0).max(["TASK", "NAME", "WHERE", ""][i].len());
+            let line = |r: [&str; 4]| format!("{:w0$}  {:w1$}  {:w2$}  {}", r[0], r[1], r[2], r[3], w0 = width(0), w1 = width(1), w2 = width(2)).trim_end().to_string();
+            std::iter::once(line(["TASK", "NAME", "WHERE", ""])).chain(rows.iter().map(|r| line([&r[0], &r[1], &r[2], &r[3]]))).collect::<Vec<_>>().join("\n")
+        }
+        Some("park") if reply["parked"] == Value::Bool(true) => format!("parked {id}; {} is an empty Desk", reply["window"].as_str().unwrap_or("?")),
+        Some("park") => format!("{id} is already on the Shelf"),
+        Some("pull") if reply["moved"] == Value::Bool(true) => format!("pulled {id} onto {}", reply["window"].as_str().unwrap_or("?")),
+        Some("pull") => format!("{id} is on {}; brought it forward", reply["window"].as_str().unwrap_or("?")),
+        _ => String::new(),
+    }
+}
+
+fn ago(seconds: f64) -> String {
+    let minutes = (seconds / 60.0).floor().max(0.0) as u64;
+    match minutes {
+        0 => "just now".into(),
+        m if m < 60 => format!("{m}m ago"),
+        m if m < 60 * 24 => format!("{}h ago", m / 60),
+        m => format!("{}d ago", m / 60 / 24),
+    }
+}
+
 pub fn tabs(_: &Value, reply: &Value) -> String {
     format!("{}: {}", reply["window"].as_str().unwrap_or("?"), join(&reply["tabs"]))
 }

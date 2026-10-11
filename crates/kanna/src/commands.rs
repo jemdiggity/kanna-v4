@@ -266,6 +266,40 @@ pub static COMMANDS: &[Command] = &[
         show: output::pane_renamed,
     },
     Command {
+        name: "task",
+        group: "Tabs and windows",
+        summary: "List, park or pull tasks: an agent docked in a Desk window with its tabs.",
+        usage: "kanna task list\n       kanna task park [TASK] [--window WINDOW]\n       kanna task pull TASK [--window WINDOW|new]",
+        options: &[("--window WINDOW|new", "park: the Desk to clear (default: the task's, or the key window's). pull: the Desk to put it on (default: the key window if it's a Desk, else a new one).")],
+        notes: "A task is a window's docked pane (usually an agent) and its tabs; TASK is that pane's name or ID. Parking moves the task's agent and tabs to the Shelf, still running, and leaves the Desk empty; pulling puts it back on a Desk as it was, parking whatever that Desk held. Pulling a task that's on another Desk brings that window forward instead. Run from a task's terminal, `task park` means that task.",
+        examples: &[
+            ("kanna task list", "Every task, and where it is: a Desk window or the Shelf."),
+            ("kanna task park", "Park this task (run from its terminal), or the key window's."),
+            ("kanna task pull agent", "Put the task docked as agent back on this Desk."),
+        ],
+        parse: |args| {
+            let action = args.positional().ok_or_else(|| usage("task", "say what: list, park or pull"))?;
+            let window = args.option("--window")?;
+            let mut out = json!({ "action": action });
+            match action.as_str() {
+                "list" => {}
+                "park" => {
+                    let task = args.positional().or_else(|| if window.is_none() { std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()) } else { None });
+                    if let Some(task) = task {
+                        out["task"] = json!(task);
+                    }
+                }
+                "pull" => out["task"] = json!(args.positional().ok_or_else(|| usage("task", "pull needs a TASK (see `kanna task list`)"))?),
+                other => return Err(usage("task", &format!("unknown action \"{other}\" (list, park or pull)"))),
+            }
+            if let Some(window) = window {
+                out["window"] = json!(window);
+            }
+            Ok(out)
+        },
+        show: output::task,
+    },
+    Command {
         name: "navigate",
         group: "Panes",
         summary: "Point a web pane at a new URL (or go back or forward), or a markdown pane at another file.",

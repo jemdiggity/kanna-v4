@@ -184,6 +184,7 @@ impl LayoutOwner {
             .windows()
             .iter()
             .flat_map(|w| w.tabs.iter().flat_map(|t| crate::model::pane_ids(t.root.as_ref())).chain(w.dock.iter().map(|d| d.pane.clone())))
+            .chain(self.model.parked_panes())
             .collect()
     }
 
@@ -222,10 +223,25 @@ impl LayoutOwner {
                     "zoomed": zoomed.map_or(Value::Null, Value::String),
                     "root": root,
                     "dock": dock,
+                    "desk": window.desk || window.dock.is_some(),
+                })
+            })
+            .collect();
+        let shelf: Vec<Value> = self
+            .model
+            .shelf()
+            .iter()
+            .map(|parked| {
+                json!({
+                    "task": parked.id,
+                    "type": self.panes.get(&parked.id).map_or("term", |p| p.kind.as_str()),
+                    "parkedAt": parked.parked_at.map_or(Value::Null, num),
+                    "tabs": parked.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>(),
                 })
             })
             .collect();
         let mut view = Map::new();
+        view.insert("shelf".into(), Value::Array(shelf));
         view.insert("key".into(), self.model.key_window().map_or(Value::Null, |w| w.id.clone().into()));
         view.insert("windows".into(), Value::Array(windows));
         view
@@ -289,7 +305,8 @@ fn changed(changed: bool) -> Map {
 
 pub fn prune_state(state: &Value, live: &HashSet<String>) -> Value {
     let mut state = state.clone();
-    if let Some(windows) = state.get_mut("windows").and_then(Value::as_array_mut) {
+    for list in ["windows", "shelf"] {
+        let Some(windows) = state.get_mut(list).and_then(Value::as_array_mut) else { continue };
         for window in windows.iter_mut() {
             let gone = window.get("dock").and_then(|d| d.get("pane")).and_then(Value::as_str).is_some_and(|pane| !live.contains(pane));
             if gone {
@@ -368,7 +385,7 @@ mod tests {
         let view = again.view();
         assert_eq!(
             Value::Object(view),
-            json!({ "key": "w1", "windows": [{ "id": "w1", "frame": null, "tabs": [{ "id": "t1", "title": "Tab 1", "panes": ["p1", "p3", "p4"] }], "tab": "t1", "title": "Tab 1",
+            json!({ "key": "w1", "shelf": [], "windows": [{ "id": "w1", "frame": null, "desk": false, "tabs": [{ "id": "t1", "title": "Tab 1", "panes": ["p1", "p3", "p4"] }], "tab": "t1", "title": "Tab 1",
                 "focused": "p4", "zoomed": null, "root": { "split": "row", "children": [
                 { "pane": "p1", "type": "term", "size": 0.75 },
                 { "pane": "p3", "type": "term", "size": 0.125 },
@@ -454,6 +471,61 @@ mod tests {
         command(&mut again, "focus", json!({ "tab": "t1" }));
         assert_eq!(window(&again)["zoomed"], "p2");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_task_parks_onto_the_shelf_and_pulls_back_as_it_was_across_a_relaunch() {
+        let dir = folder("desk");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({ "dock": "left" }));
+        place(&mut owner, "p2", json!({}));
+        place(&mut owner, "p3", json!({ "tab": true }));
+        let task = |owner: &mut LayoutOwner, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "task", "args": args } }));
+        let window = |owner: &LayoutOwner| owner.view()["windows"][0].clone();
+        owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "resize", "args": { "pane": "p1", "size": 0.3 } } }));
+        let before = window(&owner);
+        assert_eq!(before["desk"], true);
+
+        let parked = task(&mut owner, json!({ "action": "park" }));
+        assert_eq!(parked["task"], "p1", "{parked}");
+        let empty = window(&owner);
+        assert_eq!((empty["desk"].clone(), empty["dock"].clone(), empty["tabs"].clone()), (json!(true), Value::Null, json!([])));
+        assert_eq!(owner.view()["shelf"][0]["task"], "p1");
+        assert_eq!(owner.view()["shelf"][0]["tabs"], json!(["Tab 1", "Tab 2"]));
+        assert_eq!(owner.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2", "p3"]) }))["placed"], json!([]));
+        owner.save().unwrap();
+
+        let (mut again, _) = LayoutOwner::open(Some(file), false);
+        assert_eq!(again.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2", "p3"]) }))["placed"], json!([]));
+        assert_eq!(again.view()["shelf"][0]["task"], "p1");
+        let listed = task(&mut again, json!({ "action": "list" }));
+        assert_eq!(listed["tasks"][0]["id"], "p1", "{listed}");
+        assert_eq!(listed["tasks"][0]["window"], Value::Null);
+        let pulled = task(&mut again, json!({ "action": "pull", "task": "p1" }));
+        assert_eq!((pulled["window"].clone(), pulled["moved"].clone()), (json!("w1"), json!(true)), "{pulled}");
+        let after = window(&again);
+        for field in ["dock", "tabs", "tab", "root", "focused"] {
+            assert_eq!(after[field], before[field], "{field}");
+        }
+        assert_eq!(again.view()["shelf"], json!([]));
+        assert_eq!(task(&mut again, json!({ "action": "pull", "task": "p1" }))["moved"], false);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_parked_task_whose_agent_is_gone_comes_back_as_a_plain_window() {
+        let (mut owner, _) = LayoutOwner::open(None, false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({ "dock": "left" }));
+        place(&mut owner, "p2", json!({}));
+        owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "task", "args": { "action": "park" } } }));
+        let reply = owner.handle(&json!({ "call": "attach", "panes": table(&["p2"]) }));
+        assert_eq!(reply["dropped"], json!(["p1"]), "{reply}");
+        assert_eq!(owner.view()["shelf"], json!([]));
+        let windows = owner.view()["windows"].clone();
+        assert!(windows.as_array().unwrap().iter().any(|w| w["root"] == json!({ "pane": "p2", "type": "term" })), "{windows}");
     }
 
     #[test]
