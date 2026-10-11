@@ -35,6 +35,7 @@ stateDiagram-v2
 - **A window with a docked pane is a Desk**; its contents are its task. Make one with `kanna open --dock --cmd claude`, then open tabs. A UI for starting tasks comes later.
 - **Its name** is the docked pane's name, else its terminal's title. **Its folder and branch** are the docked pane's working directory and that folder's git branch, shown, never changed.
 - **Done** closes the task's panes, ending its agent and terminals.
+- **A task belongs to a project**, and a Shelf shows one project's tasks. This needs a task concept (what a task and a project are, how they're made and kept) before the Shelf can be built; it gets its own spec.
 
 ## 2. The Desk
 
@@ -49,12 +50,12 @@ flowchart LR
   - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, a markdown link, or **+**.
   - Opening a file that's already open shows its tab.
 - **The title bar** (top) shows only the task's title (or Shelf, with no task on the Desk).
-- **With no task on it, the Desk shows the Shelf in full** in place of the strip: every task grouped by folder (click one to pull it), under a short encouraging line that changes each time the Shelf comes up.
+- **With no task on it, the Desk shows the Shelf in full** in place of the strip: the project's tasks (click one to pull it), under a short encouraging line that changes each time the Shelf comes up.
 - **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
 
 ## 3. The Shelf
 
-- **Every task not on a Desk**, in the order they were parked, each with its [agent status](agent-status.md) and how long ago it was parked. **Needs you** moves a task to the front.
+- **The project's tasks not on a Desk**, in the order they were parked, each with its [agent status](agent-status.md) and how long ago it was parked. **Needs you** moves a task to the front.
 - **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘9** swap in the Shelf's 1st … 9th task the same way.
 - **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one and scroll positions come back as they were.
 
@@ -93,7 +94,7 @@ flowchart TB
 ## 6. Open questions
 
 1. Keys: Park, and next/previous task on the Shelf.
-2. Should the Shelf show tasks from every folder, or only the Desk's?
+2. What is a project (a repo, a folder you choose, …), and how is a task made? For the task-concept spec.
 3. Is the agent's width remembered per task, or per Desk window?
 
 ## 7. Glossary
@@ -102,7 +103,7 @@ flowchart TB
 |---|---|
 | **Task** | What a Desk holds: an agent in its docked pane, and its tabs |
 | **Desk** | A window with a docked pane, showing one task |
-| **Shelf** | The strip along a Desk's bottom listing every task not on a Desk |
+| **Shelf** | The strip along a Desk's bottom listing the project's tasks not on a Desk |
 | **Pull / Park** | Put a task on a Desk / take it off, to the Shelf |
 | **Agent pane** | The docked pane where the task's agent runs: the Desk's one chat |
 | **Docs** | The task's tabs: everything it has open besides the agent |
