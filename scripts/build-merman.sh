@@ -10,14 +10,14 @@ library="$repo_root/target/kanna-merman/release/libkanna_merman.a"
 
 CARGO_TARGET_DIR="$repo_root/target/kanna-merman" cargo build --release --locked --manifest-path "$crate/Cargo.toml"
 
-if [[ -f "$xcframework/Info.plist" && "$xcframework" -nt "$library" && "$xcframework" -nt "$header" ]]; then
+if [[ -f "$xcframework/Info.plist" && "$xcframework" -nt "$library" && "$xcframework" -nt "$header" && "$xcframework" -nt "${BASH_SOURCE[0]}" ]]; then
   echo "Up to date: $xcframework"
   exit 0
 fi
 rm -rf "$xcframework" "$out/headers"
-mkdir -p "$out/headers"
-cp "$header" "$out/headers/"
-cat > "$out/headers/module.modulemap" <<'MAP'
+mkdir -p "$out/headers/KannaMerman"
+cp "$header" "$out/headers/KannaMerman/"
+cat > "$out/headers/KannaMerman/module.modulemap" <<'MAP'
 module KannaMerman {
     header "kanna_merman.h"
     export *
