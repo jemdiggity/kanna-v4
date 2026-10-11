@@ -33,7 +33,7 @@ cargo build --workspace --release # daemon, keeper, CLI
 scripts/build-kanna-app.sh        # target/Kanna.app, with the daemon and keeper inside
 ```
 
-The first build compiles Ghostty with Zig (downloaded if the right version isn't installed), which takes a while.
+The first build compiles Ghostty with Zig (downloaded if the right version isn't installed), which takes a while. A git worktree of this repo (a Kanna task's, say) reuses the main checkout's Ghostty builds when they're the pinned commit, linking them into its own `target/`, so building there skips Ghostty.
 
 ## Use
 

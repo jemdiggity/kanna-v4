@@ -16,7 +16,7 @@ fn main() {
     let pinned = pinned_commit(&env_sh);
     let (dir, explicit) = match env::var_os("KANNA_GHOSTTY_VT_DIR") {
         Some(dir) => (PathBuf::from(dir), true),
-        None => (root.join("target/ghostty-vt").join(&target), false),
+        None => (built_here_or_in_main_checkout(&root, &target, &pinned), false),
     };
     let lib = dir.join("lib/libghostty-vt.a");
     let rev_file = dir.join("ghostty.rev");
@@ -67,6 +67,26 @@ fn main() {
             .flag_if_supported("-Werror=incompatible-pointer-types")
             .compile("kanna_vt_abi");
         println!("cargo::rustc-cfg=kanna_vt_abi");
+    }
+}
+
+/// This checkout's libghostty-vt, or, in a worktree that hasn't built one, the main checkout's when it's the pinned commit's.
+fn built_here_or_in_main_checkout(root: &Path, target: &str, pinned: &str) -> PathBuf {
+    let here = root.join("target/ghostty-vt").join(target);
+    if here.join("lib/libghostty-vt.a").exists() {
+        return here;
+    }
+    let common = std::process::Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()));
+    let main = common.and_then(|git| git.parent().map(|main| main.join("target/ghostty-vt").join(target)));
+    match main {
+        Some(main) if main != here && main.join("lib/libghostty-vt.a").exists() && fs::read_to_string(main.join("ghostty.rev")).is_ok_and(|rev| rev.trim() == pinned) => main,
+        _ => here,
     }
 }
 

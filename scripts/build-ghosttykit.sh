@@ -11,6 +11,7 @@ optimize="${KANNA_GHOSTTY_OPTIMIZE:-ReleaseSafe}"
 
 out="$repo_root/target/ghosttykit"
 xcframework="$out/GhosttyKit.xcframework"
+[[ -L "$out" ]] && rm "$out"  # a worktree's link to the main checkout's: build its own
 mkdir -p "$out"
 rm -rf "$xcframework"
 cp -R "$source_dir/macos/GhosttyKit.xcframework" "$out/"
