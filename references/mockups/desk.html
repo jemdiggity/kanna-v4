@@ -300,13 +300,15 @@ function agentTerm(t) {
 const guide = [
   `<span class="m">Kanna</span>`,
   ``,
-  `This is your planning agent. It sees this project's Shelf`,
-  `and backlog (right) and makes tasks with you.`,
+  `This terminal is for planning. The Shelf on the right shows`,
+  `this folder's tasks: running, and waiting in the backlog.`,
   ``,
-  `  1. Tell it what you want to work on.`,
-  `  2. It adds tasks to the backlog, each with a first message.`,
-  `  3. Move to Shelf starts one: its own agent, branch and worktree.`,
-  `  4. Click a task to work with it; Park (⌘.) brings you back here.`,
+  `  1. Start your agent here: claude or codex. cd first if this`,
+  `     isn't the folder you want; the Shelf follows.`,
+  `  2. Tell it what you want to work on.`,
+  `  3. It adds tasks to the backlog, each with a first message.`,
+  `  4. Move to Shelf starts one: its own agent, branch and worktree.`,
+  `  5. Click a task to work with it; Park (⌘.) brings you back here.`,
   ``,
 ];
 function plannerHead(t) {
@@ -358,7 +360,7 @@ function emptyHTML(w) {
   const p = w.planner;
   return `<div class="content">
     <div class="agent" style="flex:0 0 ${(p.width * 100).toFixed(1)}%">
-      <div class="head">Planning · ${esc(p.repo)}</div>
+      <div class="head">Planning · ${esc(p.repo)} · main</div>
       <div class="term">${agentTerm(p)}</div>
     </div>
     <div class="grip" data-grip="${p.id}" title="Drag to resize"></div>

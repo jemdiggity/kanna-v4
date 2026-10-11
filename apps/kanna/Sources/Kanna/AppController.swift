@@ -40,6 +40,12 @@ final class AppController: NSObject, NSApplicationDelegate {
         return (folder as NSString).appendingPathComponent("layout.json")
     }
 
+    static var startFolder: String? {
+        guard let folder = ProcessInfo.processInfo.environment["KANNA_START_DIR"], folder.hasPrefix("/") else { return nil }
+        var isFolder: ObjCBool = false
+        return FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder) && isFolder.boolValue ? folder : nil
+    }
+
     static var fresh: Bool {
         CommandLine.arguments.contains("--fresh") || ProcessInfo.processInfo.environment["KANNA_FRESH"] == "1"
     }
@@ -274,7 +280,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     func openTerminalIfEmpty() {
         guard windows.isEmpty, daemon?.attached == true else { return }
         var args: [String: JSON] = ["action": "desk"]
-        if let project = latestProject { args["project"] = .string(project) }
+        if let folder = Self.startFolder { args["project"] = .string(folder) }
         layoutCommand("task", args)
     }
 
@@ -361,7 +367,8 @@ final class AppController: NSObject, NSApplicationDelegate {
             guard let id = window["id"]?.string else { continue }
             let controller = controllers[id] ?? makeController(id, window)
             let docked = window["dock"]?["pane"]?.string
-            if let root = docked.flatMap(projectRoot) {
+            let planner = window["planner"]?["pane"]?.string
+            if let root = docked.flatMap(projectRoot) ?? planner.flatMap(projectRoot) {
                 controller.projectRoot = root
             } else if controller.projectRoot == nil, let folder = window["project"]?.string {
                 controller.projectRoot = canonical(GitPlace.of(folder)?.main ?? folder)
@@ -372,7 +379,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             controller.running = runningTasks(in: controller.projectRoot)
             controller.project = controller.projectRoot.map(tilde) ?? projectName(mine.map(\.id))
             controller.taskTitle = docked.map { taskTitle($0, name: window["dock"]?["name"]?.string) }
-            controller.headerText = docked.map(headerText) ?? plannerHeader(controller.projectRoot)
+            controller.headerText = docked.map(headerText) ?? plannerHeader(planner, controller.projectRoot)
             controller.render(window, panes)
             if wantsPlanner(window) { openPlanner(in: id) }
         }

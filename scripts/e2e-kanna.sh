@@ -1375,9 +1375,10 @@ S44() {
 }
 
 S45() {
-  local agent="$repo_root/tools/mock-agent/mock-agent" repo="$KANNA_STATE_DIR/repo"
+  local repo="$KANNA_STATE_DIR/repo"
   mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S45 line $LINENO"; return 1; }
   repo="$(cd "$repo" && pwd -P)"
+  mkdir -p "$repo/.kanna" && printf '{"planning": {"context": 400000}}\n' >"$repo/.kanna/config.json"
   start_daemon || { echo "S45 line $LINENO"; return 1; }
   env -u KANNA_NO_INITIAL_WINDOW "$app" --bg >>"$out/app.log" 2>&1 &
   app_pid=$!
@@ -1387,63 +1388,48 @@ S45() {
   planner="$(desk planner)"
   check test "$(desk page)" == True || { echo "S45 line $LINENO"; return 1; }
   check test "$(desk strip)" == False || { echo "S45 line $LINENO"; return 1; }
-  check test "$(desk header)" == "Planning · no project yet" || { desk header; return 1; }
-  check wait_for 10 shows "$planner" "This is your planning agent" || { kanna read "$planner"; return 1; }
-  check wait_for 10 shows "$planner" "mock-agent: type turn" || { kanna read "$planner"; return 1; }
-  [[ "$(pane "$planner" cmd)" == *"kanna PATH"* && "$(pane "$planner" cmd)" != *"Start by saying"* ]] || { echo "S45: a planning agent with no project wasn't told to find one"; return 1; }
-  check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "S45 line $LINENO"; return 1; }
-  check test "$(kanna task list | grep -c "$planner")" == 0 || { echo "S45: the planning agent is listed as a task"; kanna task list; return 1; }
-  local homed; homed="$(KANNA_PANE="$planner" kanna "$repo")" || { echo "S45 line $LINENO: $homed"; return 1; }
-  check wait_for 10 eval '[[ "$(desk planner)" == p* && "$(desk planner)" != "$planner" ]]' || { echo "S45: kanna PATH didn't start the planning agent again in PATH"; kanna list; return 1; }
-  check wait_for 5 eval '! kanna list --json | grep -q "\"$planner\""' || { echo "S45: the homeless planning agent still runs"; return 1; }
-  planner="$(desk planner)"
-  check test "$(kanna list --json | field windows | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 1 || { echo "S45: kanna PATH opened another window"; return 1; }
-  check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$repo" || { echo "S45 line $LINENO"; return 1; }
-  check wait_for 10 eval '[[ "$(desk header)" == "Planning · ${repo#/private}" ]]' || { desk header; return 1; }
-  check wait_for 10 shows "$planner" "This is your planning agent" || { kanna read "$planner"; return 1; }
-  [[ "$(pane "$planner" cmd)" == *"Start by saying"* ]] || { echo "S45 line $LINENO"; return 1; }
-  kanna send "$planner" "split this into two tasks" >/dev/null || { echo "S45 line $LINENO"; return 1; }
-  check wait_for 5 shows "$planner" "echo: split this into two tasks" || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 10 shows "$planner" "This terminal is for planning" || { kanna read "$planner"; return 1; }
+  check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "S45: Kanna started from no folder should plan in ~"; return 1; }
+  check test "$(kanna task list | grep -c "$planner")" == 0 || { echo "S45: the planning terminal is listed as a task"; kanna task list; return 1; }
+  kanna send "$planner" "cd '$repo'" >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk header)" == "Planning · "*"${repo#/private} · main" ]]' || { desk header; return 1; }
+  kanna send "$planner" 'echo "planner=$KANNA_PLANNER context=$CLAUDE_CODE_AUTO_COMPACT_WINDOW"' >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 5 shows "$planner" "planner=1 context=300000" || { kanna read "$planner"; return 1; }
   (cd "$repo" && KANNA_PANE="$planner" kanna task new "First" "hello" && KANNA_PANE="$planner" kanna task new "Second") >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(desk backlog)" == "[\"t1\", \"t2\"]" && "$(desk page)" == True ]]' || { desk backlog; return 1; }
   sleep 0.5; snap w1 s45-planner >/dev/null
   raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t1","window":"w1"}}' >/dev/null
   check wait_for 10 eval '[[ "$(desk backlog)" == "[\"t2\"]" && "$(desk shelf.0.title)" == First ]]' || { desk shelf; return 1; }
-  check test "$(desk running)" == 1 || { echo "S45: the planning agent counts as a running task"; desk running; return 1; }
-  check test "$(ls "$repo/.kanna-worktrees" | wc -l | tr -d ' ')" == 1 || { echo "S45 line $LINENO"; return 1; }
+  check test "$(desk running)" == 1 || { echo "S45: the planning terminal counts as a running task"; desk running; return 1; }
   check wait_for 5 shows First "mock-agent" || { echo "S45 line $LINENO"; return 1; }
   raw '{"id":1,"cmd":"debug.click","args":{"shelf":"'"$(pane First id)"'","window":"w1"}}' >/dev/null
   check wait_for 5 eval '[[ "$(desk window.dock.pane)" == "$(pane First id)" && "$(desk planner)" == None && "$(desk page)" == False && "$(desk strip)" == True ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}'; return 1; }
   check test "$(desk waiting)" == "1 in backlog" || { desk waiting; return 1; }
-  check test "$(desk header)" != "Planning · ${repo#/private}" || { echo "S45 line $LINENO"; return 1; }
-  is "$planner" state running || { echo "S45: the hidden planning agent stopped"; return 1; }
+  is "$planner" state running || { echo "S45: the hidden planning terminal stopped"; return 1; }
   kanna task park First >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(desk planner)" == "$planner" && "$(desk page)" == True && "$(desk strip)" == False ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}'; return 1; }
-  check shows "$planner" "echo: split this into two tasks" || { echo "S45: the planning agent's conversation is gone"; return 1; }
+  check shows "$planner" "planner=1 context=300000" || { echo "S45: the planning terminal lost its scrollback"; return 1; }
+  [[ "$(desk header)" == "Planning · "*"${repo#/private} · main" ]] || { desk header; return 1; }
   kanna task start t2 >/dev/null || { echo "S45 line $LINENO"; return 1; }
   (cd "$repo" && kanna task new "Third") >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(desk running)" == 2 && "$(desk blank)" == True ]]' || { desk running; return 1; }
+  key cmd+t; key cmd+d
+  check test "$(desk window.tabs)" == "[]" || { echo "S45: the Shelf got a tab"; desk window.tabs; return 1; }
   key cmd+n
   check wait_for 10 eval '[[ "$(desk window.dock.pane)" == p* ]]' || { kanna list; return 1; }
-  check wait_for 5 eval '[[ "$(desk planner)" == None ]]' || { echo "S45 line $LINENO"; return 1; }
   kanna task park >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(desk running)" == 3 && "$(desk blank)" == False ]]' || { desk running; return 1; }
   raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t3","window":"w1"}}' >/dev/null
   check wait_for 5 eval '[[ "$(desk note)" == *"3 tasks running"* ]]' || { desk note; return 1; }
-  kanna send "$planner" "exit" >/dev/null || { echo "S45 line $LINENO"; return 1; }
-  check wait_for 5 shows "$planner" "The planning agent stopped" || { kanna read "$planner"; return 1; }
-  kanna send "$planner" "" >/dev/null || { echo "S45 line $LINENO"; return 1; }
-  check wait_for 5 eval '[[ "$(kanna read "$planner" | grep -c "mock-agent: type turn")" -ge 2 ]]' || { kanna read "$planner"; return 1; }
   stop_app; start_app || { echo "S45 line $LINENO"; return 1; }
-  check wait_for 10 eval '[[ "$(desk planner)" == "$planner" ]]' || { echo "S45: the planning agent didn't survive the app's restart"; kanna list; return 1; }
-  check test "$(pane "$planner" pid)" != None || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk planner)" == "$planner" ]]' || { echo "S45: the planning terminal didn't survive the app's restart"; kanna list; return 1; }
   local elsewhere="$KANNA_STATE_DIR/elsewhere"
   mkdir -p "$elsewhere" && git -C "$elsewhere" init -q -b main && git -C "$elsewhere" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || return 1
   local refused; refused="$(raw "{\"id\":1,\"cmd\":\"backlog\",\"args\":{\"action\":\"blank\",\"repo\":\"$elsewhere\"}}")"
   [[ "$refused" == *'"ok":false'* && "$refused" == *"cd there first"* ]] || { echo "S45 line $LINENO: $refused"; return 1; }
   check test ! -e "$elsewhere/.kanna-worktrees" || { echo "S45 line $LINENO"; return 1; }
   key cmd+shift+w
-  check wait_for 5 eval '! kanna list --json | grep -q "\"$planner\""' || { echo "S45: closing the window left its planning agent running"; kanna list; return 1; }
+  check wait_for 5 eval '! kanna list --json | grep -q "\"$planner\""' || { echo "S45: closing the window left its planning terminal running"; kanna list; return 1; }
 }
 
 S46() {
@@ -1451,25 +1437,32 @@ S46() {
   for dir in "$repo" "$fresh"; do mkdir -p "$dir" && git -C "$dir" init -q -b main || { echo "S46 line $LINENO"; return 1; }; done
   git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S46 line $LINENO"; return 1; }
   repo="$(cd "$repo" && pwd -P)"; fresh="$(cd "$fresh" && pwd -P)"
-  start_daemon && start_app || { echo "S46 line $LINENO"; return 1; }
+  mkdir -p "$repo/.kanna" && printf '{"planning": {"context": 400000}}\n' >"$repo/.kanna/config.json"
+  start_daemon || { echo "S46 line $LINENO"; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
   desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$2\"}}" | field "$1"; }
+  check wait_for 10 eval '[[ "$(desk planner w1)" == p* ]]' || { echo "S46: no planning terminal"; kanna list; return 1; }
+  local planner; planner="$(desk planner w1)"
+  check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$repo" || { echo "S46: Kanna started in a folder should plan there"; kanna list --json; return 1; }
+  kanna send "$planner" 'echo "context=$CLAUDE_CODE_AUTO_COMPACT_WINDOW"' >/dev/null || { echo "S46 line $LINENO"; return 1; }
+  check wait_for 5 shows "$planner" "context=400000" || { echo "S46: the repo's .kanna/config.json didn't set the context"; kanna read "$planner"; return 1; }
   (cd "$repo" && kanna task new "Waiting" "hello" --agent "$agent") >/dev/null || { echo "S46 line $LINENO"; return 1; }
   local opened w; opened="$(cd / && kanna "$repo")" || { echo "S46 line $LINENO"; return 1; }
   [[ "$opened" =~ ^opened\ (w[0-9]+)\ on\ "$repo"$ ]] || { echo "S46 line $LINENO: $opened"; return 1; }
   w="${BASH_REMATCH[1]}"
   check wait_for 5 eval '[[ "$(desk empty "$w")" == True && "$(desk backlog "$w")" == "[\"t1\"]" && "$(desk running "$w")" == 0 ]]' || { desk backlog "$w"; desk running "$w"; return 1; }
-  check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "S46: no planning agent"; kanna list; return 1; }
+  check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "S46: no planning terminal"; kanna list; return 1; }
   check test "$(desk window.dock "$w")" == None || { echo "S46: a Desk on a project with tasks docked something"; kanna list; return 1; }
-  local planner; planner="$(desk planner "$w")"
+  planner="$(desk planner "$w")"
   check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$repo" || { echo "S46 line $LINENO"; return 1; }
-  check wait_for 10 shows "$planner" "mock-agent: type turn" || { kanna read "$planner"; return 1; }
-  kanna read "$planner" | grep -q "This is your planning agent" && { echo "S46: a project with tasks got the getting-started text"; return 1; }
   opened="$(kanna "$fresh")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "S46 line $LINENO: $opened"; return 1; }
   w="${BASH_REMATCH[1]}"
   check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}"; kanna list; return 1; }
   planner="$(desk planner "$w")"
-  check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$fresh" || { echo "S46: the planning agent isn't in the empty project"; kanna list --json; return 1; }
-  check wait_for 10 shows "$planner" "This is your planning agent" || { kanna read "$planner"; return 1; }
+  check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$fresh" || { echo "S46: the planning terminal isn't in the empty project"; kanna list --json; return 1; }
+  check wait_for 10 shows "$planner" "This terminal is for planning" || { kanna read "$planner"; return 1; }
 }
 
 S47() {

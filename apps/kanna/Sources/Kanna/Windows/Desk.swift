@@ -230,17 +230,9 @@ extension AppController {
     func openPlanner(in window: String) {
         guard !starting.contains(window), let controller = controllers[window] else { return }
         starting.insert(window)
-        let root = controller.projectRoot
         var args: [String: JSON] = ["action": "plan", "window": .string(window)]
-        if let root {
-            args["repo"] = .string(root)
-            if self.window(window)?["project"]?.string == nil {
-                DispatchQueue.main.async { [weak self] in self?.layoutCommand("task", ["action": "desk", "window": .string(window), "project": .string(root)]) }
-            }
-        }
-        if runningTasks(in: root) == 0, backlogTasks(in: root).isEmpty, let guide = Bundle.main.url(forResource: "getting-started", withExtension: "md") {
-            args["guide"] = .string(guide.path)
-        }
+        if let folder = self.window(window)?["project"]?.string ?? controller.projectRoot { args["folder"] = .string(folder) }
+        if let guide = Bundle.main.url(forResource: "getting-started", withExtension: "md") { args["guide"] = .string(guide.path) }
         request("backlog", args) { [weak self] reply in
             guard let self else { return }
             if reply["ok"]?.bool == true { starting.remove(window) }
@@ -253,13 +245,8 @@ extension AppController {
         return window["planner"]?["pane"]?.string == nil && !starting.contains(id)
     }
 
-    func plannerHeader(_ root: String?) -> String {
-        "Planning · " + (root.map(tilde) ?? "no project yet")
-    }
-
-    var latestProject: String? {
-        let parked = shelfEntries.sorted { ($0["parkedAt"]?.number ?? 0) > ($1["parkedAt"]?.number ?? 0) }.lazy.compactMap { $0["task"]?.string }.compactMap(projectRoot).first
-        let waiting = backlog.sorted { ($0["madeAt"]?.number ?? 0) > ($1["madeAt"]?.number ?? 0) }.lazy.compactMap { $0["repo"]?.string }.first.map(canonical)
-        return parked ?? waiting
+    func plannerHeader(_ planner: String?, _ root: String?) -> String {
+        let place = planner.map(headerText).flatMap { $0.isEmpty ? nil : $0 } ?? root.map(tilde)
+        return ["Planning", place].compactMap { $0 }.joined(separator: " · ")
     }
 }

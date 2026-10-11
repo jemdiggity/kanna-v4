@@ -249,30 +249,16 @@ impl Model {
             "desk" => {
                 let project = match string("project") {
                     Some(p) if p.starts_with('/') => Some(p.to_string()),
-                    None if args.get("from").is_none() && args.get("window").is_none() => None,
-                    _ => return Err(bad_request("desk needs a project: an absolute path to a folder")),
+                    None => None,
+                    Some(_) => return Err(bad_request("desk needs a project: an absolute path to a folder")),
                 };
-                let homeless = |w: &Window| w.project.is_none() && w.dock.is_none();
-                let here = match (string("window"), string("from")) {
-                    (Some(reference), _) => Some(self.window_index(reference).ok_or_else(|| not_found(format!("no window \"{reference}\"")))?),
-                    (None, Some(from)) => panes.get(from).and_then(|p| self.planner_window(&p.id)).filter(|w| homeless(&self.windows[*w])),
-                    (None, None) => None,
-                };
-                let retired = match here {
-                    Some(w) if string("window").is_none() => self.windows[w].planner.take().map(|p| p.pane),
-                    _ => None,
-                };
-                let w = match here {
-                    Some(w) => w,
-                    None => self.make_window(),
-                };
+                let w = self.make_window();
                 let window = &mut self.windows[w];
                 window.desk = true;
-                window.project = project.clone().or(window.project.take());
-                window.settle_focus();
+                window.project = project.clone();
                 let id = window.id.clone();
                 self.key = Some(id.clone());
-                Ok(reply([("window", id.into()), ("project", project.map_or(Value::Null, Value::String)), ("retired", retired.map_or(Value::Null, Value::String))]))
+                Ok(reply([("window", id.into()), ("project", project.map_or(Value::Null, Value::String))]))
             }
             other => Err(bad_request(format!("unknown task action \"{other}\" (list, park, pull or desk)"))),
         }

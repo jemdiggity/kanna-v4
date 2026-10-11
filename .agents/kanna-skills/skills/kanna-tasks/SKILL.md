@@ -7,7 +7,7 @@ description: Use when running in a Kanna terminal ($KANNA_PANE is set), as soon 
 
 In Kanna, each agent's work is a **task**: one agent in one repo, shown on a Desk. A task you start in is "New task" until you name it, and its name is what the user sees in the title bar, on the Shelf and in the backlog.
 
-If you're a window's **planning agent** (your first message says so), you aren't a task: use the `kanna-planning` skill instead, and skip naming your task and branch.
+If `$KANNA_PLANNER` is set, you're a window's **planning agent**, not a task: use the `kanna-planning` skill instead, and skip naming your task and branch.
 
 ## Name your task
 

@@ -64,7 +64,7 @@ flowchart LR
 
 ## 4. The planning agent
 
-With no task on the Desk, the window's planning agent is docked on the left beside the full Shelf: [planning agent](planning-agent.md).
+With no task on the Desk, the window's planning terminal, where you run your planning agent, is docked on the left beside the full Shelf: [planning agent](planning-agent.md).
 
 ## 5. CLI
 
@@ -97,12 +97,12 @@ flowchart TB
 - **The mux layer does the layout.** A Desk is an ordinary window with a [docked pane](docked-pane.md) and tabs. Nothing in the mux layer knows about tasks.
 - **The Desk layer is chrome and the Shelf.** The app keeps parked tasks (their dock with its width, their tabs, and when they were parked), saved with the windows ([4.7](../kanna-spec.md#47-the-layout)). The title bar, agent header and Shelf are app views around the window's content.
 - **Parking** moves the task's dock and tabs off the window; the panes keep their IDs, and their terminals never notice.
-- **The planning agent is the window's `planner`**: a pane the window holds beside its dock, shown on the left only while the dock is empty. Parking and pulling move the dock and tabs and leave it where it is. The app asks the daemon for one (`backlog` `plan`) when a Desk shows no task and has none; the daemon makes its command and opens it with the `planner` placement.
+- **The planning terminal is the window's `planner`**: a pane the window holds beside its dock, shown on the left only while the dock is empty. Parking and pulling move the dock and tabs and leave it where it is. The app asks the daemon for one (`backlog` `plan`) when a Desk shows no task and has none; the daemon makes its command and opens it with the `planner` placement.
 - **`kanna task` commands** are layout commands: they go to the app like `open --split`, and start it if it's closed.
 
 ## 7. Rejected
 
-- **The planning agent's alternatives:** [planning agent](planning-agent.md#9-rejected).
+- **The planning terminal's alternatives:** [planning agent](planning-agent.md#8-rejected).
 
 ## 8. Open questions
 

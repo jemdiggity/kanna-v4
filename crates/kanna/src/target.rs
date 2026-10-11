@@ -216,6 +216,9 @@ pub fn launch_command(target: &Target, env: Env) -> Command {
     if let Some(folder) = env("KANNA_STATE_DIR") {
         open.arg("--env").arg(format!("KANNA_STATE_DIR={folder}"));
     }
+    if let Some(folder) = env("PWD").filter(|f| f.starts_with('/')) {
+        open.arg("--env").arg(format!("KANNA_START_DIR={folder}"));
+    }
     match (env("KANNA_APP"), target.build.app()) {
         (Some(app), _) => open.arg("-a").arg(app),
         (None, Some(app)) => open.arg("-a").arg(app),
@@ -423,9 +426,10 @@ mod tests {
         let app = args(&Target { background: false, fresh: true, ..target.clone() }, &|name| match name {
             "KANNA_APP" => Some("/x/Kanna.app".into()),
             "KANNA_STATE_DIR" => Some("/tmp/d".into()),
+            "PWD" => Some("/work/app".into()),
             _ => None,
         });
-        assert_eq!(app, ["-n", "--env", "KANNA_SOCKET=/tmp/d/kanna.sock", "--env", "KANNA_STATE_DIR=/tmp/d", "-a", "/x/Kanna.app", "--args", "--fresh"]);
+        assert_eq!(app, ["-n", "--env", "KANNA_SOCKET=/tmp/d/kanna.sock", "--env", "KANNA_STATE_DIR=/tmp/d", "--env", "KANNA_START_DIR=/work/app", "-a", "/x/Kanna.app", "--args", "--fresh"]);
     }
 
     #[test]

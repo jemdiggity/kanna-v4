@@ -81,54 +81,42 @@ impl Entry {
     }
 }
 
-const PLANNING: &str = "You're the planning agent of this Kanna window: you plan work with the user and manage this project's tasks, and you don't write code here. Use the kanna-planning skill, and kanna-new-project if this folder is empty or isn't a git repo yet.";
-
-const NOWHERE: &str = "This window has no project yet, so you're in the home folder: ask the user which folder to work in (a project they have, or a new one to make), then run `kanna PATH` with it, and this window's planning agent starts again there.";
-
-const STOPPED: &str = "The planning agent stopped. Press Return to start it again.";
-
-/// How big a planning agent's context gets before it compacts, by default: long-lived agents do better kept small.
+/// How big the context of a claude agent in a planning terminal gets before it compacts, by default: long-lived agents do better kept small.
 pub const PLANNING_CONTEXT: u64 = 300_000;
 
-/// The planning agent's settings, from `~/.config/kanna/planning.json` (`{"context": 300000}`, or `"auto"` for the agent's own).
-pub fn planning_context(file: &Path) -> Option<u64> {
-    let Some(text) = fs::metadata(file).ok().filter(|m| m.len() <= 64 << 10).and_then(|_| fs::read_to_string(file).ok()) else { return Some(PLANNING_CONTEXT) };
-    let value = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
-    match value.get("context") {
-        Some(Value::String(auto)) if auto == "auto" => None,
-        Some(tokens) => match tokens.as_u64().filter(|t| (100_000..=1_000_000).contains(t)) {
-            Some(tokens) => Some(tokens),
-            None => {
-                eprintln!("kanna-daemon: {}: context is a number of tokens from 100000 to 1000000, or \"auto\"; using {PLANNING_CONTEXT}", file.display());
-                Some(PLANNING_CONTEXT)
-            }
-        },
-        None => Some(PLANNING_CONTEXT),
+/// Kanna's settings files for a folder, the first that sets a key winning: the repo's `.kanna/config.json`, then `~/.kanna-v4/config.json`.
+pub fn config_files(folder: &Path) -> Vec<PathBuf> {
+    let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
+    project(folder.to_str()).map(|repo| repo.join(".kanna/config.json")).into_iter().chain([home.join(".kanna-v4/config.json")]).collect()
+}
+
+/// How big a claude agent's context gets in a planning terminal before it compacts: `planning.context`, a number of
+/// tokens or `"auto"` for the agent's own, from the first of `files` that sets it.
+pub fn planning_context(files: &[PathBuf]) -> Option<u64> {
+    for file in files {
+        let Some(text) = fs::metadata(file).ok().filter(|m| m.len() <= 64 << 10).and_then(|_| fs::read_to_string(file).ok()) else { continue };
+        let value = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
+        match value.get("planning").and_then(|p| p.get("context")) {
+            Some(Value::String(auto)) if auto == "auto" => return None,
+            Some(tokens) => match tokens.as_u64().filter(|t| (100_000..=1_000_000).contains(t)) {
+                Some(tokens) => return Some(tokens),
+                None => eprintln!("kanna-daemon: {}: planning.context is a number of tokens from 100000 to 1000000, or \"auto\"", file.display()),
+            },
+            None => {}
+        }
     }
+    Some(PLANNING_CONTEXT)
 }
 
-pub fn planning_file() -> PathBuf {
-    let home = std::env::var("XDG_CONFIG_HOME").ok().filter(|d| !d.is_empty()).map(PathBuf::from);
-    home.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config")).join("kanna/planning.json")
-}
-
-/// A planning agent's command line: the getting-started text when there's one to show, then the agent with its
-/// first message, and when it exits, a wait for Return before starting it again (a claude agent resumes its session).
-/// A claude agent compacts at `context` tokens, unless its command says otherwise.
-pub fn planner_command(agent: &str, session: Option<&str>, homeless: bool, guide: Option<&str>, context: Option<u64>) -> String {
-    let first = quote(&if homeless { format!("{PLANNING} {NOWHERE}") } else { format!("{PLANNING} Start by saying in a line or two what's running and waiting (kanna task list), then ask what we're working on.") });
-    let agent = agent.trim();
-    let chosen = agent.split_whitespace().any(|w| w.split('=').next() == Some("--autocompact"));
-    let agent = &match context.filter(|_| program(agent) == "claude" && !chosen) {
-        Some(tokens) => format!("{agent} --autocompact {tokens}"),
-        None => agent.to_string(),
-    };
+/// The planning terminal's command line: it marks the terminal as the window's planning terminal for the agent you
+/// start there, keeps a claude agent's context to `context` tokens, prints how to start, and hands over to your shell.
+/// Kanna's zsh integration (`zsh`, its folder) hands ZDOTDIR back to yours while the command runs, so the shell it
+/// hands over to gets it again, as every Kanna terminal's does.
+pub fn planner_command(guide: Option<&str>, context: Option<u64>, zsh: Option<&str>) -> String {
+    let integrate = zsh.map_or(String::new(), |dir| format!("case \"${{SHELL##*/}}\" in zsh) [ -z \"${{ZDOTDIR+x}}\" ] || export KANNA_ZSH_ZDOTDIR=\"$ZDOTDIR\"; export ZDOTDIR={};; esac; ", quote(dir)));
+    let limit = context.map_or(String::new(), |tokens| format!("[ -n \"$CLAUDE_CODE_AUTO_COMPACT_WINDOW\" ] || export CLAUDE_CODE_AUTO_COMPACT_WINDOW={tokens}; "));
     let show = guide.map_or(String::new(), |g| format!("if command -v glow >/dev/null 2>&1; then glow -w 0 {g}; else cat {g}; fi; echo; ", g = quote(g)));
-    let (start, again) = match session.filter(|_| program(agent) == "claude") {
-        Some(id) => (format!("{agent} --session-id {id} {first} || {agent} --resume {id}"), format!("{agent} --resume {id}")),
-        None => (format!("{agent} {first}"), format!("{agent} {first}")),
-    };
-    format!("{show}{start}; while printf '\\n\\033[2m%s\\033[0m\\n' {} && read -r _; do {again}; done", quote(STOPPED))
+    format!("export KANNA_PLANNER=1; {limit}{show}{integrate}exec \"${{SHELL:-/bin/sh}}\" -l")
 }
 
 fn program(agent: &str) -> &str {
@@ -408,16 +396,15 @@ impl Backlog {
         }
     }
 
-    /// Opens a window's planning agent, in its project's folder (else the home folder), outside the backlog and the task limit.
+    /// Opens a window's planning terminal, in its folder (else the home folder), outside the backlog and the task limit.
     fn plan(&self, args: &Value, responder: Responder) {
         let Some(core) = self.core.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
-        let Some(window) = string(args, "window") else { return responder.reply(Err(bad("a planning agent needs its window"))) };
-        let repo = string(args, "repo").filter(|r| Path::new(r).is_absolute() && Path::new(r).is_dir());
+        let Some(window) = string(args, "window") else { return responder.reply(Err(bad("a planning terminal needs its window"))) };
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
-        let agent = string(args, "agent").filter(|a| !a.trim().is_empty()).map(String::from).unwrap_or_else(default_agent);
-        let session = uuid().ok();
-        let cmd = planner_command(&agent, session.as_deref(), repo.is_none(), string(args, "guide"), planning_context(&planning_file()));
-        let open = json!({ "type": "term", "planner": true, "window": window, "cwd": repo.unwrap_or(&home), "cmd": cmd, "wait": false });
+        let folder = string(args, "folder").filter(|f| Path::new(f).is_absolute() && Path::new(f).is_dir()).unwrap_or(&home);
+        let zsh = self.path.parent().map(|state| state.join("shell/zsh")).filter(|dir| dir.join(".zshenv").is_file());
+        let cmd = planner_command(string(args, "guide"), planning_context(&config_files(Path::new(folder))), zsh.as_deref().and_then(Path::to_str));
+        let open = json!({ "type": "term", "planner": true, "window": window, "cwd": folder, "cmd": cmd, "wait": false });
         core.handle(json!({ "cmd": "open", "args": open }), move |reply| match failed(&reply) {
             Some(error) => responder.reply(Err(error)),
             None => responder.reply(Ok(Map::from_iter([("pane".to_string(), reply.get("pane").and_then(|p| p.get("id")).cloned().unwrap_or(Value::Null)), ("window".to_string(), reply.get("window").cloned().unwrap_or(Value::Null))]))),
@@ -596,41 +583,45 @@ mod tests {
     }
 
     #[test]
-    fn a_planning_agent_shows_the_guide_runs_with_its_first_message_and_waits_to_resume_when_it_exits() {
-        let command = planner_command("claude", Some("u1"), false, Some("/K/getting started.md"), None);
-        let (show, rest) = command.split_once("echo; ").unwrap();
-        assert_eq!(show, "if command -v glow >/dev/null 2>&1; then glow -w 0 '/K/getting started.md'; else cat '/K/getting started.md'; fi; ");
-        assert!(rest.starts_with("claude --session-id u1 'You'\\''re the planning agent"), "{rest}");
-        assert!(rest.contains("kanna-planning") && rest.contains("kanna task list") && !rest.contains("dangerously"), "{rest}");
-        assert!(rest.contains("|| claude --resume u1; while printf"), "{rest}");
-        assert!(rest.ends_with("&& read -r _; do claude --resume u1; done"), "{rest}");
-        let homeless = planner_command("codex", Some("u1"), true, None, Some(300_000));
-        assert!(homeless.starts_with("codex 'You'\\''re") && homeless.contains("kanna PATH") && !homeless.contains("--resume"), "{homeless}");
-        assert!(homeless.ends_with("do codex 'You'\\''re the planning agent of this Kanna window: you plan work with the user and manage this project'\\''s tasks, and you don'\\''t write code here. Use the kanna-planning skill, and kanna-new-project if this folder is empty or isn'\\''t a git repo yet. This window has no project yet, so you'\\''re in the home folder: ask the user which folder to work in (a project they have, or a new one to make), then run `kanna PATH` with it, and this window'\\''s planning agent starts again there.'; done"), "{homeless}");
-        let script = std::env::temp_dir().join(format!("kanna-planner-{}", std::process::id()));
-        fs::write(&script, planner_command("echo", None, false, Some("/dev/null"), None)).unwrap();
-        let out = Command::new("/bin/sh").arg(&script).stdin(std::process::Stdio::null()).output().unwrap();
-        let text = String::from_utf8_lossy(&out.stdout);
-        assert!(text.contains("You're the planning agent") && text.contains("Press Return to start it again"), "{text}");
-        fs::remove_file(&script).unwrap();
+    fn the_planning_terminal_is_marked_keeps_claude_to_its_context_shows_the_guide_and_is_your_shell() {
+        let command = planner_command(Some("/K/getting started.md"), Some(300_000), None);
+        assert_eq!(command, "export KANNA_PLANNER=1; [ -n \"$CLAUDE_CODE_AUTO_COMPACT_WINDOW\" ] || export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000; if command -v glow >/dev/null 2>&1; then glow -w 0 '/K/getting started.md'; else cat '/K/getting started.md'; fi; echo; exec \"${SHELL:-/bin/sh}\" -l");
+        assert_eq!(planner_command(None, None, None), "export KANNA_PLANNER=1; exec \"${SHELL:-/bin/sh}\" -l");
+        let zsh = planner_command(None, None, Some("/S/shell/zsh"));
+        assert!(zsh.ends_with("case \"${SHELL##*/}\" in zsh) [ -z \"${ZDOTDIR+x}\" ] || export KANNA_ZSH_ZDOTDIR=\"$ZDOTDIR\"; export ZDOTDIR='/S/shell/zsh';; esac; exec \"${SHELL:-/bin/sh}\" -l"), "{zsh}");
+        let run = |extra: &[(&str, &str)]| {
+            let mut sh = Command::new("/bin/sh");
+            sh.arg("-c").arg(planner_command(Some("/dev/null"), Some(300_000), None).replace("exec \"${SHELL:-/bin/sh}\" -l", "echo \"P=$KANNA_PLANNER C=$CLAUDE_CODE_AUTO_COMPACT_WINDOW\"")).env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+            sh.envs(extra.iter().copied());
+            String::from_utf8_lossy(&sh.output().unwrap().stdout).trim().to_string()
+        };
+        assert_eq!(run(&[]), "P=1 C=300000");
+        assert_eq!(run(&[("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "500000")]), "P=1 C=500000", "your own setting wins");
     }
 
     #[test]
-    fn a_claude_planning_agent_compacts_at_the_configured_context_unless_its_command_says() {
-        let command = planner_command("claude", Some("u1"), false, None, Some(300_000));
-        assert!(command.starts_with("claude --autocompact 300000 --session-id u1 "), "{command}");
-        assert!(command.contains("|| claude --autocompact 300000 --resume u1;") && command.ends_with("do claude --autocompact 300000 --resume u1; done"), "{command}");
-        let own = planner_command("claude --autocompact=500k", Some("u1"), false, None, Some(300_000));
-        assert!(own.starts_with("claude --autocompact=500k --session-id u1 ") && !own.contains("300000"), "{own}");
-        assert!(!planner_command("codex", None, false, None, Some(300_000)).contains("autocompact"));
+    fn the_planning_context_comes_from_the_repos_config_then_yours() {
         let dir = std::env::temp_dir().join(format!("kanna-planning-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("planning.json");
-        assert_eq!(planning_context(&file), Some(PLANNING_CONTEXT), "no file: 300K");
-        for (text, context) in [(r#"{"context": 500000}"#, Some(500_000)), (r#"{"context": "auto"}"#, None), (r#"{"context": 50}"#, Some(PLANNING_CONTEXT)), ("{}", Some(PLANNING_CONTEXT)), ("not json", Some(PLANNING_CONTEXT))] {
-            fs::write(&file, text).unwrap();
-            assert_eq!(planning_context(&file), context, "{text}");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("repo/.kanna")).unwrap();
+        fs::create_dir_all(dir.join("home/.kanna-v4")).unwrap();
+        let (repo, mine) = (dir.join("repo/.kanna/config.json"), dir.join("home/.kanna-v4/config.json"));
+        let files = [repo.clone(), mine.clone()];
+        assert_eq!(planning_context(&files), Some(PLANNING_CONTEXT), "no files: 300K");
+        fs::write(&mine, r#"{"planning": {"context": 500000}}"#).unwrap();
+        assert_eq!(planning_context(&files), Some(500_000));
+        fs::write(&repo, r#"{"planning": {"context": "auto"}}"#).unwrap();
+        assert_eq!(planning_context(&files), None, "the repo's wins");
+        fs::write(&repo, r#"{"other": 1}"#).unwrap();
+        assert_eq!(planning_context(&files), Some(500_000), "a file that doesn't set it leaves it to the next");
+        for (text, context) in [(r#"{"planning": {"context": 50}}"#, Some(PLANNING_CONTEXT)), ("not json", Some(PLANNING_CONTEXT))] {
+            fs::write(&mine, text).unwrap();
+            assert_eq!(planning_context(&[mine.clone()]), context, "{text}");
         }
+        assert!(Command::new("git").arg("-C").arg(dir.join("repo")).args(["init", "-q"]).status().unwrap().success());
+        let found = config_files(&dir.join("repo"));
+        assert_eq!(found[0].canonicalize().ok(), repo.canonicalize().ok(), "{found:?}");
+        assert!(found[1].ends_with(".kanna-v4/config.json"), "{found:?}");
         fs::remove_dir_all(&dir).unwrap();
     }
 

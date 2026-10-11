@@ -583,22 +583,14 @@ mod tests {
     }
 
     #[test]
-    fn kanna_path_from_the_planning_agent_of_a_window_with_no_project_gives_it_that_project() {
+    fn a_desk_kanna_opens_with_nothing_has_no_folder_until_it_is_given_one() {
         let mut owner = LayoutOwner::new();
         owner.handle(&json!({ "call": "attach", "panes": [] }));
         let task = |owner: &mut LayoutOwner, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "task", "args": args } }));
         let opened = task(&mut owner, json!({ "action": "desk" }));
         assert_eq!((opened["window"].clone(), opened["project"].clone()), (json!("w1"), Value::Null), "{opened}");
-        place(&mut owner, "p1", json!({ "planner": true, "window": "w1" }));
-        let homed = task(&mut owner, json!({ "action": "desk", "project": "/work/new", "from": "p1" }));
-        assert_eq!((homed["window"].clone(), homed["retired"].clone()), (json!("w1"), json!("p1")), "{homed}");
-        let window = owner.view()["windows"][0].clone();
-        assert_eq!((window["project"].clone(), window["planner"].clone()), (json!("/work/new"), Value::Null));
-        place(&mut owner, "p2", json!({ "planner": true, "window": "w1" }));
-        let elsewhere = task(&mut owner, json!({ "action": "desk", "project": "/work/other", "from": "p2" }));
-        assert_eq!((elsewhere["window"].clone(), elsewhere["retired"].clone()), (json!("w2"), Value::Null), "a window with a project keeps it: {elsewhere}");
-        let kept = task(&mut owner, json!({ "action": "desk", "project": "/work/kept", "window": "w2" }));
-        assert_eq!((kept["window"].clone(), owner.view()["windows"][1]["project"].clone()), (json!("w2"), json!("/work/kept")));
+        assert_eq!(owner.view()["windows"][0]["desk"], true);
+        assert!(task(&mut owner, json!({ "action": "desk", "project": "work/app" }))["error"].is_object());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 ---
 name: kanna-new-project
-description: Use when you're a Kanna planning agent in a folder that's empty or isn't a git repo yet: help the user decide what the project is, set it up, and turn the plan into backlog tasks.
+description: Use when you're a Kanna planning agent ($KANNA_PLANNER is set) in a folder that's empty or isn't a git repo yet: help the user decide what the project is, set it up, and turn the plan into backlog tasks.
 ---
 
 # A new project in Kanna
