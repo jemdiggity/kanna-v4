@@ -107,6 +107,14 @@ extension AppController {
             } ?? []
             return reply
         }
+        commands["debug.desk"] = { [weak self] args in
+            guard let self else { return [:] }
+            let id = args["window"]?.string ?? state["key"]?.string ?? ""
+            guard let controller = controllers[id] else { throw KannaError("not_found", "no window \"\(id)\"") }
+            let tasks = controller.shelf.map { task -> JSON in ["task": .string(task.id), "title": .string(task.title), "status": task.status.map { .string($0) } ?? .null] }
+            return ["desk": .bool(controller.desk), "empty": .bool(controller.emptyDesk), "shelf": .array(tasks),
+                    "strip": .bool(!controller.shelfStrip.isHidden), "page": .bool(!controller.shelfPage.isHidden), "title": .string(controller.window.title)]
+        }
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
             if let script = args["js"]?.string {
@@ -228,6 +236,13 @@ extension AppController {
             guard at.count == 2 else { throw KannaError("bad_request", "at is [x, y]") }
             window = paneWindow
             point = view.convert(NSPoint(x: at[0], y: view.bounds.height - at[1]), to: nil)
+        } else if let task = args["shelf"]?.string {
+            let id = args["window"]?.string ?? state["key"]?.string ?? ""
+            guard let controller = controllers[id] else { throw KannaError("not_found", "no window \"\(id)\"") }
+            let spots = controller.emptyDesk ? controller.shelfPage.rows : controller.shelfStrip.items
+            guard let spot = spots.first(where: { $0.task == task }) else { throw KannaError("not_found", "\(task) is not on \(id)'s Shelf") }
+            window = controller.window
+            point = spot.center
         } else {
             let id = args["tab"]?.string ?? ""
             guard let state = windowOf(tab: id), let controller = state["id"]?.string.flatMap({ controllers[$0] }),

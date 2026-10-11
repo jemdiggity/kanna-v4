@@ -226,8 +226,37 @@ final class AppController: NSObject, NSApplicationDelegate {
         return nil
     }
 
+    var shelfEntries: [JSON] {
+        guard case .array(let list)? = state["shelf"] else { return [] }
+        return list
+    }
+
+    var shelfTasks: [ShelfTask] {
+        let tasks = shelfEntries.compactMap { entry -> ShelfTask? in
+            guard let id = entry["task"]?.string else { return nil }
+            return ShelfTask(id: id, title: taskTitle(id, name: entry["name"]?.string), parkedAt: entry["parkedAt"]?.number, status: agentStatuses.statuses[id], detail: "")
+        }
+        let waiting: [ShelfTask] = tasks.filter { $0.status == "needs-you" }
+        let rest: [ShelfTask] = tasks.filter { $0.status != "needs-you" }
+        return waiting + rest
+    }
+
+    func taskTitle(_ id: String, name: String?) -> String {
+        if let name { return name }
+        if let title = panes[id]?.terminal?.title, !title.isEmpty { return title }
+        return id
+    }
+
+    func pullTask(_ task: String, into window: String) {
+        layoutCommand("task", ["action": "pull", "task": .string(task), "window": .string(window)])
+    }
+
     private var placed: Set<String> {
         var ids = Set<String>()
+        for entry in shelfEntries {
+            guard case .array(let list)? = entry["panes"] else { continue }
+            ids.formUnion(list.compactMap(\.string))
+        }
         for window in windows {
             if let pane = window["dock"]?["pane"]?.string { ids.insert(pane) }
             guard case .array(let tabs)? = window["tabs"] else { continue }
@@ -322,9 +351,13 @@ final class AppController: NSObject, NSApplicationDelegate {
             controllers[id] = nil
         }
         panes.keep(placed)
+        let tasks = shelfTasks
         for window in windows {
             guard let id = window["id"]?.string else { continue }
-            (controllers[id] ?? makeController(id, window)).render(window, panes)
+            let controller = controllers[id] ?? makeController(id, window)
+            controller.shelf = tasks
+            controller.project = "Shelf"
+            controller.render(window, panes)
         }
         if let key = state["key"]?.string, let controller = controllers[key], !controller.window.isKeyWindow {
             present(controller.window)
@@ -363,7 +396,9 @@ final class AppController: NSObject, NSApplicationDelegate {
             controller.render(window, panes)
         }
         controller.tabBar.onRename = { [weak self] tab, title in self?.layoutCommand("rename-tab", ["tab": .string(tab), "title": .string(title)]) }
-        controller.onCloseRequest = { [weak self] in self?.request("close", ["window": .string(id)]) }
+        controller.onCloseRequest = { [weak self] in self?.close(window: id) }
+        controller.shelfStrip.onPull = { [weak self] task in self?.pullTask(task, into: id) }
+        controller.shelfPage.onPull = { [weak self] task in self?.pullTask(task, into: id) }
         controller.onBecomeKey = { [weak self, weak controller] in
             guard let self, let controller, let appLayout else { return }
             if controller.window.isKeyWindow, state["key"]?.string != id {

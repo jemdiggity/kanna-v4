@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S42) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S43) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-2]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-3]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -686,7 +686,7 @@ S30() {
   start_daemon && term_app || return 1
   terminal background '{"appearance":"dark"}' >/dev/null 2>&1
   kanna open --name s30 --cmd "$(probe '\033]11;?\007\033]10;?\007\033]4;1;?\007\033[?996n' n 1)" >/dev/null || return 1
-  check wait_for 5 shows s30 'GOT ^]11;rgb:1212/3434/5656~^]10;rgb:e5e5/d4d4/b0b0~^]4;1;rgb:0101/0202/fefe~^\[?997;1n' || return 1
+  check wait_for 5 shows s30 'GOT ^]11;rgb:1212/3434/5656~^]10;rgb:e5e5/d4d4/b0b0~^]4;1;rgb:0101/0202/fefe~^\[?997;1n' || { kanna read s30; return 1; }
   check test "$(terminal settings.cursorStyle '{"pane":"s30"}')" == bar || return 1
   local drawn
   drawn="$(raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"s30.png"}}' | field panes.0.background)"
@@ -1219,6 +1219,39 @@ S41() {
   check wait_for 5 shows s41-login 's41:_kanna:home:gone'
 }
 
+S43() {
+  start_daemon && start_app || return 1
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"${2:-w1}\"}}" | field "$1"; }
+  kanna open --name agent --dock >/dev/null || return 1
+  kanna open --name notes --tab >/dev/null || return 1
+  check test "$(win w1 dock.pane)" == agent || return 1
+  check test "$(desk desk)" == True || return 1
+  check test "$(desk strip)" == True || return 1
+  expected="parked p1; w1 is an empty Desk"; says kanna task park agent || return 1
+  check test "$(desk empty)" == True || return 1
+  check test "$(desk page)" == True || return 1
+  check test "$(desk shelf.0.task)" == p1 || return 1
+  check test "$(win w1 dock)" == None || return 1
+  sleep 0.5; snap w1 s43-empty >/dev/null
+  kanna send notes 'echo PARKED-$((6*7))' >/dev/null || return 1
+  check wait_for 5 shows notes PARKED-42 || return 1
+  raw '{"id":1,"cmd":"debug.click","args":{"shelf":"p1","window":"w1"}}' >/dev/null; sleep 0.3
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == agent ]]' || return 1
+  check test "$(win w1 tabs.0.layout.pane)" == notes || return 1
+  check test "$(desk empty)" == False || return 1
+  kanna task park >/dev/null || return 1
+  stop_app; start_app || return 1
+  check wait_for 5 eval '[[ "$(desk shelf.0.task)" == p1 ]]' || return 1
+  check test "$(pane notes state)" == running || return 1
+  expected="pulled p1 onto w1"; says kanna task pull agent || return 1
+  check wait_for 5 eval '[[ "$(win w1 tabs.0.layout.pane)" == notes ]]' || return 1
+  sleep 0.5; check drawn "$(snap w1 s43-desk)" 2 || return 1
+  key cmd+shift+w
+  check wait_for 5 eval 'kanna task list | grep -q "p1 .*Shelf"' || { kanna task list; return 1; }
+  check test "$(pane agent state)" == running || return 1
+  check test "$(pane notes state)" == running || return 1
+}
+
 S42() {
   SHELL=/bin/bash PATH="$bin:$PATH" start_daemon && start_app || return 1
   kanna open --name s42 >/dev/null || return 1
@@ -1230,9 +1263,9 @@ S42() {
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-2]) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-3]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

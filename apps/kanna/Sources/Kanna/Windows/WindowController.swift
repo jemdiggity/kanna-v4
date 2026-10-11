@@ -13,6 +13,13 @@ final class WindowController: NSObject, NSWindowDelegate {
     private(set) var dockDivider: DockDividerView?
     var relayout: (() -> Void)? { didSet { content.onLayout = relayout } }
     let tabBar = TabBar()
+    let shelfStrip = ShelfStrip()
+    let shelfPage = ShelfPage()
+    var shelf: [ShelfTask] = []
+    var project = ""
+    var cheer = ShelfPage.cheers[0]
+    private(set) var desk = false
+    private(set) var emptyDesk = false
     var onCloseRequest: (() -> Void)?
     var onBecomeKey: (() -> Void)?
     var onFrameChange: (() -> Void)?
@@ -39,6 +46,10 @@ final class WindowController: NSObject, NSWindowDelegate {
         content.addSubview(stage)
         content.addSubview(tabBar)
         content.addSubview(dockStage)
+        content.addSubview(shelfStrip)
+        content.addSubview(shelfPage)
+        shelfStrip.isHidden = true
+        shelfPage.isHidden = true
         window.contentView = content
         if let previous {
             window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: previous.frame.minX, y: previous.frame.maxY)))
@@ -57,6 +68,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         let docked = dock?["pane"]?.string
         let ids = Self.paneIDs(root)
         shown = Self.shownPanes(state)
+        desk = state["desk"]?.bool == true
+        emptyDesk = desk && docked == nil && ids.isEmpty
         arrange(dock, zoomed: docked != nil && state["zoomed"]?.string == docked)
         let visible = Set(ids)
         for case let view as PaneView in stage.subviews where !visible.contains(view.id) { view.removeFromSuperview() }
@@ -88,7 +101,18 @@ final class WindowController: NSObject, NSWindowDelegate {
     }
 
     private func arrange(_ dock: JSON?, zoomed: Bool) {
-        let bounds = content.bounds
+        var bounds = content.bounds
+        if shelfPage.isHidden == emptyDesk { shelfPage.isHidden = !emptyDesk }
+        if shelfStrip.isHidden == (desk && !emptyDesk) { shelfStrip.isHidden = !desk || emptyDesk }
+        if emptyDesk {
+            shelfPage.frame = bounds
+            shelfPage.show(shelf, project: project, cheer: cheer)
+            bounds = .zero
+        } else if desk {
+            shelfStrip.frame = NSRect(x: 0, y: 0, width: bounds.width, height: ShelfStrip.height)
+            shelfStrip.show(shelf)
+            bounds = NSRect(x: 0, y: ShelfStrip.height, width: bounds.width, height: bounds.height - ShelfStrip.height)
+        }
         var side = bounds
         dockDivider?.removeFromSuperview()
         dockDivider = nil
@@ -101,9 +125,9 @@ final class WindowController: NSObject, NSWindowDelegate {
                 let low = min(DividerView.minimum, total / 2)
                 let width = min(max((total * CGFloat(dock["width"]?.number ?? 0.4)).rounded(), low), total - low)
                 let left = dock["edge"]?.string != "right"
-                dockStage.frame = NSRect(x: left ? 0 : bounds.width - width, y: 0, width: width, height: bounds.height)
-                side = NSRect(x: left ? width + Self.divider : 0, y: 0, width: total - width, height: bounds.height)
-                let line = NSRect(x: left ? width : side.maxX, y: 0, width: Self.divider, height: bounds.height)
+                dockStage.frame = NSRect(x: left ? 0 : bounds.width - width, y: bounds.minY, width: width, height: bounds.height)
+                side = NSRect(x: left ? width + Self.divider : 0, y: bounds.minY, width: total - width, height: bounds.height)
+                let line = NSRect(x: left ? width : side.maxX, y: bounds.minY, width: Self.divider, height: bounds.height)
                 let handle = DockDividerView(pane: pane, left: left, line: line, span: total, extent: bounds.width)
                 handle.onWidth = { [weak self] width in self?.onDockWidth?(pane, width) }
                 content.addSubview(handle)

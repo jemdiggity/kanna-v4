@@ -237,6 +237,8 @@ impl LayoutOwner {
                     "type": self.panes.get(&parked.id).map_or("term", |p| p.kind.as_str()),
                     "parkedAt": parked.parked_at.map_or(Value::Null, num),
                     "tabs": parked.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>(),
+                    "name": self.panes.get(&parked.id).and_then(|p| p.name.clone()).map_or(Value::Null, Value::String),
+                    "panes": parked.tabs.iter().flat_map(|t| crate::model::pane_ids(t.root.as_ref())).chain(parked.dock.iter().map(|d| d.pane.clone())).collect::<Vec<_>>(),
                 })
             })
             .collect();

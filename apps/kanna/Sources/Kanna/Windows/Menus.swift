@@ -271,7 +271,15 @@ extension AppController {
 
     @objc func closeWindow() {
         guard let window = keyWindow?["id"]?.string else { return }
-        request("close", ["window": .string(window)])
+        close(window: window)
+    }
+
+    func close(window id: String) {
+        if window(id)?["desk"]?.bool == true {
+            layoutCommand("task", ["action": "park", "window": .string(id), "close": true])
+        } else {
+            request("close", ["window": .string(id)])
+        }
     }
 
     @objc func nextWindow() { cycleWindow(1) }
