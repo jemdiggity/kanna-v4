@@ -17,6 +17,7 @@ final class DaemonLink: TerminalLink {
     var onSnapshot: ((String) -> Void)?
     var onStatus: ((String, String?) -> Void)?
     var onFolder: ((String, String) -> Void)?
+    var onBacklog: (([JSON]) -> Void)?
     private var requests = 0
     private var replies: [Int: (JSON) -> Void] = [:]
     private let starter: DaemonStarter?
@@ -126,6 +127,8 @@ final class DaemonLink: TerminalLink {
             }
         case "status":
             if let pane = args["pane"]?.string { onStatus?(pane, args["status"]?.string) }
+        case "backlog":
+            if case .array(let tasks)? = args["tasks"] { onBacklog?(tasks) }
         case "folder":
             if let pane = args["pane"]?.string, let cwd = args["cwd"]?.string { onFolder?(pane, cwd) }
         default: FileHandle.standardError.write(Data("kanna: unknown message from the daemon: \(cmd)\n".utf8))

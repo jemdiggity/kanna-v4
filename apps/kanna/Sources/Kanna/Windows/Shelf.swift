@@ -25,17 +25,50 @@ struct ShelfTask: Equatable {
     }
 }
 
+struct BacklogTask: Equatable {
+    let id: String
+    let name: String
+    let message: String?
+    let from: String?
+    let madeAt: Double?
+
+    var sub: String {
+        let made = "made " + ShelfTask.ago(madeAt).replacingOccurrences(of: "now", with: "just now")
+        return [message, from.map { "from \($0)" }, made].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+struct DeskPage: Equatable {
+    var tasks: [ShelfTask] = []
+    var backlog: [BacklogTask] = []
+    var running = 0
+    var project = ""
+    var cheer = ""
+    var note = ""
+
+    static let limit = 3
+
+    var full: Bool { running >= Self.limit }
+}
+
 @MainActor
 final class ShelfStrip: NSView {
     static let height: CGFloat = 30
     var onPull: ((String) -> Void)?
     private var shown: [ShelfTask] = []
+    private var waiting = 0
+    private let count = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        count.font = .systemFont(ofSize: 12)
+        count.textColor = .tertiaryLabelColor
+        count.autoresizingMask = [.minXMargin]
         paint()
     }
+
+    var waitingText: String { count.isHidden ? "" : count.stringValue }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -50,10 +83,16 @@ final class ShelfStrip: NSView {
         subviews.compactMap { $0 as? ShelfItem }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
     }
 
-    func show(_ tasks: [ShelfTask]) {
-        guard tasks != shown else { return }
+    func show(_ tasks: [ShelfTask], waiting: Int) {
+        guard tasks != shown || waiting != self.waiting else { return }
         shown = tasks
+        self.waiting = waiting
         subviews.forEach { $0.removeFromSuperview() }
+        count.stringValue = "\(waiting) in backlog"
+        count.isHidden = waiting == 0
+        count.sizeToFit()
+        count.frame.origin = NSPoint(x: bounds.width - count.frame.width - 12, y: (Self.height - count.frame.height) / 2)
+        addSubview(count)
         var x: CGFloat = 8
         for (index, task) in tasks.enumerated() {
             let item = ShelfItem(task: task, key: index < 3 ? "⌘\(index + 1)" : nil)
@@ -128,7 +167,7 @@ private final class ShelfItem: NSView {
 extension ShelfStrip {
     fileprivate func relayout() {
         var x: CGFloat = 8
-        for item in subviews {
+        for item in subviews where item is ShelfItem {
             item.frame.origin.x = x
             x += item.frame.width + 4
         }
@@ -146,13 +185,20 @@ final class ShelfPage: NSView {
         "Breathe. Then pick the next one.",
     ]
     var onPull: ((String) -> Void)?
-    private var shown: (tasks: [ShelfTask], project: String, cheer: String)?
+    var onStart: ((String) -> Void)?
+    var onBlank: (() -> Void)?
+    private var shown: DeskPage?
+    private let blank = NSButton(title: "Start a task  ⌘N", target: nil, action: nil)
 
     override var isFlipped: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        blank.bezelStyle = .rounded
+        blank.controlSize = .regular
+        blank.target = self
+        blank.action = #selector(startBlank)
         paint()
     }
 
@@ -165,58 +211,149 @@ final class ShelfPage: NSView {
 
     private func paint() { layer?.backgroundColor = resolved(.textBackgroundColor) }
 
+    @objc private func startBlank() { onBlank?() }
+
     var rows: [(task: String, center: NSPoint)] {
         subviews.compactMap { $0 as? ShelfRow }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
     }
 
-    func show(_ tasks: [ShelfTask], project: String, cheer: String) {
-        if let shown, shown.tasks == tasks, shown.project == project, shown.cheer == cheer { return }
-        shown = (tasks, project, cheer)
+    var backlogRows: [(task: String, center: NSPoint)] {
+        subviews.compactMap { $0 as? BacklogRow }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
+    }
+
+    var blankCenter: NSPoint? { blank.superview == nil || !blank.isEnabled ? nil : blank.convert(NSPoint(x: blank.bounds.midX, y: blank.bounds.midY), to: nil) }
+
+    var note: String { subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "note" }?.stringValue ?? "" }
+
+    private func label(_ text: String, size: CGFloat = 12, weight: NSFont.Weight = .regular, color: NSColor = .labelColor) -> NSTextField {
+        let field = NSTextField(labelWithString: text)
+        field.font = .systemFont(ofSize: size, weight: weight)
+        field.textColor = color
+        field.sizeToFit()
+        addSubview(field)
+        return field
+    }
+
+    func show(_ page: DeskPage) {
+        if page == shown { return }
+        shown = page
         subviews.forEach { $0.removeFromSuperview() }
         let left: CGFloat = 48, width = min(760, bounds.width - left * 2)
         var y: CGFloat = 40
-        let line = NSTextField(labelWithString: cheer)
-        line.font = .systemFont(ofSize: 13)
-        line.textColor = .secondaryLabelColor
-        line.sizeToFit()
+        let line = label(page.cheer, size: 13, color: .secondaryLabelColor)
         line.frame.origin = NSPoint(x: left, y: y)
-        addSubview(line)
         y += line.frame.height + 22
-        let head = NSTextField(labelWithString: project)
-        head.font = .systemFont(ofSize: 12, weight: .semibold)
-        head.sizeToFit()
-        head.frame.origin = NSPoint(x: left, y: y)
-        addSubview(head)
-        let count = NSTextField(labelWithString: "\(tasks.count) parked")
-        count.font = .systemFont(ofSize: 12)
-        count.textColor = .secondaryLabelColor
-        count.sizeToFit()
-        count.frame.origin = NSPoint(x: left + width - count.frame.width, y: y)
-        addSubview(count)
-        y += head.frame.height + 8
-        if tasks.isEmpty {
-            let none = NSTextField(labelWithString: "No tasks. Start one with kanna open --dock --cmd claude.")
-            none.font = .systemFont(ofSize: 12)
-            none.textColor = .secondaryLabelColor
-            none.sizeToFit()
-            none.frame.origin = NSPoint(x: left, y: y + 6)
-            addSubview(none)
+        y = header("Shelf", detail: page.project, count: "\(page.running) of \(DeskPage.limit) tasks", y: y, left: left, width: width)
+        if page.tasks.isEmpty {
+            let none = label("Nothing on the Shelf.", color: .secondaryLabelColor)
+            none.frame.origin = NSPoint(x: left, y: y + 4)
+            y += none.frame.height + 12
         }
-        for (index, task) in tasks.enumerated() {
+        for (index, task) in page.tasks.enumerated() {
             let row = ShelfRow(task: task, key: index < 3 ? "⌘\(index + 1)" : nil, width: width + 20)
             row.onPress = { [weak self] in self?.onPull?(task.id) }
             row.frame.origin = NSPoint(x: left - 10, y: y)
             addSubview(row)
             y += row.frame.height
         }
+        blank.isEnabled = !page.full
+        blank.toolTip = page.full ? "Three tasks already run: finish one first" : "A new agent in a worktree of its own; tell it what to do and it names the task"
+        blank.sizeToFit()
+        blank.frame.origin = NSPoint(x: left - 6, y: y + 4)
+        addSubview(blank)
+        y += blank.frame.height + 28
+        y = header("Backlog", detail: nil, count: "\(page.backlog.count) waiting", y: y, left: left, width: width)
+        if page.backlog.isEmpty {
+            let none = label("Empty. Agents add tasks here with kanna task new.", color: .secondaryLabelColor)
+            none.frame.origin = NSPoint(x: left, y: y + 4)
+            y += none.frame.height + 12
+        }
+        for task in page.backlog {
+            let row = BacklogRow(task: task, full: page.full, width: width + 20)
+            row.onPress = { [weak self] in self?.onStart?(task.id) }
+            row.frame.origin = NSPoint(x: left - 10, y: y)
+            addSubview(row)
+            y += row.frame.height
+        }
+        let note = label(page.note, color: .systemOrange)
+        note.identifier = NSUserInterfaceItemIdentifier("note")
+        note.frame.origin = NSPoint(x: left, y: y + 8)
+    }
+
+    private func header(_ title: String, detail: String?, count: String, y: CGFloat, left: CGFloat, width: CGFloat) -> CGFloat {
+        let head = label(title, weight: .semibold)
+        head.frame.origin = NSPoint(x: left, y: y)
+        if let detail {
+            let more = label("· " + detail, color: .secondaryLabelColor)
+            more.frame.origin = NSPoint(x: head.frame.maxX + 4, y: y)
+        }
+        let tally = label(count, color: .secondaryLabelColor)
+        tally.frame.origin = NSPoint(x: left + width - tally.frame.width, y: y)
+        return y + head.frame.height + 8
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
         guard let shown, oldSize.width != bounds.width else { return }
         self.shown = nil
-        show(shown.tasks, project: shown.project, cheer: shown.cheer)
+        show(shown)
     }
+}
+
+@MainActor
+private final class BacklogRow: NSView {
+    let task: BacklogTask
+    var onPress: (() -> Void)?
+    private let go: NSTextField
+    private let full: Bool
+
+    override var isFlipped: Bool { true }
+
+    init(task: BacklogTask, full: Bool, width: CGFloat) {
+        self.task = task
+        self.full = full
+        go = NSTextField(labelWithString: full ? "Shelf full" : "Move to Shelf →")
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 52))
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        let name = NSTextField(labelWithString: task.name)
+        name.font = .systemFont(ofSize: 13, weight: .medium)
+        name.lineBreakMode = .byTruncatingTail
+        name.frame = NSRect(x: 30, y: 8, width: width - 160, height: 18)
+        let sub = NSTextField(labelWithString: task.sub)
+        sub.font = .systemFont(ofSize: 12)
+        sub.textColor = .secondaryLabelColor
+        sub.lineBreakMode = .byTruncatingTail
+        sub.frame = NSRect(x: 30, y: 27, width: width - 160, height: 17)
+        go.font = .systemFont(ofSize: 12)
+        go.textColor = .tertiaryLabelColor
+        go.sizeToFit()
+        go.frame.origin = NSPoint(x: width - go.frame.width - 10, y: (52 - go.frame.height) / 2)
+        [name, sub, go].forEach(addSubview)
+        toolTip = task.message
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.tertiaryLabelColor.setStroke()
+        let ring = NSBezierPath(ovalIn: NSRect(x: 10.5, y: bounds.midY - 4, width: 8, height: 8))
+        ring.lineWidth = 1.4
+        ring.stroke()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        layer?.backgroundColor = resolved(.quaternaryLabelColor)
+        if !full { go.textColor = .controlAccentColor }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        layer?.backgroundColor = nil
+        go.textColor = .tertiaryLabelColor
+    }
+
+    override func mouseDown(with event: NSEvent) { onPress?() }
 }
 
 @MainActor

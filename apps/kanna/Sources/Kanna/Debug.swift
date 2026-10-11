@@ -114,7 +114,10 @@ extension AppController {
             let tasks = controller.shelf.map { task -> JSON in ["task": .string(task.id), "title": .string(task.title), "status": task.status.map { .string($0) } ?? .null] }
             return ["desk": .bool(controller.desk), "empty": .bool(controller.emptyDesk), "shelf": .array(tasks),
                     "strip": .bool(!controller.shelfStrip.isHidden), "page": .bool(!controller.shelfPage.isHidden), "title": .string(controller.window.title),
-                    "header": controller.agentHeader.isHidden ? .null : .string(controller.agentHeader.text)]
+                    "header": controller.agentHeader.isHidden ? .null : .string(controller.agentHeader.text),
+                    "backlog": .array(controller.backlog.map { .string($0.id) }), "running": .number(Double(controller.running)),
+                    "waiting": .string(controller.shelfStrip.waitingText), "note": .string(controller.note),
+                    "blank": .bool(controller.shelfPage.blankCenter != nil)]
         }
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
@@ -244,6 +247,15 @@ extension AppController {
             guard let spot = spots.first(where: { $0.task == task }) else { throw KannaError("not_found", "\(task) is not on \(id)'s Shelf") }
             window = controller.window
             point = spot.center
+        } else if let task = args["backlog"]?.string {
+            let id = args["window"]?.string ?? state["key"]?.string ?? ""
+            guard let controller = controllers[id], let spot = controller.shelfPage.backlogRows.first(where: { $0.task == task }) else { throw KannaError("not_found", "\(task) is not in \(id)'s backlog") }
+            window = controller.window
+            point = spot.center
+        } else if let id = args["blank"]?.string {
+            guard let controller = controllers[id], let center = controller.shelfPage.blankCenter else { throw KannaError("not_found", "\(id) shows no Start a task button") }
+            window = controller.window
+            point = center
         } else if let id = args["park"]?.string {
             guard let controller = controllers[id], !controller.agentHeader.isHidden else { throw KannaError("not_found", "\(id) shows no agent header") }
             window = controller.window

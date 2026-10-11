@@ -52,7 +52,7 @@ impl Entry {
             by: text("by"),
             made_at: value.get("madeAt").and_then(Value::as_f64).unwrap_or(0.0),
             worktree: value.get("worktree").and_then(Value::as_bool).unwrap_or(true),
-            agent: text("agent").unwrap_or_else(|| "claude".into()),
+            agent: text("agent").unwrap_or_else(default_agent),
         })
     }
 
@@ -62,6 +62,10 @@ impl Entry {
             None => self.agent.clone(),
         }
     }
+}
+
+fn default_agent() -> String {
+    std::env::var("KANNA_AGENT").ok().filter(|a| !a.trim().is_empty()).unwrap_or_else(|| "claude".into())
 }
 
 fn number(id: &str) -> Option<usize> {
@@ -194,7 +198,7 @@ impl Backlog {
             by,
             made_at: now(),
             worktree: args.get("worktree").and_then(Value::as_bool).unwrap_or(true),
-            agent: string(args, "agent").filter(|a| !a.trim().is_empty()).unwrap_or("claude").to_string(),
+            agent: string(args, "agent").filter(|a| !a.trim().is_empty()).map(String::from).unwrap_or_else(default_agent),
         })
     }
 

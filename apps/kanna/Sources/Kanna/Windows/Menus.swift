@@ -78,6 +78,7 @@ extension AppController {
             ("Actual Size", #selector(actualSize), "reset_font_size", .cmd("0")),
         ])
         _ = menu("Task", [
+            ("Start a Task", #selector(startTaskHere), nil, nil),
             ("Park", #selector(parkTask), nil, .cmd(".")),
             nil,
             ("Task Waiting Longest", #selector(pullWaitingTask), nil, .shiftCmd("A")),
@@ -196,6 +197,7 @@ extension AppController {
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
         case #selector(parkTask): return keyWindow?["dock"] != nil
+        case #selector(startTaskHere): return keyWindow?["desk"]?.bool == true
         case #selector(pullWaitingTask): return waitingTask != nil
         case #selector(pullShelf1): return shelfPull(1) != nil
         case #selector(pullShelf2): return shelfPull(2) != nil
@@ -294,6 +296,26 @@ extension AppController {
         } else {
             request("close", ["window": .string(id)])
         }
+    }
+
+    func placeNewKey() {
+        let items = (NSApp.mainMenu?.items ?? []).flatMap { $0.submenu?.items ?? [] }
+        guard let start = items.first(where: { $0.action == #selector(startTaskHere) }),
+              let new = items.first(where: { $0.action == #selector(newWindow) }) else { return }
+        let key = new.keyEquivalent.isEmpty ? start.keyEquivalent : new.keyEquivalent
+        let mask = new.keyEquivalent.isEmpty ? start.keyEquivalentModifierMask : new.keyEquivalentModifierMask
+        guard !key.isEmpty else { return }
+        let desk = keyWindow?["desk"]?.bool == true
+        let (holder, other) = desk ? (start, new) : (new, start)
+        guard holder.keyEquivalent != key else { return }
+        other.keyEquivalent = ""
+        holder.keyEquivalent = key
+        holder.keyEquivalentModifierMask = mask
+    }
+
+    @objc func startTaskHere() {
+        guard let window = keyWindow, window["desk"]?.bool == true, let id = window["id"]?.string else { return }
+        startBlankTask(in: id)
     }
 
     @objc func parkTask() {

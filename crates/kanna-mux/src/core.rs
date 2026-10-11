@@ -33,7 +33,9 @@ pub type PrefixHandler = Rc<dyn Fn(&str, Value, Responder)>;
 pub const TASKS_PER_PROJECT: usize = 3;
 
 pub fn project(cwd: Option<&str>) -> Option<std::path::PathBuf> {
-    let start = std::path::Path::new(cwd?);
+    let given = std::path::Path::new(cwd?);
+    let resolved = std::fs::canonicalize(given).ok();
+    let start = resolved.as_deref().unwrap_or(given);
     let Some(root) = start.ancestors().find(|dir| dir.join(".git").exists()) else { return Some(start.to_path_buf()) };
     let marker = root.join(".git");
     let main = std::fs::metadata(&marker)

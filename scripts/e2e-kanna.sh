@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S44) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S45) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-4]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-5]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -1228,7 +1228,7 @@ S43() {
   check test "$(desk desk)" == True || return 1
   check test "$(desk strip)" == True || return 1
   check test "$(desk title)" == agent || return 1
-  check wait_for 5 eval '[[ "$(desk header)" == "${repo_root/#$HOME/~} · $(git -C "$repo_root" branch --show-current)" ]]' || { desk header; return 1; }
+  check wait_for 5 eval '[[ "$(desk header)" == "${repo_root/#$HOME/~} · $(git -C "$repo_root" branch --show-current)" ]]' || { desk header; kanna read p1 | tail -5; kanna list --json | head -c 600; return 1; }
   expected="parked p1; w1 is an empty Desk"; says kanna task park agent || return 1
   check test "$(desk title)" == Shelf || return 1
   check test "$(desk empty)" == True || return 1
@@ -1342,6 +1342,40 @@ S44() {
   check test -d "$repo/.kanna-worktrees/t1" || { echo "S44 line $LINENO"; return 1; }
 }
 
+S45() {
+  local agent="$repo_root/tools/mock-agent/mock-agent" repo="$KANNA_STATE_DIR/repo"
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S45 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  KANNA_AGENT="$agent" start_daemon || { echo "S45 line $LINENO"; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"${2:-w1}\"}}" | field "$1"; }
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == p1 && "$(pane p2 type)" == md ]]' || { kanna list; return 1; }
+  kanna list --json | grep -q 'getting-started.md' || { echo "no Getting started tab"; return 1; }
+  kanna send p1 "cd '$repo'" >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk header)" == "${repo/#$HOME/~} · main" ]]' || { desk header; kanna read p1 | tail -5; kanna list --json | head -c 600; return 1; }
+  (cd "$repo" && kanna task new "First" "hello" && kanna task new "Second") >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(desk waiting)" == "2 in backlog" ]]' || { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"w1\"}}"; (cd "$repo" && kanna task list); return 1; }
+  kanna task park p1 >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(desk empty)" == True && "$(desk backlog)" == "[\"t1\", \"t2\"]" ]]' || { desk backlog; return 1; }
+  check test "$(desk blank)" == True || { echo "S45 line $LINENO"; return 1; }
+  raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t1","window":"w1"}}' >/dev/null
+  check wait_for 10 eval '[[ "$(desk backlog)" == "[\"t2\"]" && "$(desk shelf.0.title)" == First ]]' || { desk shelf; return 1; }
+  check test -d "$repo/.kanna-worktrees/t1" || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 5 shows First "mock-agent" || { echo "S45 line $LINENO"; return 1; }
+  kanna task start t2 >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  (cd "$repo" && kanna task new "Third") >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(desk running)" == 3 && "$(desk blank)" == False ]]' || { desk running; return 1; }
+  raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t3","window":"w1"}}' >/dev/null
+  check wait_for 5 eval '[[ "$(desk note)" == *"3 tasks running"* ]]' || { desk note; return 1; }
+  kanna task done Second >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(desk blank)" == True ]]' || { echo "S45 line $LINENO"; return 1; }
+  key cmd+n
+  check wait_for 10 eval '[[ "$(win w1 dock.pane)" != None && "$(win w1 dock.pane)" != p1 ]]' || { kanna list; return 1; }
+  check test -d "$repo/.kanna-worktrees/t4" || { echo "S45 line $LINENO"; return 1; }
+}
+
 S42() {
   SHELL=/bin/bash PATH="$bin:$PATH" start_daemon && start_app || return 1
   kanna open --name s42 >/dev/null || return 1
@@ -1353,9 +1387,9 @@ S42() {
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-4]) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-5]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

@@ -25,6 +25,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     var testingDrag = false
     var agentStatuses = AgentStatuses()
     var folders: [String: String] = [:]
+    var backlog: [JSON] = []
+    var starting: Set<String> = []
 
     static var daemonSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_SOCKET"], !path.isEmpty { return path }
@@ -271,7 +273,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     func openTerminalIfEmpty() {
         guard windows.isEmpty, daemon?.attached == true else { return }
-        daemon?.request("open", ["type": "term"])
+        openStarter(in: nil)
     }
 
     private func helloPanes() -> JSON {
@@ -360,11 +362,15 @@ final class AppController: NSObject, NSApplicationDelegate {
             if let root = docked.flatMap(projectRoot) { controller.projectRoot = root }
             let mine = controller.projectRoot.map { root in tasks.filter { projectRoot($0.id) == root } } ?? tasks
             controller.shelf = mine
+            controller.backlog = backlogTasks(in: controller.projectRoot)
+            controller.running = runningTasks(in: controller.projectRoot)
             controller.project = controller.projectRoot.map(tilde) ?? projectName(mine.map(\.id))
             controller.taskTitle = docked.map { taskTitle($0, name: window["dock"]?["name"]?.string) }
             controller.headerText = docked.map(headerText) ?? ""
             controller.render(window, panes)
+            if wantsStarter(window, root: controller.projectRoot) { openStarter(in: id) }
         }
+        placeNewKey()
         if let key = state["key"]?.string, let controller = controllers[key], !controller.window.isKeyWindow {
             present(controller.window)
         }
@@ -406,6 +412,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         controller.shelfStrip.onPull = { [weak self] task in self?.pullTask(task, into: id) }
         controller.agentHeader.onPark = { [weak self] in self?.layoutCommand("task", ["action": "park", "window": .string(id)]) }
         controller.shelfPage.onPull = { [weak self] task in self?.pullTask(task, into: id) }
+        controller.shelfPage.onStart = { [weak self] task in self?.startTask(task, from: id) }
+        controller.shelfPage.onBlank = { [weak self] in self?.startBlankTask(in: id) }
         controller.onBecomeKey = { [weak self, weak controller] in
             guard let self, let controller, let appLayout else { return }
             if controller.window.isKeyWindow, state["key"]?.string != id {

@@ -50,6 +50,10 @@ struct GitPlace: Equatable {
     }
 }
 
+func canonical(_ path: String) -> String {
+    URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+}
+
 func tilde(_ path: String) -> String {
     let home = NSHomeDirectory()
     return path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
@@ -165,7 +169,7 @@ extension AppController {
     }
 
     func projectRoot(_ pane: String) -> String? {
-        place(of: pane).map { $0.git?.main ?? $0.folder }
+        place(of: pane).map { canonical($0.git?.main ?? $0.folder) }
     }
 
     func projectName(_ tasks: [String]) -> String {
@@ -174,5 +178,69 @@ extension AppController {
 
     func taskDetail(_ pane: String) -> String {
         place(of: pane)?.git?.branch ?? ""
+    }
+}
+
+extension AppController {
+    func backlogChanged(_ tasks: [JSON]) {
+        backlog = tasks
+        refresh()
+    }
+
+    private func taskName(_ pane: String) -> String? {
+        if let window = windows.first(where: { $0["dock"]?["pane"]?.string == pane }) { return taskTitle(pane, name: window["dock"]?["name"]?.string) }
+        if let entry = shelfEntries.first(where: { $0["task"]?.string == pane }) { return taskTitle(pane, name: entry["name"]?.string) }
+        return nil
+    }
+
+    func backlogTasks(in root: String?) -> [BacklogTask] {
+        backlog.filter { root == nil || $0["repo"]?.string.map(canonical) == root }.compactMap { entry in
+            guard let id = entry["id"]?.string, let name = entry["name"]?.string else { return nil }
+            return BacklogTask(id: id, name: name, message: entry["message"]?.string, from: entry["by"]?.string.flatMap(taskName), madeAt: entry["madeAt"]?.number)
+        }
+    }
+
+    func runningTasks(in root: String?) -> Int {
+        let docked = windows.compactMap { $0["dock"]?["pane"]?.string } + shelfEntries.compactMap { $0["task"]?.string }
+        return docked.filter { root == nil || projectRoot($0) == root }.count
+    }
+
+    private func noted(_ window: String, _ reply: JSON) {
+        guard reply["ok"]?.bool != true, let controller = controllers[window] else { return }
+        controller.note = reply["error"]?["message"]?.string ?? "it didn't start"
+        refresh()
+    }
+
+    func startTask(_ task: String, from window: String) {
+        controllers[window]?.note = ""
+        request("backlog", ["action": "start", "task": .string(task)]) { [weak self] reply in self?.noted(window, reply) }
+    }
+
+    func startBlankTask(in window: String) {
+        guard let controller = controllers[window] else { return }
+        controller.note = ""
+        let root = controller.projectRoot ?? NSHomeDirectory()
+        let args: [String: JSON] = ["action": "blank", "repo": .string(root), "window": .string(window), "worktree": .bool(GitPlace.of(root) != nil)]
+        request("backlog", args) { [weak self] reply in self?.noted(window, reply) }
+    }
+
+    func openStarter(in window: String?) {
+        let key = window ?? ""
+        guard !starting.contains(key) else { return }
+        starting.insert(key)
+        var args: [String: JSON] = ["type": "term", "dock": "left"]
+        if let window { args["window"] = .string(window) }
+        request("open", args) { [weak self] reply in
+            guard let self else { return }
+            starting.remove(key)
+            guard reply["ok"]?.bool == true, let placed = reply["window"]?.string,
+                  let guide = Bundle.main.url(forResource: "getting-started", withExtension: "md") else { return }
+            request("open", ["type": "md", "path": .string(guide.path), "window": .string(placed), "tab": true])
+        }
+    }
+
+    func wantsStarter(_ window: JSON, root: String?) -> Bool {
+        guard window["desk"]?.bool == true, window["dock"] == nil, case .array(let tabs)? = window["tabs"], tabs.isEmpty else { return false }
+        return runningTasks(in: root) == 0 && backlogTasks(in: root).isEmpty
     }
 }

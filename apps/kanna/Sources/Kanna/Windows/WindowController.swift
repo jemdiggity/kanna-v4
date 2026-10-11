@@ -16,6 +16,9 @@ final class WindowController: NSObject, NSWindowDelegate {
     let shelfStrip = ShelfStrip()
     let shelfPage = ShelfPage()
     var shelf: [ShelfTask] = []
+    var backlog: [BacklogTask] = []
+    var running = 0
+    var note = ""
     var project = ""
     var projectRoot: String?
     var cheer = ShelfPage.cheers[0]
@@ -116,11 +119,11 @@ final class WindowController: NSObject, NSWindowDelegate {
         if shelfStrip.isHidden == (desk && !emptyDesk) { shelfStrip.isHidden = !desk || emptyDesk }
         if emptyDesk {
             shelfPage.frame = bounds
-            shelfPage.show(shelf, project: project, cheer: cheer)
+            shelfPage.show(DeskPage(tasks: shelf, backlog: backlog, running: running, project: project, cheer: cheer, note: note))
             bounds = .zero
         } else if desk {
             shelfStrip.frame = NSRect(x: 0, y: 0, width: bounds.width, height: ShelfStrip.height)
-            shelfStrip.show(shelf)
+            shelfStrip.show(shelf, waiting: backlog.count)
             bounds = NSRect(x: 0, y: ShelfStrip.height, width: bounds.width, height: bounds.height - ShelfStrip.height)
         }
         var side = bounds

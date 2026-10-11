@@ -68,6 +68,7 @@ flowchart LR
 | `kanna task pull ID` | Put a task on the key window's Desk |
 | `kanna task park [ID]` | Move a task (default: the one on the key Desk) to the Shelf |
 | `kanna task done ID` | End a task: close its panes |
+| `kanna task new`, `start`, `name` | Make, start and name tasks: [tasks](tasks.md#6-cli) |
 
 A task's ID is its docked pane's ID. Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens a new tab on the task's Desk (or, while it's parked, among its parked tabs). `done` leaves its Desk empty.
 

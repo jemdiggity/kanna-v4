@@ -36,6 +36,7 @@ cp "$product_dir/Kanna" "$app/Contents/MacOS/Kanna"
 cp "$repo_root/target/release/kanna-daemon" "$repo_root/target/release/kanna-keeper" "$app/Contents/Helpers/"
 cp "$repo_root/assets/Kanna.icns" "$app/Contents/Resources/Kanna.icns"
 cp "$repo_root/LICENSE" "$app/Contents/Resources/"
+cp "$repo_root/apps/kanna/Resources/getting-started.md" "$app/Contents/Resources/"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

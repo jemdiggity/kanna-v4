@@ -1,6 +1,6 @@
 # Tasks
 
-**Status:** building · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: no tasks; park to see the backlog; `kanna task new` in an agent's pane) · **Builds on:** [Desk](desk.md) · **From:** Kanna v2's tasks (a worktree per task) and v3's (a task belongs to a repo, and waits until it's pulled)
+**Status:** built · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: no tasks; park to see the backlog; `kanna task new` in an agent's pane) · **Builds on:** [Desk](desk.md) · **From:** Kanna v2's tasks (a worktree per task) and v3's (a task belongs to a repo, and waits until it's pulled)
 
 A **task** is one agent's work in one repo. Agents make tasks: they add them to the repo's **backlog**, and you move the ones you want to the Shelf, where each gets its own agent, branch and worktree. There's no form: a repo with no tasks starts you on a terminal where you run your agent and tell it what you want.
 
@@ -43,8 +43,8 @@ stateDiagram-v2
 ## 2. How tasks are made
 
 - **By an agent:** `kanna task new "NAME" "FIRST MESSAGE"` adds a task to the backlog of the repo it runs in. An agent planning with you, or one splitting its own work, makes tasks this way.
-- **Start a task** (⌘N, or the button on an empty Desk): a new task on this Desk with an agent in its own worktree and no first message. You tell the agent what to do; it names the task.
-- **A repo with no tasks** starts on a task with a plain terminal in the repo and a Getting started tab (pictured above). You run your agent there.
+- **Start a task** (⌘N on a Desk, where it takes over from New Window; or the button on an empty Desk): a new task on this Desk with an agent in its own worktree and no first message. You tell the agent what to do; it names the task.
+- **A repo with no tasks** starts on a task with a plain terminal and a Getting started tab (pictured above): when Kanna opens with nothing, and when a Desk empties with no tasks running or waiting. You `cd` to your repo and run your agent there; the Desk follows the terminal's folder.
 
 ## 3. The backlog
 
@@ -66,8 +66,8 @@ stateDiagram-v2
 
 | Command | Does |
 |---|---|
-| `kanna task new NAME [FIRST-MESSAGE] [--no-worktree] [--agent CMD]` | Add a task to this repo's backlog |
-| `kanna task start TASK` | Move a backlog task to the Shelf: worktree, agent, first message |
+| `kanna task new NAME [FIRST-MESSAGE] [--no-worktree] [--agent CMD]` | Add a task to this repo's backlog (the agent defaults to `$KANNA_AGENT`, else `claude`) |
+| `kanna task start TASK [--window WINDOW]` | Move a backlog task to the Shelf (or onto that Desk): worktree, agent, first message |
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
 | `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |

@@ -5,6 +5,7 @@ extension AppController {
     func installAgentStatus() {
         daemon?.onStatus = { [weak self] pane, status in self?.statusChanged(pane, status) }
         daemon?.onFolder = { [weak self] pane, cwd in self?.folderChanged(pane, cwd) }
+        daemon?.onBacklog = { [weak self] tasks in self?.backlogChanged(tasks) }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.statusSeen() }
         }
