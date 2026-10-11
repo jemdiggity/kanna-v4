@@ -56,13 +56,6 @@ stateDiagram-v2
 
 ## 5. How it's built
 
-```mermaid
-flowchart TB
-    APP["Kanna.app: a Desk with no task and no planning terminal"] -->|"backlog plan (window, folder, guide)"| D["daemon: builds the command"]
-    D -->|"open term, planner placement"| L["layout: window.planner"]
-    L -->|"shown on the left while window.dock is empty"| APP
-```
-
 - **The layout keeps it as the window's `planner`**: a pane beside the window's dock (with its width), shown on the left only while the dock is empty, saved with the window. Parking and pulling move the dock and tabs and leave it in place. `move` refuses it (`planner`).
 - **The layout keeps the Shelf free of tabs:** placing a pane in a Desk with no task puts it in a new window instead, and tidying moves any tabs left on one to a window of their own (or makes a Desk with no planning terminal a plain window).
 - **The app asks for one** (`backlog` `plan`) when a Desk shows no task and has none, passing the window's folder and the getting-started file; it follows the terminal's folder as it reports it, as for a task's agent.
