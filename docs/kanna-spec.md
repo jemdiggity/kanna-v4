@@ -648,6 +648,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 | `--mux`, `KANNA_MUX` | — | `kanna` (default) or `kmux` | kanna can drive a kmux too |
 | `markup FILE.md\|FILE.html [--to PANE]`, `markup PANE [--to PANE \| --off]`, `markup comments\|show\|reply\|resolve\|reopen` | — | opens a doc with comments, or turns them on or off in a pane; `open` shows docs without them; the rest read and answer its threads, in the doc's thread file, without the daemon ([4.13](#413-doc-markup)) | review with an agent is opt-in |
 | `rename-pane PANE NAME` | — (a name is set only by `open --name`) | names, renames or (with `""`) unnames a pane; no two panes share a name and a name can't be another pane's ID; the daemon keeps it, so it works with or without the app | names are how you refer to panes, and an agent may start one unnamed |
+| `task list\|park\|pull\|done`; `open` with no placement from a task's terminal | — | lists, parks, pulls or ends Desk tasks; `done` is a `close` of the task's panes; `open` from a task's terminal opens a tab on its Desk; a fourth `open --dock` in one project (a git root) is refused ([4.15](#415-desk)) | the Desk is Kanna's |
 | `completions zsh\|bash`, `__complete` | — | tab completion from the command table, with live pane, tab and window names ([4.18](#418-tab-completion)) | the CLI is how you drive Kanna from a terminal |
 | Exit 6 | — | the command needs Kanna.app, which isn't attached and wasn't started | terminals work without the app; layout commands don't ([4.7](#47-the-layout)) |
 | Starting | starts the kmux app | starts Kanna.app (`$KANNA_APP` or `dev.kanna.app.dev`, never the branded `dev.kanna.kanna`), which starts the daemon; never with `KANNA_SOCKET` set | the app starts the daemon ([4.5](#45-the-app-link)) |
@@ -830,7 +831,7 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 ### 4.15 Desk
 
-**[Proposed]** A window that shows one task: its agent docked on the left as the single chat, everything else it opens as the window's tabs, every other task parked on the Shelf below with its agent still running; the look of kanna v3's Desk. Its own spec: [specs/desk.md](specs/desk.md), with a mockup in [references/mockups/desk.html](../references/mockups/desk.html).
+**[Built]** A window that shows one task: its agent docked on the left as the single chat, everything else it opens as the window's tabs, every other task parked on the Shelf below with its agent still running; the look of kanna v3's Desk. Its own spec: [specs/desk.md](specs/desk.md), with a mockup in [references/mockups/desk.html](../references/mockups/desk.html).
 
 ### 4.16 Docked Pane
 

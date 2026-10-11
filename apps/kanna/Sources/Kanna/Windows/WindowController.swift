@@ -17,6 +17,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     let shelfPage = ShelfPage()
     var shelf: [ShelfTask] = []
     var project = ""
+    var projectRoot: String?
     var cheer = ShelfPage.cheers[0]
     let agentHeader = AgentHeader()
     var headerText = ""

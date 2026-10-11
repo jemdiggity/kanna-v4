@@ -57,6 +57,17 @@ impl Model {
         }
     }
 
+    pub(crate) fn task_panes(&mut self, task: &str) -> Result<Vec<String>, KmuxError> {
+        let window = match self.dock_window(task) {
+            Some(w) => {
+                self.windows[w].desk = true;
+                &self.windows[w]
+            }
+            None => self.shelf.iter().find(|p| p.dock.as_ref().is_some_and(|d| d.pane == task)).ok_or_else(|| not_found(format!("no task \"{task}\"")))?,
+        };
+        Ok(window.dock.iter().map(|d| d.pane.clone()).chain(window.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref()))).collect())
+    }
+
     pub(crate) fn place_on_task(&mut self, pane: &str, from: &str) -> Option<Option<String>> {
         if let Some(w) = self.dock_window(from) {
             let t = self.make_tab(w, true);

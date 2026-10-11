@@ -986,6 +986,7 @@ impl LayoutHost for Model {
                 let window = &self.windows[w];
                 Ok(window.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(window.dock.iter().map(|d| d.pane.clone())).collect())
             }
+            Scope::Task(task) => self.task_panes(task),
         }
     }
 

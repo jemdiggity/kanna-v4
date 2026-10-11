@@ -152,7 +152,11 @@ fn explain(command: &Command, mut failure: Failure, mux: &mut Session, target: &
 }
 
 fn wire(command: &Command, request: &Value) -> &'static str {
-    if command.name == "markup" && request.get("type").is_some() { "open" } else { command.name }
+    match command.name {
+        "markup" if request.get("type").is_some() => "open",
+        "task" if request["action"] == "done" => "close",
+        name => name,
+    }
 }
 
 fn supported(target: &Target) -> Option<Vec<String>> {

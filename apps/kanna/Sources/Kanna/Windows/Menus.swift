@@ -303,8 +303,7 @@ extension AppController {
     @objc func pullShelf3() { pullShelf(3) }
 
     private func shelfPull(_ place: Int) -> (task: String, window: String)? {
-        guard let window = keyWindow, window["desk"]?.bool == true, let id = window["id"]?.string else { return nil }
-        let tasks = shelfTasks
+        guard let window = keyWindow, window["desk"]?.bool == true, let id = window["id"]?.string, let tasks = controllers[id]?.shelf else { return nil }
         return place <= tasks.count ? (tasks[place - 1].id, id) : nil
     }
 

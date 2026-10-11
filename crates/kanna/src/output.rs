@@ -123,6 +123,7 @@ pub fn task(request: &Value, reply: &Value) -> String {
         Some("park") => format!("{id} is already on the Shelf"),
         Some("pull") if reply["moved"] == Value::Bool(true) => format!("pulled {id} onto {}", reply["window"].as_str().unwrap_or("?")),
         Some("pull") => format!("{id} is on {}; brought it forward", reply["window"].as_str().unwrap_or("?")),
+        Some("done") => format!("{} is done: closed {}", request["task"].as_str().unwrap_or("?"), join(&reply["closed"])),
         _ => String::new(),
     }
 }

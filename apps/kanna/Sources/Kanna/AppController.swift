@@ -357,8 +357,10 @@ final class AppController: NSObject, NSApplicationDelegate {
             guard let id = window["id"]?.string else { continue }
             let controller = controllers[id] ?? makeController(id, window)
             let docked = window["dock"]?["pane"]?.string
-            controller.shelf = tasks
-            controller.project = projectName((docked.map { [$0] } ?? []) + tasks.map(\.id))
+            if let root = docked.flatMap(projectRoot) { controller.projectRoot = root }
+            let mine = controller.projectRoot.map { root in tasks.filter { projectRoot($0.id).map { $0 == root } ?? true } } ?? tasks
+            controller.shelf = mine
+            controller.project = controller.projectRoot.map(tilde) ?? projectName(mine.map(\.id))
             controller.taskTitle = docked.map { taskTitle($0, name: window["dock"]?["name"]?.string) }
             controller.headerText = docked.map(headerText) ?? ""
             controller.render(window, panes)

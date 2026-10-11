@@ -1275,6 +1275,23 @@ S43() {
   check wait_for 5 eval 'kanna task list | grep -q "p1 .*Shelf"' || { kanna task list; return 1; }
   check test "$(pane agent state)" == running || return 1
   check test "$(pane notes state)" == running || return 1
+  kanna open --name ta --dock --window new --cwd "$repo_root/docs" >/dev/null || return 1
+  kanna open --name tb --dock --window new --cwd "$repo_root" >/dev/null || return 1
+  kanna open --name tc --dock --window new --cwd "$repo_root" 2>"$KANNA_STATE_DIR/s43-limit" && return 1
+  grep -q "has 3 tasks already" "$KANNA_STATE_DIR/s43-limit" || { cat "$KANNA_STATE_DIR/s43-limit"; return 1; }
+  kanna open --name elsewhere --dock --window new --cwd "$KANNA_STATE_DIR" >/dev/null || return 1
+  ta=$(kanna task list | awk '$2 == "ta" { print $4 }')
+  KANNA_PANE=ta kanna open --name ta-notes >/dev/null || return 1
+  expected="ta is done: closed $(pane ta id), $(pane ta-notes id)"; says kanna task done ta || return 1
+  check test "$(desk empty "$ta")" == True || return 1
+  expected="agent is done: closed p1, $(pane notes id), $(pane side id), $(pane later id)"; says kanna task done agent || return 1
+  kanna task list | grep -q "^p1 " && return 1
+  kanna open --name tc --dock --window new --cwd "$repo_root" >/dev/null || return 1
+  kanna task park tb >/dev/null || return 1
+  tc=$(kanna task list | awk '$2 == "tc" { print $4 }')
+  away=$(kanna task list | awk '$2 == "elsewhere" { print $4 }')
+  check wait_for 5 eval '[[ "$(desk shelf.0.task "$tc")" == "$(pane tb id)" ]]' || return 1
+  check test "$(desk shelf "$away")" == "[]" || return 1
 }
 
 S42() {

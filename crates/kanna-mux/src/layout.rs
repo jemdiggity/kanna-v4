@@ -66,6 +66,7 @@ pub struct Spot {
 pub enum Scope {
     Tab(String),
     Window(Option<String>),
+    Task(String),
 }
 
 pub struct SavedLayout {
@@ -159,6 +160,7 @@ pub fn scope_request(scope: &Scope) -> Value {
     match scope {
         Scope::Tab(tab) => json!({ "op": "panes-in", "tab": tab }),
         Scope::Window(window) => json!({ "op": "panes-in", "window": opt(window.as_deref()) }),
+        Scope::Task(task) => json!({ "op": "panes-in", "task": task }),
     }
 }
 
@@ -241,9 +243,10 @@ pub fn serve(host: &mut dyn LayoutHost, request: &Value, panes: &Panes) -> Resul
             spot(&mut reply, location, None);
         }
         "panes-in" => {
-            let scope = match string(request, "tab") {
-                Some(tab) => Scope::Tab(tab.into()),
-                None => Scope::Window(string(request, "window").map(String::from)),
+            let scope = match (string(request, "tab"), string(request, "task")) {
+                (Some(tab), _) => Scope::Tab(tab.into()),
+                (_, Some(task)) => Scope::Task(task.into()),
+                _ => Scope::Window(string(request, "window").map(String::from)),
             };
             reply.insert("panes".into(), host.panes_in(&scope)?.into());
         }

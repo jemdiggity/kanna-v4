@@ -30,6 +30,13 @@ pub type CommandHandler = Rc<dyn Fn(Value, Responder)>;
 
 pub type PrefixHandler = Rc<dyn Fn(&str, Value, Responder)>;
 
+pub const TASKS_PER_PROJECT: usize = 3;
+
+pub fn project(cwd: Option<&str>) -> Option<std::path::PathBuf> {
+    let start = std::path::Path::new(cwd?);
+    Some(start.ancestors().find(|dir| dir.join(".git").exists()).unwrap_or(start).to_path_buf())
+}
+
 pub const CORE_COMMANDS: [&str; 10] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read", "markup", "rename-pane"];
 
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
@@ -514,6 +521,9 @@ impl CoreHandle {
 
         let turn = self.0.turns.take().await;
         taken(self)?;
+        if dock.is_some() {
+            self.room_for_task(string(args, "cwd")).await?;
+        }
         let id = self.state().panes.next_id();
         let placeless = !new_tab && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none();
         let from = string(args, "from").filter(|_| placeless).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
@@ -576,10 +586,12 @@ impl CoreHandle {
         } else {
             let scope = if let Some(reference) = string(args, "tab") {
                 Scope::Tab(reference.into())
+            } else if let Some(task) = string(args, "task") {
+                Scope::Task(self.need_pane(Some(task))?.id)
             } else if args.get("window").is_some() {
                 Scope::Window(string(args, "window").map(String::from))
             } else {
-                return Err(bad_request("close needs a pane, tab or window"));
+                return Err(bad_request("close needs a pane, tab, window or task"));
             };
             let found = self.layout(scope_request(&scope)).await?;
             let ids = found.get("panes").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -594,6 +606,21 @@ impl CoreHandle {
         }
         self.changed();
         Ok(reply([("closed", victims.into())]))
+    }
+
+    async fn room_for_task(&self, cwd: Option<&str>) -> Result<(), KmuxError> {
+        let Ok(listed) = self.layout(json!({ "op": "command", "cmd": "task", "args": { "action": "list" } })).await else { return Ok(()) };
+        let here = project(cwd);
+        let same: Vec<String> = {
+            let s = self.state();
+            let tasks = listed.get("tasks").and_then(Value::as_array).cloned().unwrap_or_default();
+            tasks.iter().filter_map(|t| s.panes.get(t["id"].as_str()?)).filter(|p| project(p.cwd.as_deref()) == here).map(|p| p.label()).collect()
+        };
+        if same.len() < TASKS_PER_PROJECT {
+            return Ok(());
+        }
+        let place = here.map_or("this project".to_string(), |p| p.display().to_string());
+        Err(KmuxError::new("task_limit", format!("{place} has {TASKS_PER_PROJECT} tasks already ({}): end one with `kanna task done TASK` first", same.join(", "))))
     }
 
     fn forget_pane(&self, id: &str) {

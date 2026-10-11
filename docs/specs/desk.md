@@ -1,6 +1,6 @@
 # Desk
 
-**Status:** proposed · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) · **Builds on:** [docked pane](docked-pane.md), [agent status](agent-status.md), [doc markup](doc-markup.md) · **From:** kanna v3's Desk and Shelf (its look), laid out like a chat app's work view: one conversation, tabbed documents beside it
+**Status:** built · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) · **Builds on:** [docked pane](docked-pane.md), [agent status](agent-status.md), [doc markup](doc-markup.md) · **From:** kanna v3's Desk and Shelf (its look), laid out like a chat app's work view: one conversation, tabbed documents beside it
 
 The **Desk** is Kanna's window for working with an agent. It shows one **task**: the agent's terminal docked on the left as the single chat, and everything the task opens (docs, pages, images, other terminals) as tabs on the right. The **Shelf** along the bottom holds every other task, their agents still running, and swaps one in with a click.
 
@@ -35,7 +35,7 @@ stateDiagram-v2
 - **A window with a docked pane is a Desk**; its contents are its task. Make one with `kanna open --dock --cmd claude`, then open tabs. A UI for starting tasks comes later.
 - **Its name** is the docked pane's name, else its terminal's title. **Its folder and branch** are the docked pane's working directory and that folder's git branch, shown, never changed.
 - **Done** closes the task's panes, ending its agent and terminals.
-- **A task belongs to a project**, and a Shelf shows one project's tasks. This needs a task concept (what a task and a project are, how they're made and kept) before the Shelf can be built; it gets its own spec.
+- **A task belongs to a project**: the git repository its folder is in (else the folder), and a Desk's Shelf shows its project's tasks. A richer task concept (choosing a project, starting a task from the UI) gets its own spec.
 
 ## 2. The Desk
 
@@ -56,7 +56,7 @@ flowchart LR
 ## 3. The Shelf
 
 - **The project's tasks not on a Desk**, latest parked first (a stack), each with its [agent status](agent-status.md) and how long ago it was parked. **Needs you** moves a task to the front.
-- **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘3** swap in the Shelf's 1st … 3rd task the same way.
+- **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘3** swap in the Shelf's 1st … 3rd task the same way. The Task menu has these and Park.
 - **At most three tasks per project:** the one on the Desk and two on the Shelf (three on the full Shelf). Starting a fourth is refused until one is Done.
 - **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one and scroll positions come back as they were.
 
@@ -69,7 +69,7 @@ flowchart LR
 | `kanna task park [ID]` | Move a task (default: the one on the key Desk) to the Shelf |
 | `kanna task done ID` | End a task: close its panes |
 
-A task's ID is its docked pane's ID. Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens a new tab on the task's Desk.
+A task's ID is its docked pane's ID. Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens a new tab on the task's Desk (or, while it's parked, among its parked tabs). `done` leaves its Desk empty.
 
 ## 5. How it's built
 
@@ -95,7 +95,7 @@ flowchart TB
 ## 6. Open questions
 
 1. Keys: Park, and next/previous task on the Shelf.
-2. What is a project (a repo, a folder you choose, …), and how is a task made? For the task-concept spec.
+2. Choosing a project other than the git repository, and starting a task from the UI: for the task-concept spec.
 
 ## 7. Glossary
 

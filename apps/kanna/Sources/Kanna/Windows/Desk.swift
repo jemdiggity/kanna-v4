@@ -157,11 +157,12 @@ extension AppController {
         return [tilde(place.folder), place.git?.branch].compactMap { $0 }.joined(separator: " · ")
     }
 
+    func projectRoot(_ pane: String) -> String? {
+        place(of: pane).map { $0.git?.root ?? $0.folder }
+    }
+
     func projectName(_ tasks: [String]) -> String {
-        for task in tasks {
-            if let place = place(of: task) { return tilde(place.git?.root ?? place.folder) }
-        }
-        return "Shelf"
+        tasks.lazy.compactMap(projectRoot).first.map(tilde) ?? "Shelf"
     }
 
     func taskDetail(_ pane: String) -> String {
