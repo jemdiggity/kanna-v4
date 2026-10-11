@@ -590,6 +590,27 @@ mod tests {
     }
 
     #[test]
+    fn a_zoomed_tab_pane_beside_a_docked_pane_is_drawn_alone_and_unzooms_on_a_second_zoom() {
+        let (mut owner, _) = LayoutOwner::open(None, false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({ "dock": "left" }));
+        place(&mut owner, "p2", json!({}));
+        place(&mut owner, "p3", json!({ "split": "right" }));
+        let window = |owner: &LayoutOwner| owner.view()["windows"][0].clone();
+        let split = window(&owner)["root"].clone();
+        assert_eq!(split["split"], "row", "{split}");
+        let zoom = |owner: &mut LayoutOwner| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "zoom", "args": { "pane": "p3" } } }));
+        assert_eq!(zoom(&mut owner)["zoomed"], true);
+        assert_eq!(window(&owner)["zoomed"], "p3");
+        assert_eq!(window(&owner)["root"], json!({ "pane": "p3", "type": "term" }));
+        assert_eq!(window(&owner)["dock"]["pane"], "p1");
+        assert_eq!(window(&owner)["focused"], "p3");
+        assert_eq!(zoom(&mut owner)["zoomed"], false);
+        assert_eq!(window(&owner)["zoomed"], Value::Null);
+        assert_eq!(window(&owner)["root"], split);
+    }
+
+    #[test]
     fn a_window_with_only_a_docked_pane_is_titled_after_it() {
         let mut owner = LayoutOwner::new();
         owner.handle(&json!({ "call": "attach", "panes": [] }));

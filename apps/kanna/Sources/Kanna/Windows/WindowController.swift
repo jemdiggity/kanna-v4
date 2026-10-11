@@ -79,7 +79,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         let ids = Self.paneIDs(root)
         shown = Self.shownPanes(state)
         emptyDesk = desk && docked == nil && ids.isEmpty
-        arrange(dock, zoomed: docked != nil && state["zoomed"]?.string == docked)
+        let zoomed = state["zoomed"]?.string
+        arrange(dock, zoomed: zoomed.map { $0 == docked ? .dock : .tab })
         let visible = Set(ids)
         for case let view as PaneView in stage.subviews where !visible.contains(view.id) { view.removeFromSuperview() }
         for case let view as PaneView in dockStage.subviews where view.id != docked { view.removeFromSuperview() }
@@ -113,7 +114,9 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func arrange(_ dock: JSON?, zoomed: Bool) {
+    private enum Zoom { case dock, tab }
+
+    private func arrange(_ dock: JSON?, zoomed: Zoom?) {
         var bounds = content.bounds
         if shelfPage.isHidden == emptyDesk { shelfPage.isHidden = !emptyDesk }
         if shelfStrip.isHidden == (desk && !emptyDesk) { shelfStrip.isHidden = !desk || emptyDesk }
@@ -130,10 +133,10 @@ final class WindowController: NSObject, NSWindowDelegate {
         dockDivider?.removeFromSuperview()
         dockDivider = nil
         if let dock, let pane = dock["pane"]?.string {
-            if zoomed {
+            if zoomed == .dock {
                 dockStage.frame = bounds
                 side = .zero
-            } else {
+            } else if zoomed != .tab {
                 let total = bounds.width - Self.divider
                 let low = min(DividerView.minimum, total / 2)
                 let width = min(max((total * CGFloat(dock["width"]?.number ?? 0.4)).rounded(), low), total - low)
@@ -147,11 +150,12 @@ final class WindowController: NSObject, NSWindowDelegate {
                 dockDivider = handle
             }
         }
-        dockStage.isHidden = dock == nil
-        tabBar.isHidden = side.isEmpty
+        dockStage.isHidden = dock == nil || zoomed == .tab
+        tabBar.isHidden = side.isEmpty || (dock != nil && zoomed == .tab)
         stage.isHidden = side.isEmpty
+        let bar = tabBar.isHidden ? 0 : TabBar.height
         tabBar.frame = NSRect(x: side.minX, y: side.maxY - TabBar.height, width: side.width, height: TabBar.height)
-        stage.frame = NSRect(x: side.minX, y: side.minY, width: side.width, height: max(0, side.height - TabBar.height))
+        stage.frame = NSRect(x: side.minX, y: side.minY, width: side.width, height: max(0, side.height - bar))
     }
 
     private(set) var dividers: [DividerView] = []

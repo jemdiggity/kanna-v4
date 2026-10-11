@@ -942,6 +942,20 @@ S38() {
   shot="$(snap w1 s38-zoomed)"
   check test "$(field panes <<<"$shot" | count)" == 1 || return 1
   key cmd+shift+return; check test "$(win w1 zoomed)" == None || return 1
+  kanna open --name dt3 --split right --cmd "printf 'DOCK TAB THREE\n'; exec sleep 600" >/dev/null || return 1
+  check test "$(win w1 focused)" == dt3 || return 1
+  raw '{"id":1,"cmd":"debug.click","args":{"pane":"agent"}}' >/dev/null; sleep 0.3
+  raw '{"id":1,"cmd":"debug.click","args":{"pane":"dt3"}}' >/dev/null; sleep 0.3
+  check test "$(win w1 focused)" == dt3 || return 1
+  key cmd+shift+return; check test "$(win w1 zoomed)" == dt3 || return 1
+  sleep 0.5
+  shot="$(snap w1 s38-tab-zoomed)"
+  check drawn "$shot" 1 || return 1
+  check python3 -c 'import json, sys; s = json.loads(sys.argv[1]); assert s["panes"][0]["width"] == s["width"], s' "$shot" || return 1
+  key cmd+shift+return; check test "$(win w1 zoomed)" == None || return 1
+  sleep 0.5
+  check drawn "$(snap w1 s38-tab-unzoomed)" 3 || return 1
+  kanna close dt3 >/dev/null || return 1
   kanna move agent --dock right >/dev/null || return 1
   check test "$(win w1 dock)" == '{"edge": "right", "pane": "agent", "width": "2/5"}' || return 1
   drag '{"divider":"agent","at":0.34}'

@@ -35,7 +35,7 @@ enum Snapshot {
                 total += 1
                 if $0.distance(to: background) > 60 { inked += 1 }
             }
-            return (rect, background, ["background": .string(background.description), "ink": .number(total == 0 ? 0 : (Double(inked) / Double(total) * 10000).rounded() / 10000)])
+            return (rect, background, ["background": .string(background.description), "width": .number(Double(rect.width.rounded())), "ink": .number(total == 0 ? 0 : (Double(inked) / Double(total) * 10000).rounded() / 10000)])
         }
         out["panes"] = .array(panes.map { id, view in
             let (rect, background, fields) = measure(view)
