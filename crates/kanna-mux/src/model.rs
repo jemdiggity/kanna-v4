@@ -92,17 +92,19 @@ pub struct Window {
     pub parked_at: Option<f64>,
     /// The folder a Desk was opened on (`kanna PATH`), for its project until a task docks there.
     pub project: Option<String>,
+    /// The window's planning agent: shown docked on the left while no task is, never a task itself.
+    pub planner: Option<Dock>,
 }
 
 impl Window {
     pub(crate) fn new(id: String) -> Window {
-        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, project: None }
+        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, project: None, planner: None }
     }
 
     pub fn shown_panes(&self) -> Vec<String> {
         let ids = pane_ids(self.active_tab().and_then(|t| t.root.as_ref()));
-        match &self.dock {
-            None => ids,
+        match self.dock.as_ref() {
+            None => self.planner.iter().map(|p| p.pane.clone()).chain(ids).collect(),
             Some(dock) if dock.edge == Edge::Left => std::iter::once(dock.pane.clone()).chain(ids).collect(),
             Some(dock) => ids.into_iter().chain(std::iter::once(dock.pane.clone())).collect(),
         }
@@ -112,12 +114,20 @@ impl Window {
         self.dock.as_ref().is_some_and(|d| d.pane == pane)
     }
 
+    pub fn plans(&self, pane: &str) -> bool {
+        self.planner.as_ref().is_some_and(|p| p.pane == pane)
+    }
+
+    fn side_pane(&self) -> Option<String> {
+        self.dock.as_ref().or(self.planner.as_ref()).map(|d| d.pane.clone())
+    }
+
     pub(crate) fn settle_focus(&mut self) {
         let shown = self.shown_panes();
         if !self.focused.as_ref().is_some_and(|f| shown.contains(f)) {
             let ids = pane_ids(self.active_tab().and_then(|t| t.root.as_ref()));
             let last = self.active_tab().and_then(|t| t.last_focus.clone()).filter(|l| ids.contains(l));
-            self.focused = last.or_else(|| ids.first().cloned()).or_else(|| self.dock.as_ref().map(|d| d.pane.clone()));
+            self.focused = last.or_else(|| ids.first().cloned()).or_else(|| self.side_pane());
         }
         if self.zoomed().is_some_and(|z| !shown.contains(z)) {
             self.set_zoomed(None);
@@ -402,8 +412,12 @@ impl Model {
         self.windows.iter().position(|w| w.docks(id))
     }
 
+    pub fn planner_window(&self, id: &str) -> Option<usize> {
+        self.windows.iter().position(|w| w.plans(id))
+    }
+
     pub(crate) fn window_containing(&self, id: &str) -> Option<usize> {
-        self.locate(id).map(|l| l.window).or_else(|| self.dock_window(id))
+        self.locate(id).map(|l| l.window).or_else(|| self.dock_window(id)).or_else(|| self.planner_window(id))
     }
 
     fn dock(&mut self, id: &str, w: usize, edge: Edge) {
@@ -440,6 +454,10 @@ impl Model {
 
     fn detach(&mut self, id: &str) {
         if self.detach_parked(id) {
+            return;
+        }
+        if let Some(w) = self.planner_window(id) {
+            self.windows[w].planner = None;
             return;
         }
         if let Some(w) = self.dock_window(id) {
@@ -579,7 +597,7 @@ impl Model {
 
     fn focus_pane(&mut self, id: &str) {
         let location = self.locate(id);
-        let Some(w) = location.as_ref().map(|l| l.window).or_else(|| self.dock_window(id)) else { return };
+        let Some(w) = location.as_ref().map(|l| l.window).or_else(|| self.dock_window(id)).or_else(|| self.planner_window(id)) else { return };
         let window = &mut self.windows[w];
         if let Some(location) = location {
             window.active = Some(window.tabs[location.tab].id.clone());
@@ -660,6 +678,9 @@ impl Model {
 
     fn move_pane(&mut self, args: &Value, panes: &Panes) -> Result<Map, KmuxError> {
         let id = panes.need(string(args, "pane"))?.id.clone();
+        if self.planner_window(&id).is_some() {
+            return Err(KmuxError::new("planner", format!("{} is its window's planning agent, which stays where it is", panes.display(&id))));
+        }
         let from_w = self.window_containing(&id).ok_or_else(|| not_found(format!("no pane \"{id}\"")))?;
         let from_window = self.windows[from_w].id.clone();
         let from_tab = self.locate(&id).map(|l| self.windows[l.window].tabs[l.tab].id.clone());
@@ -784,6 +805,12 @@ impl Model {
                 dock.width = size;
             }
             return Ok(reply([("window", self.windows[w].id.clone().into()), ("dock", self.dock_view(w, panes))]));
+        }
+        if let Some(w) = self.planner_window(&pane.id) {
+            if let Some(planner) = self.windows[w].planner.as_mut() {
+                planner.width = size;
+            }
+            return Ok(reply([("window", self.windows[w].id.clone().into()), ("width", fraction::format(size).into())]));
         }
         let location = self.locate(&pane.id).ok_or_else(|| not_found(format!("no pane \"{}\"", pane.id)))?;
         let Some(path) = &location.parent else {
@@ -932,6 +959,9 @@ impl LayoutHost for Model {
     }
 
     fn place(&mut self, pane: &str, at: &Placement) -> Result<Option<String>, KmuxError> {
+        if at.planner {
+            return self.plan(pane, at.window.as_deref()).map(Some);
+        }
         if let (true, Some(edge)) = (at.shelf, at.dock) {
             self.shelve(pane, edge);
             return Ok(None);
@@ -974,6 +1004,9 @@ impl LayoutHost for Model {
     }
 
     fn location(&self, pane: &str) -> Option<Spot> {
+        if let Some(w) = self.planner_window(pane) {
+            return Some(Spot { window: self.windows[w].id.clone(), tab: None, dock: None });
+        }
         if let Some(w) = self.dock_window(pane) {
             let window = &self.windows[w];
             return Some(Spot { window: window.id.clone(), tab: None, dock: window.dock.as_ref().map(|d| d.edge) });
@@ -993,7 +1026,7 @@ impl LayoutHost for Model {
                 let w = self.target_window(reference.as_deref())?;
                 self.windows[w].desk = false;
                 let window = &self.windows[w];
-                Ok(window.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(window.dock.iter().map(|d| d.pane.clone())).collect())
+                Ok(window.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(window.dock.iter().chain(window.planner.iter()).map(|d| d.pane.clone())).collect())
             }
             Scope::Task(task) => self.task_panes(task),
         }
@@ -1093,6 +1126,9 @@ impl LayoutHost for Model {
                 if let Some(project) = &window.project {
                     out.insert("project".into(), project.clone().into());
                 }
+                if let Some(planner) = &window.planner {
+                    out.insert("planner".into(), Value::Object(reply([("pane", planner.pane.clone().into()), ("width", num(planner.width))])));
+                }
                 Value::Object(out)
             };
         let mut out = reply([
@@ -1191,6 +1227,16 @@ impl LayoutHost for Model {
                 let edge = string(saved, "edge").and_then(Edge::parse).unwrap_or(Edge::Left);
                 window.dock = Some(Dock { pane: pane.into(), edge, width });
             }
+            if let Some(saved) = item.get("planner").filter(|p| !p.is_null() && !parked) {
+                let pane = string(saved, "pane")
+                    .filter(|p| panes.contains(*p))
+                    .ok_or_else(|| bad(&format!("window {id} plans with unknown pane {}", quoted(saved.get("pane")))))?;
+                if !placed.insert(pane.to_string()) {
+                    return Err(bad(&format!("pane {pane} is placed twice")));
+                }
+                let width = saved.get("width").and_then(Value::as_f64).filter(|w| *w > 0.0 && *w < 1.0).unwrap_or(DOCK_WIDTH);
+                window.planner = Some(Dock { pane: pane.into(), edge: Edge::Left, width });
+            }
             window.tabs.retain(|t| t.root.is_some());
             let active = string(item, "active");
             window.active = if window.tabs.iter().any(|t| Some(t.id.as_str()) == active) { active.map(String::from) } else { window.tabs.first().map(|t| t.id.clone()) };
@@ -1200,7 +1246,7 @@ impl LayoutHost for Model {
             window.focused = focused
                 .or_else(|| window.active_tab().and_then(|t| t.last_focus.clone()))
                 .or(first)
-                .or_else(|| window.dock.as_ref().map(|d| d.pane.clone()));
+                .or_else(|| window.side_pane());
             let docked = window.dock.as_ref().map(|d| d.pane.clone());
             for tab in &mut window.tabs {
                 let ids = pane_ids(tab.root.as_ref());

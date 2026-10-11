@@ -100,6 +100,19 @@ impl Model {
         Some(None)
     }
 
+    pub(crate) fn plan(&mut self, pane: &str, window: Option<&str>) -> Result<String, KmuxError> {
+        let reference = window.ok_or_else(|| bad_request("a planning agent needs its window"))?;
+        let w = self.window_index(reference).ok_or_else(|| not_found(format!("no window \"{reference}\"")))?;
+        let window = &mut self.windows[w];
+        if let Some(planner) = &window.planner {
+            return Err(KmuxError::new("planned", format!("{} has a planning agent already: {}", window.id, planner.pane)));
+        }
+        window.planner = Some(Dock { pane: pane.into(), edge: Edge::Left, width: DOCK_WIDTH });
+        window.desk = true;
+        window.settle_focus();
+        Ok(window.id.clone())
+    }
+
     fn is_desk(&self, w: usize) -> bool {
         let window = &self.windows[w];
         window.desk || window.dock.is_some()
@@ -119,6 +132,7 @@ impl Model {
         parked.parked_at = Some(now());
         let id = parked.id.clone();
         self.shelf.insert(0, parked);
+        self.windows[w].settle_focus();
         Some(id)
     }
 
@@ -203,14 +217,32 @@ impl Model {
                 Ok(reply([("task", task.into()), ("window", window.into()), ("moved", Value::Bool(true))]))
             }
             "desk" => {
-                let project = string("project").filter(|p| p.starts_with('/')).ok_or_else(|| bad_request("desk needs a project: an absolute path to a folder"))?;
-                let w = self.make_window();
+                let project = match string("project") {
+                    Some(p) if p.starts_with('/') => Some(p.to_string()),
+                    None if args.get("from").is_none() && args.get("window").is_none() => None,
+                    _ => return Err(bad_request("desk needs a project: an absolute path to a folder")),
+                };
+                let homeless = |w: &Window| w.project.is_none() && w.dock.is_none();
+                let here = match (string("window"), string("from")) {
+                    (Some(reference), _) => Some(self.window_index(reference).ok_or_else(|| not_found(format!("no window \"{reference}\"")))?),
+                    (None, Some(from)) => panes.get(from).and_then(|p| self.planner_window(&p.id)).filter(|w| homeless(&self.windows[*w])),
+                    (None, None) => None,
+                };
+                let retired = match here {
+                    Some(w) if string("window").is_none() => self.windows[w].planner.take().map(|p| p.pane),
+                    _ => None,
+                };
+                let w = match here {
+                    Some(w) => w,
+                    None => self.make_window(),
+                };
                 let window = &mut self.windows[w];
                 window.desk = true;
-                window.project = Some(project.to_string());
+                window.project = project.clone().or(window.project.take());
+                window.settle_focus();
                 let id = window.id.clone();
                 self.key = Some(id.clone());
-                Ok(reply([("window", id.into()), ("project", project.into())]))
+                Ok(reply([("window", id.into()), ("project", project.map_or(Value::Null, Value::String)), ("retired", retired.map_or(Value::Null, Value::String))]))
             }
             other => Err(bad_request(format!("unknown task action \"{other}\" (list, park, pull or desk)"))),
         }

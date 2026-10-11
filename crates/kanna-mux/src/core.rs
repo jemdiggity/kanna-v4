@@ -535,6 +535,10 @@ impl CoreHandle {
         if shelf && (dock.is_none() || args.get("window").is_some()) {
             return Err(bad_request("shelf is for a docked pane, without a window"));
         }
+        let planner = is_true(args, "planner");
+        if planner && (kind != PaneType::Term || dock.is_some() || split.is_some() || size.is_some() || new_tab || string(args, "window").is_none()) {
+            return Err(bad_request("a planning agent is a terminal in a window, with no dock, split, size or tab"));
+        }
 
         let turn = self.0.turns.take().await;
         taken(self)?;
@@ -542,14 +546,14 @@ impl CoreHandle {
             self.room_for_task(string(args, "cwd")).await?;
         }
         let id = self.state().panes.next_id();
-        let placeless = !new_tab && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none();
+        let placeless = !new_tab && !planner && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none();
         let from = string(args, "from").filter(|_| placeless).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
         let cwd = match string(args, "cwd") {
             Some(cwd) => Some(cwd.to_string()),
-            None if kind == PaneType::Term && dock.is_none() => self.task_folder(from.as_deref(), string(args, "window")).await,
+            None if kind == PaneType::Term && dock.is_none() && !planner => self.task_folder(from.as_deref(), string(args, "window")).await,
             None => None,
         };
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, from.as_deref(), shelf)).await?;
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, from.as_deref(), shelf, planner)).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();

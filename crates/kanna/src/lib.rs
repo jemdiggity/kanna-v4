@@ -106,7 +106,13 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     }
 
     let (command, request) = match project_folder(&name) {
-        Some(folder) => (lookup("task")?, json!({ "action": "desk", "project": folder })),
+        Some(folder) => {
+            let mut request = json!({ "action": "desk", "project": folder });
+            if let Some(pane) = std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()) {
+                request["from"] = json!(pane);
+            }
+            (lookup("task")?, request)
+        }
         None => {
             let command = lookup(&name)?;
             if wants_help {
@@ -139,6 +145,9 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         if !text.is_empty() {
             println!("{text}");
         }
+    }
+    if let Some(retired) = reply["retired"].as_str() {
+        let _ = mux.call("close", json!({ "pane": retired }));
     }
     Ok(())
 }

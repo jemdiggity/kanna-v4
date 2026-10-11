@@ -81,6 +81,25 @@ impl Entry {
     }
 }
 
+const PLANNING: &str = "You're the planning agent of this Kanna window: you plan work with the user and manage this project's tasks, and you don't write code here. Use the kanna-planning skill, and kanna-new-project if this folder is empty or isn't a git repo yet.";
+
+const NOWHERE: &str = "This window has no project yet, so you're in the home folder: ask the user which folder to work in (a project they have, or a new one to make), then run `kanna PATH` with it, and this window's planning agent starts again there.";
+
+const STOPPED: &str = "The planning agent stopped. Press Return to start it again.";
+
+/// A planning agent's command line: the getting-started text when there's one to show, then the agent with its
+/// first message, and when it exits, a wait for Return before starting it again (a claude agent resumes its session).
+pub fn planner_command(agent: &str, session: Option<&str>, homeless: bool, guide: Option<&str>) -> String {
+    let first = quote(&if homeless { format!("{PLANNING} {NOWHERE}") } else { format!("{PLANNING} Start by saying in a line or two what's running and waiting (kanna task list), then ask what we're working on.") });
+    let agent = agent.trim();
+    let show = guide.map_or(String::new(), |g| format!("if command -v glow >/dev/null 2>&1; then glow {g}; else cat {g}; fi; echo; ", g = quote(g)));
+    let (start, again) = match session.filter(|_| program(agent) == "claude") {
+        Some(id) => (format!("{agent} --session-id {id} {first} || {agent} --resume {id}"), format!("{agent} --resume {id}")),
+        None => (format!("{agent} {first}"), format!("{agent} {first}")),
+    };
+    format!("{show}{start}; while printf '\\n\\033[2m%s\\033[0m\\n' {} && read -r _; do {again}; done", quote(STOPPED))
+}
+
 fn program(agent: &str) -> &str {
     let first = agent.split_whitespace().next().unwrap_or("");
     first.rsplit('/').next().unwrap_or(first)
@@ -287,7 +306,8 @@ impl Backlog {
                     Some("start") => this.start(&args, responder),
                     Some("blank") => this.blank(&args, responder),
                     Some("defer") => this.defer(&args, responder),
-                    _ => responder.reply(Err(bad("backlog needs an action: new, list, done, start, blank or defer"))),
+                    Some("plan") => this.plan(&args, responder),
+                    _ => responder.reply(Err(bad("backlog needs an action: new, list, done, start, blank, defer or plan"))),
                 }
             }),
         );
@@ -355,6 +375,22 @@ impl Backlog {
             Ok(entry) => self.room(entry, string(args, "window").map(String::from), responder),
             Err(error) => responder.reply(Err(error)),
         }
+    }
+
+    /// Opens a window's planning agent, in its project's folder (else the home folder), outside the backlog and the task limit.
+    fn plan(&self, args: &Value, responder: Responder) {
+        let Some(core) = self.core.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
+        let Some(window) = string(args, "window") else { return responder.reply(Err(bad("a planning agent needs its window"))) };
+        let repo = string(args, "repo").filter(|r| Path::new(r).is_absolute() && Path::new(r).is_dir());
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+        let agent = string(args, "agent").filter(|a| !a.trim().is_empty()).map(String::from).unwrap_or_else(default_agent);
+        let session = uuid().ok();
+        let cmd = planner_command(&agent, session.as_deref(), repo.is_none(), string(args, "guide"));
+        let open = json!({ "type": "term", "planner": true, "window": window, "cwd": repo.unwrap_or(&home), "cmd": cmd, "wait": false });
+        core.handle(json!({ "cmd": "open", "args": open }), move |reply| match failed(&reply) {
+            Some(error) => responder.reply(Err(error)),
+            None => responder.reply(Ok(Map::from_iter([("pane".to_string(), reply.get("pane").and_then(|p| p.get("id")).cloned().unwrap_or(Value::Null)), ("window".to_string(), reply.get("window").cloned().unwrap_or(Value::Null))]))),
+        });
     }
 
     fn start(self: &Rc<Self>, args: &Value, responder: Responder) {
@@ -526,6 +562,26 @@ mod tests {
         assert_eq!(entry.command(None), format!("/bin/claude --dangerously-skip-permissions --resume '{id}'"));
         entry.agent = "codex".into();
         assert_eq!(entry.command(None), "codex --yolo 'go'", "only claude resumes for now");
+    }
+
+    #[test]
+    fn a_planning_agent_shows_the_guide_runs_with_its_first_message_and_waits_to_resume_when_it_exits() {
+        let command = planner_command("claude", Some("u1"), false, Some("/K/getting started.md"));
+        let (show, rest) = command.split_once("echo; ").unwrap();
+        assert_eq!(show, "if command -v glow >/dev/null 2>&1; then glow '/K/getting started.md'; else cat '/K/getting started.md'; fi; ");
+        assert!(rest.starts_with("claude --session-id u1 'You'\\''re the planning agent"), "{rest}");
+        assert!(rest.contains("kanna-planning") && rest.contains("kanna task list") && !rest.contains("dangerously"), "{rest}");
+        assert!(rest.contains("|| claude --resume u1; while printf"), "{rest}");
+        assert!(rest.ends_with("&& read -r _; do claude --resume u1; done"), "{rest}");
+        let homeless = planner_command("codex", Some("u1"), true, None);
+        assert!(homeless.starts_with("codex 'You'\\''re") && homeless.contains("kanna PATH") && !homeless.contains("--resume"), "{homeless}");
+        assert!(homeless.ends_with("do codex 'You'\\''re the planning agent of this Kanna window: you plan work with the user and manage this project'\\''s tasks, and you don'\\''t write code here. Use the kanna-planning skill, and kanna-new-project if this folder is empty or isn'\\''t a git repo yet. This window has no project yet, so you'\\''re in the home folder: ask the user which folder to work in (a project they have, or a new one to make), then run `kanna PATH` with it, and this window'\\''s planning agent starts again there.'; done"), "{homeless}");
+        let script = std::env::temp_dir().join(format!("kanna-planner-{}", std::process::id()));
+        fs::write(&script, planner_command("echo", None, false, Some("/dev/null"))).unwrap();
+        let out = Command::new("/bin/sh").arg(&script).stdin(std::process::Stdio::null()).output().unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(text.contains("You're the planning agent") && text.contains("Press Return to start it again"), "{text}");
+        fs::remove_file(&script).unwrap();
     }
 
     #[test]
