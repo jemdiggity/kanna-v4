@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 
 const KANNA_ONLY: &[&str] = &["read", "status", "markup", "rename-pane", "task"];
 
-const EXTENDED: &[(&str, &str)] = &[("open", "notes"), ("send", "notes"), ("list", "notes")];
+const EXTENDED: &[(&str, &str)] = &[("open", "notes"), ("send", "notes"), ("list", "notes"), ("move", "notes")];
 
 fn from_kmux(text: &str) -> String {
     text.replace("kmux", "kanna")
