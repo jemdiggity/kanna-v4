@@ -55,7 +55,7 @@ flowchart LR
 
 ## 3. The Shelf
 
-- **The project's tasks not on a Desk**, in the order they were parked (the latest last), each with its [agent status](agent-status.md) and how long ago it was parked. **Needs you** moves a task to the front.
+- **The project's tasks not on a Desk**, latest parked first (a stack), each with its [agent status](agent-status.md) and how long ago it was parked. **Needs you** moves a task to the front.
 - **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘9** swap in the Shelf's 1st … 9th task the same way.
 - **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one and scroll positions come back as they were.
 

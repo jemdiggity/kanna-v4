@@ -187,7 +187,7 @@ const initial = () => {
     project: "kanna-v4",
     key: "w1",
     windows: [{ id: "w1", desk: "p1" }],
-    order: ["p7", "p4"],
+    order: ["p4", "p7"],
     nextWindow: 2,
     nextPane: 10,
     tasks: [
@@ -308,7 +308,7 @@ function emptyHTML() {
 
 function parkTask(t) {
   t.parkedAt = Date.now();
-  s.order = s.order.filter(id => id !== t.id).concat(t.id);
+  s.order = [t.id].concat(s.order.filter(id => id !== t.id));
 }
 
 function bringForward(w) {
@@ -433,7 +433,7 @@ function run(t, line) {
   if (cmd === "open" && sub === "--dock") {
     const id = "p" + s.nextPane++;
     s.tasks.push({ id, title: more ? more : "new task", branch: "main", agent: "claude", status: "working", parkedAt: Date.now(), width: 0.38, tabs: ["shell"], active: "shell", log: [] });
-    s.order.push(id);
+    s.order.unshift(id);
     say(`opened ${id}, docked: a new task on the Shelf`);
     return render();
   }
