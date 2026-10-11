@@ -1,95 +1,103 @@
 # Tasks
 
-**Status:** proposed · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (+ or ⌘N; `kanna task new` in an agent's pane) · **Builds on:** [Desk](desk.md) · **From:** Kanna v2's tasks (a worktree per task) and v3's (a task belongs to a repo)
+**Status:** building · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: no tasks; park to see the backlog; `kanna task new` in an agent's pane) · **Builds on:** [Desk](desk.md) · **From:** Kanna v2's tasks (a worktree per task) and v3's (a task belongs to a repo, and waits until it's pulled)
 
-A **task** is a piece of work for one agent in one repo: its own worktree and branch by default, an agent working there, and a name the agent gives it. You make one from a Desk, or an agent makes one from its terminal. The [Desk](desk.md) shows it; the Shelf holds the rest.
+A **task** is one agent's work in one repo. Agents make tasks: they add them to the repo's **backlog**, and you move the ones you want to the Shelf, where each gets its own agent, branch and worktree. There's no form: a repo with no tasks starts you on a terminal where you run your agent and tell it what you want.
 
-![Making a task from a Desk: repo, agent, an optional first message, and its own worktree](task-new.png)
+![A repo with no tasks: a terminal for your agent, and how to start](task-start.png)
+
+![An empty Desk: the Shelf's tasks above, the backlog below](task-backlog.png)
 
 ## Contents
 
 1. [What a task is](#1-what-a-task-is)
-2. [Making a task](#2-making-a-task)
-3. [Naming](#3-naming)
-4. [Done](#4-done)
-5. [CLI](#5-cli)
-6. [How it's built](#6-how-its-built)
-7. [Open questions](#7-open-questions)
-8. [Glossary](#8-glossary)
+2. [How tasks are made](#2-how-tasks-are-made)
+3. [The backlog](#3-the-backlog)
+4. [Naming](#4-naming)
+5. [Done](#5-done)
+6. [CLI](#6-cli)
+7. [How it's built](#7-how-its-built)
+8. [Open questions](#8-open-questions)
+9. [Glossary](#9-glossary)
 
 ## 1. What a task is
 
 ```mermaid
-flowchart LR
-    T["task<br/>ID · name · repo"] --> W["worktree + branch<br/>(optional)"]
-    T --> A["agent<br/>(the Desk's docked pane)"]
-    T --> D["tabs<br/>(the Desk's docs)"]
+stateDiagram-v2
+    direction LR
+    [*] --> backlog: an agent runs kanna task new
+    [*] --> shelf: Start a task
+    backlog --> shelf: Move to Shelf (agent, branch, worktree)
+    shelf --> desk: pull
+    desk --> shelf: park
+    backlog --> [*]: Done
+    shelf --> [*]: Done
+    desk --> [*]: Done
 ```
 
-- **One repo.** A task is tied to the repo it was made in, so it can later be sent to another machine or person who has that repo. The repo is also its project: at most three tasks per repo ([Desk](desk.md#3-the-shelf)).
-- **Its own worktree and branch, unless you say not to:** `<repo>/.kanna-worktrees/<ID>` on branch `kanna/<ID>`, from the repo's default branch. Without one, the agent works in the repo as it is.
-- **An agent:** Claude Code or Codex, started in the task's folder and docked on its Desk. Its first message is the prompt you gave, if any.
-- **A name**, which the agent gives it ([3](#3-naming)). Until then it's "New task".
+- **One repo.** A task belongs to the repo it was made in, so it can later be sent to another machine or person with that repo.
+- **A name and a first message.** In the backlog, that's all a task is.
+- **On the Shelf, it runs:** its own worktree `<repo>/.kanna-worktrees/<ID>` on branch `kanna/<ID>`, made from the repo's checked-out commit, and an agent there that gets the first message. `--no-worktree` makes a task work in the repo itself.
+- **At most three run per repo**: the one on the Desk and two on the Shelf. The backlog has no limit.
 
-## 2. Making a task
+## 2. How tasks are made
 
-```mermaid
-flowchart LR
-    U["you: + on the Shelf, ⌘N,<br/>or New task on an empty Desk"] --> N["new task"]
-    G["an agent: kanna task new"] --> N
-    N -->|"from a Desk"| DK["on that Desk<br/>(its task is parked)"]
-    N -->|"from the CLI"| SH["on the Shelf"]
-```
+- **By an agent:** `kanna task new "NAME" "FIRST MESSAGE"` adds a task to the backlog of the repo it runs in. An agent planning with you, or one splitting its own work, makes tasks this way.
+- **Start a task** (⌘N, or the button on an empty Desk): a new task on this Desk with an agent in its own worktree and no first message. You tell the agent what to do; it names the task.
+- **A repo with no tasks** starts on a task with a plain terminal in the repo and a Getting started tab (pictured above). You run your agent there.
 
-- **From a Desk:** + at the end of the Shelf, ⌘N, or New task on an empty Desk. The form asks for the repo (the Desk's, by default), the agent, an optional first message, and whether to make a worktree (yes, by default). The task starts on this Desk, and the one there is parked.
-- **From the CLI:** `kanna task new "PROMPT"`, by you or by an agent breaking up its work. The task starts on the Shelf, so nobody's Desk changes under them. Its repo is the one the command runs in.
-- **A fourth task in a repo is refused**, from the form and the CLI alike, until one is Done.
+## 3. The backlog
 
-## 3. Naming
+- **The empty Desk lists it** under the Shelf: each task's name, its first message, and the task that made it.
+- **Move to Shelf** starts a task: it makes the worktree, starts the agent with the first message, and puts it on the Shelf. When three already run, it's refused until one is Done.
+- **Oldest first.** A Desk's Shelf strip shows how many wait.
 
-- **The agent names its task** with `kanna task name "NAME"`, once it knows what the work is: from the first message, or from your first reply if there was none.
-- **You can rename it** with the same command.
+## 4. Naming
 
-## 4. Done
+- **The agent names its task** with `kanna task name "NAME"` once it knows what the work is. Until then it's "New task".
+- **A backlog task's name** is the one its maker gave it, kept when it starts.
 
-- **Done ends the task:** its agent and tabs close, and it leaves the Shelf.
-- **The worktree and branch stay.** Cleaning them up is yours for now (`git worktree remove`, `git branch -d`).
+## 5. Done
 
-## 5. CLI
+- **Done ends the task:** its agent and tabs close, or it leaves the backlog.
+- **The worktree and branch stay.** Cleaning them up is yours for now.
+
+## 6. CLI
 
 | Command | Does |
 |---|---|
-| `kanna task new [PROMPT] [--repo PATH] [--agent claude\|codex] [--no-worktree]` | Make a task on the Shelf |
+| `kanna task new NAME [FIRST-MESSAGE] [--no-worktree] [--agent CMD]` | Add a task to this repo's backlog |
+| `kanna task start TASK` | Move a backlog task to the Shelf: worktree, agent, first message |
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
-| `kanna task list` | Every task: ID, where, status, repo, name |
+| `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
+| `kanna task done [TASK]` | End a task, or take it off the backlog |
 
-`park`, `pull` and `done` are the [Desk's](desk.md#4-cli).
+`park` and `pull` are the [Desk's](desk.md#4-cli).
 
-## 6. How it's built
+## 7. How it's built
 
 ```mermaid
 flowchart TB
-    CLI["kanna task new / name"] --> D
-    APP["Kanna.app: the form"] --> D
-    D["daemon: task records<br/>ID · name · repo · worktree · agent pane"] -->|"open --dock"| L["layout: Desk / Shelf"]
-    D -->|"git worktree add"| G["repo"]
+    CLI["kanna task new / start / name"] --> D
+    APP["Kanna.app: empty Desk"] --> D
+    D["daemon: the backlog<br/>ID · name · repo · first message · maker"] -->|"start: git worktree add, open --dock on the Shelf"| L["layout: Desk / Shelf"]
 ```
 
-- **The daemon keeps the tasks**, saved with the terminals, so `kanna task new` and `name` work with or without the app, and a task survives restarts.
-- **Making a task** is: check the limit, `git worktree add` (unless `--no-worktree`), open the agent docked in that folder (on the Shelf, or on the asking Desk), send the prompt.
-- **The layout keeps where a task is** (a Desk or the Shelf), as it does now.
+- **The daemon keeps the backlog**, saved with the terminals, so agents add tasks with or without the app.
+- **A running task is its docked agent pane**, as on the [Desk](desk.md): its name is the pane's name, its repo the pane's folder.
+- **Starting** a backlog task checks the limit, runs `git worktree add`, opens the agent docked straight onto the Shelf in that folder with the first message, names the pane, and drops the backlog entry.
 
-## 7. Open questions
+## 8. Open questions
 
-1. **Task IDs:** today a task's ID is its agent pane's (p4). A task that moves between machines wants its own (say `t4`, or `<repo>-4`), which also names its branch.
-2. **How the agent learns to name its task:** a line Kanna adds to the first message, or Kanna's agent skill.
-3. **Which commit a worktree starts from:** the default branch, or what the repo has checked out.
+1. **How the agent learns to name its task:** a line in Kanna's agent skill, or one Kanna adds to the first message.
+2. **Task IDs that travel:** backlog IDs (`t4`) are this machine's; sending tasks elsewhere will want IDs that don't clash.
 
-## 8. Glossary
+## 9. Glossary
 
 | Term | Meaning |
 |---|---|
-| **Task** | One agent's piece of work in one repo, shown on a Desk |
-| **Repo** | The git repository a task belongs to; also its project |
+| **Task** | One agent's work in one repo, shown on a Desk |
+| **Backlog** | A repo's tasks that aren't running yet: a name and a first message each |
+| **Repo** | The git repository a task belongs to |
 | **Worktree** | A second checkout of the repo, in `.kanna-worktrees/`, on the task's own branch |
-| **Prompt** | The first message the agent gets, if you gave one |
+| **First message** | What the agent is told when its task starts |
