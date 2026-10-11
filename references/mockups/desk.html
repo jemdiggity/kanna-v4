@@ -186,7 +186,6 @@ body.picture .cmd input::placeholder { color: transparent; }
       <span><kbd>⌘N</kbd> start a task</span>
       <span><kbd>⌘1</kbd> <kbd>⌘2</kbd> <kbd>⌘3</kbd> pull the Shelf's 1st, 2nd, 3rd</span>
       <span><kbd>⌘.</kbd> Park</span>
-      <span><kbd>⇧⌘→</kbd> <kbd>⇧⌘←</kbd> next / previous Shelf task</span>
       <span><kbd>⇧⌘A</kbd> the task waiting longest for you</span>
     </div>
   </div>
@@ -487,14 +486,6 @@ function closeWindow(id) {
   render();
 }
 
-function step(dir) {
-  const list = shelf();
-  if (!list.length) return;
-  const w = keyWin();
-  if (!w) return;
-  pull(dir > 0 ? list[0].id : list[list.length - 1].id, w.id);
-}
-
 function waitingLongest() {
   const t = s.order.map(task).filter(t => t && !deskOf(t.id) && t.status === "needs").sort((a, b) => (a.needsAt || 0) - (b.needsAt || 0))[0];
   if (t) pull(t.id);
@@ -591,8 +582,6 @@ document.addEventListener("keydown", e => {
     const t = shelf()[Number(e.key) - 1];
     if (t) { e.preventDefault(); pull(t.id); }
   } else if (!e.shiftKey && e.key === ".") { e.preventDefault(); park(); }
-  else if (e.shiftKey && e.key === "ArrowRight") { e.preventDefault(); step(1); }
-  else if (e.shiftKey && e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
   else if (e.shiftKey && e.key.toLowerCase() === "a") { e.preventDefault(); waitingLongest(); }
 });
 

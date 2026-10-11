@@ -80,8 +80,6 @@ extension AppController {
         _ = menu("Task", [
             ("Park", #selector(parkTask), nil, .cmd(".")),
             nil,
-            ("Next Shelf Task", #selector(nextShelfTask), nil, .shiftCmd(String(UnicodeScalar(NSRightArrowFunctionKey)!))),
-            ("Previous Shelf Task", #selector(previousShelfTask), nil, .shiftCmd(String(UnicodeScalar(NSLeftArrowFunctionKey)!))),
             ("Task Waiting Longest", #selector(pullWaitingTask), nil, .shiftCmd("A")),
             nil,
             ("Pull Shelf Task 1", #selector(pullShelf1), "goto_tab:1", .cmd("1")),
@@ -198,7 +196,6 @@ extension AppController {
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
         case #selector(parkTask): return keyWindow?["dock"] != nil
-        case #selector(nextShelfTask), #selector(previousShelfTask): return shelfPull(1) != nil
         case #selector(pullWaitingTask): return waitingTask != nil
         case #selector(pullShelf1): return shelfPull(1) != nil
         case #selector(pullShelf2): return shelfPull(2) != nil
@@ -307,13 +304,6 @@ extension AppController {
     @objc func pullShelf1() { pullShelf(1) }
     @objc func pullShelf2() { pullShelf(2) }
     @objc func pullShelf3() { pullShelf(3) }
-
-    @objc func nextShelfTask() { pullShelf(1) }
-
-    @objc func previousShelfTask() {
-        guard let (_, window) = shelfPull(1), let last = controllers[window]?.shelf.last else { return }
-        pullTask(last.id, into: window)
-    }
 
     private var waitingTask: (task: String, window: String)? {
         guard let (_, window) = shelfPull(1), let tasks = controllers[window]?.shelf,
