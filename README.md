@@ -23,7 +23,10 @@ Kanna builds against Ghostty from the `kanna4` branch of [jemdiggity/ghostty](ht
 
 ```sh
 scripts/build.sh                  # everything, on a fresh clone or worktree: target/Kanna.app and the CLI, daemon and keeper
+scripts/build.sh production       # the same, as the production channel (also staging; dev is the default)
 ```
+
+Every build is one of three channels, each a separate app with its own name, bundle ID and folders, so all of them run at once: **production** (Kanna, for /Applications), **staging** (Kanna Staging) and **dev** (Kanna Dev). A dev build made in a git worktree is an app of its own, named after the worktree (Kanna Dev task-3f9a1c2e, with its own daemon, terminals and layout), so each task can build and run its Kanna beside the one it's working in. See [build channels](docs/specs/build-channels.md).
 
 It runs these in order, each of which also works on its own:
 
@@ -32,7 +35,7 @@ scripts/build-ghostty-vt.sh       # libghostty-vt for the daemon (build.sh skips
 scripts/build-ghosttykit.sh       # GhosttyKit for the app (likewise)
 cargo build --workspace --release # CLI, daemon, keeper, and libkanna_layout for the app
 scripts/build-merman.sh           # merman for the app's diagrams
-scripts/build-kanna-app.sh        # the Swift app and target/Kanna.app, with the daemon and keeper inside
+scripts/build-kanna-app.sh        # the Swift app and target/Kanna.app, with the daemon and keeper inside (takes the channel too)
 ```
 
 A bare `cargo build` or `swift build` misses steps, so start with `scripts/build.sh`. A second run is quick: Ghostty is skipped and the rest is cargo's and SwiftPM's incremental builds. The first build compiles Ghostty with Zig (downloaded if the right version isn't installed), which takes a while. A git worktree of this repo (a Kanna task's, say) reuses the main checkout's Ghostty builds when they're the pinned commit, linking them into its own `target/`, so building there skips Ghostty.
@@ -40,14 +43,15 @@ A bare `cargo build` or `swift build` misses steps, so start with `scripts/build
 ## Use
 
 ```sh
-open target/Kanna.app
+scripts/run-kanna.sh              # open this checkout's Kanna (in a worktree, that worktree's own Kanna Dev)
+scripts/run-kanna.sh list         # its CLI against it, even from a terminal in another Kanna
 kanna open --name server --cmd "npm run dev" --split right --size 1/3
 kanna open md docs/kanna-spec.md --tab
 kanna list
 kanna help
 ```
 
-`kanna` starts Kanna.app if it isn't running. `--mux kmux` drives a kmux you run instead, and `--instance NAME` runs a separate Kanna with its own app, daemon and terminals.
+`kanna` starts Kanna.app if it isn't running. In a Kanna terminal it talks to that terminal's Kanna, whatever its channel. `--mux kmux` drives a kmux you run instead, and `--instance NAME` runs a separate Kanna with its own app, daemon and terminals. `kanna instances` lists the running Kannas of every channel, and `kanna instances prune` deletes the folders of dev builds whose worktree is gone.
 
 ## Test
 

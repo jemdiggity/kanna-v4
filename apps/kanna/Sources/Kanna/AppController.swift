@@ -30,8 +30,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     static var daemonSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_SOCKET"], !path.isEmpty { return path }
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appendingPathComponent("kanna-dev/kanna.sock").path
+        return instanceSocket(KannaBuild.defaultInstance)
     }
 
     static var statePath: String? {
@@ -46,13 +45,12 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     static var instanceName: String {
-        let folder = ((daemonSocketPath as NSString).deletingLastPathComponent as NSString).lastPathComponent
-        return folder.hasPrefix("kanna-dev-") ? String(folder.dropFirst("kanna-dev-".count)) : "default"
+        KannaBuild.instance(ofFolder: ((daemonSocketPath as NSString).deletingLastPathComponent as NSString).lastPathComponent)
     }
 
     static func instanceSocket(_ name: String) -> String {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appendingPathComponent(name == "default" ? "kanna-dev" : "kanna-dev-\(name)").appendingPathComponent("kanna.sock").path
+        return support.appendingPathComponent(KannaBuild.instanceFolder(name)).appendingPathComponent("kanna.sock").path
     }
 
     static var unusedInstanceName: String {
@@ -73,10 +71,11 @@ final class AppController: NSObject, NSApplicationDelegate {
     static var echoSocketPath: String {
         if let path = ProcessInfo.processInfo.environment["KANNA_APP_SOCKET"], !path.isEmpty { return path }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appendingPathComponent("kanna-dev/kanna-app.sock").path
+        return support.appendingPathComponent(KannaBuild.instanceFolder(KannaBuild.defaultInstance)).appendingPathComponent("kanna-app.sock").path
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        KannaBuild.badgeIcon()
         do {
             runtime = try GhosttyRuntime()
         } catch {

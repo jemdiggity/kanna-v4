@@ -14,6 +14,7 @@ mod terminals;
 use app_link::{AppLayout, AppLink, Outbox, APP_PREFIX, HELLO};
 use kanna_mux::json::Value;
 use host::Host;
+use kanna_build::Build;
 use kanna_mux::json::json;
 use kanna_mux::{Brand, Core, Instance, SocketServer, DEFAULT_NAME};
 use std::os::unix::net::UnixStream;
@@ -28,20 +29,19 @@ use pty::Spawner;
 use store::Store;
 use terminals::{Restored, Terminals};
 
-const USAGE: &str = "usage: kanna-daemon [--uses-keeper]
+const USAGE: &str = "usage: kanna-daemon [--uses-keeper | --build]
 
 Serves Kanna's terminals and kmux's control protocol on $KANNA_SOCKET
-(default: the development socket, kanna-dev/kanna.sock in the app support
-folder; never Kanna.app's own kanna/kanna.sock). Keeps its files in
+(default: this build's instance's socket, such as kanna-dev/kanna.sock in
+the app support folder; never the older Kanna.app's kanna/kanna.sock). Keeps its files in
 $KANNA_STATE_DIR (default: that socket's folder). Gets its ptys from the
 keeper of that folder, starting $KANNA_KEEPER (default: the kanna-keeper
 beside this binary) if none runs. Stopping the daemon leaves the terminals
 running in the keeper; it saves them in that folder (terminals/), and the
 next daemon takes them back.
 
-  --uses-keeper   exits 0: this daemon gets its ptys from a keeper";
-
-const INSTANCE_FOLDER: &str = "kanna-dev-";
+  --uses-keeper   exits 0: this daemon gets its ptys from a keeper
+  --build         prints this build's channel, app name, bundle ID, instance and folder";
 
 const APP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -70,6 +70,7 @@ fn main() {
     match args.first().map(String::as_str) {
         None => {}
         Some("--uses-keeper") => std::process::exit(0),
+        Some("--build") => return print!("{}", Build::current().shell()),
         Some("-h" | "--help") => return println!("{USAGE}"),
         Some(other) => {
             eprintln!("kanna-daemon: unknown argument {other}\n{USAGE}");
@@ -100,7 +101,8 @@ fn app_socket() -> PathBuf {
 
 fn run() -> Result<(), String> {
     let _ = Brand::set_current(Brand::new("kanna", "Kanna"));
-    let socket = env_path("KANNA_SOCKET").unwrap_or_else(|| support_folder().join("kanna-dev/kanna.sock"));
+    let build = Build::current();
+    let socket = env_path("KANNA_SOCKET").unwrap_or_else(|| build.instance_folder(&support_folder(), &build.default_instance()).join(kanna_build::SOCKET));
     if socket.to_string_lossy().to_lowercase() == app_socket().to_string_lossy().to_lowercase() {
         return Err(format!("{} belongs to Kanna.app; use another KANNA_SOCKET", socket.display()));
     }
@@ -108,6 +110,7 @@ fn run() -> Result<(), String> {
     std::fs::create_dir_all(&state_dir).map_err(|e| format!("can't make {}: {e}", state_dir.display()))?;
     let socket_path = socket.to_string_lossy().into_owned();
     let _lock = lock(&state_dir)?;
+    let _ = std::fs::write(state_dir.join(kanna_build::RECORD), format!("{:#}\n", build.record(app_bundle().as_deref())));
 
     let stop_signals = signal_set(&[libc::SIGTERM, libc::SIGINT, libc::SIGHUP]);
     unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, &stop_signals, std::ptr::null_mut()) };
@@ -352,14 +355,15 @@ fn run() -> Result<(), String> {
 
 fn instance_name(socket: &Path) -> String {
     let folder = socket.parent().and_then(Path::file_name).and_then(|name| name.to_str()).unwrap_or_default();
-    match folder.strip_prefix(INSTANCE_FOLDER) {
-        Some(name) if valid_instance(name) => name.to_string(),
-        _ => DEFAULT_NAME.to_string(),
-    }
+    kanna_build::parse_folder(folder).map_or_else(|| DEFAULT_NAME.to_string(), |(_, name)| name)
 }
 
-fn valid_instance(name: &str) -> bool {
-    !name.is_empty() && name.len() <= 32 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+fn app_bundle() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let helpers = exe.parent()?;
+    let contents = helpers.parent()?;
+    let app = contents.parent()?;
+    (helpers.file_name()? == "Helpers" && contents.file_name()? == "Contents" && app.extension()? == "app").then(|| app.to_path_buf())
 }
 
 fn lock(state_dir: &Path) -> Result<std::fs::File, String> {
@@ -407,6 +411,9 @@ mod tests {
         assert_eq!(name("/Users/x/Library/Application Support/kanna-dev/kanna.sock"), "default");
         assert_eq!(name("/Users/x/Library/Application Support/kanna-dev-work/kanna.sock"), "work");
         assert_eq!(name("/tmp/kanna-dev-a b/kanna.sock"), "default");
+        assert_eq!(name("/x/kanna-prod/kanna.sock"), "default");
+        assert_eq!(name("/x/kanna-staging-work/kanna.sock"), "work");
+        assert_eq!(name("/x/kanna-dev-task-3f9a1c2e/kanna.sock"), "task-3f9a1c2e");
         assert_eq!(name("/tmp/kanna-e2e.x/kanna.sock"), "default");
     }
 }

@@ -6,6 +6,7 @@ license = "FSL-1.1-MIT"
 description = "Kanna's daemon: kanna-mux on Kanna's socket, with the terminals and the app's link."
 
 [dependencies]
+kanna-build = { path = "../kanna-build" }
 kanna-mux = { path = "../kanna-mux" }
 kanna-keeper = { path = "../kanna-keeper" }
 kanna-vt = { path = "../kanna-vt" }

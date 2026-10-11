@@ -354,7 +354,7 @@ fn target(words: &[String], env: Env) -> Option<Target> {
             _ => {}
         }
     }
-    Target::resolve(choice, env).ok()
+    Target::resolve(&kanna_build::Build::current(), choice, env).ok()
 }
 
 fn live(words: &[String], env: Env) -> Option<Value> {

@@ -3,6 +3,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scripts="$repo_root/scripts"
+case "${1:-${KANNA_CHANNEL:-dev}}" in
+  production|staging|dev) export KANNA_CHANNEL="${1:-${KANNA_CHANNEL:-dev}}" ;;
+  *) echo "usage: scripts/build.sh [production|staging|dev]   (default: dev, or \$KANNA_CHANNEL)" >&2; exit 2 ;;
+esac
+echo "==> Channel: $KANNA_CHANNEL"
 . "$scripts/env.sh"
 host="$(rustc -vV | sed -n 's/^host: //p')"
 pinned() { [[ -z "${GHOSTTY_SOURCE_DIR:-}" && "$(cat "$1/ghostty.rev" 2>/dev/null)" == "$KANNA_GHOSTTY_COMMIT" ]]; }

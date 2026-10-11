@@ -3,6 +3,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$repo_root/scripts/env.sh"
+case "${1:-${KANNA_CHANNEL:-dev}}" in
+  production|staging|dev) export KANNA_CHANNEL="${1:-${KANNA_CHANNEL:-dev}}" ;;
+  *) echo "usage: scripts/build-kanna-app.sh [production|staging|dev]   (default: dev, or \$KANNA_CHANNEL)" >&2; exit 2 ;;
+esac
 host="$(rustc -vV | sed -n 's/^host: //p')"
 kanna_borrow_built "$repo_root" ghosttykit
 kanna_borrow_built "$repo_root" "ghostty-vt/$host"
@@ -32,7 +36,11 @@ fi
 "$repo_root/scripts/build-merman.sh"
 
 configuration="${KANNA_CONFIGURATION:-release}"
-bundle_id="${KANNA_BUNDLE_ID:-dev.kanna.app.dev}"
+while IFS='=' read -r key value; do
+  case "$key" in
+    channel) channel="$value" ;; name) app_name="$value" ;; bundle_id) bundle_id="$value" ;; instance) instance="$value" ;; folder) folder="$value" ;;
+  esac
+done < <("$repo_root/target/release/kanna-daemon" --build)
 build=(swift build --package-path "$repo_root/apps/kanna" --configuration "$configuration" --scratch-path "$repo_root/target/kanna-build")
 product_dir="$("${build[@]}" --show-bin-path)"
 for library in "$repo_root"/target/release/*.a; do
@@ -56,7 +64,10 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>CFBundleExecutable</key><string>Kanna</string>
 <key>CFBundleIconFile</key><string>Kanna</string>
 <key>CFBundleIdentifier</key><string>$bundle_id</string>
-<key>CFBundleName</key><string>Kanna</string>
+<key>CFBundleName</key><string>$app_name</string>
+<key>CFBundleDisplayName</key><string>$app_name</string>
+<key>KannaChannel</key><string>$channel</string>
+<key>KannaInstance</key><string>$instance</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>0.1.0</string>
@@ -64,4 +75,4 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-echo "Built $app"
+echo "Built $app: $app_name ($bundle_id), $channel channel, instance $instance in $folder"

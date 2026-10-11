@@ -189,10 +189,10 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     let overview = kanna_at(&dir, Some(&nowhere), &[]).ok();
     assert!(overview.starts_with("kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\nusage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n       kanna PATH                           (a new Desk on the project in folder PATH)\n\nPanes:\n  open "), "{overview}");
     assert!(overview.contains("Kanna isn't running, so help can't check which commands it supports."), "{overview}");
-    assert!(overview.contains(&format!("Instance: default at {}", nowhere.display())), "{overview}");
+    assert!(overview.contains(&format!("Instance: default of {} at {}", kanna_build::Build::current().app_name(), nowhere.display())), "{overview}");
     assert!(overview.contains("6 needs Kanna.app, which isn't attached and wasn't started."), "{overview}");
     assert_eq!(kanna_at(&dir, Some(&nowhere), &["help"]).ok(), overview);
-    assert_eq!(kanna_at(&dir, Some(&nowhere), &["--version"]).ok(), format!("kanna {}", env!("CARGO_PKG_VERSION")));
+    assert_eq!(kanna_at(&dir, Some(&nowhere), &["--version"]).ok(), format!("kanna {} ({})", env!("CARGO_PKG_VERSION"), kanna_build::Build::current().app_name()));
     let open = kanna_at(&dir, Some(&nowhere), &["help", "open"]).ok();
     assert!(open.starts_with("kanna open — Open a terminal"), "{open}");
     assert_eq!(kanna_at(&dir, Some(&nowhere), &["open", "--help"]).ok(), open);
@@ -243,13 +243,15 @@ fn a_running_kanna_supports_every_command() {
 fn instances_are_folders_that_answer() {
     let dir = scratch("instances");
     let support = if cfg!(target_os = "macos") { dir.join("home/Library/Application Support") } else { dir.join("home/.local/share") };
-    kanna_at(&dir, None, &["instances"]).ok();
+    let build = kanna_build::Build::current();
+    let mine = build.channel.instance_folder(&build.default_instance());
     assert!(kanna_at(&dir, None, &["instances"]).ok().starts_with("No Kanna instances are running."));
     let mut listeners = vec![];
-    for folder in ["kanna-dev", "kanna-dev-work", "kanna-dev-gone"] {
+    for folder in [mine.as_str(), "kanna-dev-work", "kanna-dev-gone", "kanna-prod", "kanna-staging"] {
         std::fs::create_dir_all(support.join(folder)).unwrap();
     }
-    for folder in ["kanna-dev", "kanna-dev-work"] {
+    std::fs::write(support.join("kanna-dev-work").join(kanna_build::RECORD), json!({ "channel": "dev", "worktree": dir.join("wt") }).to_string()).unwrap();
+    for folder in [mine.as_str(), "kanna-dev-work", "kanna-prod"] {
         let socket = support.join(folder).join("kanna.sock");
         listeners.push(serve(&socket, |request| match request["cmd"].as_str() {
             Some("list") => json!({ "ok": true, "windows": [{ "id": "w1" }], "panes": [{ "id": "p1" }, { "id": "p2" }] }),
@@ -258,16 +260,53 @@ fn instances_are_folders_that_answer() {
     }
     std::os::unix::net::UnixListener::bind(support.join("kanna-dev-gone/kanna.sock")).map(drop).unwrap();
     let text = kanna_at(&dir, None, &["instances"]).ok();
-    let default_socket = support.join("kanna-dev/kanna.sock");
-    assert_eq!(text, format!("* default  1 window, 2 panes\n  work     1 window, 2 panes\n\n* the instance this shell's kanna commands talk to ({}). Pick another with --instance NAME or KANNA_INSTANCE.", default_socket.display()));
+    let lines: Vec<&str> = text.lines().collect();
+    let name = build.default_instance();
+    assert!(lines[0].starts_with("  default ") && lines[0].contains(" production  1 window, 2 panes"), "{text}");
+    assert!(lines.iter().any(|l| l.starts_with(&format!("* {name} ")) && l.contains(" dev ")), "{text}");
+    let work = lines.iter().find(|l| l.starts_with("  work ")).unwrap();
+    assert!(work.ends_with(&format!("1 window, 2 panes  {} (gone)", dir.join("wt").display())), "{text}");
+    assert!(!text.contains("gone "), "{text}");
+    assert!(text.ends_with(&format!("* the instance this shell's kanna commands talk to ({}). Pick another with --instance NAME or KANNA_INSTANCE.", support.join(&mine).join("kanna.sock").display())), "{text}");
     let text = kanna_at(&dir, None, &["--instance", "work", "instances"]).ok();
-    assert!(text.starts_with("  default  1 window, 2 panes\n* work "), "{text}");
+    assert!(text.contains("\n* work "), "{text}");
     let mut command = cli(&dir);
     command.env("KANNA_INSTANCE", "work");
     let described = Run::from(&["instances", "--json"], command.args(["instances", "--json"]).output().unwrap()).json();
     assert_eq!(described["current"]["name"], "work");
-    assert_eq!(described["instances"][1], json!({ "name": "work", "socket": support.join("kanna-dev-work/kanna.sock"), "current": true, "windows": 1, "panes": 2 }));
+    let row = described["instances"].as_array().unwrap().iter().find(|r| r["name"] == "work").unwrap().clone();
+    assert_eq!(row, json!({ "name": "work", "channel": "dev", "worktree": dir.join("wt"), "socket": support.join("kanna-dev-work/kanna.sock"), "current": true, "windows": 1, "panes": 2 }));
     assert_eq!(kanna_at(&dir, None, &["--instance", "work", "list", "--json"]).json()["panes"].as_array().unwrap().len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn prune_deletes_dev_instances_whose_worktree_is_gone() {
+    let dir = scratch("prune");
+    let support = if cfg!(target_os = "macos") { dir.join("home/Library/Application Support") } else { dir.join("home/.local/share") };
+    std::fs::create_dir_all(dir.join("here")).unwrap();
+    let record = |folder: &str, worktree: Option<std::path::PathBuf>| {
+        std::fs::create_dir_all(support.join(folder)).unwrap();
+        std::fs::write(support.join(folder).join(kanna_build::RECORD), json!({ "channel": "dev", "worktree": worktree }).to_string()).unwrap();
+    };
+    record("kanna-dev-gone", Some(dir.join("gone")));
+    record("kanna-dev-here", Some(dir.join("here")));
+    record("kanna-dev", None);
+    record("kanna-dev-running", Some(dir.join("gone2")));
+    let _listener = serve(&support.join("kanna-dev-running/kanna.sock"), |_| json!({ "ok": true }));
+    record("kanna-dev-kept", Some(dir.join("gone3")));
+    std::fs::write(support.join("kanna-dev-kept/keeper.pid"), std::process::id().to_string()).unwrap();
+    let text = kanna_at(&dir, None, &["instances", "prune"]).ok();
+    assert!(text.contains(&format!("deleted {}", support.join("kanna-dev-gone").display())), "{text}");
+    assert!(text.contains("kanna-dev-running: its worktree") && text.contains("but it's running"), "{text}");
+    assert!(text.contains(&format!("its keeper (pid {}) still holds terminals", std::process::id())), "{text}");
+    assert!(!support.join("kanna-dev-gone").exists());
+    for kept in ["kanna-dev-here", "kanna-dev", "kanna-dev-running", "kanna-dev-kept"] {
+        assert!(support.join(kept).exists(), "{kept}");
+    }
+    std::fs::remove_dir_all(support.join("kanna-dev-kept")).unwrap();
+    std::fs::remove_dir_all(support.join("kanna-dev-running")).unwrap();
+    assert!(kanna_at(&dir, None, &["instances", "prune"]).ok().starts_with("Nothing to prune"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -1,3 +1,4 @@
+use kanna_build::{Build, Channel, SOCKET};
 use kanna_client::{exit, fail, valid_instance, Brand, Error, Failure, Kmux, DEFAULT_INSTANCE};
 use serde_json::{json, Value};
 use std::os::unix::net::UnixStream;
@@ -7,13 +8,7 @@ use std::time::{Duration, Instant};
 
 pub const NO_APP: u8 = 6;
 
-pub const KANNA_APP_BUNDLE: &str = "dev.kanna.app.dev";
-
-pub const KANNA: Brand = Brand { id: "kanna", name: "Kanna", bundle_id: KANNA_APP_BUNDLE };
-
-pub const FOLDER: &str = "kanna-dev";
-
-pub const SOCKET: &str = "kanna.sock";
+pub const KANNA: Brand = Brand { id: "kanna", name: "Kanna", bundle_id: Channel::Dev.bundle_id() };
 
 const APP_START: Duration = Duration::from_secs(20);
 
@@ -31,6 +26,7 @@ pub enum Backend {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Target {
+    pub build: Build,
     pub backend: Backend,
     pub instance: String,
     pub socket: PathBuf,
@@ -47,7 +43,7 @@ pub struct Choice {
 }
 
 impl Target {
-    pub fn resolve(choice: Choice, env: Env) -> Result<Target, Failure> {
+    pub fn resolve(build: &Build, choice: Choice, env: Env) -> Result<Target, Failure> {
         let backend = match choice.mux {
             Some(mux) => backend(&mux, "")?,
             None => match env("KANNA_MUX") {
@@ -68,14 +64,17 @@ impl Target {
             (None, Some(socket)) => (variable("INSTANCE").unwrap_or_else(|| DEFAULT_INSTANCE.into()), Some(PathBuf::from(socket)), Some(socket_variable)),
             (None, None) => match variable("INSTANCE") {
                 Some(name) => (checked(name, &format!(" (from {})", brand.variable("INSTANCE")))?, None, None),
-                None => (DEFAULT_INSTANCE.to_string(), None, None),
+                None => (match backend {
+                    Backend::Kanna => build.default_instance(),
+                    Backend::Kmux => DEFAULT_INSTANCE.to_string(),
+                }, None, None),
             },
         };
         let socket = socket.unwrap_or_else(|| match backend {
-            Backend::Kanna => instance_socket(&instance, env),
+            Backend::Kanna => instance_socket(build.channel, &instance, env),
             Backend::Kmux => brand_socket(Brand::KMUX, &instance, env),
         });
-        Ok(Target { backend, instance, socket, pinned, background, fresh })
+        Ok(Target { build: build.clone(), backend, instance, socket, pinned, background, fresh })
     }
 
     pub fn brand(&self) -> Brand {
@@ -99,17 +98,17 @@ impl Target {
 
     pub fn running(&self, env: Env) -> Vec<Target> {
         let names: Vec<String> = match self.backend {
-            Backend::Kanna => instance_names(env),
+            Backend::Kanna => instances(env).into_iter().filter(|i| i.channel == self.build.channel).map(|i| i.name).collect(),
             Backend::Kmux => kmux_names(env),
         };
         names
             .into_iter()
             .map(|name| {
                 let socket = match self.backend {
-                    Backend::Kanna => instance_socket(&name, env),
+                    Backend::Kanna => instance_socket(self.build.channel, &name, env),
                     Backend::Kmux => brand_socket(Brand::KMUX, &name, env),
                 };
-                Target { backend: self.backend, instance: name, socket, pinned: None, background: false, fresh: false }
+                Target { build: self.build.clone(), backend: self.backend, instance: name, socket, pinned: None, background: false, fresh: false }
             })
             .filter(|t| UnixStream::connect(&t.socket).is_ok())
             .collect()
@@ -139,13 +138,8 @@ pub fn support_folder(env: Env) -> PathBuf {
     env("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"))
 }
 
-pub fn instance_folder(name: &str, env: Env) -> PathBuf {
-    let folder = if name == DEFAULT_INSTANCE { FOLDER.to_string() } else { format!("{FOLDER}-{name}") };
-    support_folder(env).join(folder)
-}
-
-pub fn instance_socket(name: &str, env: Env) -> PathBuf {
-    instance_folder(name, env).join(SOCKET)
+pub fn instance_socket(channel: Channel, name: &str, env: Env) -> PathBuf {
+    support_folder(env).join(channel.instance_folder(name)).join(SOCKET)
 }
 
 fn brand_socket(brand: Brand, name: &str, env: Env) -> PathBuf {
@@ -159,21 +153,41 @@ fn sorted(mut names: Vec<String>) -> Vec<String> {
     names
 }
 
-fn instance_names(env: Env) -> Vec<String> {
-    let prefix = format!("{FOLDER}-");
-    let names = std::fs::read_dir(support_folder(env))
+#[derive(Clone, Debug, PartialEq)]
+pub struct Instance {
+    pub channel: Channel,
+    pub name: String,
+    pub folder: PathBuf,
+    pub socket: PathBuf,
+    pub worktree: Option<PathBuf>,
+}
+
+impl Instance {
+    pub fn answers(&self) -> bool {
+        UnixStream::connect(&self.socket).is_ok()
+    }
+}
+
+pub fn keeper_pid(folder: &Path) -> Option<i32> {
+    let pid: i32 = std::fs::read_to_string(folder.join("keeper.pid")).ok()?.trim().parse().ok()?;
+    (pid > 0 && unsafe { libc::kill(pid, 0) } == 0).then_some(pid)
+}
+
+pub fn instances(env: Env) -> Vec<Instance> {
+    let support = support_folder(env);
+    let mut found: Vec<Instance> = std::fs::read_dir(&support)
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|entry| {
-            let folder = entry.file_name().into_string().ok()?;
-            if folder == FOLDER {
-                return Some(DEFAULT_INSTANCE.to_string());
-            }
-            folder.strip_prefix(&prefix).filter(|name| valid_instance(name)).map(String::from)
+            let (channel, name) = kanna_build::parse_folder(&entry.file_name().into_string().ok()?)?;
+            let folder = entry.path();
+            let worktree = kanna_build::read_record(&folder).and_then(|r| r["worktree"].as_str().map(PathBuf::from));
+            Some(Instance { channel, name, socket: folder.join(SOCKET), folder, worktree })
         })
         .collect();
-    sorted(names)
+    found.sort_by_key(|i| (Channel::ALL.iter().position(|c| *c == i.channel), i.name != DEFAULT_INSTANCE, i.name.clone()));
+    found
 }
 
 fn kmux_names(env: Env) -> Vec<String> {
@@ -202,9 +216,10 @@ pub fn launch_command(target: &Target, env: Env) -> Command {
     if let Some(folder) = env("KANNA_STATE_DIR") {
         open.arg("--env").arg(format!("KANNA_STATE_DIR={folder}"));
     }
-    match env("KANNA_APP") {
-        Some(app) => open.arg("-a").arg(app),
-        None => open.arg("-b").arg(KANNA_APP_BUNDLE),
+    match (env("KANNA_APP"), target.build.app()) {
+        (Some(app), _) => open.arg("-a").arg(app),
+        (None, Some(app)) => open.arg("-a").arg(app),
+        (None, None) => open.arg("-b").arg(target.build.bundle_id()),
     };
     let mut flags = vec![];
     if target.background {
@@ -232,7 +247,11 @@ fn launch_app(target: &Target, code: u8, env: Env) -> Result<(), Failure> {
     if status.success() {
         return Ok(());
     }
-    Err(fail(code, format!("Kanna isn't running on {} and Kanna.app couldn't be started (set KANNA_APP to it, or install {KANNA_APP_BUNDLE})", target.socket.display())))
+    let remedy = match target.build.app() {
+        Some(app) => format!("build {} with scripts/build.sh", app.display()),
+        None => format!("install {}", target.build.bundle_id()),
+    };
+    Err(fail(code, format!("Kanna isn't running on {} and Kanna.app ({}) couldn't be started (set KANNA_APP to it, or {remedy})", target.socket.display(), target.build.app_name())))
 }
 
 fn make_folder(folder: &Path) {
@@ -313,6 +332,14 @@ mod tests {
         move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| v.to_string())
     }
 
+    fn dev() -> Build {
+        Build { channel: Channel::Dev, checkout: PathBuf::from("/r/kanna"), worktree: None }
+    }
+
+    fn resolve(choice: Choice, env: Env) -> Result<Target, Failure> {
+        Target::resolve(&dev(), choice, env)
+    }
+
     fn choice() -> Choice {
         Choice { mux: None, instance: None, background: false, fresh: false }
     }
@@ -323,7 +350,7 @@ mod tests {
 
     #[test]
     fn the_default_is_the_default_instance_of_kanna() {
-        let target = Target::resolve(choice(), &env(&[("HOME", "/Users/x")])).unwrap();
+        let target = resolve(choice(), &env(&[("HOME", "/Users/x")])).unwrap();
         assert_eq!(target.backend, Backend::Kanna);
         assert_eq!(target.instance, "default");
         assert_eq!(target.socket, PathBuf::from(format!("{}/kanna-dev/kanna.sock", support("/Users/x"))));
@@ -331,47 +358,67 @@ mod tests {
     }
 
     #[test]
+    fn a_build_targets_its_own_channel_and_its_worktrees_instance() {
+        let home = env(&[("HOME", "/Users/x")]);
+        let worktree = Build { worktree: Some("task-3f9a1c2e".into()), ..dev() };
+        let target = Target::resolve(&worktree, choice(), &home).unwrap();
+        assert_eq!(target.instance, "task-3f9a1c2e");
+        assert_eq!(target.socket, PathBuf::from(format!("{}/kanna-dev-task-3f9a1c2e/kanna.sock", support("/Users/x"))));
+        let production = Build { channel: Channel::Production, ..worktree.clone() };
+        let target = Target::resolve(&production, choice(), &home).unwrap();
+        assert_eq!((target.instance.as_str(), target.socket.clone()), ("default", PathBuf::from(format!("{}/kanna-prod/kanna.sock", support("/Users/x")))));
+        let named = Target::resolve(&production, Choice { instance: Some("work".into()), ..choice() }, &home).unwrap();
+        assert_eq!(named.socket, PathBuf::from(format!("{}/kanna-prod-work/kanna.sock", support("/Users/x"))));
+        let pinned = Target::resolve(&worktree, choice(), &env(&[("HOME", "/Users/x"), ("KANNA_SOCKET", "/p/kanna.sock"), ("KANNA_INSTANCE", "default")])).unwrap();
+        assert_eq!((pinned.instance.as_str(), pinned.socket.clone()), ("default", PathBuf::from("/p/kanna.sock")));
+    }
+
+    #[test]
     fn instance_beats_socket_beats_instance_variable() {
         let all = env(&[("HOME", "/h"), ("KANNA_SOCKET", "/tmp/s.sock"), ("KANNA_INSTANCE", "env")]);
-        let named = Target::resolve(Choice { instance: Some("work".into()), ..choice() }, &all).unwrap();
+        let named = resolve(Choice { instance: Some("work".into()), ..choice() }, &all).unwrap();
         assert_eq!(named.socket, PathBuf::from(format!("{}/kanna-dev-work/kanna.sock", support("/h"))));
         assert_eq!(named.pinned, None);
-        let pinned = Target::resolve(choice(), &all).unwrap();
+        let pinned = resolve(choice(), &all).unwrap();
         assert_eq!(pinned.socket, PathBuf::from("/tmp/s.sock"));
         assert_eq!(pinned.instance, "env");
         assert_eq!(pinned.pinned.as_deref(), Some("KANNA_SOCKET"));
-        let by_name = Target::resolve(choice(), &env(&[("HOME", "/h"), ("KANNA_INSTANCE", "env")])).unwrap();
+        let by_name = resolve(choice(), &env(&[("HOME", "/h"), ("KANNA_INSTANCE", "env")])).unwrap();
         assert_eq!(by_name.socket, PathBuf::from(format!("{}/kanna-dev-env/kanna.sock", support("/h"))));
     }
 
     #[test]
     fn bad_instance_names_are_bad_usage() {
-        let failure = Target::resolve(Choice { instance: Some("../x".into()), ..choice() }, &env(&[])).unwrap_err();
+        let failure = resolve(Choice { instance: Some("../x".into()), ..choice() }, &env(&[])).unwrap_err();
         assert_eq!(failure.code, exit::USAGE);
-        let failure = Target::resolve(choice(), &env(&[("KANNA_INSTANCE", "a/b")])).unwrap_err();
+        let failure = resolve(choice(), &env(&[("KANNA_INSTANCE", "a/b")])).unwrap_err();
         assert!(failure.message.contains("KANNA_INSTANCE"), "{}", failure.message);
     }
 
     #[test]
     fn the_kmux_backend_uses_kmux_sockets_and_variables() {
-        let target = Target::resolve(Choice { mux: Some("kmux".into()), ..choice() }, &env(&[("HOME", "/h"), ("KANNA_SOCKET", "/x.sock")])).unwrap();
+        let target = resolve(Choice { mux: Some("kmux".into()), ..choice() }, &env(&[("HOME", "/h"), ("KANNA_SOCKET", "/x.sock")])).unwrap();
         assert_eq!(target.socket, PathBuf::from(format!("{}/kmux/kmux.sock", support("/h"))));
         assert_eq!(target.pinned, None);
-        let pinned = Target::resolve(choice(), &env(&[("KANNA_MUX", "kmux"), ("KMUX_SOCKET", "/k.sock"), ("KMUX_BG", "1")])).unwrap();
+        let pinned = resolve(choice(), &env(&[("KANNA_MUX", "kmux"), ("KMUX_SOCKET", "/k.sock"), ("KMUX_BG", "1")])).unwrap();
         assert_eq!(pinned.pinned.as_deref(), Some("KMUX_SOCKET"));
         assert!(pinned.background);
-        assert_eq!(Target::resolve(Choice { mux: Some("kanna-dev".into()), ..choice() }, &env(&[])).unwrap().backend, Backend::Kanna);
-        assert_eq!(Target::resolve(Choice { mux: Some("tmux".into()), ..choice() }, &env(&[])).unwrap_err().code, exit::UNSUPPORTED);
+        assert_eq!(resolve(Choice { mux: Some("kanna-dev".into()), ..choice() }, &env(&[])).unwrap().backend, Backend::Kanna);
+        assert_eq!(resolve(Choice { mux: Some("tmux".into()), ..choice() }, &env(&[])).unwrap_err().code, exit::UNSUPPORTED);
     }
 
     #[test]
     fn the_app_started_is_the_new_app_never_the_branded_kmux() {
-        let target = Target { backend: Backend::Kanna, instance: "default".into(), socket: "/tmp/d/kanna.sock".into(), pinned: None, background: true, fresh: false };
+        let target = Target { build: dev(), backend: Backend::Kanna, instance: "default".into(), socket: "/tmp/d/kanna.sock".into(), pinned: None, background: true, fresh: false };
         let args = |target: &Target, env: &dyn Fn(&str) -> Option<String>| -> Vec<String> {
             launch_command(target, env).get_args().map(|a| a.to_string_lossy().into_owned()).collect()
         };
         let none = args(&target, &|_| None);
-        assert_eq!(none, ["-n", "-g", "--env", "KANNA_SOCKET=/tmp/d/kanna.sock", "-b", "dev.kanna.app.dev", "--args", "--bg"]);
+        assert_eq!(none, ["-n", "-g", "--env", "KANNA_SOCKET=/tmp/d/kanna.sock", "-a", "/r/kanna/target/Kanna.app", "--args", "--bg"]);
+        let staging = Target { build: Build { channel: Channel::Staging, ..dev() }, ..target.clone() };
+        assert_eq!(args(&staging, &|_| None)[4..6], ["-b", "dev.kanna.app.staging"]);
+        let production = Target { build: Build { channel: Channel::Production, ..dev() }, ..target.clone() };
+        assert_eq!(args(&production, &|_| None)[4..6], ["-b", "dev.kanna.app"]);
         assert!(!none.iter().any(|a| a == "dev.kanna.kanna"));
         let app = args(&Target { background: false, fresh: true, ..target.clone() }, &|name| match name {
             "KANNA_APP" => Some("/x/Kanna.app".into()),
@@ -382,16 +429,18 @@ mod tests {
     }
 
     #[test]
-    fn instances_are_the_folders_beside_the_default() {
+    fn instances_are_the_folders_of_every_channel() {
         let home = std::env::temp_dir().join(format!("kanna-instances-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         let home_text = home.to_string_lossy().into_owned();
         let env = move |name: &str| (name == "HOME").then(|| home_text.clone());
         let support = support_folder(&env);
-        for folder in ["kanna-dev", "kanna-dev-work", "kanna-dev-b", "kanna-devx", "kanna-dev-bad name", "kanna"] {
+        for folder in ["kanna-dev", "kanna-dev-work", "kanna-dev-b", "kanna-devx", "kanna-dev-bad name", "kanna", "kanna-prod", "kanna-staging-s"] {
             std::fs::create_dir_all(support.join(folder)).unwrap();
         }
-        assert_eq!(instance_names(&env), ["default", "b", "work"]);
+        std::fs::write(support.join("kanna-dev-b").join(kanna_build::RECORD), r#"{"channel":"dev","worktree":"/r/kanna/.kanna-worktrees/b"}"#).unwrap();
+        let found: Vec<String> = instances(&env).iter().map(|i| format!("{} {} {:?}", i.channel.id(), i.name, i.worktree)).collect();
+        assert_eq!(found, ["production default None", "staging s None", "dev default None", "dev b Some(\"/r/kanna/.kanna-worktrees/b\")", "dev work None"]);
         let _ = std::fs::remove_dir_all(&home);
     }
 }

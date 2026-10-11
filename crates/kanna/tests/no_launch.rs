@@ -33,6 +33,8 @@ fn kanna(dir: &std::path::Path, args: &[&str]) -> Command {
         .env("KANNA_SOCKET", dir.join("nothing.sock"))
         .env("KANNA_APP", "/nonexistent/Kanna.app")
         .env("KMUX_APP", "/nonexistent/kmux.app")
+        .env_remove("KANNA_INSTANCE")
+        .env_remove("KANNA_PANE")
         .env_remove("KMUX_SOCKET")
         .env_remove("KANNA_MUX");
     command
@@ -136,8 +138,9 @@ fn with_nothing_running_kanna_starts_the_app_and_says_so_when_it_cant() {
         let output = kanna(&dir, args).env_remove("KANNA_SOCKET").env("HOME", &dir).output().unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(3), "{args:?}: {stderr}");
-        let folder = if args[0] == "--instance" { "kanna-dev-work/kanna.sock" } else { "kanna-dev/kanna.sock" };
-        assert!(stderr.contains("Kanna.app couldn't be started") && stderr.contains(folder), "{args:?}: {stderr}");
+        let build = kanna_build::Build::current();
+        let folder = if args[0] == "--instance" { build.channel.instance_folder("work") } else { build.channel.instance_folder(&build.default_instance()) };
+        assert!(stderr.contains(&format!("Kanna.app ({}) couldn't be started", build.app_name())) && stderr.contains(&format!("{folder}/kanna.sock")), "{args:?}: {stderr}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

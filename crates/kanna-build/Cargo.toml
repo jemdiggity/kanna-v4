@@ -1,0 +1,9 @@
+[package]
+name = "kanna-build"
+version.workspace = true
+edition.workspace = true
+license = "FSL-1.1-MIT"
+description = "Which Kanna a build is: its channel (production, staging, dev), the checkout and worktree it was built in, and the app name, bundle ID and instance folders that follow."
+
+[dependencies]
+serde_json = "1"

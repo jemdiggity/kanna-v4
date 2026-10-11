@@ -26,7 +26,7 @@ extension AppController {
         let app = menu("Kanna", [("New Instance", #selector(newInstance), nil, nil)])
         if Self.instanceName != "default" { app.insertItem(withTitle: "Instance: \(Self.instanceName)", action: nil, keyEquivalent: "", at: 0) }
         app.addItem(.separator())
-        app.addItem(withTitle: "Quit Kanna", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        app.addItem(withTitle: "Quit \(KannaBuild.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let edit = NSMenu(title: "Edit")
         let editItems: [(String, String, String?, Shortcut)?] = [
             ("Undo", "undo:", nil, .cmd("z")), ("Redo", "redo:", nil, .shiftCmd("z")), nil,
