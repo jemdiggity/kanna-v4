@@ -19,6 +19,18 @@ kanna task name "Fix login redirect"
 - **Once,** then again only if the work turns into something else.
 - **Not for a task that was started with a name:** if it has one (`kanna task list` shows it), keep it.
 
+## Name your branch
+
+A task works in a worktree of its own (`.kanna-worktrees/3f9a1c2e`) on a branch with a random name (`kanna/3f9a1c2e`). Once you know the work, rename the branch, from the worktree:
+
+```sh
+git branch -m fix-login-redirect
+```
+
+- **Short kebab-case,** what the work is; follow the repo's branch prefixes if it has any.
+- **Only the branch:** leave the worktree's folder where it is, since you and your terminals are in it.
+- **Before you push,** so the remote branch has the real name.
+
 ## Add tasks to the backlog
 
 When you and the user plan work, or you find work that belongs in its own task, add it to this repo's backlog rather than doing it now:
@@ -35,7 +47,7 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 | Command | Does |
 |---|---|
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
-| `kanna task new NAME [FIRST-MESSAGE] [--no-worktree] [--agent CMD]` | Add a task to this repo's backlog |
+| `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog |
 | `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
 | `kanna task start TASK [--window WINDOW]` | Move a backlog task to the Shelf: worktree, branch, agent, first message |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |

@@ -269,16 +269,15 @@ pub static COMMANDS: &[Command] = &[
         name: "task",
         group: "Tabs and windows",
         summary: "Make, list, start, park, pull, name or end tasks: an agent docked in a Desk window with its tabs, or a task waiting in its repo's backlog.",
-        usage: "kanna task new NAME [FIRST-MESSAGE] [--no-worktree] [--agent CMD]\n       kanna task start TASK [--window WINDOW]\n       kanna task list\n       kanna task park [TASK] [--window WINDOW]\n       kanna task pull TASK [--window WINDOW|new]\n       kanna task name [TASK] NAME\n       kanna task done [TASK]",
+        usage: "kanna task new NAME [FIRST-MESSAGE] [--agent CMD]\n       kanna task start TASK [--window WINDOW]\n       kanna task list\n       kanna task park [TASK] [--window WINDOW]\n       kanna task pull TASK [--window WINDOW|new]\n       kanna task name [TASK] NAME\n       kanna task done [TASK]",
         options: &[
             ("--window WINDOW|new", "park: the Desk to clear (default: the task's, or the key window's). pull: the Desk to put it on (default: the key window if it's a Desk, else a new one). start: the Desk to put it on (default: the Shelf)."),
-            ("--no-worktree", "new: the task works in the repo itself, not in a worktree of its own."),
             ("--agent CMD", "new: the agent to start (default: claude)."),
         ],
         notes: "A task is a window's docked pane (usually an agent) and its tabs; TASK is that pane's name or ID. Parking moves the task's agent and tabs to the Shelf, still running, and leaves the Desk empty; pulling puts it back on a Desk as it was, parking whatever that Desk held. Pulling a task that's on another Desk brings that window forward instead. Done closes the task's panes, ending its agent and terminals; its Desk stays, empty. A task's name is its docked pane's name; `task name` sets it. Run from a task's terminal, `task park`, `task name` and `task done` mean that task, and `kanna open` with no placement opens a tab on its Desk.",
         examples: &[
             ("kanna task new \"Fix the S39 pinch\" \"The mark drifts when you pinch; find out why and add a test\"", "Add a task to this repo's backlog."),
-            ("kanna task start t3", "Start a backlog task on the Shelf: its worktree, branch kanna/t3, and its agent with the first message."),
+            ("kanna task start t3", "Start a backlog task on the Shelf: its own worktree and branch, and its agent with the first message."),
             ("kanna task list", "Every task, and where it is: a Desk window, the Shelf or the backlog."),
             ("kanna task park", "Park this task (run from its terminal), or the key window's."),
             ("kanna task pull agent", "Put the task docked as agent back on this Desk."),
@@ -289,9 +288,8 @@ pub static COMMANDS: &[Command] = &[
             let action = args.positional().ok_or_else(|| usage("task", "say what: new, start, list, park, pull, name or done"))?;
             let window = args.option("--window")?;
             let agent = args.option("--agent")?;
-            let solo = args.flag("--no-worktree");
-            if (agent.is_some() || solo) && action != "new" {
-                return Err(usage("task", "--agent and --no-worktree are for task new"));
+            if agent.is_some() && action != "new" {
+                return Err(usage("task", "--agent is for task new"));
             }
             let mut out = json!({ "action": action });
             match action.as_str() {
@@ -301,8 +299,7 @@ pub static COMMANDS: &[Command] = &[
                     if let Some(message) = args.positional() {
                         out["message"] = json!(message);
                     }
-                    out["repo"] = json!(repo_here(solo)?);
-                    out["worktree"] = json!(!solo);
+                    out["repo"] = json!(repo_here()?);
                     if let Some(agent) = agent {
                         out["agent"] = json!(agent);
                     }
@@ -511,7 +508,7 @@ pub fn is_backlog_task(task: &str) -> bool {
     task.strip_prefix('t').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
-fn repo_here(plain: bool) -> Result<String, Failure> {
+fn repo_here() -> Result<String, Failure> {
     let here = std::env::current_dir().map_err(|e| usage("task", &format!("can't tell where you are: {e}")))?;
     let common = std::process::Command::new("git")
         .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
@@ -523,8 +520,7 @@ fn repo_here(plain: bool) -> Result<String, Failure> {
     match common {
         Some(git) if git.file_name().is_some_and(|n| n == ".git") => Ok(git.parent().unwrap_or(&git).to_string_lossy().into()),
         Some(git) => Ok(git.to_string_lossy().into()),
-        None if plain => Ok(here.to_string_lossy().into()),
-        None => Err(usage("task", "a task belongs to a git repo: run this in one (or pass --no-worktree to work in this folder)")),
+        None => Err(usage("task", "a task belongs to a git repo, and works in a worktree of its own: run this in one")),
     }
 }
 

@@ -24,7 +24,6 @@ pub struct Entry {
     pub repo: String,
     pub by: Option<String>,
     pub made_at: f64,
-    pub worktree: bool,
     pub agent: String,
 }
 
@@ -37,7 +36,6 @@ impl Entry {
             "repo": self.repo,
             "by": opt(self.by.as_deref()),
             "madeAt": num(self.made_at),
-            "worktree": self.worktree,
             "agent": self.agent,
         })
     }
@@ -51,7 +49,6 @@ impl Entry {
             repo: text("repo")?,
             by: text("by"),
             made_at: value.get("madeAt").and_then(Value::as_f64).unwrap_or(0.0),
-            worktree: value.get("worktree").and_then(Value::as_bool).unwrap_or(true),
             agent: text("agent").unwrap_or_else(default_agent),
         })
     }
@@ -129,22 +126,34 @@ pub fn process_cwd(pid: i64) -> Option<String> {
     fs::read_link(format!("/proc/{pid}/cwd")).ok().map(|p| p.to_string_lossy().into_owned())
 }
 
-pub fn make_worktree(repo: &Path, id: &str) -> Result<String, String> {
-    let folder = repo.join(WORKTREES).join(id);
-    let git = |args: &[&str]| {
-        let out = Command::new("git")
-            .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
-            .arg("-C")
-            .arg(repo)
-            .args(args)
-            .output()
-            .map_err(|e| format!("can't run git: {e}"))?;
-        if out.status.success() {
-            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-        } else {
-            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
-        }
-    };
+fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
+    let out = Command::new("git")
+        .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .map_err(|e| format!("can't run git: {e}"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+/// A worktree's name: the first 32 bits of a random (v4) UUID, in hex.
+fn worktree_name() -> Result<String, String> {
+    let mut uuid = [0u8; 16];
+    std::io::Read::read_exact(&mut fs::File::open("/dev/urandom").map_err(|e| format!("can't read /dev/urandom: {e}"))?, &mut uuid).map_err(|e| format!("can't read /dev/urandom: {e}"))?;
+    uuid[6] = (uuid[6] & 0x0f) | 0x40;
+    uuid[8] = (uuid[8] & 0x3f) | 0x80;
+    Ok(uuid[..4].iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Makes a worktree in `.kanna-worktrees/NAME` on a new branch `kanna/NAME`, and returns its folder and branch.
+/// NAME is fresh for each worktree; the task's agent renames the branch once it knows what the work is.
+pub fn make_worktree(repo: &Path) -> Result<(String, String), String> {
+    let git = |args: &[&str]| git(repo, args);
     let common = git(&["rev-parse", "--git-common-dir"])?;
     let exclude = repo.join(common).join("info/exclude");
     let listed = fs::read_to_string(&exclude).unwrap_or_default();
@@ -154,9 +163,17 @@ pub fn make_worktree(repo: &Path, id: &str) -> Result<String, String> {
         let text = if listed.is_empty() || listed.ends_with('\n') { format!("{listed}{line}\n") } else { format!("{listed}\n{line}\n") };
         fs::write(&exclude, text).map_err(|e| format!("can't write {}: {e}", exclude.display()))?;
     }
-    let folder_text = folder.to_string_lossy().to_string();
-    git(&["worktree", "add", "-b", &format!("kanna/{id}"), &folder_text])?;
-    Ok(folder_text)
+    for _ in 0..8 {
+        let name = worktree_name()?;
+        let (folder, branch) = (repo.join(WORKTREES).join(&name), format!("kanna/{name}"));
+        if folder.exists() || git(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_ok() {
+            continue;
+        }
+        let folder = folder.to_string_lossy().to_string();
+        git(&["worktree", "add", "-b", &branch, &folder])?;
+        return Ok((folder, branch));
+    }
+    Err("every name tried was taken".into())
 }
 
 struct Starting {
@@ -195,13 +212,17 @@ impl Backlog {
         Value::Array(self.entries.borrow().iter().map(Entry::to_value).collect())
     }
 
-    fn changed(&self) {
+    fn save(&self) {
         let saved = json!({ "counter": self.counter.get(), "tasks": self.view() });
         let temporary = self.path.with_extension("json.tmp");
         let written = fs::write(&temporary, saved.to_string()).and_then(|_| fs::rename(&temporary, &self.path));
         if let Err(error) = written {
             eprintln!("kanna-daemon: couldn't save the backlog to {}: {error}", self.path.display());
         }
+    }
+
+    fn changed(&self) {
+        self.save();
         if let Some(on_change) = self.on_change.borrow().as_ref() {
             on_change(self.view());
         }
@@ -227,8 +248,10 @@ impl Backlog {
 
     fn mint(&self, args: &Value, name: Option<String>, message: Option<String>) -> Result<Entry, KmuxError> {
         let repo = string(args, "repo").filter(|r| Path::new(r).is_absolute() && Path::new(r).is_dir()).ok_or_else(|| bad("a task needs its repo: an absolute path to a folder"))?;
+        git(Path::new(repo), &["rev-parse", "--git-dir"]).map_err(|_| bad(format!("{repo} isn't a git repo: a task works in a worktree of its own")))?;
         let by = string(args, "by").and_then(|by| self.core.upgrade()?.pane(by)).map(|pane| pane.id);
         self.counter.set(self.counter.get() + 1);
+        self.save();
         Ok(Entry {
             id: format!("t{}", self.counter.get()),
             name,
@@ -236,7 +259,6 @@ impl Backlog {
             repo: repo.to_string(),
             by,
             made_at: now(),
-            worktree: args.get("worktree").and_then(Value::as_bool).unwrap_or(true),
             agent: string(args, "agent").filter(|a| !a.trim().is_empty()).map(String::from).unwrap_or_else(default_agent),
         })
     }
@@ -315,29 +337,25 @@ impl Backlog {
     }
 
     fn prepare(self: &Rc<Self>, entry: Entry, window: Option<String>, responder: Responder) {
-        if !entry.worktree {
-            let folder = entry.repo.clone();
-            return self.launch(Starting { entry, window, responder }, folder);
-        }
         let token = self.next.get() + 1;
         self.next.set(token);
-        let (repo, id, events) = (PathBuf::from(&entry.repo), entry.id.clone(), self.events.clone());
+        let (repo, events) = (PathBuf::from(&entry.repo), self.events.clone());
         self.pending.borrow_mut().insert(token, Starting { entry, window, responder });
         std::thread::spawn(move || {
-            let result = make_worktree(&repo, &id);
+            let result = make_worktree(&repo);
             let _ = events.send(Event::Worktree { token, result });
         });
     }
 
-    pub fn worktree_made(self: &Rc<Self>, token: u64, result: Result<String, String>) {
+    pub fn worktree_made(self: &Rc<Self>, token: u64, result: Result<(String, String), String>) {
         let Some(starting) = self.pending.borrow_mut().remove(&token) else { return };
         match result {
-            Ok(folder) => self.launch(starting, folder),
+            Ok((folder, branch)) => self.launch(starting, folder, branch),
             Err(error) => starting.responder.reply(Err(KmuxError::new("failed", format!("couldn't make {}'s worktree: {error}", starting.entry.id)))),
         }
     }
 
-    fn launch(self: &Rc<Self>, starting: Starting, folder: String) {
+    fn launch(self: &Rc<Self>, starting: Starting, folder: String, branch: String) {
         let Some(core) = self.core.upgrade() else { return starting.responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
         let Starting { entry, window, responder } = starting;
         let name = entry.name.clone().filter(|n| core.pane(n).is_none());
@@ -360,7 +378,7 @@ impl Backlog {
                 ("task".to_string(), json!(entry.id)),
                 ("pane".to_string(), json!(pane)),
                 ("folder".to_string(), json!(folder)),
-                ("branch".to_string(), if entry.worktree { json!(format!("kanna/{}", entry.id)) } else { Value::Null }),
+                ("branch".to_string(), json!(branch)),
             ]);
             let (Some(window), Some(core)) = (window, weak.upgrade()) else { return responder.reply(Ok(out)) };
             core.handle(json!({ "cmd": "task", "args": { "action": "pull", "task": pane, "window": window } }), move |pulled| {
@@ -385,7 +403,7 @@ mod tests {
 
     #[test]
     fn a_first_message_is_quoted_for_the_shell() {
-        let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, worktree: true, agent: "claude".into() };
+        let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "claude".into() };
         assert_eq!(entry.command(), "claude --dangerously-skip-permissions 'don'\\''t stop'");
         entry.message = None;
         assert_eq!(entry.command(), "claude --dangerously-skip-permissions");
@@ -404,7 +422,7 @@ mod tests {
 
     #[test]
     fn entries_round_trip_and_ids_are_t_numbers() {
-        let entry = Entry { id: "t7".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, worktree: false, agent: "codex".into() };
+        let entry = Entry { id: "t7".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into() };
         assert_eq!(Entry::from_value(&entry.to_value()), Some(entry));
         assert_eq!(number("t12"), Some(12));
         assert_eq!(number("p3"), None);
@@ -419,10 +437,13 @@ mod tests {
         let git = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(&dir).args(args).output().unwrap().status.success(), "git {args:?}");
         git(&["init", "-q", "-b", "main"]);
         git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "first"]);
-        let folder = make_worktree(&dir, "t3").unwrap();
-        assert_eq!(folder, dir.join(".kanna-worktrees/t3").to_string_lossy());
-        let branch = Command::new("git").arg("-C").arg(&folder).args(["branch", "--show-current"]).output().unwrap();
-        assert_eq!(String::from_utf8_lossy(&branch.stdout).trim(), "kanna/t3");
+        let (folder, branch) = make_worktree(&dir).unwrap();
+        let name = folder.rsplit('/').next().unwrap().to_string();
+        assert!(name.len() == 8 && name.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{name}");
+        assert_eq!(folder, dir.join(".kanna-worktrees").join(&name).to_string_lossy());
+        assert_eq!(branch, format!("kanna/{name}"));
+        let current = Command::new("git").arg("-C").arg(&folder).args(["branch", "--show-current"]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&current.stdout).trim(), branch);
         let canonical = |p: PathBuf| p.canonicalize().unwrap();
         assert_eq!(project(Some(&format!("{folder}/src"))).map(canonical), Some(canonical(dir.clone())));
         assert_eq!(project(Some(dir.to_str().unwrap())).map(canonical), Some(canonical(dir.clone())));
@@ -432,10 +453,25 @@ mod tests {
         let marker = dir.join("hooked");
         fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
         fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        make_worktree(&dir, "t4").unwrap();
+        let (other, _) = make_worktree(&dir).unwrap();
+        assert_ne!(other, folder);
         assert!(!marker.exists(), "a repo's hooks ran");
         let exclude = fs::read_to_string(dir.join(".git/info/exclude")).unwrap();
         assert_eq!(exclude.matches("/.kanna-worktrees/").count(), 1);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_id_is_never_handed_out_twice_across_a_restart() {
+        let state = std::env::temp_dir().join(format!("kanna-ids-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&state);
+        fs::create_dir_all(&state).unwrap();
+        assert!(Command::new("git").arg("-C").arg(&state).args(["init", "-q"]).status().unwrap().success());
+        let core = kanna_mux::Core::default();
+        let args = json!({ "repo": state.to_str().unwrap() });
+        let mint = || Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0).mint(&args, None, None).unwrap().id;
+        assert_eq!(mint(), "t1");
+        assert_eq!(mint(), "t2");
+        fs::remove_dir_all(&state).unwrap();
     }
 }
