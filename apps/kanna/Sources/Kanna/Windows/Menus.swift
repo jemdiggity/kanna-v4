@@ -197,7 +197,7 @@ extension AppController {
         case #selector(closeFocusedPane): return focusedPane.map { !docked($0) } ?? false
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
-        case #selector(parkTask): return keyWindow?["dock"] != nil
+        case #selector(parkTask): return keyWindow?["dock"]?["pane"] != nil
         case #selector(startTaskHere): return keyWindow?["desk"]?.bool == true
         case #selector(pullWaitingTask): return waitingTask != nil
         case #selector(pullShelf1): return shelfPull(1) != nil
@@ -276,7 +276,7 @@ extension AppController {
     }
 
     private func repo(of window: String?) -> JSON? {
-        guard let window, self.window(window)?["dock"] == nil, let root = controllers[window]?.projectRoot else { return nil }
+        guard let window, self.window(window)?["dock"]?["pane"] == nil, let root = controllers[window]?.projectRoot else { return nil }
         return .string(root)
     }
 
