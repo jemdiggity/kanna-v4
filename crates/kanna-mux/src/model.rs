@@ -574,6 +574,7 @@ impl Model {
             window.settle_focus();
         }
         self.windows.retain(|w| !w.tabs.is_empty() || w.dock.is_some() || w.desk);
+        self.clear_shelves();
         self.settle_shelf();
         if self.key_window().is_none() {
             self.key = self.windows.last().map(|w| w.id.clone());
@@ -969,7 +970,10 @@ impl LayoutHost for Model {
         if let Some(placed) = at.from.as_deref().and_then(|from| self.place_on_task(pane, from)) {
             return Ok(placed);
         }
-        let w = self.target_window(at.window.as_deref())?;
+        let mut w = self.target_window(at.window.as_deref())?;
+        if at.dock.is_none() && self.is_shelf(w) {
+            w = self.make_window();
+        }
         if let Some(edge) = at.dock {
             self.dock(pane, w, edge);
             let window = &mut self.windows[w];

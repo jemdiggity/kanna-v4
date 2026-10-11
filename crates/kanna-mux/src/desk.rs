@@ -113,6 +113,36 @@ impl Model {
         Ok(window.id.clone())
     }
 
+    /// A Desk with no task shows the Shelf, which holds no tabs.
+    pub(crate) fn is_shelf(&self, w: usize) -> bool {
+        let window = &self.windows[w];
+        window.desk && window.dock.is_none()
+    }
+
+    /// A Desk left with tabs but no task (its agent closed or undocked) becomes a plain window,
+    /// or, when it has a planning agent to show beside the Shelf, hands its tabs to a window of their own.
+    pub(crate) fn clear_shelves(&mut self) {
+        for w in 0..self.windows.len() {
+            if !self.is_shelf(w) || self.windows[w].tabs.is_empty() {
+                continue;
+            }
+            if self.windows[w].planner.is_none() {
+                self.windows[w].desk = false;
+                continue;
+            }
+            let tabs = std::mem::take(&mut self.windows[w].tabs);
+            let (active, key) = (self.windows[w].active.take(), self.key.clone());
+            let n = self.make_window();
+            let window = &mut self.windows[n];
+            window.tab_count = tabs.len();
+            window.tabs = tabs;
+            window.active = active;
+            window.settle_focus();
+            self.windows[w].settle_focus();
+            self.key = key;
+        }
+    }
+
     fn is_desk(&self, w: usize) -> bool {
         let window = &self.windows[w];
         window.desk || window.dock.is_some()

@@ -646,8 +646,7 @@ mod tests {
         let reply = gone.handle(&json!({ "call": "attach", "panes": table(&["p1"]) }));
         assert_eq!(problem, None);
         assert_eq!(reply["problem"], Value::Null, "{reply}");
-        assert_eq!(window(&gone)["dock"], Value::Null);
-        assert_eq!(window(&gone)["focused"], "p1");
+        assert_eq!((window(&gone)["dock"].clone(), window(&gone)["desk"].clone(), window(&gone)["focused"].clone()), (Value::Null, json!(false), json!("p1")), "a Desk without its task and with no planning agent is a plain window");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -670,6 +669,28 @@ mod tests {
         assert_eq!(zoom(&mut owner)["zoomed"], false);
         assert_eq!(window(&owner)["zoomed"], Value::Null);
         assert_eq!(window(&owner)["root"], split);
+    }
+
+    #[test]
+    fn the_shelf_holds_no_tabs_so_a_pane_opened_onto_it_gets_a_window_of_its_own() {
+        let mut owner = LayoutOwner::new();
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let task = |owner: &mut LayoutOwner, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "task", "args": args } }));
+        task(&mut owner, json!({ "action": "desk", "project": "/work/app" }));
+        place(&mut owner, "p1", json!({ "planner": true, "window": "w1" }));
+        place(&mut owner, "p2", json!({}));
+        place(&mut owner, "p3", json!({ "window": "w1", "tab": true }));
+        let windows = owner.view()["windows"].clone();
+        assert_eq!(windows[0]["tabs"], json!([]), "{windows}");
+        assert_eq!((windows[1]["desk"].clone(), windows[1]["root"]["pane"].clone()), (json!(false), json!("p2")), "{windows}");
+        assert_eq!(windows[2]["root"]["pane"], "p3", "{windows}");
+        place(&mut owner, "p4", json!({ "window": "w1", "dock": "left" }));
+        place(&mut owner, "p5", json!({ "window": "w1", "tab": true }));
+        assert_eq!(owner.view()["windows"][0]["tabs"][0]["panes"], json!(["p5"]), "a Desk with a task holds its tabs");
+        owner.handle(&json!({ "call": "serve", "request": { "op": "remove", "ids": ["p4"], "tidy": true } }));
+        let windows = owner.view()["windows"].clone();
+        assert_eq!((windows[0]["tabs"].clone(), windows[0]["planner"]["pane"].clone()), (json!([]), json!("p1")), "{windows}");
+        assert_eq!(windows[3]["root"]["pane"], "p5", "the task's tabs go to a window of their own when its agent closes: {windows}");
     }
 
     #[test]

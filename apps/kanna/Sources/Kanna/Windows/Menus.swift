@@ -131,6 +131,7 @@ extension AppController {
     @objc func markdownDown() { openMarkdown("down") }
 
     private func split(_ direction: String, type: String = "term") {
+        guard !onShelf else { return NSSound.beep() }
         var args: [String: JSON] = switch type {
         case "web": ["type": "web", "url": "http://localhost:3000"]
         case "ios": ["type": "ios", "app": "com.apple.Preferences", "wait": false]
@@ -148,6 +149,7 @@ extension AppController {
     }
 
     private func openMarkdown(_ direction: String) {
+        guard !onShelf else { return NSSound.beep() }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = ["md", "markdown", "mdown"].compactMap { UTType(filenameExtension: $0) }
         panel.allowsOtherFileTypes = true
@@ -198,6 +200,8 @@ extension AppController {
         case #selector(closeFocusedPane): return focusedPane.map { !docked($0) } ?? false
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
+        case #selector(newTabInKeyWindow), #selector(splitRight), #selector(splitDown), #selector(webRight), #selector(webDown),
+             #selector(iosRight), #selector(iosDown), #selector(markdownRight), #selector(markdownDown): return !onShelf
         case #selector(parkTask):
             item.title = lastParked == nil ? "Park" : "Unpark"
             return keyWindow?["dock"]?["pane"] != nil || lastParked != nil
@@ -270,7 +274,12 @@ extension AppController {
     }
     func closeTab(_ tab: String) { request("close", ["tab": .string(tab)]) }
 
-    @objc func newTabInKeyWindow() { newTab(in: keyWindow?["id"]?.string) }
+    @objc func newTabInKeyWindow() {
+        guard !onShelf else { return NSSound.beep() }
+        newTab(in: keyWindow?["id"]?.string)
+    }
+
+    var onShelf: Bool { keyWindow?["desk"]?.bool == true && keyWindow?["dock"]?["pane"]?.string == nil }
 
     func newTab(in window: String?) {
         var args: [String: JSON] = ["type": "term", "tab": true]

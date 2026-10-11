@@ -36,7 +36,8 @@ stateDiagram-v2
 ```
 
 - **Only when every task in the window is parked.** With a task on the Desk, the planning agent and the full Shelf are out of sight, and the Shelf strip along the bottom is exactly as before.
-- **The right side is the full Shelf,** where tabs would be: the project's running tasks with their status (click to pull) and the backlog (Move to Shelf), live. Tabs opened there (⌘T) cover it until they're closed.
+- **The right side is the full Shelf,** where tabs would be: the project's running tasks with their status (click to pull) and the backlog (Move to Shelf), live.
+- **The Shelf holds no tabs.** New Tab and the splits are off there. A pane opened onto it (`kanna open`, from the planning agent or anywhere) opens in a plain window of its own. A Desk left with tabs but no task (its agent closed or undocked) hands them to a window of their own, or, with no planning agent yet, becomes that plain window.
 - **Hidden means still running.** Pulling a task hides the agent; parking brings it back with its conversation as it was. It survives an app restart like any terminal.
 
 ## 2. What it is
@@ -100,6 +101,7 @@ flowchart TB
 ```
 
 - **The layout keeps it as the window's `planner`**: a pane beside the window's dock (with its width), shown on the left only while the dock is empty, saved with the window. Parking and pulling move the dock and tabs and leave it in place. `move` refuses it (`planner`).
+- **The layout keeps the Shelf free of tabs:** placing a pane in a Desk with no task puts it in a new window instead, and tidying moves any tabs left on one to a window of their own (or makes a Desk with no planning agent a plain window).
 - **The app asks for one** (`backlog` `plan`) when a Desk shows no task and has none, passing the project and, for a project with no tasks, the getting-started file. It saves the project on the window.
 - **The daemon builds the command:** the getting-started text, the agent with its first message (and a claude session ID), and the wait-for-Return loop. It opens it with the `planner` placement in the project's folder, outside the task limit.
 - **`task desk`** takes no project (Kanna opening with nothing), or a window to give one to; from a planning agent whose window has no project, it gives that window the project and the CLI closes the old agent.
@@ -111,13 +113,13 @@ flowchart TB
 - **Showing it beside a task** (a third column, or on the strip): the Desk shows one conversation, and the strip stays as it is.
 - **A Getting started tab beside a plain terminal** (before): you had to `cd` and start an agent yourself.
 - **Restarting the agent by itself when it exits:** an agent that quits on purpose would come straight back; Return is one key.
+- **Tabs on the Shelf** (⌘T there, covering the full Shelf until closed): the Shelf is the Shelf; work with tabs belongs to a task.
 - **Skipping permission prompts, as tasks do:** a task works in its own worktree; the planning agent is in your checkout.
 - **Carrying the no-project conversation into the new folder:** claude resumes a session only in the folder it started in, and the conversation is just "which folder?".
 
 ## 10. Open questions
 
-1. **Opening docs from the planning agent:** `kanna open` from it opens a tab in the key window, as from any terminal that isn't a task's; it could open in its own window.
-2. **Resuming other agents** after they exit, as claude does (as for tasks, backlog task t15).
+1. **Resuming other agents** after they exit, as claude does (as for tasks, backlog task t15).
 
 ## 11. Glossary
 
