@@ -103,7 +103,7 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     }
 
     let (command, request) = match project_folder(&name) {
-        Some(folder) => (lookup("open")?, json!({ "type": "term", "dock": "left", "window": "new", "cwd": folder })),
+        Some(folder) => (lookup("task")?, json!({ "action": "desk", "project": folder })),
         None => {
             let command = lookup(&name)?;
             if wants_help {
@@ -140,7 +140,7 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     Ok(())
 }
 
-/// `kanna PATH`: a word that isn't a command but is a folder opens a window there.
+/// `kanna PATH`: a word that isn't a command but is a folder opens a Desk on its project.
 fn project_folder(name: &str) -> Option<String> {
     if commands::find(name).is_some() {
         return None;
@@ -269,7 +269,7 @@ fn overview(target: &Target) -> String {
         "kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\
          \n\
          usage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n\
-         \x20      kanna PATH                           (a new window in the folder PATH, on its repo)\n",
+         \x20      kanna PATH                           (a new Desk on the project in folder PATH)\n",
     );
     for group in GROUPS {
         out += &format!("\n{group}:\n");

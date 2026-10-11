@@ -90,11 +90,13 @@ pub struct Window {
     pub dock: Option<Dock>,
     pub desk: bool,
     pub parked_at: Option<f64>,
+    /// The folder a Desk was opened on (`kanna PATH`), for its project until a task docks there.
+    pub project: Option<String>,
 }
 
 impl Window {
     pub(crate) fn new(id: String) -> Window {
-        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None }
+        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, project: None }
     }
 
     pub fn shown_panes(&self) -> Vec<String> {
@@ -1088,6 +1090,9 @@ impl LayoutHost for Model {
                 if let Some(at) = window.parked_at {
                     out.insert("parkedAt".into(), num(at));
                 }
+                if let Some(project) = &window.project {
+                    out.insert("project".into(), project.clone().into());
+                }
                 Value::Object(out)
             };
         let mut out = reply([
@@ -1206,6 +1211,7 @@ impl LayoutHost for Model {
             }
             window.tab_count = whole(item.get("tabCount")).unwrap_or(0).max(window.tabs.len());
             window.desk = item.get("desk").and_then(Value::as_bool).unwrap_or(false);
+            window.project = string(item, "project").map(String::from);
             window.parked_at = if parked { Some(item.get("parkedAt").and_then(Value::as_f64).unwrap_or(0.0)) } else { None };
             if !parked {
                 counters.1 = counters.1.max(n);

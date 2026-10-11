@@ -138,6 +138,7 @@ pub fn task(request: &Value, reply: &Value) -> String {
             reply["branch"].as_str().map_or(String::new(), |b| format!(" ({b})"))
         ),
         Some("done") if reply.get("closed").is_none() => format!("took {} off the backlog", reply["task"]["id"].as_str().unwrap_or("?")),
+        Some("desk") => format!("opened {} on {}", reply["window"].as_str().unwrap_or("?"), tilde(reply["project"].as_str().unwrap_or("?"))),
         Some("name") => format!("named {} \"{}\"", request["pane"].as_str().unwrap_or("?"), request["name"].as_str().unwrap_or("")),
         Some("done") => format!("{} is done: closed {}", request["task"].as_str().unwrap_or("?"), join(&reply["closed"])),
         _ => String::new(),
