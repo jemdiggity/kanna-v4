@@ -29,7 +29,7 @@ pub static COMMANDS: &[Command] = &[
         name: "open",
         group: "Panes",
         summary: "Open a terminal, web, iOS or markdown pane and wait until it is running.",
-        usage: "kmux open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--no-wait]\n       kmux open [TYPE …] --dock [left|right] [--window ID|new]\n       kmux open web URL [--history] [same placement options]\n       kmux open md FILE [same placement options]\n       kmux open ios --app APP [--device DEVICE] [same placement options]",
+        usage: "kmux open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]\n       kmux open web URL [--history] [same placement options]\n       kmux open md FILE [same placement options]\n       kmux open ios --app APP [--device DEVICE] [same placement options]",
         options: &[
             ("--cmd CMD", "Shell command line to run in your login shell, e.g. \"npm run dev\". Put it in single quotes if it uses $VARS or ;, so your own shell leaves it alone. Default: an interactive shell."),
             ("--cwd DIR", "Working directory."),
