@@ -265,7 +265,7 @@ fn instances(target: &Target, json_output: bool, env: Env) -> Result<(), Failure
         return Ok(());
     }
     if running.is_empty() {
-        println!("No Kanna instances are running. Any command starts one, e.g. kanna open ({}) or kanna --instance work open.", target.build.default_instance());
+        println!("No Kanna instances are running. Any command starts one, e.g. kanna open or kanna --instance work open.");
         return Ok(());
     }
     let plural = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });

@@ -273,8 +273,11 @@ S8() {
 }
 
 S9() {
-  local home="$KANNA_STATE_DIR/home" socket
-  socket="$home/Library/Application Support/kanna-dev/kanna.sock"
+  local home="$KANNA_STATE_DIR/home" socket folder instance
+  folder="$("$bin/kanna-daemon" --build | sed -n 's/^folder=//p')"
+  instance="$("$bin/kanna-daemon" --build | sed -n 's/^instance=//p')"
+  [[ "$instance" == default ]] || folder="$folder-$instance"
+  socket="$home/Library/Application Support/$folder/kanna.sock"
   mkdir -p "$(dirname "$socket")"
   KANNA_SOCKET="$socket" start_daemon || return 1
   dev() { env -u KANNA_SOCKET HOME="$home" KANNA_MUX=kanna-dev KANNA_APP="$repo_root/target/Kanna.app" KANNA_BG=1 "$bin/kanna" "$@"; }
@@ -427,7 +430,7 @@ S22() {
   folder="$support/kanna-dev-e2e"
   mkdir -p "$home"
   inst() { env -u KANNA_SOCKET -u KANNA_STATE_DIR -u KANNA_INSTANCE HOME="$home" KANNA_APP="$repo_root/target/Kanna.app" "$bin/kanna" "$@"; }
-  check test "$(inst instances)" == "No Kanna instances are running. Any command starts one, e.g. kanna open (default) or kanna --instance work open." || return 1
+  check test "$(inst instances)" == "No Kanna instances are running. Any command starts one, e.g. kanna open or kanna --instance work open." || return 1
   inst --instance e2e --bg open --name s22 --cmd 'echo "S22 $KANNA_INSTANCE"; exec cat' >/dev/null || return 1
   check test -S "$folder/kanna.sock" || return 1
   check grep -q "Kanna.app/Contents/Helpers/kanna-daemon" <(ps -o command= -p "$(cat "$folder/daemon.pid")") || return 1
@@ -437,12 +440,13 @@ S22() {
   check wait_for 5 eval 'inst --instance e2e list --json | field windows.0.tabs.0.layout | grep -q s22' || return 1
   local listed
   listed="$(inst instances)"
-  check grep -q "^  e2e  1 window, [12] panes\?$" <<<"$listed" || { echo "$listed"; return 1; }
+  check grep -q "^\* e2e  dev  1 window, [12] panes\?\( .*\)\?$" <<<"$(inst --instance e2e instances)" || { inst --instance e2e instances; return 1; }
+  check grep -q "^  e2e  dev  1 window, [12] panes\?\( .*\)\?$" <<<"$listed" || { echo "$listed"; return 1; }
   check test "$(inst --instance e2e instances --json | field instances.0.current)" == True || return 1
   inst --instance e2e open --name s22b --split right >/dev/null || return 1
   check test "$(inst --instance e2e list --json | field windows.0.tabs.0.layout)" == '{"children": [{"pane": "s22", "size": "1/2"}, {"pane": "s22b", "size": "1/2"}], "split": "row"}' || return 1
   stop_folder "$folder"
-  check test "$(inst instances)" == "No Kanna instances are running. Any command starts one, e.g. kanna open (default) or kanna --instance work open."
+  check test "$(inst instances)" == "No Kanna instances are running. Any command starts one, e.g. kanna open or kanna --instance work open."
 }
 
 key() { raw "{\"id\":1,\"cmd\":\"debug.key\",\"args\":{\"key\":\"$1\"}}" >/dev/null; sleep 0.3; }
