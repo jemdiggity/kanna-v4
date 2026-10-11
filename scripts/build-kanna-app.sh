@@ -3,6 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$repo_root/scripts/env.sh"
+host="$(rustc -vV | sed -n 's/^host: //p')"
+kanna_borrow_built "$repo_root" ghosttykit
+kanna_borrow_built "$repo_root" "ghostty-vt/$host"
 ghosttykit="$repo_root/target/ghosttykit"
 built="$(cat "$ghosttykit/ghostty.rev" 2>/dev/null || true)"
 if [[ -n "${GHOSTTY_SOURCE_DIR:-}" || ! -d "$ghosttykit/GhosttyKit.xcframework" || "$built" != "$KANNA_GHOSTTY_COMMIT" ]]; then
@@ -17,7 +20,6 @@ if [[ "$built" != "$KANNA_GHOSTTY_COMMIT" ]]; then
   echo "note: GhosttyKit is Ghostty $built from GHOSTTY_SOURCE_DIR, not the pinned $KANNA_GHOSTTY_COMMIT" >&2
 fi
 
-host="$(rustc -vV | sed -n 's/^host: //p')"
 if [[ -z "${KANNA_GHOSTTY_VT_DIR:-}" ]]; then
   ghostty_vt="$repo_root/target/ghostty-vt/$host"
   vt_built="$(cat "$ghostty_vt/ghostty.rev" 2>/dev/null || true)"

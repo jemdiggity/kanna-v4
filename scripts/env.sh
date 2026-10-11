@@ -50,3 +50,16 @@ kanna_ghostty_rev() {
   if [ -n "$(git -C "$1" status --porcelain 2>/dev/null)" ]; then rev="$rev-dirty"; fi
   echo "$rev"
 }
+
+# A worktree uses the main checkout's prebuilt Ghostty pieces (target/ghosttykit, target/ghostty-vt/HOST)
+# instead of building its own, when the main checkout's were built from the pinned commit. It links them
+# into its own target/, so nothing there is copied and a rebuild here replaces the link, never the original.
+kanna_borrow_built() {
+  here="$1/target/$2"
+  [ -e "$here" ] && return
+  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  main="$(dirname "$common")/target/$2"
+  [ "$main" != "$here" ] && [ -d "$main" ] || return 0
+  [ "$(cat "$main/ghostty.rev" 2>/dev/null)" = "$KANNA_GHOSTTY_COMMIT" ] || return 0
+  mkdir -p "$(dirname "$here")" && ln -s "$main" "$here"
+}
