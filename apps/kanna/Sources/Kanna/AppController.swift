@@ -358,7 +358,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             let controller = controllers[id] ?? makeController(id, window)
             let docked = window["dock"]?["pane"]?.string
             if let root = docked.flatMap(projectRoot) { controller.projectRoot = root }
-            let mine = controller.projectRoot.map { root in tasks.filter { projectRoot($0.id).map { $0 == root } ?? true } } ?? tasks
+            let mine = controller.projectRoot.map { root in tasks.filter { projectRoot($0.id) == root } } ?? tasks
             controller.shelf = mine
             controller.project = controller.projectRoot.map(tilde) ?? projectName(mine.map(\.id))
             controller.taskTitle = docked.map { taskTitle($0, name: window["dock"]?["name"]?.string) }

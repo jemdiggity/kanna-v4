@@ -56,7 +56,7 @@ flowchart LR
 ## 3. The Shelf
 
 - **The project's tasks not on a Desk**, latest parked first (a stack), each with its [agent status](agent-status.md) and how long ago it was parked. **Needs you** moves a task to the front.
-- **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘3** swap in the Shelf's 1st … 3rd task the same way. The Task menu has these and Park.
+- **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘3** swap in the Shelf's 1st … 3rd task the same way. **⇧⌘→ / ⇧⌘←** pull the Shelf's first / last task, **⇧⌘A** the task that has needed you longest, and **⌘.** parks. They're in the Task menu.
 - **At most three tasks per project:** the one on the Desk and two on the Shelf (three on the full Shelf). Starting a fourth is refused until one is Done.
 - **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one and scroll positions come back as they were.
 
@@ -94,8 +94,7 @@ flowchart TB
 
 ## 6. Open questions
 
-1. Keys: Park, and next/previous task on the Shelf.
-2. Choosing a project other than the git repository, and starting a task from the UI: for the task-concept spec.
+1. Choosing a project other than the git repository, and starting a task from the UI: for the task-concept spec.
 
 ## 7. Glossary
 

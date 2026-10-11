@@ -1263,6 +1263,22 @@ S43() {
   key cmd+1
   check wait_for 5 eval '[[ "$(win w1 dock.pane)" == agent ]]' || return 1
   check test "$(win w2 dock.pane)" == second || return 1
+  key cmd+.
+  check wait_for 5 eval '[[ "$(desk empty)" == True ]]' || return 1
+  key cmd+shift+right
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == agent ]]' || return 1
+  kanna open --name asker --dock --window new --cwd "$repo_root" --cmd "$repo_root/tools/mock-agent/mock-agent" >/dev/null || return 1
+  check wait_for 5 is asker status idle || return 1
+  kanna send asker ask || return 1
+  check wait_for 5 is asker status needs-you || return 1
+  kanna task park asker >/dev/null || return 1
+  kanna task pull agent >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(win w1 key)" == True && "$(desk shelf.0.task)" == "$(pane asker id)" ]]' || return 1
+  key cmd+shift+a
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == asker ]]' || return 1
+  key cmd+shift+left
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == agent ]]' || return 1
+  kanna task done asker >/dev/null || return 1
   kanna open --name aside --window w2 --tab >/dev/null || return 1
   KANNA_PANE=p1 kanna open --name side >/dev/null || return 1
   check wait_for 5 eval '[[ "$(win w1 tabs.1.layout.pane)" == side && "$(win w1 key)" == True ]]' || return 1

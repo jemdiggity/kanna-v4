@@ -78,7 +78,11 @@ extension AppController {
             ("Actual Size", #selector(actualSize), "reset_font_size", .cmd("0")),
         ])
         _ = menu("Task", [
-            ("Park", #selector(parkTask), nil, nil),
+            ("Park", #selector(parkTask), nil, .cmd(".")),
+            nil,
+            ("Next Shelf Task", #selector(nextShelfTask), nil, .shiftCmd(String(UnicodeScalar(NSRightArrowFunctionKey)!))),
+            ("Previous Shelf Task", #selector(previousShelfTask), nil, .shiftCmd(String(UnicodeScalar(NSLeftArrowFunctionKey)!))),
+            ("Task Waiting Longest", #selector(pullWaitingTask), nil, .shiftCmd("A")),
             nil,
             ("Pull Shelf Task 1", #selector(pullShelf1), "goto_tab:1", .cmd("1")),
             ("Pull Shelf Task 2", #selector(pullShelf2), "goto_tab:2", .cmd("2")),
@@ -194,6 +198,8 @@ extension AppController {
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
         case #selector(parkTask): return keyWindow?["dock"] != nil
+        case #selector(nextShelfTask), #selector(previousShelfTask): return shelfPull(1) != nil
+        case #selector(pullWaitingTask): return waitingTask != nil
         case #selector(pullShelf1): return shelfPull(1) != nil
         case #selector(pullShelf2): return shelfPull(2) != nil
         case #selector(pullShelf3): return shelfPull(3) != nil
@@ -301,6 +307,24 @@ extension AppController {
     @objc func pullShelf1() { pullShelf(1) }
     @objc func pullShelf2() { pullShelf(2) }
     @objc func pullShelf3() { pullShelf(3) }
+
+    @objc func nextShelfTask() { pullShelf(1) }
+
+    @objc func previousShelfTask() {
+        guard let (_, window) = shelfPull(1), let last = controllers[window]?.shelf.last else { return }
+        pullTask(last.id, into: window)
+    }
+
+    private var waitingTask: (task: String, window: String)? {
+        guard let (_, window) = shelfPull(1), let tasks = controllers[window]?.shelf,
+              let task = agentStatuses.waitingLongest(among: tasks.map(\.id)) else { return nil }
+        return (task, window)
+    }
+
+    @objc func pullWaitingTask() {
+        guard let (task, window) = waitingTask else { return }
+        pullTask(task, into: window)
+    }
 
     private func shelfPull(_ place: Int) -> (task: String, window: String)? {
         guard let window = keyWindow, window["desk"]?.bool == true, let id = window["id"]?.string, let tasks = controllers[id]?.shelf else { return nil }
