@@ -230,6 +230,7 @@ extension AppController {
         starting.insert(key)
         var args: [String: JSON] = ["type": "term", "dock": "left"]
         if let window { args["window"] = .string(window) }
+        if let root = window.flatMap({ controllers[$0]?.projectRoot }) { args["cwd"] = .string(root) }
         request("open", args) { [weak self] reply in
             guard let self else { return }
             starting.remove(key)
