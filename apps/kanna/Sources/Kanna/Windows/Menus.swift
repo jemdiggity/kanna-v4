@@ -138,6 +138,7 @@ extension AppController {
         if let window = keyWindow?["id"] {
             args["window"] = window
             args["split"] = .string(direction)
+            if type == "term" { args["cwd"] = repo(of: window.string) }
         }
         request("open", args) { [weak self] reply in
             guard type == "web", let id = reply["pane"]?["id"]?.string else { return }
@@ -270,7 +271,13 @@ extension AppController {
     func newTab(in window: String?) {
         var args: [String: JSON] = ["type": "term", "tab": true]
         if let window { args["window"] = .string(window) }
+        args["cwd"] = repo(of: window)
         request("open", args)
+    }
+
+    private func repo(of window: String?) -> JSON? {
+        guard let window, self.window(window)?["dock"] == nil, let root = controllers[window]?.projectRoot else { return nil }
+        return .string(root)
     }
 
     @objc func nextTab() { cycleTab(1) }
@@ -283,7 +290,11 @@ extension AppController {
         layoutCommand("focus", ["tab": .string(tab)])
     }
 
-    @objc func newWindow() { request("open", ["type": "term", "window": "new"]) }
+    @objc func newWindow() {
+        var args: [String: JSON] = ["type": "term", "window": "new"]
+        if let root = keyWindow?["id"]?.string.flatMap({ controllers[$0]?.projectRoot }) { args["cwd"] = .string(root) }
+        request("open", args)
+    }
 
     @objc func closeWindow() {
         guard let window = keyWindow?["id"]?.string else { return }
