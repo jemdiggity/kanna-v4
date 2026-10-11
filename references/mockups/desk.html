@@ -79,7 +79,9 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .doc .sub { color: var(--muted); margin: 0 0 18px; }
 .doc h3 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 20px 0 8px; }
 .doc p, .doc li { color: var(--text); opacity: .92; }
-.doc ul { padding-left: 18px; }
+.doc ul, .doc ol { padding-left: 18px; }
+.doc ol li { margin: 6px 0; }
+.doc code { font: 12px var(--mono); background: var(--panel2); border-radius: 4px; padding: 0 4px; }
 .doc mark { background: var(--tint); color: inherit; border-bottom: 1.5px solid var(--accent); }
 .threads { flex: 0 0 240px; padding: 26px 14px 10px 0; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
 .card { padding: 0 0 0 10px; font-size: 12.5px; }
@@ -177,6 +179,7 @@ body.picture .cmd input::placeholder { color: transparent; }
       <button id="theme">Light / dark</button>
       <button id="newwin">New Desk window</button>
       <button id="ring" title="A parked task's agent stops to ask you something: it moves to the front of the Shelf, needs you">Simulate: a parked agent needs you</button>
+      <button id="fresh" title="A repo with no tasks: the Desk starts with a terminal and a getting-started doc">Simulate: no tasks</button>
       <button id="reset">Reset</button>
     </div>
     <div class="keys">
@@ -239,7 +242,20 @@ function shelf(w = keyWin()) {
   return parked.filter(t => t.status === "needs").concat(parked.filter(t => t.status !== "needs"));
 }
 
+function starters() {
+  for (const w of s.windows) {
+    const repo = repoOf(w);
+    if (w.desk || inRepo(repo).length || backlog(repo).length) continue;
+    const t = { id: "p" + s.nextPane++, repo, title: null, prompt: "" };
+    s.tasks.push(t);
+    start(t, false);
+    Object.assign(t, { agent: null, starter: true, status: "idle", parkedAt: null, tabs: ["Getting started.md"], active: "Getting started.md" });
+    Object.assign(w, { desk: t.id, repo });
+  }
+}
+
 function render() {
+  starters();
   const stage = document.getElementById("stage");
   stage.innerHTML = s.windows.length ? s.windows.map(windowHTML).join("") : `<div class="nowin">No Desk windows. <button id="again">New Desk window</button></div>`;
   const again = document.getElementById("again");
@@ -277,13 +293,13 @@ function agentTerm(t) {
     ``,
     `<span class="m">✻</span> <span class="g">Working… reading the prototype README</span>`,
   ] : t.fresh ? [
-    `<span class="c">${esc(folderOf(t).replace("~/work/", ""))}</span> <span class="p">❯</span> ${t.agent}${t.prompt ? ` "${esc(t.prompt)}"` : ""}`,
+    `<span class="c">${esc(folderOf(t).replace("~/work/", ""))}</span> <span class="p">❯</span> ${t.starter ? "" : t.agent + (t.prompt ? ` "${esc(t.prompt)}"` : "")}`,
   ] : [
     `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> ${t.agent}`,
     ``,
     `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : t.id === "p4" ? "Done. S36 passes; screenshots in light and dark attached." : "Found it: the query answers before the theme loads."}`,
   ];
-  return head.concat(t.log).join("\n") + `<div class="cmd"><span class="p">&gt;</span><input data-cmd="${t.id}" placeholder="kanna task new &quot;Fix the S39 pinch&quot; &quot;the mark drifts…&quot; · kanna task list · kanna task park" spellcheck="false" autocomplete="off"></div>`;
+  return head.concat(t.log).join("\n") + `<div class="cmd"><span class="p">&gt;</span><input data-cmd="${t.id}" placeholder="${t.agent ? `kanna task new &quot;Fix the S39 pinch&quot; &quot;the mark drifts…&quot; · kanna task list · kanna task park` : "claude · codex · or any shell command"}" spellcheck="false" autocomplete="off"></div>`;
 }
 
 const kindOf = f => f === "tests" || f.startsWith("shell") ? "term" : f.startsWith("localhost") || f.startsWith("http") || f.endsWith(".html") ? "web" : /\.(png|jpg|gif|pdf|mp4)$/.test(f) ? "img" : f.endsWith(".md") ? "md" : "text";
@@ -295,6 +311,14 @@ function viewHTML(f) {
     <h3>Reaching the agent</h3><ul><li><mark>A comment is typed into the agent that opened the doc</mark>, as kanna send would, the moment you post it.</li><li>Sent at once, never held. Claude Code and Codex queue input that arrives during a turn.</li><li>No agent: posting still saves the thread, and the toolbar says it wasn't sent.</li></ul>
     <h3>How it's built</h3><p>Threads live in the daemon, beside the terminals they're typed into, so reply and resolve work the same with the app closed.</p></div>
     <div class="threads"><div class="card"><div class="h">c3 · line 54</div><div class="q">A comment is typed into the agent that opened the doc</div><div><b>you</b> What if that pane was restarted?</div></div></div>`;
+  if (f === "Getting started.md") return `<div class="doc"><h2>Getting started</h2><p class="sub">This Desk holds your first task: a terminal on the left, its docs here as tabs.</p>
+    <ol>
+      <li><b>Start an agent</b> in the terminal: <code>claude</code> or <code>codex</code>.</li>
+      <li><b>Tell it what you want to work on.</b> It names this task with <code>kanna task name</code>, and the name shows in the title bar.</li>
+      <li><b>Plan with it.</b> It can add tasks to the backlog: <code>kanna task new "Name" "first message"</code>.</li>
+      <li><b>Park</b> (⌘.) to see the Shelf and the backlog. Move up to three tasks to the Shelf; each gets its own agent, branch and worktree.</li>
+    </ol>
+    <p>Docs, pages and terminals the agent opens (<code>kanna open md|web FILE</code>) come up here as tabs.</p></div>`;
   if (k === "md") return `<div class="doc"><h2>${esc(label(f).replace(".md", ""))}</h2><p class="sub">${esc(f)}</p><p>Rendered markdown, with comments, as any markdown pane. Links open tabs too: <a data-link="docs/specs/desk.md">desk.md</a>, <a data-link="docs/specs/doc-markup.md">doc-markup.md</a>.</p></div>`;
   if (k === "web") return `<div class="web"><div class="site"><div class="row acc"></div><div class="row"></div><div class="row short"></div><div class="row"></div></div></div>`;
   if (k === "img") return `<div class="imgview"><div class="shot">${esc(label(f))}</div></div>`;
@@ -479,6 +503,12 @@ function waitingLongest() {
 function run(t, line) {
   const words = line.trim().split(/\s+/);
   const say = text => t.log.push(`<span class="p">❯</span> ${esc(line.trim())}`, ...text.split("\n").map(l => `<span class="out">${esc(l)}</span>`));
+  if (!t.agent && (words[0] === "claude" || words[0] === "codex")) {
+    t.agent = words[0];
+    say(`${words[0]} started: tell it what you want to work on`);
+    return render();
+  }
+  if (!t.agent && words[0] !== "kanna") { say(`(ran in the shell; start an agent with claude or codex)`); return render(); }
   if (words[0] !== "kanna") { say("(typed to the agent)"); if (!t.title) setTimeout(() => agentNames(t, line), 900); return render(); }
   const [, cmd, sub, arg, more] = words;
   if (cmd === "task" && sub === "new") {
@@ -588,9 +618,12 @@ document.getElementById("ring").onclick = () => {
 };
 document.getElementById("theme").onclick = () => { const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "" : "light"; };
 document.getElementById("reset").onclick = () => { s = initial(); render(); };
+const fresh = () => { s.tasks = []; s.order = []; s.windows.forEach(w => { w.desk = null; w.repo = "~/work/kanna-v4"; }); };
+document.getElementById("fresh").onclick = () => { fresh(); render(); };
 if (location.hash.includes("picture")) document.body.classList.add("picture");
 if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
 if (location.hash.includes("empty")) { parkTask(task("p1")); s.windows[0].desk = null; }
+if (location.hash.includes("fresh")) fresh();
 if (location.hash.includes("needs")) { task("p4").status = "needs"; task("p4").needsAt = Date.now(); }
 setInterval(() => { if (!drag && !document.activeElement?.closest?.("[data-cmd]")) render(); }, 30000);
 render();
