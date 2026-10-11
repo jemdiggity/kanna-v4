@@ -1328,10 +1328,10 @@ S44() {
   stop_app; stop_daemon; start_daemon && start_app || { echo "S44 line $LINENO"; return 1; }
   in_repo task list | grep -qE '^t1 +Fix it +Backlog' || { echo "the backlog didn't survive a restart"; in_repo task list; return 1; }
   local started wt; started="$(kanna task start t1)" || { echo "S44 line $LINENO"; return 1; }
-  [[ "$started" =~ ^"started t1 on the Shelf: p1 in $repo/.kanna-worktrees/"([0-9a-f]{8})" (kanna/"([0-9a-f]{8})")"$ && "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] || { echo "S44 line $LINENO: $started"; return 1; }
+  [[ "$started" =~ ^"started t1 on the Shelf: p1 in $repo/.kanna-worktrees/"(task-[0-9a-f]{8})" ("(task-[0-9a-f]{8})")"$ && "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] || { echo "S44 line $LINENO: $started"; return 1; }
   wt="$repo/.kanna-worktrees/${BASH_REMATCH[1]}"
   check wait_for 5 eval '[[ "$(pane "Fix it" id)" == p1 ]]' || { echo "S44 line $LINENO"; return 1; }
-  check test "$(git -C "$wt" branch --show-current)" == "kanna/${wt##*/}" || { echo "S44 line $LINENO"; return 1; }
+  check test "$(git -C "$wt" branch --show-current)" == "${wt##*/}" || { echo "S44 line $LINENO"; return 1; }
   check test -z "$(git -C "$repo" status --porcelain)" || { echo "S44 line $LINENO"; return 1; }
   in_repo task list | grep -qE '^p1 +Fix it +Shelf' || { in_repo task list; return 1; }
   in_repo task list | grep -q '^t1 ' && { echo "S44 line $LINENO"; return 1; }

@@ -141,19 +141,22 @@ fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
-/// A worktree's name: the first 32 bits of a random (v4) UUID, in hex.
+/// A worktree's name, and its branch's: `task-` and the first 32 bits of a random (v4) UUID, in hex.
 fn worktree_name() -> Result<String, String> {
     let mut uuid = [0u8; 16];
     std::io::Read::read_exact(&mut fs::File::open("/dev/urandom").map_err(|e| format!("can't read /dev/urandom: {e}"))?, &mut uuid).map_err(|e| format!("can't read /dev/urandom: {e}"))?;
     uuid[6] = (uuid[6] & 0x0f) | 0x40;
     uuid[8] = (uuid[8] & 0x3f) | 0x80;
-    Ok(uuid[..4].iter().map(|b| format!("{b:02x}")).collect())
+    Ok(format!("task-{}", uuid[..4].iter().map(|b| format!("{b:02x}")).collect::<String>()))
 }
 
-/// Makes a worktree in `.kanna-worktrees/NAME` on a new branch `kanna/NAME`, and returns its folder and branch.
+/// Makes a worktree in `.kanna-worktrees/NAME` on a new branch NAME, and returns its folder and branch.
 /// NAME is fresh for each worktree; the task's agent renames the branch once it knows what the work is.
+/// In a repo with no commits yet, the branch starts empty (an orphan), so its first commit is the project's.
 pub fn make_worktree(repo: &Path) -> Result<(String, String), String> {
     let git = |args: &[&str]| git(repo, args);
+    git(&["rev-parse", "--show-toplevel"]).map_err(|_| format!("{} isn't a git repo", repo.display()))?;
+    let born = git(&["rev-parse", "--verify", "--quiet", "HEAD"]).is_ok();
     let common = git(&["rev-parse", "--git-common-dir"])?;
     let exclude = repo.join(common).join("info/exclude");
     let listed = fs::read_to_string(&exclude).unwrap_or_default();
@@ -165,12 +168,16 @@ pub fn make_worktree(repo: &Path) -> Result<(String, String), String> {
     }
     for _ in 0..8 {
         let name = worktree_name()?;
-        let (folder, branch) = (repo.join(WORKTREES).join(&name), format!("kanna/{name}"));
+        let (folder, branch) = (repo.join(WORKTREES).join(&name), name);
         if folder.exists() || git(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_ok() {
             continue;
         }
         let folder = folder.to_string_lossy().to_string();
-        git(&["worktree", "add", "-b", &branch, &folder])?;
+        if born {
+            git(&["worktree", "add", "-b", &branch, &folder])?;
+        } else {
+            git(&["worktree", "add", "--orphan", "-b", &branch, &folder])?;
+        }
         return Ok((folder, branch));
     }
     Err("every name tried was taken".into())
@@ -248,7 +255,9 @@ impl Backlog {
 
     fn mint(&self, args: &Value, name: Option<String>, message: Option<String>) -> Result<Entry, KmuxError> {
         let repo = string(args, "repo").filter(|r| Path::new(r).is_absolute() && Path::new(r).is_dir()).ok_or_else(|| bad("a task needs its repo: an absolute path to a folder"))?;
-        git(Path::new(repo), &["rev-parse", "--git-dir"]).map_err(|_| bad(format!("{repo} isn't a git repo: a task works in a worktree of its own")))?;
+        if git(Path::new(repo), &["rev-parse", "--show-toplevel"]).is_err() {
+            return Err(bad(format!("{repo} isn't a git repo: a task works in a worktree of the repo, so set one up first (git init)")));
+        }
         let by = string(args, "by").and_then(|by| self.core.upgrade()?.pane(by)).map(|pane| pane.id);
         self.counter.set(self.counter.get() + 1);
         self.save();
@@ -439,9 +448,10 @@ mod tests {
         git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "first"]);
         let (folder, branch) = make_worktree(&dir).unwrap();
         let name = folder.rsplit('/').next().unwrap().to_string();
-        assert!(name.len() == 8 && name.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{name}");
+        let hex = name.strip_prefix("task-").unwrap_or_else(|| panic!("{name}"));
+        assert!(hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{name}");
         assert_eq!(folder, dir.join(".kanna-worktrees").join(&name).to_string_lossy());
-        assert_eq!(branch, format!("kanna/{name}"));
+        assert_eq!(branch, name);
         let current = Command::new("git").arg("-C").arg(&folder).args(["branch", "--show-current"]).output().unwrap();
         assert_eq!(String::from_utf8_lossy(&current.stdout).trim(), branch);
         let canonical = |p: PathBuf| p.canonicalize().unwrap();
@@ -473,5 +483,24 @@ mod tests {
         assert_eq!(mint(), "t1");
         assert_eq!(mint(), "t2");
         fs::remove_dir_all(&state).unwrap();
+    }
+
+    #[test]
+    fn a_folder_that_isnt_a_repo_is_left_alone_and_a_new_repos_first_task_starts_on_an_empty_branch() {
+        let dir = std::env::temp_dir().join(format!("kanna-empty-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        assert!(make_worktree(&dir).unwrap_err().contains("isn't a git repo"));
+        assert!(!dir.join(".git").exists(), "Kanna made a repo");
+        assert!(Command::new("git").arg("-C").arg(&dir).args(["init", "-q"]).status().unwrap().success());
+        let (folder, branch) = make_worktree(&dir).unwrap();
+        let run = |at: &str, args: &[&str]| Command::new("git").arg("-C").arg(at).args(args).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&run(&folder, &["branch", "--show-current"]).stdout).trim(), branch);
+        assert!(!run(&folder, &["rev-parse", "--verify", "HEAD"]).status.success(), "a commit was made for the user");
+        assert_eq!(String::from_utf8_lossy(&run(dir.to_str().unwrap(), &["status", "--porcelain"]).stdout), "");
+        let (other, _) = make_worktree(&dir).unwrap();
+        assert_ne!(other, folder);
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

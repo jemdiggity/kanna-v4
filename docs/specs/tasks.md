@@ -37,8 +37,9 @@ stateDiagram-v2
 
 - **One repo.** A task belongs to the repo it was made in, so it can later be sent to another machine or person with that repo.
 - **A name and a first message.** In the backlog, that's all a task is.
-- **On the Shelf, it runs:** its own worktree `<repo>/.kanna-worktrees/<NAME>` on branch `kanna/<NAME>`, made from the repo's checked-out commit, and an agent there that gets the first message. NAME is the first 32 bits of a fresh random UUID in hex (`3f9a1c2e`), so it never collides with another worktree or branch; the agent renames the branch once it knows the work ([4](#4-naming)).
-- **Every task works in a worktree.** All development happens in one, never in the repo's own checkout, so a task can only be made in a git repo.
+- **On the Shelf, it runs:** its own worktree `<repo>/.kanna-worktrees/<NAME>` on branch `<NAME>`, made from the repo's checked-out commit, and an agent there that gets the first message. NAME is `task-` and the first 32 bits of a fresh random UUID in hex (`task-3f9a1c2e`), so it never collides with another worktree or branch; the agent renames the branch once it knows the work ([4](#4-naming)).
+- **Every task works in a worktree.** All development happens in one, never in the repo's own checkout.
+- **Kanna is git-based: a task needs a git repo.** In a folder that isn't one, making a task is refused; Kanna never runs `git init` itself. An agent sets the repo up with you (in a new, empty project, the planning agent does), and a repo with no commits yet works: its first task's branch starts empty (`git worktree add --orphan`), so the task's first commit is the project's. Kanna never commits for you.
 - **At most three run per repo**: the one on the Desk and two on the Shelf. The backlog has no limit.
 
 ## 2. How tasks are made
@@ -58,7 +59,7 @@ stateDiagram-v2
 - **The agent names its task** with `kanna task name "NAME"` once it knows what the work is. Until then it shows its agent's terminal title as is, status glyph and all (`◑ Claude Code`), or "New task" when there isn't one.
 - **It learns how from Kanna's `kanna-tasks` skill** ([`.agents/kanna-skills/skills/kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md)), which also tells it to write backlog first messages that stand alone and to leave starting tasks to you.
 - **A backlog task's name** is the one its maker gave it, kept when it starts.
-- **The agent renames its branch** too, with `git branch -m NEW` in its worktree, from `kanna/3f9a1c2e` to a short name for the work. The worktree's folder keeps its name: the agent and its terminals are in it.
+- **The agent renames its branch** too, with `git branch -m NEW` in its worktree, from `task-3f9a1c2e` to a short name for the work. The worktree's folder keeps its name: the agent and its terminals are in it.
 
 ## 5. Done
 
