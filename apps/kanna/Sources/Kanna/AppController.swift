@@ -247,7 +247,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     func taskTitle(_ id: String, name: String?) -> String {
         if let name { return name }
         if let title = panes[id]?.terminal?.title, !title.isEmpty { return title }
-        return id
+        return "New task"
     }
 
     func pullTask(_ task: String, into window: String) {

@@ -1360,6 +1360,7 @@ S45() {
   kanna task park p1 >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(desk empty)" == True && "$(desk backlog)" == "[\"t1\", \"t2\"]" ]]' || { desk backlog; return 1; }
   check test "$(desk blank)" == True || { echo "S45 line $LINENO"; return 1; }
+  sleep 0.5; snap w1 s45-backlog >/dev/null
   raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t1","window":"w1"}}' >/dev/null
   check wait_for 10 eval '[[ "$(desk backlog)" == "[\"t2\"]" && "$(desk shelf.0.title)" == First ]]' || { desk shelf; return 1; }
   check test -d "$repo/.kanna-worktrees/t1" || { echo "S45 line $LINENO"; return 1; }
