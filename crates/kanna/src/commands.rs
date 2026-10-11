@@ -520,7 +520,7 @@ fn repo_here() -> Result<String, Failure> {
     match common {
         Some(git) if git.file_name().is_some_and(|n| n == ".git") => Ok(git.parent().unwrap_or(&git).to_string_lossy().into()),
         Some(git) => Ok(git.to_string_lossy().into()),
-        None => Err(usage("task", "a task belongs to a git repo, and works in a worktree of its own: run this in one")),
+        None => Err(usage("task", "a task belongs to a git repo, and works in a worktree of it: run this in one, or set one up first (git init)")),
     }
 }
 

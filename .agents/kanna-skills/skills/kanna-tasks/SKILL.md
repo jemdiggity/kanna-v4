@@ -21,7 +21,7 @@ kanna task name "Fix login redirect"
 
 ## Name your branch
 
-A task works in a worktree of its own (`.kanna-worktrees/3f9a1c2e`) on a branch with a random name (`kanna/3f9a1c2e`). Once you know the work, rename the branch, from the worktree:
+A task works in a worktree of its own (`.kanna-worktrees/task-3f9a1c2e`) on a branch with a random name (`task-3f9a1c2e`). In a new project the branch has no commits yet: your first commit is the project's first. Once you know the work, rename the branch, from the worktree:
 
 ```sh
 git branch -m fix-login-redirect
