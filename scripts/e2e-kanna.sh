@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S46) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S47) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-6]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-7]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -1414,6 +1414,28 @@ S46() {
   check test "$(cd "$(pane "$(win "$w" dock.pane)" cwd)" && pwd -P)" == "$fresh" || { echo "S46: the starter isn't in the empty project"; kanna list --json; return 1; }
 }
 
+S47() {
+  start_daemon && start_app || { echo "S47 line $LINENO"; return 1; }
+  local repo="$KANNA_STATE_DIR/repo" agent="$repo_root/tools/mock-agent/mock-agent"
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S47 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  (cd "$repo" && kanna task new "Later" "say hi" --agent "$agent") >/dev/null || { echo "S47 line $LINENO"; return 1; }
+  local started wt; started="$(kanna task start t1)" || { echo "S47 line $LINENO"; return 1; }
+  [[ "$started" =~ " in "([^ ]+)" (" ]] && wt="${BASH_REMATCH[1]/#\~/$HOME}" || { echo "S47 line $LINENO: $started"; return 1; }
+  check wait_for 5 eval '[[ "$(pane Later id)" == p1 ]]' || { echo "S47 line $LINENO"; return 1; }
+  touch "$wt/work-in-progress"
+  expected="moved p1 to the backlog as t1: start it to carry on in ${wt/#$HOME/\~}"; says kanna task defer Later || { echo "S47 line $LINENO"; return 1; }
+  check wait_for 5 eval '! kanna list --json | grep -q "\"p1\""' || { echo "S47: the deferred agent still runs"; kanna list; return 1; }
+  (cd "$repo" && kanna task list) | grep -qE '^t1 +Later +Backlog' || { (cd "$repo" && kanna task list); return 1; }
+  check test -f "$wt/work-in-progress" || { echo "S47 line $LINENO"; return 1; }
+  started="$(kanna task start t1)" || { echo "S47 line $LINENO"; return 1; }
+  [[ "$started" == *" in ${wt/#$HOME/\~} ("* ]] || { echo "S47: it didn't come back in its worktree: $started"; return 1; }
+  check test "$(ls "$repo/.kanna-worktrees" | wc -l | tr -d ' ')" == 1 || { echo "S47 line $LINENO"; return 1; }
+  kanna open --name mine --dock --cwd "$repo" --cmd "exec $agent" >/dev/null || { echo "S47 line $LINENO"; return 1; }
+  expected="moved $(pane mine id) to the backlog as t2: start it to carry on in ${repo/#$HOME/\~}"; says kanna task defer mine || { echo "S47 line $LINENO"; return 1; }
+  [[ "$(kanna task defer nothing 2>&1)" == *'no running task "nothing"'* ]] || { echo "S47 line $LINENO"; return 1; }
+}
+
 S42() {
   SHELL=/bin/bash PATH="$bin:$PATH" start_daemon && start_app || return 1
   kanna open --name s42 >/dev/null || return 1
@@ -1425,9 +1447,9 @@ S42() {
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-6]) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-7]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

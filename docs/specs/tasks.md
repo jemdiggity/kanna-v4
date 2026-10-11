@@ -62,10 +62,13 @@ stateDiagram-v2
 - **A backlog task's name** is the one its maker gave it, kept when it starts.
 - **The agent renames its branch** too, with `git branch -m NEW` in its worktree, from `task-3f9a1c2e` to a short name for the work. The worktree's folder keeps its name: the agent and its terminals are in it.
 
-## 5. Done
+## 5. Done, or back to the backlog
 
 - **Done ends the task:** its agent and tabs close, or it leaves the backlog.
 - **The worktree and branch stay.** Cleaning them up is yours for now.
+- **Move to Backlog puts a running task back** (Task menu, or `kanna task defer`), freeing its slot of the three: its agent and tabs close and it waits in the backlog again, under its old ID if Kanna started it, with its worktree. Starting it again opens the agent in that same worktree, and a new one only if the worktree is gone.
+- **A claude agent comes back to its conversation.** Kanna starts claude with a session ID of its own (`claude --session-id UUID`), keeps it with the running task, and resumes it (`claude --resume UUID`). A claude task Kanna didn't start resumes the folder's latest conversation (`claude --continue`). Other agents start again with the first message, their conversation lost, until they resume too ([open questions](#8-open-questions)).
+- **Deferring stops the agent.** Whatever it was in the middle of is interrupted; its files and conversation are kept.
 
 ## 6. CLI
 
@@ -75,6 +78,7 @@ stateDiagram-v2
 | `kanna task start TASK [--window WINDOW]` | Move a backlog task to the Shelf (or onto that Desk): worktree, agent, first message |
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
 | `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
+| `kanna task defer [TASK]` | Move a running task back to the backlog, keeping its worktree and its claude session (default: the one you're in) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
 
 `park` and `pull` are the [Desk's](desk.md#4-cli).
@@ -98,6 +102,7 @@ flowchart TB
 ## 8. Open questions
 
 1. **Task IDs that travel:** backlog IDs (`t4`) are this machine's; sending tasks elsewhere will want IDs that don't clash.
+2. **Resuming every agent:** only claude comes back to its conversation after Move to Backlog; codex and the others need their own session IDs and resume (backlog task t15).
 
 ## 9. Glossary
 

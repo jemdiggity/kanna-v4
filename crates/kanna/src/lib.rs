@@ -173,7 +173,7 @@ fn explain(command: &Command, mut failure: Failure, mux: &mut Session, target: &
 fn wire(command: &Command, request: &Value) -> &'static str {
     match command.name {
         "markup" if request.get("type").is_some() => "open",
-        "task" if ["new", "start"].contains(&request["action"].as_str().unwrap_or("")) => "backlog",
+        "task" if ["new", "start", "defer"].contains(&request["action"].as_str().unwrap_or("")) => "backlog",
         "task" if request["action"] == "done" && request["task"].as_str().is_some_and(commands::is_backlog_task) => "backlog",
         "task" if request["action"] == "done" => "close",
         "task" if request["action"] == "name" => "rename-pane",

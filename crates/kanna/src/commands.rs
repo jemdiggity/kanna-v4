@@ -268,13 +268,13 @@ pub static COMMANDS: &[Command] = &[
     Command {
         name: "task",
         group: "Tabs and windows",
-        summary: "Make, list, start, park, pull, name or end tasks: an agent docked in a Desk window with its tabs, or a task waiting in its repo's backlog.",
-        usage: "kanna task new NAME [FIRST-MESSAGE] [--agent CMD]\n       kanna task start TASK [--window WINDOW]\n       kanna task list\n       kanna task park [TASK] [--window WINDOW]\n       kanna task pull TASK [--window WINDOW|new]\n       kanna task name [TASK] NAME\n       kanna task done [TASK]",
+        summary: "Make, list, start, park, pull, defer, name or end tasks: an agent docked in a Desk window with its tabs, or a task waiting in its repo's backlog.",
+        usage: "kanna task new NAME [FIRST-MESSAGE] [--agent CMD]\n       kanna task start TASK [--window WINDOW]\n       kanna task list\n       kanna task park [TASK] [--window WINDOW]\n       kanna task pull TASK [--window WINDOW|new]\n       kanna task defer [TASK]\n       kanna task name [TASK] NAME\n       kanna task done [TASK]",
         options: &[
             ("--window WINDOW|new", "park: the Desk to clear (default: the task's, or the key window's). pull: the Desk to put it on (default: the key window if it's a Desk, else a new one). start: the Desk to put it on (default: the Shelf)."),
             ("--agent CMD", "new: the agent to start (default: claude)."),
         ],
-        notes: "A task is a window's docked pane (usually an agent) and its tabs; TASK is that pane's name or ID. Parking moves the task's agent and tabs to the Shelf, still running, and leaves the Desk empty; pulling puts it back on a Desk as it was, parking whatever that Desk held. Pulling a task that's on another Desk brings that window forward instead. Done closes the task's panes, ending its agent and terminals; its Desk stays, empty. A task's name is its docked pane's name; `task name` sets it. Run from a task's terminal, `task park`, `task name` and `task done` mean that task, and `kanna open` with no placement opens a tab on its Desk.",
+        notes: "A task is a window's docked pane (usually an agent) and its tabs; TASK is that pane's name or ID. Parking moves the task's agent and tabs to the Shelf, still running, and leaves the Desk empty; pulling puts it back on a Desk as it was, parking whatever that Desk held. Pulling a task that's on another Desk brings that window forward instead. Done closes the task's panes, ending its agent and terminals; its Desk stays, empty. Defer (Move to Backlog) closes them too but puts the task back on its repo's backlog with its worktree, so starting it again carries on there, and a claude agent resumes its conversation. A task's name is its docked pane's name; `task name` sets it. Run from a task's terminal, `task park`, `task name` and `task done` mean that task, and `kanna open` with no placement opens a tab on its Desk.",
         examples: &[
             ("kanna task new \"Fix the S39 pinch\" \"The mark drifts when you pinch; find out why and add a test\"", "Add a task to this repo's backlog."),
             ("kanna task start t3", "Start a backlog task on the Shelf: its own worktree and branch, and its agent with the first message."),
@@ -282,10 +282,11 @@ pub static COMMANDS: &[Command] = &[
             ("kanna task park", "Park this task (run from its terminal), or the key window's."),
             ("kanna task pull agent", "Put the task docked as agent back on this Desk."),
             ("kanna task name agent \"Tab bar light mode\"", "Name the task docked as agent; from its terminal, leave out agent."),
+            ("kanna task defer agent", "Move the task docked as agent back to the backlog; from its terminal, leave out agent."),
             ("kanna task done agent", "End the task docked as agent: close its agent and tabs."),
         ],
         parse: |args| {
-            let action = args.positional().ok_or_else(|| usage("task", "say what: new, start, list, park, pull, name or done"))?;
+            let action = args.positional().ok_or_else(|| usage("task", "say what: new, start, list, park, pull, defer, name or done"))?;
             let window = args.option("--window")?;
             let agent = args.option("--agent")?;
             if agent.is_some() && action != "new" {
@@ -315,6 +316,10 @@ pub static COMMANDS: &[Command] = &[
                     }
                 }
                 "pull" => out["task"] = json!(args.positional().ok_or_else(|| usage("task", "pull needs a TASK (see `kanna task list`)"))?),
+                "defer" => {
+                    let task = args.positional().or_else(|| std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()));
+                    out["task"] = json!(task.ok_or_else(|| usage("task", "defer needs a TASK, or run it from the task's terminal"))?);
+                }
                 "name" => {
                     let first = args.positional().ok_or_else(|| usage("task", "name needs a NAME: kanna task name [TASK] NAME"))?;
                     let (task, name) = match args.positional() {
