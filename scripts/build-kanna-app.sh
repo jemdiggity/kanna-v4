@@ -17,6 +17,15 @@ if [[ "$built" != "$KANNA_GHOSTTY_COMMIT" ]]; then
   echo "note: GhosttyKit is Ghostty $built from GHOSTTY_SOURCE_DIR, not the pinned $KANNA_GHOSTTY_COMMIT" >&2
 fi
 
+host="$(rustc -vV | sed -n 's/^host: //p')"
+if [[ -z "${KANNA_GHOSTTY_VT_DIR:-}" ]]; then
+  ghostty_vt="$repo_root/target/ghostty-vt/$host"
+  vt_built="$(cat "$ghostty_vt/ghostty.rev" 2>/dev/null || true)"
+  if [[ -n "${GHOSTTY_SOURCE_DIR:-}" || ! -f "$ghostty_vt/lib/libghostty-vt.a" || "$vt_built" != "$KANNA_GHOSTTY_COMMIT" ]]; then
+    "$repo_root/scripts/build-ghostty-vt.sh" "$host"
+  fi
+fi
+
 (cd "$repo_root" && cargo build --release -p kanna-layout -p kanna-daemon -p kanna-keeper)
 "$repo_root/scripts/build-merman.sh"
 
