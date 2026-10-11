@@ -54,7 +54,7 @@ stateDiagram-v2
 
 ## 4. Naming
 
-- **The agent names its task** with `kanna task name "NAME"` once it knows what the work is. Until then it's "New task".
+- **The agent names its task** with `kanna task name "NAME"` once it knows what the work is. Until then it shows its agent's terminal title as is, status glyph and all (`◑ Claude Code`), or "New task" when there isn't one.
 - **It learns how from Kanna's `kanna-tasks` skill** ([`.agents/kanna-skills/skills/kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md)), which also tells it to write backlog first messages that stand alone and to leave starting tasks to you.
 - **A backlog task's name** is the one its maker gave it, kept when it starts.
 
