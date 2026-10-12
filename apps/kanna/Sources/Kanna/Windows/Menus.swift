@@ -198,7 +198,9 @@ extension AppController {
         case #selector(closeFocusedPane): return focusedPane.map { !docked($0) } ?? false
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
-        case #selector(parkTask): return keyWindow?["dock"]?["pane"] != nil
+        case #selector(parkTask):
+            item.title = lastParked == nil ? "Park" : "Unpark"
+            return keyWindow?["dock"]?["pane"] != nil || lastParked != nil
         case #selector(deferTask): return keyWindow?["dock"]?["pane"] != nil
         case #selector(startTaskHere): return keyWindow?["desk"]?.bool == true
         case #selector(pullWaitingTask): return waitingTask != nil
@@ -332,8 +334,16 @@ extension AppController {
     }
 
     @objc func parkTask() {
+        if let (task, window) = lastParked { return pullTask(task, into: window) }
         guard let window = keyWindow?["id"]?.string else { return }
         layoutCommand("task", ["action": "park", "window": .string(window)])
+    }
+
+    private var lastParked: (task: String, window: String)? {
+        guard let window = keyWindow, window["desk"]?.bool == true, window["dock"]?["pane"] == nil,
+              let id = window["id"]?.string, let tasks = controllers[id]?.shelf,
+              let task = tasks.max(by: { ($0.parkedAt ?? 0) < ($1.parkedAt ?? 0) }) else { return nil }
+        return (task.id, id)
     }
 
     /// Closes the Desk's task and puts it back on its repo's backlog, keeping its worktree and its agent's session.

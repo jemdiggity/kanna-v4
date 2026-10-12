@@ -1287,7 +1287,7 @@ S43() {
   check test "$(win w2 dock.pane)" == second || return 1
   key cmd+.
   check wait_for 5 eval '[[ "$(desk empty)" == True ]]' || return 1
-  key cmd+1
+  key cmd+.
   check wait_for 5 eval '[[ "$(win w1 dock.pane)" == agent ]]' || return 1
   kanna open --name asker --dock --window new --cwd "$repo_root" --cmd "$repo_root/tools/mock-agent/mock-agent" >/dev/null || return 1
   check wait_for 5 is asker status idle || return 1
