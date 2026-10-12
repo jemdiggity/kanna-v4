@@ -107,8 +107,6 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .stop .b { color: var(--fg); line-height: 1.5; }
 .stop:not(.on) .b { color: var(--muted); }
 .stop .b code { font: 11.5px var(--mono); color: var(--function); }
-.stop .ask { display: none; margin-top: 6px; font-size: 11.5px; padding: 1px 8px; background: transparent; color: var(--tour-edge); border-color: var(--tour-edge); }
-.stop.on .ask { display: inline-block; }
 .notes .keys { flex: none; border-top: 1px solid var(--line); padding: 6px 12px; color: var(--muted); font-size: 11px; }
 
 .mdsrc { flex: 1; overflow: auto; font: 12.5px/19px var(--mono); padding: 12px 20px; white-space: pre-wrap; display: none; }
@@ -122,11 +120,11 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 <main>
   <div class="intro">
     <h1>Code tour: the agent walks you through code in a code tab</h1>
-    <p>You ask how something works. The agent writes a tour, a markdown file in <code>.kanna/tours/</code> with one stop per heading (<code>## FILE:LINE</code>) and one plain explanation under it, and opens it with <code>kanna tour FILE</code>. The code tab shows the current stop tinted, the rest dimmed, and the stops listed beside it. A stop's line snaps to the syntax scope it opens or sits in, so <code>client.rs:244</code> shows the whole loop. Stops can be in several files: the one tab moves between them. You click stops; the agent moves you with <code>kanna tour go N</code> as it talks.</p>
+    <p>You ask how something works. The agent writes a tour, a markdown file in <code>.kanna/tours/</code> with one stop per heading (<code>## FILE:LINE</code>) and one plain explanation under it, and opens it with <code>kanna tour FILE</code>. The code tab shows the current stop tinted, the rest dimmed, and the stops listed beside it. A stop's line snaps to the syntax scope it opens or sits in, so <code>client.rs:244</code> shows the whole loop. Stops can be in several files: each file opens in a tab of its own, with the same stop list beside it, and a stop in another file selects that file's tab. You click stops; the agent moves you with <code>kanna tour go N</code> as it talks.</p>
     <div class="controls">
       <button id="bOpen">1 · Agent writes and opens the tour</button>
       <button id="bGo">2 · Agent: kanna tour go 4</button>
-      <button id="bAsk">3 · You click Ask on a stop</button>
+      <button id="bClick">3 · You click stop 7, in client.rs</button>
       <span class="sep"></span>
       <button id="bSrc">The tour file</button>
       <button id="bTheme">Light / dark</button>
@@ -284,13 +282,13 @@ function render() {
   stick();
 }
 function tabs() {
-  const name = path.split("/").pop();
+  const open = touring ? [...new Set(TOUR.stops.map(s => s.path))] : [path];
   document.getElementById("dtabs").innerHTML =
-    `<div class="dtab ${showMd ? "" : "on"}" data-t="code"><span>${name}</span>${touring ? `<span class="tag">tour</span>` : ""}<span class="x">✕</span></div>` +
+    open.map(p => `<div class="dtab ${!showMd && p === path ? "on" : ""}" data-t="code" data-p="${p}"><span>${p.split("/").pop()}</span>${touring ? `<span class="tag">tour</span>` : ""}<span class="x">✕</span></div>`).join("") +
     (showMd ? `<div class="dtab on" data-t="md"><span>keeper-fds.md</span><span class="x">✕</span></div>` : "") +
     `<span class="add">+</span>`;
 }
-document.getElementById("dtabs").addEventListener("click", e => { const t = e.target.closest(".dtab"); if (t) setMd(t.dataset.t === "md"); });
+document.getElementById("dtabs").addEventListener("click", e => { const t = e.target.closest(".dtab"); if (!t) return; if (t.dataset.p && t.dataset.p !== path) { path = t.dataset.p; render(); const s = TOUR.stops.find(x => x.path === path); scrollTo(s && touring ? s.from : 1); } setMd(t.dataset.t === "md"); });
 function stick() {
   const f = FILES[path];
   const first = Math.floor(Math.max(0, scroller.scrollTop - PAD) / LH) + 1;
@@ -325,7 +323,7 @@ function applyTour() {
   let last = "";
   TOUR.stops.forEach((t, i) => {
     if (t.path !== last) { html += `<div class="file">${t.path.split("/").pop()}</div>`; last = t.path; }
-    html += `<div class="stop ${i === stop ? "on" : ""}" data-i="${i}"><div class="h"><span class="k">${i + 1}</span><span class="s">${esc(t.head)}</span><span>${t.from}–${t.to}</span></div><div class="b">${esc(t.text).replace(/`([^`]+)`/g, "<code>$1</code>")}</div><button class="ask" data-i="${i}">Ask about this</button></div>`;
+    html += `<div class="stop ${i === stop ? "on" : ""}" data-i="${i}"><div class="h"><span class="k">${i + 1}</span><span class="s">${esc(t.head)}</span><span>${t.from}–${t.to}</span></div><div class="b">${esc(t.text).replace(/`([^`]+)`/g, "<code>$1</code>")}</div></div>`;
   });
   html += `</div><div class="keys">⌥↓ ⌥↑ next and previous stop · Esc ends the tour</div>`;
   notes.innerHTML = html;
@@ -339,7 +337,6 @@ function goStop(i) {
   scrollTo(s.from);
 }
 notes.addEventListener("click", e => {
-  const a = e.target.closest(".ask"); if (a) { ask(+a.dataset.i); return; }
   const d = e.target.closest("[data-d]"); if (d) { goStop(stop + +d.dataset.d); return; }
   const s = e.target.closest(".stop"); if (s) goStop(+s.dataset.i);
 });
@@ -365,7 +362,8 @@ document.getElementById("bOpen").onclick = () => {
 <span class="g">  Write(</span><span class="c">${TOUR_PATH}</span><span class="g">)</span>
 <span class="ok">  ⎿ 7 stops</span>
 <span class="g">  Bash(</span><span class="c">kanna tour ${TOUR_PATH}</span><span class="g">)</span>
-<span class="ok">  ⎿ p86 · 7 stops in 3 files · at stop 1</span>
+<span class="ok">  ⎿ 7 stops in 3 tabs: p86 server.rs, p87 fdpass.rs,
+    p88 client.rs · at stop 1</span>
 
 <span class="a">●</span> Start on the right, stop 1: the keeper queues a
   message and the terminals that go with it.
@@ -382,13 +380,9 @@ document.getElementById("bGo").onclick = () => {
 `);
   goStop(3);
 };
-function ask(i) {
-  const s = TOUR.stops[i];
-  say("", `<span class="g">&gt;</span> <span class="typed">[kanna tour stop ${i + 1} · ${s.path.split("/").pop()}:${s.from}-${s.to}]</span> <span class="g">▍</span>`);
-}
-document.getElementById("bAsk").onclick = () => {
+document.getElementById("bClick").onclick = () => {
   if (!touring) document.getElementById("bOpen").click();
-  goStop(4); ask(4);
+  goStop(6);
 };
 function setMd(on) {
   showMd = on;
@@ -408,7 +402,7 @@ if (params.has("picture")) document.body.classList.add("picture");
 if (params.has("light")) document.getElementById("bTheme").click();
 if (params.has("open")) document.getElementById("bOpen").click();
 if (params.has("go")) document.getElementById("bGo").click();
-if (params.has("ask")) document.getElementById("bAsk").click();
+
 if (params.has("stop")) goStop(+params.get("stop") - 1);
 if (params.has("src")) setMd(true);
 </script>
