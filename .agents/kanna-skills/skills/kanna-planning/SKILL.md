@@ -26,6 +26,8 @@ If this folder is empty, or isn't a git repo yet, use the `kanna-new-project` sk
 
 ## Commands
 
+Run the `kanna` on your PATH, from this terminal, as it is: its `KANNA_*` variables tell Kanna which pane is asking. Not a build of Kanna in the repo or a script that wraps one, even when the project is Kanna: those clear the variables to reach their own instance.
+
 | Command | Does |
 |---|---|
 | `kanna task list` | Every task: ID, where it is, status, repo, name |
