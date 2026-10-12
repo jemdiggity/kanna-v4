@@ -873,7 +873,7 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 ### 4.20 Code Tour
 
-**[Proposed]** The agent walks the user through code: it writes a tour, a markdown file in `.kanna/tours/` with a `## FILE:LINE` heading and one plain explanation per stop, and opens it with `kanna tour FILE`. A code tab per file shows the current stop tinted, the rest dimmed, with the stops listed beside it; a line snaps to its tree-sitter scope and follows the code when it moves. The daemon keeps the current stop on the code panes' records (`kanna tour go N`, a click on a stop); the app snaps and draws. Its own spec: [specs/code-tour.md](specs/code-tour.md); mockup `references/mockups/code-tour.html`.
+**[Proposed]** The agent shows the user code while it explains it: `kanna tour FILE:LINE \"comment\"` opens the file in a code tab, tints the part (snapped to its tree-sitter scope) and dims the rest, and adds the comment to the agent's tour, listed beside the code; `kanna tour N` goes back to a stop. The daemon keeps each agent's tour on its record and asks the app to snap; how to run a tour is the `kanna-tour` skill. Its own spec: [specs/code-tour.md](specs/code-tour.md); mockup `references/mockups/code-tour.html`.
 
 ---
 
