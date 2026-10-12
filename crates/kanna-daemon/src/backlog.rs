@@ -14,6 +14,8 @@ const FILE: &str = "backlog.json";
 
 const WORKTREES: &str = ".kanna-worktrees";
 
+const SCRATCH: &str = ".kanna/tmp";
+
 const MAX_FILE: u64 = 4 << 20;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -314,10 +316,11 @@ pub fn make_worktree(repo: &Path) -> Result<(String, String), String> {
     let common = git(&["rev-parse", "--git-common-dir"])?;
     let exclude = repo.join(common).join("info/exclude");
     let listed = fs::read_to_string(&exclude).unwrap_or_default();
-    let line = format!("/{WORKTREES}/");
-    if !listed.lines().any(|l| l.trim() == line) {
+    let missing: Vec<String> = [format!("/{WORKTREES}/"), format!("/{SCRATCH}/")].into_iter().filter(|line| !listed.lines().any(|l| l.trim() == line)).collect();
+    if !missing.is_empty() {
         let _ = fs::create_dir_all(exclude.parent().unwrap_or(repo));
-        let text = if listed.is_empty() || listed.ends_with('\n') { format!("{listed}{line}\n") } else { format!("{listed}\n{line}\n") };
+        let start = if listed.is_empty() || listed.ends_with('\n') { "" } else { "\n" };
+        let text = format!("{listed}{start}{}\n", missing.join("\n"));
         fs::write(&exclude, text).map_err(|e| format!("can't write {}: {e}", exclude.display()))?;
     }
     for _ in 0..8 {
@@ -1013,6 +1016,11 @@ mod tests {
         assert!(!marker.exists(), "a repo's hooks ran");
         let exclude = fs::read_to_string(dir.join(".git/info/exclude")).unwrap();
         assert_eq!(exclude.matches("/.kanna-worktrees/").count(), 1);
+        assert_eq!(exclude.matches("/.kanna/tmp/").count(), 1);
+        fs::create_dir_all(Path::new(&other).join(".kanna/tmp")).unwrap();
+        fs::write(Path::new(&other).join(".kanna/tmp/tour.md"), "# Tour\n").unwrap();
+        let status = Command::new("git").arg("-C").arg(&other).args(["status", "--porcelain"]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&status.stdout), "", "a worktree's .kanna/tmp stays out of git status");
         fs::remove_dir_all(&dir).unwrap();
     }
 

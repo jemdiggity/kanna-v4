@@ -20,10 +20,10 @@ The file opens in a code tab beside you, those lines tinted and the rest dimmed,
 
 ## The big picture: a temporary markdown doc
 
-For how parts fit together (object hierarchies, class or layer stacks, who calls whom, how data flows), write a short markdown doc with a diagram in `$TMPDIR/kanna-explain/`, never in the repo, and comment on it:
+For how parts fit together (object hierarchies, class or layer stacks, who calls whom, how data flows), write a short markdown doc with a diagram in `.kanna/tmp/` in your worktree and comment on it. Kanna keeps that folder out of git, and it goes when the worktree does: leave the docs there.
 
 ```sh
-kanna comment "$TMPDIR/kanna-explain/backlog.md:3" "The daemon owns the backlog; the app only shows it."
+kanna comment .kanna/tmp/backlog.md:3 "The daemon owns the backlog; the app only shows it."
 ```
 
 - **A diagram, not prose:** a mermaid `classDiagram` for a hierarchy, a `sequenceDiagram` for a flow, a layer diagram for a stack (the `layer-diagrams` skill), a table for a set of parallel things. A heading and the diagram; at most a line of text under it.
@@ -40,4 +40,4 @@ When the user asks a question, answer it with a comment on the code or doc that 
 
 ## At the end
 
-Offer to leave the tabs open or close them, and do what the user picks (`kanna close PANE` for each tab `kanna comment` opened). Delete the temporary docs.
+Offer to leave the tabs open or close them, and do what the user picks (`kanna close PANE` for each tab `kanna comment` opened).
