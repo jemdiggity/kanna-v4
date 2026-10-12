@@ -5,9 +5,6 @@ edition.workspace = true
 license = "FSL-1.1-MIT"
 description = "Kanna.app's code highlighting: tree-sitter grammars and queries behind a small C interface that takes a language and text and returns highlight spans and scopes."
 
-[lib]
-crate-type = ["staticlib", "rlib"]
-
 [dependencies]
 tree-sitter = "0.27"
 tree-sitter-highlight = "0.27"

@@ -110,9 +110,8 @@ Derived from kmux:
       a759abd, comments removed.
   crates/kanna-merman
       From kmux's crates/kmux-merman at 1f05ccb (the C bridge to merman),
-      comments removed, its symbols renamed kanna_merman_*.
-  scripts/build-merman.sh
-      Follows kmux's scripts/build-merman.sh; builds crates/kanna-merman.
+      comments removed, its symbols renamed kanna_merman_*; linked
+      into the app by crates/kanna-ffi rather than its own library.
 
   scripts/env.sh                 follows kmux's scripts/env.sh
   scripts/build-ghosttykit.sh    follows kmux's scripts/build-ghosttykit.sh

@@ -5,19 +5,8 @@ edition = "2021"
 rust-version = "1.95"
 publish = false
 license = "MIT"
-description = "Mermaid layout for Kanna.app's diagram view, behind one C call. From kmux's kmux-merman (MIT). Built by scripts/build-merman.sh."
-
-[lib]
-crate-type = ["staticlib"]
+description = "Mermaid layout for Kanna.app's diagram view, behind one C call. From kmux's kmux-merman (MIT). Linked into the app by kanna-ffi."
 
 [dependencies]
 merman = { version = "=0.8.0", default-features = false, features = ["svg", "layout-elk", "diagram-flowchart", "diagram-sequence", "diagram-state"] }
 serde_json = "1"
-
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = "s"
-strip = "debuginfo"
-
-[workspace]

@@ -1,0 +1,14 @@
+[package]
+name = "kanna-ffi"
+version.workspace = true
+edition.workspace = true
+license = "FSL-1.1-MIT"
+description = "Kanna.app's Rust, as one static library: kanna-layout, kanna-syntax and kanna-merman, so the app and its tests link Rust's std once."
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+kanna-layout = { path = "../kanna-layout" }
+kanna-merman = { path = "../kanna-merman" }
+kanna-syntax = { path = "../kanna-syntax" }

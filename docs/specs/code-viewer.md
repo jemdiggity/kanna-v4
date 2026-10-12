@@ -130,13 +130,13 @@ flowchart TB
 | CLI | `crates/kanna` | the `code` kind of `open`, `FILE:LINE`, completion of source files |
 | Pane records | `crates/kanna-mux` (daemon) | `PaneType::Code` with `path`, `line`, `zoom`; the same-file rule; `debug.code` passed to the app |
 | Code pane | `apps/kanna/Sources/KannaCode` (new target) | the view, gutter, sticky scope, find, keys and theme |
-| Highlighter | `crates/kanna-syntax` (new crate, static lib, `include/kanna_syntax.h`) | grammars, queries, injections; one call: language and text in, spans and scopes out |
+| Highlighter | `crates/kanna-syntax` (new crate, `include/kanna_syntax.h`, linked through `kanna-ffi`) | grammars, queries, injections; one call: language and text in, spans and scopes out |
 | Grammars | tree-sitter and each language's grammar crate; Vue's source vendored | — |
 
 - **All native, no web view or JavaScript.** The pane is an AppKit `NSTextView`, as the markdown pane is, with the gutter, indent guides and pinned scopes drawn by its own views; tree-sitter is a C library compiled into `kanna-syntax`. The HTML mockup is only the reference model.
 - **Kanna's own, not kmux's.** kmux is the reference for the mux's pane types ([4.3](../kanna-spec.md#43-kmux-is-the-reference-model)), but the code pane is built in Kanna only: kmux gets no code pane, and `open code` is a Kanna command its protocol cases don't cover. The code tour it leads to is Kanna's agent layer, which has no kmux counterpart.
 - **The pane is one more of the app's panes** ([4.9](../kanna-spec.md#49-web-markdown-and-ios-panes)): the daemon's core gives it its ID, checks and answers its commands and lends its record to the app, which shows it.
-- **Highlighting is tree-sitter, in a new Rust crate, `kanna-syntax`**, linked into the app as a static library with a C header, as `kanna-layout` is. One call takes a language and the text and returns the spans (byte range and capture name, such as `keyword`, `function`, `type`, `string`) and the scopes (start and end lines). Why tree-sitter rather than TextMate grammars (syntect): it parses the code into a tree, which sticky scope needs now and the code tour needs next (stops that are whole functions and blocks); the same grammars and queries are used by Zed, Neovim and Helix.
+- **Highlighting is tree-sitter, in a new Rust crate, `kanna-syntax`**, linked into the app with a C header, as `kanna-layout` is, through the app's one Rust static library, `kanna-ffi`. One call takes a language and the text and returns the spans (byte range and capture name, such as `keyword`, `function`, `type`, `string`) and the scopes (start and end lines). Why tree-sitter rather than TextMate grammars (syntect): it parses the code into a tree, which sticky scope needs now and the code tour needs next (stops that are whole functions and blocks); the same grammars and queries are used by Zed, Neovim and Helix.
 - **Why tree-sitter**, against the other ways to highlight:
 
 | | tree-sitter | TextMate grammars (syntect) | highlight.js |

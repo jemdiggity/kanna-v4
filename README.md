@@ -33,8 +33,7 @@ It runs these in order, each of which also works on its own:
 ```sh
 scripts/build-ghostty-vt.sh       # libghostty-vt for the daemon (build.sh skips it when it's already the pinned Ghostty)
 scripts/build-ghosttykit.sh       # GhosttyKit for the app (likewise)
-cargo build --workspace --release # CLI, daemon, keeper, and libkanna_layout for the app
-scripts/build-merman.sh           # merman for the app's diagrams
+cargo build --workspace --release # CLI, daemon, keeper, and libkanna_ffi (layout, highlighting, diagrams) for the app
 scripts/build-kanna-app.sh        # the Swift app and target/Kanna.app, with the daemon and keeper inside (takes the channel too)
 ```
 
@@ -59,7 +58,7 @@ Some tests check Kanna against kmux, the reference model, using kmux's source an
 
 ```sh
 cargo test --workspace
-swift test --package-path apps/kanna -c release --scratch-path target/kanna-build
+swift test --package-path apps/kanna --scratch-path target/kanna-build   # the Swift tests, after scripts/build.sh (they link target/release/libkanna_ffi.a)
 scripts/e2e-kanna.sh              # private instances on their own sockets; never touches yours
 ```
 

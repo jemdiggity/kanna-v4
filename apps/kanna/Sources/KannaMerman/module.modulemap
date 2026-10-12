@@ -1,0 +1,5 @@
+module KannaMerman {
+    header "../../../../crates/kanna-merman/include/kanna_merman.h"
+    link "kanna_ffi"
+    export *
+}

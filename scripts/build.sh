@@ -30,11 +30,8 @@ else
   "$scripts/build-ghosttykit.sh"
 fi
 
-echo "==> kanna, kanna-daemon, kanna-keeper, libkanna_layout (cargo build --workspace --release)"
+echo "==> kanna, kanna-daemon, kanna-keeper, libkanna_ffi (cargo build --workspace --release)"
 cargo build --manifest-path "$repo_root/Cargo.toml" --workspace --release
-
-echo "==> merman (scripts/build-merman.sh)"
-"$scripts/build-merman.sh"
 
 echo "==> Swift app and target/Kanna.app (scripts/build-kanna-app.sh)"
 "$scripts/build-kanna-app.sh"

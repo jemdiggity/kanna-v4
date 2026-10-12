@@ -32,8 +32,7 @@ if [[ -z "${KANNA_GHOSTTY_VT_DIR:-}" ]]; then
   fi
 fi
 
-(cd "$repo_root" && cargo build --release -p kanna-layout -p kanna-syntax -p kanna-daemon -p kanna-keeper)
-"$repo_root/scripts/build-merman.sh"
+(cd "$repo_root" && cargo build --release -p kanna-ffi -p kanna-daemon -p kanna-keeper)
 
 configuration="${KANNA_CONFIGURATION:-release}"
 while IFS='=' read -r key value; do
@@ -43,9 +42,7 @@ while IFS='=' read -r key value; do
 done < <("$repo_root/target/release/kanna-daemon" --build)
 build=(swift build --package-path "$repo_root/apps/kanna" --configuration "$configuration" --scratch-path "$repo_root/target/kanna-build")
 product_dir="$("${build[@]}" --show-bin-path)"
-for library in "$repo_root"/target/release/*.a; do
-  [[ "$library" -nt "$product_dir/Kanna" ]] && rm -f "$product_dir/Kanna"
-done
+[[ "$repo_root/target/release/libkanna_ffi.a" -nt "$product_dir/Kanna" ]] && rm -f "$product_dir/Kanna"
 "${build[@]}"
 
 app="$repo_root/target/Kanna.app"
