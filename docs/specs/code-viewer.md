@@ -36,6 +36,7 @@ sequenceDiagram
 
 - `kanna open code FILE[:LINE]` takes `open`'s placement options. With none, from a task's terminal it opens a tab on the task's Desk, as `open md` does.
 - `LINE` puts that line a third of the way down and flashes it. Without it the file opens at the top; past the end, at the last line.
+- **A file that's already open isn't opened twice.** Without a placement, `open code` on a file a code pane in that window (the task's Desk) already shows selects that pane's tab and goes to the line instead, answering with its ID. The daemon's core decides, since it has every pane's record. With a placement, it always opens a new pane.
 - `kanna navigate PANE FILE[:LINE]` shows another file, or another line, in the same pane, with back and forward history as a markdown pane's.
 
 ## 2. Rules
@@ -110,8 +111,7 @@ flowchart TB
 
 ## 6. Open questions
 
-1. **The same file twice:** should `open code` on a file already open in a code pane on that Desk go to its tab (and the line) instead of opening another?
-2. **Find (⌘F)** in the first version, or later?
+1. **Find (⌘F)** in the first version, or later?
 
 ## 7. Glossary
 
