@@ -88,7 +88,7 @@ enum Snapshot {
     }
 
     static func write(_ data: Data, to url: URL, replacing: Bool) throws {
-        let fd = open(url.path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | (replacing ? O_TRUNC : O_EXCL), 0o644)
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | (replacing ? O_TRUNC : O_EXCL), 0o600)
         guard fd >= 0 else {
             if errno == EEXIST { throw KannaError("exists", "\(url.path) already exists (--force replaces it)") }
             throw KannaError("bad_request", "can't create \(url.path): \(String(cString: strerror(errno)))")
