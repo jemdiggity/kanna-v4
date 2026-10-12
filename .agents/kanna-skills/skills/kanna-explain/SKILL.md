@@ -30,8 +30,14 @@ Often both: the doc for the big picture first, then the code.
 ## One comment at a time
 
 1. Comment on one part.
-2. Explain it in the chat. Keep the comment itself to the one thing to remember about that part.
-3. Stop, and ask the user to tell you when to go on. Never comment on several parts in one turn.
+2. Focus the pane `kanna comment` printed, so the user sees what you're talking about:
+
+   ```sh
+   kanna focus p129
+   ```
+
+3. Explain it in the chat. Keep the comment itself to the one thing to remember about that part.
+4. Stop, and ask the user to tell you when to go on. Never comment on several parts in one turn.
 
 When the user asks a question, answer it by commenting on the code that answers it.
 
