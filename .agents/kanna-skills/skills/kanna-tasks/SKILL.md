@@ -11,7 +11,7 @@ In Kanna, each agent's work is a **task**: one agent in one repo, shown on a Des
 
 A project (a repo) has **one Desk**: its window. The Desk shows one task at a time, its agent docked on the left and its tabs on the right; the project's other tasks wait on the **Shelf** along the bottom of the same window, still running. "The Desk" always means that window.
 
-- **New tasks go in the backlog** (`kanna task new`). `kanna task start` moves one to the Shelf: do that when the Shelf has room (three tasks per project, counting the Desk's) or when the user asks. When the user asks and the Shelf is full, make room by moving a Shelf task back to the backlog (`kanna task defer TASK`; it keeps running there). The user brings a Shelf task onto the Desk when they want it.
+- **New tasks go in the backlog** (`kanna task new`). Running and place are separate: `kanna task start` runs a task where it is (a backlog task gets its agent and stays in the backlog, and any number can run there), `kanna task stop` ends its agent and leaves it where it is, and `kanna task shelve` moves a backlog task to the Shelf, starting it if it's stopped. Shelve one when the Shelf has room (three tasks per project, counting the Desk's) or when the user asks. When the user asks and the Shelf is full, make room by moving a Shelf task back to the backlog (`kanna task defer TASK`; it stays as it is, running or stopped). The user brings a Shelf task onto the Desk when they want it.
 - `kanna task pull TASK` swaps a task onto the Desk, parking the one there; `kanna task park` moves the Desk's task to the Shelf. Only when the user asks.
 - Never make another Desk for a project (`--window new`): there's one.
 
@@ -50,7 +50,7 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 ```
 
 - **The first message stands alone.** The agent that gets it starts fresh in its own worktree and hasn't seen this conversation: say what to do, why, where (files, functions), and how to know it's done.
-- **Start one only when there's room or the user asks.** `kanna task start` puts it on the Shelf if the project has fewer than three tasks out (the Desk's and the Shelf's); otherwise leave it in the backlog, unless the user asks, and then make room by deferring a Shelf task they're not using.
+- **Start or shelve one only when the user asks, or shelve when there's room.** `kanna task shelve` puts it on the Shelf if the project has fewer than three tasks out (the Desk's and the Shelf's); otherwise leave it in the backlog, unless the user asks, and then make room by deferring a Shelf task they're not using. `kanna task start` runs it in the backlog instead, with no limit.
 
 ## Commands
 
@@ -58,11 +58,13 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 |---|---|
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog |
-| `kanna task list [QUERY]` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name; QUERY keeps those whose name or first message has every word |
-| `kanna task start TASK` | Move a backlog task to the Shelf: worktree, branch, agent, first message |
+| `kanna task list [QUERY]` | Every task: ID, name, where (a Desk, the Shelf, the backlog), state (working, idle, needs you, or stopped), repo; QUERY keeps those whose name or first message has every word |
+| `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, branch and agent with the first message, and stays in the backlog; a stopped task resumes its conversation |
+| `kanna task stop [TASK]` | End a task's agent and tabs, leaving it where it is (only when the user asks) |
+| `kanna task shelve TASK` | Move a backlog task to the Shelf, starting it if it's stopped (three per project) |
 | `kanna task pull TASK` | Bring a task onto the Desk, parking the one there (only when the user asks) |
 | `kanna task park [TASK]` | Move the Desk's task to the Shelf (only when the user asks) |
-| `kanna task defer [TASK]` | Move a running task back to the backlog, still running, until it's started again (only when the user asks) |
+| `kanna task defer [TASK]` | Move a task back to the backlog as it is, running or stopped (only when the user asks) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
 
 Run them from your own terminal, in the repo: a new task belongs to the repo you're in.

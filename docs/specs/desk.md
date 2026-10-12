@@ -60,7 +60,7 @@ flowchart LR
 - **The project's tasks not on a Desk**, latest parked first (a stack), each with its [agent status](agent-status.md) and how long ago it was parked. **Needs you** moves a task to the front.
 - **Each task's time shows beside its name** (pictured above): how long ago it was parked, or needs you, muted, kept current while it's shown. Its ⌘ key shows on hover. When the strip is too narrow, titles truncate first, each in proportion to its length, down to a short floor; then the backlog count gives way; then the times.
 - **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘3** swap in the Shelf's 1st … 3rd task the same way. **⇧⌘A** pulls the task that has needed you longest, and **⌘.** parks, or on an empty Desk pulls back the task parked last. They're in the Task menu.
-- **At most three tasks per project:** the one on the Desk and two on the Shelf (three on the full Shelf). Starting a fourth is refused until one is Done.
+- **At most three tasks per project:** the one on the Desk and two on the Shelf (three on the full Shelf), running or stopped. Moving a fourth to the Shelf is refused until one goes back to the backlog or is Done; any number run in the backlog ([tasks](tasks.md#5-stop-done-or-back-to-the-backlog)).
 - **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one and scroll positions come back as they were.
 
 ## 4. The planning agent
@@ -75,7 +75,7 @@ With no task on the Desk, the window's planning terminal, where you run your pla
 | `kanna task pull ID` | Put a task on the key window's Desk |
 | `kanna task park [ID]` | Move a task (default: the one on the key Desk) to the Shelf |
 | `kanna task done ID` | End a task: close its panes |
-| `kanna task new`, `start`, `name` | Make, start and name tasks: [tasks](tasks.md#6-cli) |
+| `kanna task new`, `start`, `stop`, `shelve`, `defer`, `name` | Make, run, stop, move and name tasks: [tasks](tasks.md#6-cli) |
 
 A task's ID is its docked pane's ID. Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens a new tab on the task's Desk (or, while it's parked, among its parked tabs). `done` leaves its Desk empty.
 
