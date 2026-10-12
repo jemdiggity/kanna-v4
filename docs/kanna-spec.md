@@ -30,6 +30,7 @@
    - 4.16 [Docked Pane](#416-docked-pane)
    - 4.17 [Agent Status](#417-agent-status)
    - 4.18 [Tab Completion](#418-tab-completion)
+   - 4.19 [Code Viewer](#419-code-viewer)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -854,6 +855,10 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 ### 4.18 Tab Completion
 
 **[Built]** Tab completes every `kanna` command, option and value in zsh and bash: pane names and IDs, tabs and windows from the running Kanna (never starting one), and only the files a command takes. On in Kanna's zsh and bash terminals with no setup (the daemon adds a step to the login shell's startup that hands over to yours). Generated from the CLI's command table, so a new command or option completes with no extra work. Its own spec: [specs/tab-completion.md](specs/tab-completion.md). In `crates/kanna/src/complete.rs` with the shell scripts beside it, and `crates/kanna-daemon/src/shell.rs`; checked by their unit tests and S41. The same startup step reports the shell's folder (OSC 7, at the first prompt and on every `cd`), since Ghostty's own shell integration doesn't run under Kanna's; a Desk's header and a task's repo follow it (S45).
+
+### 4.19 Code Viewer
+
+**[Proposed]** A read-only code pane, `kanna open code FILE[:LINE]`: the file highlighted with tree-sitter (Rust, Swift, TypeScript, JavaScript, Python, Go, C, C++, Shell, JSON, TOML, YAML), opened at a line, following the file on disk, with sticky scope and indent guides. The first step towards the code tour, where the agent walks the user through code. Its own spec: [specs/code-viewer.md](specs/code-viewer.md); mockup `references/mockups/code-viewer.html`.
 
 ---
 
