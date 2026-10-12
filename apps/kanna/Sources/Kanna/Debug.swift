@@ -115,13 +115,20 @@ extension AppController {
             guard let self else { return [:] }
             let id = args["window"]?.string ?? state["key"]?.string ?? ""
             guard let controller = controllers[id] else { throw KannaError("not_found", "no window \"\(id)\"") }
+            if case .array(let size)? = args["size"], size.count == 2, let width = size[0].number, let height = size[1].number {
+                controller.window.setContentSize(NSSize(width: width, height: height))
+            }
+            if let y = args["scroll"]?.number { controller.shelfPage.scroll(toY: CGFloat(y)) }
+            let page = controller.shelfPage
+            let scrolled: JSON = ["top": .number(Double(page.scrollTop)), "height": .number(Double(page.contentHeight)),
+                                  "visible": .number(Double(page.visibleHeight)), "backlog": .array(page.visibleBacklog.map { .string($0) })]
             let tasks = controller.shelf.map { task -> JSON in ["task": .string(task.id), "title": .string(task.title), "status": task.status.map { .string($0) } ?? .null] }
             return ["desk": .bool(controller.desk), "empty": .bool(controller.emptyDesk), "shelf": .array(tasks),
                     "strip": .bool(!controller.shelfStrip.isHidden), "page": .bool(!controller.shelfPage.isHidden), "title": .string(controller.window.title),
                     "header": controller.agentHeader.isHidden ? .null : .string(controller.agentHeader.text),
                     "backlog": .array(controller.backlog.map { .string($0.id) }), "running": .number(Double(controller.running)),
                     "waiting": .string(controller.shelfStrip.waitingText), "note": .string(controller.note),
-                    "blank": .bool(controller.shelfPage.blankCenter != nil), "planner": controller.plannerShown.map { .string($0) } ?? .null, "window": window(id) ?? .null]
+                    "blank": .bool(controller.shelfPage.blankCenter != nil), "planner": controller.plannerShown.map { .string($0) } ?? .null, "window": window(id) ?? .null, "scroll": scrolled]
         }
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
@@ -266,6 +273,7 @@ extension AppController {
         } else if let task = args["backlog"]?.string {
             let id = args["window"]?.string ?? state["key"]?.string ?? ""
             guard let controller = controllers[id], let spot = controller.shelfPage.backlogRows.first(where: { $0.task == task }) else { throw KannaError("not_found", "\(task) is not in \(id)'s backlog") }
+            guard controller.shelfPage.visibleBacklog.contains(task) else { throw KannaError("not_found", "\(task) is scrolled out of \(id)'s view") }
             window = controller.window
             point = spot.center
         } else if let id = args["blank"]?.string {

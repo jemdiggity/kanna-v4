@@ -252,7 +252,9 @@ const plannerOf = id => s.windows.map(w => w.planner).find(p => p && p.id === id
 function render() {
   planners();
   const stage = document.getElementById("stage");
+  const tops = new Map([...stage.querySelectorAll(".window")].map(el => [el.id, el.querySelector(".empty")?.scrollTop || 0]));
   stage.innerHTML = s.windows.length ? s.windows.map(windowHTML).join("") : `<div class="nowin">No Desk windows. <button id="again">New Desk window</button></div>`;
+  stage.querySelectorAll(".window").forEach(el => { const page = el.querySelector(".empty"); if (page) page.scrollTop = tops.get(el.id) || 0; });
   const again = document.getElementById("again");
   if (again) again.onclick = newWindow;
 }

@@ -189,12 +189,26 @@ final class ShelfPage: NSView {
     var onBlank: (() -> Void)?
     private var shown: DeskPage?
     private let blank = NSButton(title: "Start a task  ⌘N", target: nil, action: nil)
+    private let scroller = NSScrollView()
+    private let document = FlippedView()
 
     override var isFlipped: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        scroller.frame = bounds
+        scroller.autoresizingMask = [.width, .height]
+        scroller.drawsBackground = false
+        scroller.automaticallyAdjustsContentInsets = false
+        scroller.hasVerticalScroller = true
+        scroller.hasHorizontalScroller = false
+        scroller.scrollerStyle = .overlay
+        scroller.autohidesScrollers = true
+        scroller.verticalScrollElasticity = .allowed
+        scroller.horizontalScrollElasticity = .none
+        scroller.documentView = document
+        addSubview(scroller)
         blank.bezelStyle = .rounded
         blank.controlSize = .regular
         blank.target = self
@@ -214,31 +228,49 @@ final class ShelfPage: NSView {
     @objc private func startBlank() { onBlank?() }
 
     var rows: [(task: String, center: NSPoint)] {
-        subviews.compactMap { $0 as? ShelfRow }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
+        document.subviews.compactMap { $0 as? ShelfRow }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
     }
 
     var backlogRows: [(task: String, center: NSPoint)] {
-        subviews.compactMap { $0 as? BacklogRow }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
+        document.subviews.compactMap { $0 as? BacklogRow }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
     }
 
     var blankCenter: NSPoint? { blank.superview == nil || !blank.isEnabled ? nil : blank.convert(NSPoint(x: blank.bounds.midX, y: blank.bounds.midY), to: nil) }
 
-    var note: String { subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "note" }?.stringValue ?? "" }
+    var visibleBacklog: [String] {
+        let seen = document.visibleRect
+        return document.subviews.compactMap { $0 as? BacklogRow }.filter { seen.contains($0.frame) }.map(\.task.id)
+    }
+
+    var scrollTop: CGFloat { scroller.contentView.bounds.minY }
+    var contentHeight: CGFloat { document.frame.height }
+    var visibleHeight: CGFloat { scroller.contentView.bounds.height }
+
+    func scroll(toY y: CGFloat) {
+        scroller.contentView.scroll(to: NSPoint(x: 0, y: min(max(0, y), max(0, document.frame.height - scroller.contentView.bounds.height))))
+        scroller.reflectScrolledClipView(scroller.contentView)
+    }
+
+    var note: String { document.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "note" }?.stringValue ?? "" }
 
     private func label(_ text: String, size: CGFloat = 12, weight: NSFont.Weight = .regular, color: NSColor = .labelColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
         field.font = .systemFont(ofSize: size, weight: weight)
         field.textColor = color
         field.sizeToFit()
-        addSubview(field)
+        document.addSubview(field)
         return field
     }
 
     func show(_ page: DeskPage) {
         if page == shown { return }
         shown = page
-        subviews.forEach { $0.removeFromSuperview() }
-        let left: CGFloat = 48, width = min(760, bounds.width - left * 2)
+        lay(page, top: scrollTop)
+    }
+
+    private func lay(_ page: DeskPage, top: CGFloat) {
+        document.subviews.forEach { $0.removeFromSuperview() }
+        let left: CGFloat = 48, width = min(760, scroller.contentSize.width - left * 2)
         var y: CGFloat = 40
         let line = label(page.cheer, size: 13, color: .secondaryLabelColor)
         line.frame.origin = NSPoint(x: left, y: y)
@@ -253,14 +285,14 @@ final class ShelfPage: NSView {
             let row = ShelfRow(task: task, key: index < 3 ? "⌘\(index + 1)" : nil, width: width + 20)
             row.onPress = { [weak self] in self?.onPull?(task.id) }
             row.frame.origin = NSPoint(x: left - 10, y: y)
-            addSubview(row)
+            document.addSubview(row)
             y += row.frame.height
         }
         blank.isEnabled = !page.full
         blank.toolTip = page.full ? "Three tasks already run: finish one first" : "A new agent in a worktree of its own; tell it what to do and it names the task"
         blank.sizeToFit()
         blank.frame.origin = NSPoint(x: left - 6, y: y + 4)
-        addSubview(blank)
+        document.addSubview(blank)
         y += blank.frame.height + 28
         y = header("Backlog", detail: nil, count: "\(page.backlog.count) waiting", y: y, left: left, width: width)
         if page.backlog.isEmpty {
@@ -272,12 +304,14 @@ final class ShelfPage: NSView {
             let row = BacklogRow(task: task, full: page.full, width: width + 20)
             row.onPress = { [weak self] in self?.onStart?(task.id) }
             row.frame.origin = NSPoint(x: left - 10, y: y)
-            addSubview(row)
+            document.addSubview(row)
             y += row.frame.height
         }
         let note = label(page.note, color: .systemOrange)
         note.identifier = NSUserInterfaceItemIdentifier("note")
         note.frame.origin = NSPoint(x: left, y: y + 8)
+        document.frame = NSRect(x: 0, y: 0, width: scroller.contentSize.width, height: y + 8 + note.frame.height + 40)
+        scroll(toY: top)
     }
 
     private func header(_ title: String, detail: String?, count: String, y: CGFloat, left: CGFloat, width: CGFloat) -> CGFloat {
@@ -293,11 +327,15 @@ final class ShelfPage: NSView {
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
+        let top = scrollTop
         super.resizeSubviews(withOldSize: oldSize)
-        guard let shown, oldSize.width != bounds.width else { return }
-        self.shown = nil
-        show(shown)
+        guard let shown else { return }
+        if oldSize.width != bounds.width { lay(shown, top: top) } else { scroll(toY: top) }
     }
+}
+
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }
 
 @MainActor

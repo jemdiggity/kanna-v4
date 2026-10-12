@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S50) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S51) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S50) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[01]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -1652,10 +1652,39 @@ S42() {
   kanna read s42 | grep -E '^s42:' | grep -qF ':gone' || { kanna read s42 | tail -4; return 1; }
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S50) echo M4 ;; esac
+S51() {
+  local agent="$repo_root/tools/mock-agent/mock-agent" repo="$KANNA_STATE_DIR/repo"
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S51 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  start_daemon || { echo "S51 line $LINENO"; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"w1\"${2:+,$2}}}" | field "$1"; }
+  check wait_for 10 eval '[[ "$(desk planner)" == p* ]]' || { echo "S51: no planning terminal"; kanna list; return 1; }
+  for i in $(seq 20); do (cd "$repo" && kanna task new "Task $i" "hello" --agent "$agent") >/dev/null || { echo "S51 line $LINENO"; return 1; }; done
+  check wait_for 5 eval '[[ "$(desk backlog)" == *"t20"* && "$(desk page)" == True ]]' || { desk backlog; return 1; }
+  desk page '"size":[760,420]' >/dev/null; sleep 0.3
+  check eval '(( $(desk scroll.height) > $(desk scroll.visible) + 600 ))' || { desk scroll; return 1; }
+  check test "$(desk scroll.top)" == 0 || { desk scroll; return 1; }
+  [[ "$(desk scroll.backlog)" != *'"t20"'* ]] || { echo "S51: t20 fits a short window"; desk scroll; return 1; }
+  raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t20","window":"w1"}}' | grep -q 'scrolled out' || { echo "S51: clicked a row that isn't on screen"; return 1; }
+  desk page '"scroll":100000' >/dev/null; sleep 0.3
+  check eval '(( $(desk scroll.top) > 0 ))' || { desk scroll; return 1; }
+  check eval '[[ "$(desk scroll.backlog)" == *"\"t20\""* ]]' || { echo "S51: t20 can't be scrolled to"; desk scroll; return 1; }
+  raw '{"id":1,"cmd":"debug.app","args":{"appearance":"light"}}' >/dev/null; sleep 0.3; snap w1 s51-light >/dev/null
+  raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null; sleep 0.3; snap w1 s51-dark >/dev/null
+  local top; top="$(desk scroll.top)"
+  raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t20","window":"w1"}}' >/dev/null
+  check wait_for 10 eval '[[ "$(desk backlog)" != *"t20"* && "$(desk shelf.0.title)" == "Task 20" ]]' || { desk backlog; desk shelf; return 1; }
+  check eval '(( $(desk scroll.top) > 0 && $(desk scroll.top) <= top ))' || { echo "S51: the page lost its scroll position"; desk scroll; return 1; }
+  check eval '(( $(desk scroll.top) + $(desk scroll.visible) <= $(desk scroll.height) ))' || { desk scroll; return 1; }
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[01]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
