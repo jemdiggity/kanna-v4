@@ -78,33 +78,64 @@ sequenceDiagram
 | `kanna open code FILE[:LINE] [placement]` | opens a code pane at that line |
 | `kanna navigate PANE FILE[:LINE]` | shows that file and line in the pane; `back`, `forward` as for markdown |
 | `kanna list` | shows a code pane's file and line |
-| `kanna raw debug.code {pane}` | for tests: the text, the top line, the pinned scopes and each line's highlight spans by capture name |
+| `kanna raw '{"cmd":"debug.code","args":{"pane":"p86"}}'` | for tests: the text, the top line, the pinned scopes and each line's highlight spans by capture name |
 
 The pane's record in `layout.json` is `{type: "code", path, line, zoom, agent}`, so it comes back after a relaunch where it was.
 
 ## 5. How it's built
 
+Read top to bottom: each layer uses the ones below it; the outer boxes are processes, numbered as the [Kanna stack](../kanna-spec.md#41-layers-and-processes) (layers 1, 2 and 5 take no part).
+
 ```mermaid
 flowchart TB
+    subgraph CLIP["CLI processes"]
+        CLI["kanna CLI, agents<br/>open code · navigate<br/>completion"]
+    end
     subgraph APP["Kanna app process"]
-        V["CodePaneView (Swift)<br/>text view, gutter, sticky scope,<br/>theme: capture name → colour"]
-        S["kanna-syntax (Rust, static lib)<br/>tree-sitter, grammars,<br/>highlight + scope queries"]
-        V -->|"C call: language, text"| S
-        S -->|"spans, scopes"| V
+        L3["3 · Mux UI: KannaCode<br/>CodePaneView · gutter<br/>sticky scope · find · keys<br/>theme"]
+        L3S["3 · kanna-syntax (Rust)<br/>languages · highlight<br/>scopes · injections"]
+        L3T["tree-sitter + grammars (C)<br/>Rust, Swift, TS, Vue…"]
+        L3 -->|"C call: language, text"| L3S
+        L3S -->|"links"| L3T
     end
-    subgraph DAEMON["daemon"]
-        CORE["kanna-mux core<br/>code pane records"]
+    subgraph DAEMON["Kanna daemon process"]
+        L4["4 · kanna-mux (as kmux)<br/>+ code pane records<br/>same-file rule"]
     end
-    CLI["kanna CLI, agents"] -->|"open code, navigate"| CORE
-    CORE -->|"start, stop"| V
-    V -->|"update: running, line, zoom"| CORE
-    classDef new fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
-    class V,S new
+    subgraph OS["6 · macOS"]
+        AK["AppKit<br/>NSTextView · NSTextFinder"]
+        FS["files"]
+    end
+    CLI -->|"socket"| L4
+    L3 <-->|"app link: start, update"| L4
+    L3T ~~~ L4
+    L4 ~~~ FS
+    L3 -->|"draws with"| AK
+    L3 -->|"reads, watches"| FS
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef lib fill:#2f6a73,stroke:#7fd0db,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef client fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class L3,L3S kanna
+    class L4 kmux
+    class L3T lib
+    class AK,FS os
+    class CLI client
 ```
+
+**Colours:** green is Kanna's own, blue is Kanna's code that follows kmux (with the code pane added), teal is a library Kanna uses, grey is macOS, orange the CLIs.
+
+| Piece | Where | What's new |
+|---|---|---|
+| CLI | `crates/kanna` | the `code` kind of `open`, `FILE:LINE`, completion of source files |
+| Pane records | `crates/kanna-mux` (daemon) | `PaneType::Code` with `path`, `line`, `zoom`, `agent`; the same-file rule; `debug.code` passed to the app |
+| Code pane | `apps/kanna/Sources/KannaCode` (new target) | the view, gutter, sticky scope, find, keys and theme |
+| Highlighter | `crates/kanna-syntax` (new crate, static lib, `include/kanna_syntax.h`) | grammars, queries, injections; one call: language and text in, spans and scopes out |
+| Grammars | tree-sitter and each language's grammar crate; Vue's source vendored | — |
 
 - **All native, no web view or JavaScript.** The pane is an AppKit `NSTextView`, as the markdown pane is, with the gutter, indent guides and pinned scopes drawn by its own views; tree-sitter is a C library compiled into `kanna-syntax`. The HTML mockup is only the reference model.
 - **Kanna's own, not kmux's.** kmux is the reference for the mux's pane types ([4.3](../kanna-spec.md#43-kmux-is-the-reference-model)), but the code pane is built in Kanna only: kmux gets no code pane, and `open code` is a Kanna command its protocol cases don't cover. The code tour it leads to is Kanna's agent layer, which has no kmux counterpart.
-- **The pane is one more of the app's panes** ([4.9](../kanna-spec.md#49-web-markdown-and-ios-panes)): the daemon's core gives it its ID, checks and answers its commands and lends its record to the app, which shows it. A new `PaneType::Code` in `kanna-mux`, the `code` kind in the CLI and its completion, and a `CodePaneView` in the app beside `MarkdownPaneView`.
+- **The pane is one more of the app's panes** ([4.9](../kanna-spec.md#49-web-markdown-and-ios-panes)): the daemon's core gives it its ID, checks and answers its commands and lends its record to the app, which shows it.
 - **Highlighting is tree-sitter, in a new Rust crate, `kanna-syntax`**, linked into the app as a static library with a C header, as `kanna-layout` is. One call takes a language and the text and returns the spans (byte range and capture name, such as `keyword`, `function`, `type`, `string`) and the scopes (start and end lines). Why tree-sitter rather than TextMate grammars (syntect): it parses the code into a tree, which sticky scope needs now and the code tour needs next (stops that are whole functions and blocks); the same grammars and queries are used by Zed, Neovim and Helix.
 - **Grammars** come from each language's tree-sitter crate with its own highlight query. **Scopes** come from a small query per language naming the nodes that open one (functions, types, `impl`, loops, conditionals, blocks), after Neovim's treesitter-context.
 - **Languages inside languages** (a Vue or Svelte component's `<script>` and `<style>`, an HTML page's) are tree-sitter's injections: the outer grammar's injection query names the parts and the language of each, and `kanna-syntax` highlights them with that grammar. Vue's grammar crates on crates.io are young forks, so its grammar source is vendored into the crate at a pinned commit, as Helix and Zed do.
