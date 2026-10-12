@@ -29,6 +29,8 @@ pub struct Entry {
     pub folder: Option<String>,
     /// The agent's session there, which it resumes when it starts again.
     pub session: Option<String>,
+    /// The agent's pane of a task moved back to the backlog, still running, which comes back when it starts again.
+    pub held: Option<String>,
 }
 
 impl Entry {
@@ -43,6 +45,7 @@ impl Entry {
             "agent": self.agent,
             "folder": opt(self.folder.as_deref()),
             "session": opt(self.session.as_deref()),
+            "held": opt(self.held.as_deref()),
         })
     }
 
@@ -58,6 +61,7 @@ impl Entry {
             agent: text("agent").unwrap_or_else(default_agent),
             folder: text("folder"),
             session: text("session"),
+            held: text("held"),
         })
     }
 
@@ -330,7 +334,7 @@ impl Backlog {
                 match args.get("action").and_then(Value::as_str) {
                     Some("new") => responder.reply(this.add(&args)),
                     Some("list") => responder.reply(Ok(this.list(&args))),
-                    Some("done") => responder.reply(this.remove(&args)),
+                    Some("done") => this.remove(&args, responder),
                     Some("start") => this.start(&args, responder),
                     Some("blank") => this.blank(&args, responder),
                     Some("defer") => this.defer(&args, responder),
@@ -359,6 +363,7 @@ impl Backlog {
             agent: string(args, "agent").filter(|a| !a.trim().is_empty()).map(String::from).unwrap_or_else(default_agent),
             folder: None,
             session: None,
+            held: None,
         })
     }
 
@@ -384,11 +389,16 @@ impl Backlog {
         Some(entries.remove(at))
     }
 
-    fn remove(&self, args: &Value) -> Result<Map, KmuxError> {
-        let id = string(args, "task").ok_or_else(|| bad("say which task"))?;
-        let entry = self.take(id).ok_or_else(|| not_found(id))?;
+    /// Takes a task off the backlog, ending its agent and tabs if it was moved there still running.
+    fn remove(&self, args: &Value, responder: Responder) {
+        let Some(id) = string(args, "task") else { return responder.reply(Err(bad("say which task"))) };
+        let Some(entry) = self.take(id) else { return responder.reply(Err(not_found(id))) };
         self.changed();
-        Ok(Map::from_iter([("task".to_string(), entry.to_value())]))
+        let value = Map::from_iter([("task".to_string(), entry.to_value())]);
+        match (entry.held, self.core.upgrade()) {
+            (Some(pane), Some(core)) if core.pane(&pane).is_some() => core.handle(json!({ "cmd": "close", "args": { "task": pane } }), move |_| responder.reply(Ok(value))),
+            _ => responder.reply(Ok(value)),
+        }
     }
 
     fn blank(self: &Rc<Self>, args: &Value, responder: Responder) {
@@ -451,6 +461,9 @@ impl Backlog {
     }
 
     fn prepare(self: &Rc<Self>, mut entry: Entry, window: Option<String>, responder: Responder) {
+        if let Some(pane) = entry.held.clone() {
+            return self.release(pane, entry, window, responder);
+        }
         if let Some(folder) = entry.folder.clone() {
             if Path::new(&folder).is_dir() {
                 let branch = git(Path::new(&folder), &["branch", "--show-current"]).unwrap_or_default();
@@ -484,8 +497,8 @@ impl Backlog {
         running.push((pane.to_string(), entry));
     }
 
-    /// Move to Backlog: closes a running task's agent and tabs and puts it back on its repo's backlog,
-    /// keeping its worktree and its agent's session, so starting it again carries on where it was.
+    /// Move to Backlog: takes a running task off its Desk or the Shelf and puts it back on its repo's backlog,
+    /// its agent and tabs still running, so starting it again brings them back as they are.
     fn defer(self: &Rc<Self>, args: &Value, responder: Responder) {
         let Some(core) = self.core.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
         let Some(reference) = string(args, "task") else { return responder.reply(Err(bad("say which running task"))) };
@@ -506,16 +519,17 @@ impl Backlog {
         };
         let this = Rc::downgrade(self);
         let id = pane.id.clone();
-        core.handle(json!({ "cmd": "close", "args": { "task": id } }), move |reply| {
+        core.handle(json!({ "cmd": "task", "args": { "action": "hold", "task": id } }), move |reply| {
             let Some(this) = this.upgrade() else { return };
             if let Some(error) = failed(&reply) {
                 return responder.reply(Err(error));
             }
             this.running.borrow_mut().retain(|(p, _)| *p != id);
+            let entry = Entry { held: Some(id.clone()), ..entry };
             let value = entry.to_value();
             this.entries.borrow_mut().push(entry);
             this.changed();
-            responder.reply(Ok(Map::from_iter([("task".to_string(), value), ("pane".to_string(), json!(id)), ("closed".to_string(), reply.get("closed").cloned().unwrap_or(Value::Null))])));
+            responder.reply(Ok(Map::from_iter([("task".to_string(), value), ("pane".to_string(), json!(id))])));
         });
     }
 
@@ -536,23 +550,48 @@ impl Backlog {
                 return responder.reply(Err(error));
             }
             let pane = reply.get("pane").and_then(|p| string(p, "id")).unwrap_or("").to_string();
-            this.take(&entry.id);
             let mut ran = entry.clone();
             ran.folder = Some(folder.clone());
             ran.session = ran.session.or(session);
-            this.record(&pane, ran);
-            this.changed();
-            let mut out = Map::from_iter([
-                ("task".to_string(), json!(entry.id)),
-                ("pane".to_string(), json!(pane)),
-                ("folder".to_string(), json!(folder)),
-                ("branch".to_string(), json!(branch)),
-            ]);
-            let (Some(window), Some(core)) = (window, weak.upgrade()) else { return responder.reply(Ok(out)) };
-            core.handle(json!({ "cmd": "task", "args": { "action": "pull", "task": pane, "window": window } }), move |pulled| {
-                out.insert("window".into(), pulled.get("window").cloned().unwrap_or(Value::Null));
-                responder.reply(Ok(out));
-            });
+            this.started(pane, ran, branch, window, &weak, responder);
+        });
+    }
+
+    /// Brings a task held in the backlog back to the Shelf, its agent and tabs as they were, or starts it again
+    /// in its worktree when its agent's pane is gone.
+    fn release(self: &Rc<Self>, pane: String, entry: Entry, window: Option<String>, responder: Responder) {
+        let Some(core) = self.core.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
+        let this = Rc::downgrade(self);
+        let weak = self.core.clone();
+        core.handle(json!({ "cmd": "task", "args": { "action": "release", "task": pane } }), move |reply| {
+            let Some(this) = this.upgrade() else { return };
+            if let Some(error) = failed(&reply) {
+                if weak.upgrade().is_some_and(|core| core.pane(&pane).is_some()) {
+                    return responder.reply(Err(error));
+                }
+                return this.prepare(Entry { held: None, ..entry }, window, responder);
+            }
+            let folder = entry.folder.clone().unwrap_or_default();
+            let branch = git(Path::new(&folder), &["branch", "--show-current"]).unwrap_or_default();
+            this.started(pane, Entry { held: None, ..entry }, branch, window, &weak, responder);
+        });
+    }
+
+    /// A task now runs on the Shelf as `pane`: it leaves the backlog, and goes onto `window`'s Desk if it was asked for.
+    fn started(&self, pane: String, ran: Entry, branch: String, window: Option<String>, core: &WeakCore, responder: Responder) {
+        self.take(&ran.id);
+        let mut out = Map::from_iter([
+            ("task".to_string(), json!(ran.id)),
+            ("pane".to_string(), json!(pane)),
+            ("folder".to_string(), json!(ran.folder)),
+            ("branch".to_string(), json!(branch)),
+        ]);
+        self.record(&pane, ran);
+        self.changed();
+        let (Some(window), Some(core)) = (window, core.upgrade()) else { return responder.reply(Ok(out)) };
+        core.handle(json!({ "cmd": "task", "args": { "action": "pull", "task": pane, "window": window } }), move |pulled| {
+            out.insert("window".into(), pulled.get("window").cloned().unwrap_or(Value::Null));
+            responder.reply(Ok(out));
         });
     }
 }
@@ -571,7 +610,7 @@ mod tests {
 
     #[test]
     fn a_first_message_is_quoted_for_the_shell() {
-        let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "codex".into(), folder: None, session: None };
+        let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "codex".into(), folder: None, session: None, held: None };
         assert_eq!(entry.command(None), "codex --yolo 'don'\\''t stop'");
         entry.message = None;
         assert_eq!(entry.command(None), "codex --yolo");
@@ -579,7 +618,7 @@ mod tests {
 
     #[test]
     fn a_claude_task_gets_a_session_and_resumes_it_when_it_comes_back_from_the_backlog() {
-        let mut entry = Entry { id: "t1".into(), name: None, message: Some("go".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "/bin/claude".into(), folder: None, session: None };
+        let mut entry = Entry { id: "t1".into(), name: None, message: Some("go".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "/bin/claude".into(), folder: None, session: None, held: None };
         let id = uuid().unwrap();
         assert!(id.len() == 36 && id.chars().nth(14) == Some('4'), "{id}");
         assert_eq!(entry.command(Some(&id)), format!("/bin/claude --dangerously-skip-permissions --session-id {id} 'go'"));
@@ -664,7 +703,7 @@ mod tests {
 
     #[test]
     fn entries_round_trip_and_ids_are_t_numbers() {
-        let entry = Entry { id: "t7".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into(), folder: Some("/r/.kanna-worktrees/task-1".into()), session: Some("s".into()) };
+        let entry = Entry { id: "t7".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into(), folder: Some("/r/.kanna-worktrees/task-1".into()), session: Some("s".into()), held: Some("p3".into()) };
         assert_eq!(Entry::from_value(&entry.to_value()), Some(entry));
         assert_eq!(number("t12"), Some(12));
         assert_eq!(number("p3"), None);
@@ -716,7 +755,7 @@ mod tests {
         assert_eq!(mint(), "t1");
         assert_eq!(mint(), "t2");
         let backlog = Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0);
-        let ran = Entry { id: "t9".into(), name: Some("Ran".into()), message: None, repo: "/r".into(), by: None, made_at: 0.0, agent: "claude".into(), folder: Some("/r/w".into()), session: Some("s".into()) };
+        let ran = Entry { id: "t9".into(), name: Some("Ran".into()), message: None, repo: "/r".into(), by: None, made_at: 0.0, agent: "claude".into(), folder: Some("/r/w".into()), session: Some("s".into()), held: None };
         backlog.record("p4", ran.clone());
         backlog.save();
         let again = Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0);

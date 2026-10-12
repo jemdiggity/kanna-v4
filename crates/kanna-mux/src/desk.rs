@@ -19,11 +19,11 @@ impl Model {
     }
 
     pub fn parked_panes(&self) -> Vec<String> {
-        self.shelf.iter().flat_map(|p| p.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(p.dock.iter().map(|d| d.pane.clone()))).collect()
+        self.shelf.iter().chain(&self.backlog).flat_map(|p| p.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(p.dock.iter().map(|d| d.pane.clone()))).collect()
     }
 
     pub(crate) fn detach_parked(&mut self, id: &str) -> bool {
-        for parked in &mut self.shelf {
+        for parked in self.shelf.iter_mut().chain(&mut self.backlog) {
             if parked.dock.as_ref().is_some_and(|d| d.pane == id) {
                 parked.dock = None;
                 return true;
@@ -39,14 +39,15 @@ impl Model {
     }
 
     pub(crate) fn settle_shelf(&mut self) {
-        for parked in &mut self.shelf {
+        for parked in self.shelf.iter_mut().chain(&mut self.backlog) {
             parked.tabs.retain(|t| t.root.is_some());
             if !parked.tabs.iter().any(|t| Some(&t.id) == parked.active.as_ref()) {
                 parked.active = parked.tabs.first().map(|t| t.id.clone());
             }
         }
-        let orphans: Vec<Window> = self.shelf.iter().filter(|p| p.dock.is_none() && !p.tabs.is_empty()).cloned().collect();
+        let orphans: Vec<Window> = self.shelf.iter().chain(&self.backlog).filter(|p| p.dock.is_none() && !p.tabs.is_empty()).cloned().collect();
         self.shelf.retain(|p| p.dock.is_some());
+        self.backlog.retain(|p| p.dock.is_some());
         for orphan in orphans {
             let w = self.make_window();
             let window = &mut self.windows[w];
@@ -72,7 +73,7 @@ impl Model {
                 self.windows[w].desk = true;
                 &self.windows[w]
             }
-            None => self.shelf.iter().find(|p| p.dock.as_ref().is_some_and(|d| d.pane == task)).ok_or_else(|| not_found(format!("no task \"{task}\"")))?,
+            None => self.shelf.iter().chain(&self.backlog).find(|p| p.dock.as_ref().is_some_and(|d| d.pane == task)).ok_or_else(|| not_found(format!("no task \"{task}\"")))?,
         };
         Ok(window.dock.iter().map(|d| d.pane.clone()).chain(window.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref()))).collect())
     }
@@ -246,6 +247,25 @@ impl Model {
                 self.key = Some(window.clone());
                 Ok(reply([("task", task.into()), ("window", window.into()), ("moved", Value::Bool(true))]))
             }
+            "hold" => {
+                let reference = string("task").ok_or_else(|| bad_request("hold needs a task"))?;
+                let (task, at) = self.task_window(reference, panes)?;
+                if let Some(w) = at {
+                    self.park_window(w);
+                }
+                let i = self.shelf.iter().position(|p| p.id == task).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
+                let held = self.shelf.remove(i);
+                self.backlog.push(held);
+                Ok(reply([("task", task.into())]))
+            }
+            "release" => {
+                let reference = string("task").ok_or_else(|| bad_request("release needs a task"))?;
+                let i = self.backlog.iter().position(|p| p.id == reference).ok_or_else(|| not_found(format!("no task \"{reference}\" held in the backlog")))?;
+                let mut held = self.backlog.remove(i);
+                held.parked_at = Some(now());
+                self.shelf.insert(0, held);
+                Ok(reply([("task", reference.into())]))
+            }
             "desk" => {
                 let project = match string("project") {
                     Some(p) if p.starts_with('/') => Some(p.to_string()),
@@ -260,7 +280,7 @@ impl Model {
                 self.key = Some(id.clone());
                 Ok(reply([("window", id.into()), ("project", project.map_or(Value::Null, Value::String))]))
             }
-            other => Err(bad_request(format!("unknown task action \"{other}\" (list, park, pull or desk)"))),
+            other => Err(bad_request(format!("unknown task action \"{other}\" (list, park, pull, hold, release or desk)"))),
         }
     }
 

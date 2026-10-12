@@ -52,7 +52,7 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog |
 | `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
 | `kanna task start TASK [--window WINDOW]` | Move a backlog task to the Shelf: worktree, branch, agent, first message |
-| `kanna task defer [TASK]` | Move a running task back to the backlog, worktree and conversation kept (only when the user asks) |
+| `kanna task defer [TASK]` | Move a running task back to the backlog, still running, until it's started again (only when the user asks) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
 
 Run them from your own terminal, in the repo: a new task belongs to the repo you're in.

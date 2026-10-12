@@ -523,6 +523,44 @@ mod tests {
     }
 
     #[test]
+    fn a_task_held_in_the_backlog_keeps_its_panes_off_the_shelf_across_a_relaunch_and_comes_back_as_it_was() {
+        let dir = folder("held");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({ "dock": "left" }));
+        place(&mut owner, "p2", json!({}));
+        let task = |owner: &mut LayoutOwner, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "task", "args": args } }));
+        let before = owner.view()["windows"][0].clone();
+
+        assert_eq!(task(&mut owner, json!({ "action": "hold", "task": "p1" }))["task"], "p1");
+        let empty = owner.view()["windows"][0].clone();
+        assert_eq!((empty["desk"].clone(), empty["dock"].clone(), empty["tabs"].clone()), (json!(true), Value::Null, json!([])));
+        assert_eq!(owner.view()["shelf"], json!([]));
+        assert_eq!(task(&mut owner, json!({ "action": "list" }))["tasks"], json!([]));
+        assert!(task(&mut owner, json!({ "action": "pull", "task": "p1" }))["error"].is_object());
+        assert_eq!(owner.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2"]) }))["placed"], json!([]));
+        owner.save().unwrap();
+
+        let (mut again, _) = LayoutOwner::open(Some(file), false);
+        assert_eq!(again.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2"]) }))["placed"], json!([]));
+        assert_eq!(again.view()["shelf"], json!([]));
+        assert_eq!(task(&mut again, json!({ "action": "release", "task": "p1" }))["task"], "p1");
+        assert_eq!(again.view()["shelf"][0]["task"], "p1");
+        assert!(task(&mut again, json!({ "action": "release", "task": "p1" }))["error"].is_object());
+        task(&mut again, json!({ "action": "pull", "task": "p1" }));
+        let after = again.view()["windows"][0].clone();
+        for field in ["dock", "tabs", "tab", "root", "focused"] {
+            assert_eq!(after[field], before[field], "{field}");
+        }
+
+        task(&mut again, json!({ "action": "hold", "task": "p1" }));
+        again.handle(&json!({ "call": "serve", "request": { "op": "remove", "ids": ["p1"], "tidy": true } }));
+        assert_eq!(again.view()["windows"].as_array().unwrap().iter().filter(|w| w["tabs"].as_array().is_some_and(|t| !t.is_empty())).count(), 1, "a held task's tabs outlive its agent in a window of their own");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_desk_opens_on_a_project_with_nothing_in_it_and_keeps_its_project_across_a_relaunch() {
         let dir = folder("project-desk");
         let file = StateFile::new(&dir.join("layout.json").to_string_lossy());

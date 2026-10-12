@@ -356,7 +356,7 @@ extension AppController {
         return (task.id, id)
     }
 
-    /// Closes the Desk's task and puts it back on its repo's backlog, keeping its worktree and its agent's session.
+    /// Puts the Desk's task back on its repo's backlog, its agent and tabs still running until it's started again.
     @objc func deferTask() {
         guard let window = keyWindow?["id"]?.string, let pane = keyWindow?["dock"]?["pane"]?.string else { return }
         request("backlog", ["action": "defer", "task": .string(pane)]) { [weak self] reply in

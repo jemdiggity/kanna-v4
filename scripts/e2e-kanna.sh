@@ -1497,15 +1497,20 @@ S47() {
   [[ "$started" =~ " in "([^ ]+)" (" ]] && wt="${BASH_REMATCH[1]/#\~/$HOME}" || { echo "S47 line $LINENO: $started"; return 1; }
   check wait_for 5 eval '[[ "$(pane Later id)" == p1 ]]' || { echo "S47 line $LINENO"; return 1; }
   touch "$wt/work-in-progress"
-  expected="moved p1 to the backlog as t1: start it to carry on in ${wt/#$HOME/\~}"; says kanna task defer Later || { echo "S47 line $LINENO"; return 1; }
-  check wait_for 5 eval '! kanna list --json | grep -q "\"p1\""' || { echo "S47: the deferred agent still runs"; kanna list; return 1; }
+  local pid; pid="$(pane Later pid)"
+  expected="moved p1 to the backlog as t1, still running: start it to bring it back"; says kanna task defer Later || { echo "S47 line $LINENO"; return 1; }
+  check test "$(pane Later pid)" == "$pid" || { echo "S47: the deferred agent stopped"; kanna list; return 1; }
   (cd "$repo" && kanna task list) | grep -qE '^t1 +Later +Backlog' || { (cd "$repo" && kanna task list); return 1; }
+  (cd "$repo" && kanna task list) | grep -qE '^p1 ' && { echo "S47: the deferred task is still on the Shelf"; (cd "$repo" && kanna task list); return 1; }
   check test -f "$wt/work-in-progress" || { echo "S47 line $LINENO"; return 1; }
   started="$(kanna task start t1)" || { echo "S47 line $LINENO"; return 1; }
-  [[ "$started" == *" in ${wt/#$HOME/\~} ("* ]] || { echo "S47: it didn't come back in its worktree: $started"; return 1; }
+  [[ "$started" == "started t1 on the Shelf: p1 in ${wt/#$HOME/\~} ("* ]] || { echo "S47: it didn't come back as it was: $started"; return 1; }
+  check test "$(pane Later pid)" == "$pid" || { echo "S47: the agent was started again"; kanna list; return 1; }
   check test "$(ls "$repo/.kanna-worktrees" | wc -l | tr -d ' ')" == 1 || { echo "S47 line $LINENO"; return 1; }
   kanna open --name mine --dock --cwd "$repo" --cmd "exec $agent" >/dev/null || { echo "S47 line $LINENO"; return 1; }
-  expected="moved $(pane mine id) to the backlog as t2: start it to carry on in ${repo/#$HOME/\~}"; says kanna task defer mine || { echo "S47 line $LINENO"; return 1; }
+  expected="moved $(pane mine id) to the backlog as t2, still running: start it to bring it back"; says kanna task defer mine || { echo "S47 line $LINENO"; return 1; }
+  (cd "$repo" && kanna task done t2) >/dev/null || { echo "S47 line $LINENO"; return 1; }
+  check wait_for 5 eval '! kanna list --json | grep -q "\"mine\""' || { echo "S47: Done left the backlog task's agent running"; kanna list; return 1; }
   [[ "$(kanna task defer nothing 2>&1)" == *'no running task "nothing"'* ]] || { echo "S47 line $LINENO"; return 1; }
 }
 

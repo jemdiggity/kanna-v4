@@ -32,5 +32,5 @@ If this folder is empty, or isn't a git repo yet, use the `kanna-new-project` sk
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog |
 | `kanna task start TASK` | Move a backlog task to the Shelf: worktree, branch, agent, first message |
 | `kanna task pull TASK` | Put a task on this Desk (it hides you until it's parked) |
-| `kanna task defer TASK` | Move a running task back to the backlog, worktree and conversation kept |
+| `kanna task defer TASK` | Move a running task back to the backlog, still running, until it's started again |
 | `kanna task done TASK` | End a task, or take it off the backlog |

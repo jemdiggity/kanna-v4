@@ -155,6 +155,7 @@ pub struct Location {
 pub struct Model {
     pub(crate) windows: Vec<Window>,
     pub(crate) shelf: Vec<Window>,
+    pub(crate) backlog: Vec<Window>,
     pub key: Option<String>,
     pub(crate) counters: (usize, usize),
     pub pane_is_wide: Box<dyn Fn(&str) -> bool + Send>,
@@ -162,7 +163,7 @@ pub struct Model {
 
 impl Default for Model {
     fn default() -> Model {
-        Model { windows: vec![], shelf: vec![], key: None, counters: (0, 0), pane_is_wide: Box::new(|_| true) }
+        Model { windows: vec![], shelf: vec![], backlog: vec![], key: None, counters: (0, 0), pane_is_wide: Box::new(|_| true) }
     }
 }
 
@@ -925,6 +926,7 @@ fn reply<const N: usize>(fields: [(&str, Value); N]) -> Map {
 struct Restored {
     windows: Vec<Window>,
     shelf: Vec<Window>,
+    backlog: Vec<Window>,
     key: Option<String>,
     pub(crate) counters: (usize, usize),
 }
@@ -1122,6 +1124,9 @@ impl LayoutHost for Model {
         if !self.shelf.is_empty() {
             out.insert("shelf".into(), Value::Array(self.shelf.iter().map(export).collect()));
         }
+        if !self.backlog.is_empty() {
+            out.insert("backlog".into(), Value::Array(self.backlog.iter().map(export).collect()));
+        }
         out
     }
 
@@ -1250,16 +1255,21 @@ impl LayoutHost for Model {
         for item in state.get("shelf").and_then(Value::as_array).into_iter().flatten() {
             shelf.push(read(item, true)?);
         }
+        let mut backlog = vec![];
+        for item in state.get("backlog").and_then(Value::as_array).into_iter().flatten() {
+            backlog.push(read(item, true)?);
+        }
         windows.retain(|w: &Window| !w.tabs.is_empty() || w.dock.is_some() || w.desk);
         let key = string(state, "key").filter(|k| windows.iter().any(|w| w.id == *k)).map(String::from).or_else(|| windows.last().map(|w| w.id.clone()));
 
-        Ok(SavedLayout { placed, layout: Box::new(Restored { windows, shelf, key, counters }) })
+        Ok(SavedLayout { placed, layout: Box::new(Restored { windows, shelf, backlog, key, counters }) })
     }
 
     fn install_state(&mut self, saved: SavedLayout) {
         let Ok(restored) = saved.layout.downcast::<Restored>() else { return };
         self.windows = restored.windows;
         self.shelf = restored.shelf;
+        self.backlog = restored.backlog;
         self.key = restored.key;
         self.counters = (self.counters.0.max(restored.counters.0), self.counters.1.max(restored.counters.1));
         self.drop_empty();

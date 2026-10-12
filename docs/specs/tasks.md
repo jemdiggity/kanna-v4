@@ -30,6 +30,8 @@ stateDiagram-v2
     backlog --> shelf: Move to Shelf (agent, branch, worktree)
     shelf --> desk: pull
     desk --> shelf: park
+    shelf --> backlog: Move to Backlog (still running)
+    desk --> backlog: Move to Backlog (still running)
     backlog --> [*]: Done
     shelf --> [*]: Done
     desk --> [*]: Done
@@ -40,7 +42,7 @@ stateDiagram-v2
 - **On the Shelf, it runs:** its own worktree `<repo>/.kanna-worktrees/<NAME>` on branch `<NAME>`, made from the repo's checked-out commit, and an agent there that gets the first message. NAME is `task-` and the first 32 bits of a fresh random UUID in hex (`task-3f9a1c2e`), so it never collides with another worktree or branch; the agent renames the branch once it knows the work ([4](#4-naming)).
 - **Every task works in a worktree.** All development happens in one, never in the repo's own checkout.
 - **Kanna is git-based: a task needs a git repo.** In a folder that isn't one, making a task is refused; Kanna never runs `git init` itself. An agent sets the repo up with you (in a new, empty project, the planning agent does), and a repo with no commits yet works: its first task's branch starts empty (`git worktree add --orphan`), so the task's first commit is the project's. Kanna never commits for you.
-- **At most three run per repo**: the one on the Desk and two on the Shelf. The backlog has no limit.
+- **At most three run per repo**: the one on the Desk and two on the Shelf. The backlog has no limit, and a task moved back there still running doesn't count.
 
 ## 2. How tasks are made
 
@@ -67,9 +69,11 @@ stateDiagram-v2
 
 - **Done ends the task:** its agent and tabs close, or it leaves the backlog.
 - **The worktree and branch stay.** Cleaning them up is yours for now.
-- **Move to Backlog puts a running task back** (Task menu, or `kanna task defer`), freeing its slot of the three: its agent and tabs close and it waits in the backlog again, under its old ID if Kanna started it, with its worktree. Starting it again opens the agent in that same worktree, and a new one only if the worktree is gone.
-- **A claude agent comes back to its conversation.** Kanna starts claude with a session ID of its own (`claude --session-id UUID`), keeps it with the running task, and resumes it (`claude --resume UUID`). A claude task Kanna didn't start resumes the folder's latest conversation (`claude --continue`). Other agents start again with the first message, their conversation lost, until they resume too ([open questions](#8-open-questions)).
-- **Deferring stops the agent.** Whatever it was in the middle of is interrupted; its files and conversation are kept.
+- **Move to Backlog puts a running task back** (Task menu, or `kanna task defer`), freeing its slot of the three: it leaves its Desk or the Shelf and waits in the backlog again, under its old ID if Kanna started it.
+- **It keeps running there.** Its agent carries on with whatever it was doing, and its tabs stay as they were; the backlog lists it like any other task.
+- **Starting it again brings it back as it is:** the same agent and tabs, on the Shelf, with no restart.
+- **If its agent's pane closed meanwhile,** starting it opens a new agent in its worktree (a new worktree only if that's gone too), and a claude agent comes back to its conversation: Kanna starts claude with a session ID of its own (`claude --session-id UUID`), keeps it with the task, and resumes it (`claude --resume UUID`). A claude task Kanna didn't start resumes the folder's latest conversation (`claude --continue`). Other agents start again with the first message, their conversation lost, until they resume too ([open questions](#8-open-questions)).
+- **Done on a backlog task that's still running** ends its agent and tabs too.
 
 ## 6. CLI
 
@@ -79,7 +83,7 @@ stateDiagram-v2
 | `kanna task start TASK [--window WINDOW]` | Move a backlog task to the Shelf (or onto that Desk): worktree, agent, first message |
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
 | `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
-| `kanna task defer [TASK]` | Move a running task back to the backlog, keeping its worktree and its claude session (default: the one you're in) |
+| `kanna task defer [TASK]` | Move a running task back to the backlog, still running, until it's started again (default: the one you're in) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
 
 `park` and `pull` are the [Desk's](desk.md#5-cli).
@@ -98,6 +102,7 @@ flowchart TB
 - **The daemon opens planning terminals** (`backlog` `plan`): it makes the command (`KANNA_PLANNER`, the context limit, the getting-started text, then your shell) and opens it as the window's planner in its folder ([planning agent](planning-agent.md#7-how-its-built)).
 - **A running task is its docked agent pane**, as on the [Desk](desk.md): its name is the pane's name, its repo the pane's folder.
 - **Only a task's agent docks.** `kanna move PANE --dock` moves the docked pane to the other edge or another window, and refuses any other pane (`not_a_task`), so a task starts only by starting one and the limit holds.
+- **A task moved to the backlog is held, not closed:** the layout keeps its window (agent docked, tabs) in a backlog list beside the Shelf, saved with the rest, so its panes keep running and survive a relaunch; the Shelf, the limit and `pull` don't see it. Its backlog entry names its agent's pane, and starting it moves the window to the Shelf.
 - **Starting** a backlog task checks the limit, runs `git worktree add`, opens the agent docked straight onto the Shelf in that folder with the first message, names the pane, and drops the backlog entry.
 - **An ID is never handed out twice.** A new task's ID is saved as it's made, whether it waits in the backlog or starts at once (Start a task), so a restart can't reuse one. IDs name backlog entries only; worktrees and branches get their own random names, so a lost `backlog.json` or another Kanna on the same repo can't collide with them.
 - **A task's agent doesn't ask permission.** Starting one adds the agent's own flag for that (`claude --dangerously-skip-permissions`, `codex --yolo`) unless its command already says how to ask (`--permission-mode`, `--ask-for-approval`/`-a`). The task works in its own worktree, and you watch it on the Desk. The backlog keeps the command as written.
@@ -105,14 +110,14 @@ flowchart TB
 ## 8. Open questions
 
 1. **Task IDs that travel:** backlog IDs (`t4`) are this machine's; sending tasks elsewhere will want IDs that don't clash.
-2. **Resuming every agent:** only claude comes back to its conversation after Move to Backlog; codex and the others need their own session IDs and resume (backlog task t15).
+2. **Resuming every agent:** only claude comes back to its conversation when its agent's pane closed in the backlog; codex and the others need their own session IDs and resume (backlog task t15).
 
 ## 9. Glossary
 
 | Term | Meaning |
 |---|---|
 | **Task** | One agent's work in one repo, shown on a Desk |
-| **Backlog** | A repo's tasks that aren't running yet: a name and a first message each |
+| **Backlog** | A repo's tasks waiting to be moved to the Shelf: a name and a first message each, and the agent of one moved back still running |
 | **Repo** | The git repository a task belongs to |
 | **Worktree** | A second checkout of the repo, in `.kanna-worktrees/`, on the task's own branch |
 | **First message** | What the agent is told when its task starts |
