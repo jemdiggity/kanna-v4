@@ -421,7 +421,7 @@ function activateWin(w) {
 
 function renderWindow(w) {
   const t = activeTabOf(w);
-  const shown = w.zoomed && shownIds(w).includes(w.zoomed) ? 1 : shownIds(w).length;
+  const shown = zoomedOf(w) && shownIds(w).includes(zoomedOf(w)) ? 1 : shownIds(w).length;
   const el = h('div', {
     class: 'win' + (w.id === S.key ? ' key' : '') + (shown > 1 ? ' multi' : ''), dataset: { win: w.id },
     style: `left:${w.x}px;top:${w.y}px;width:${w.w}px;height:${w.h}px;z-index:${w.z}`,
@@ -433,10 +433,12 @@ function renderWindow(w) {
         h('button', { class: 'light close', title: 'Close window', onclick: () => ui({ cmd: 'close', args: { window: w.id } }) }),
         h('span', { class: 'light min' }), h('span', { class: 'light max' })),
       h('span', { class: 'win-title' }, `${t ? tabTitle(t) : label(S.panes[w.dock.pane])} — ${w.id}`)));
-  const root = w.zoomed && locate(t?.root, w.zoomed) ? { t: 'pane', id: w.zoomed } : t?.root;
+  const zoomed = zoomedOf(w);
+  const root = zoomed && locate(t?.root, zoomed) ? { t: 'pane', id: zoomed } : t?.root;
   const side = () => h('div', { class: 'win-side' }, renderTabs(w), h('div', { class: 'stage' }, root ? renderNode(root, w) : null));
   if (!w.dock) el.append(side());
-  else if (w.zoomed === w.dock.pane) el.append(h('div', { class: 'stage' }, renderPane(S.panes[w.dock.pane], w)));
+  else if (zoomed === w.dock.pane) el.append(h('div', { class: 'stage' }, renderPane(S.panes[w.dock.pane], w)));
+  else if (zoomed) el.append(h('div', { class: 'stage' }, renderNode(root, w)));
   else {
     const dock = renderPane(S.panes[w.dock.pane], w);
     dock.classList.add('docked');
@@ -608,7 +610,7 @@ function paneMenu(p) {
     ['New iOS pane', () => splitFrom(null, 'auto', 'ios')],
     ['New markdown pane', () => splitFrom(null, 'auto', 'md')],
   ];
-  const zoomed = findPane(p.id).win.zoomed === p.id;
+  const zoomed = zoomedOf(findPane(p.id).win) === p.id;
   const docked = !!dockOf(p.id);
   return [
     ['Split right', () => splitFrom(p, 'right', 'term'), '⌘D'],
@@ -832,7 +834,6 @@ function focusInput(id) {
 function switchTab(w, t) {
   const ids = paneIds(t.root);
   w.active = t.id;
-  w.zoomed = null;
   w.focused = ids.includes(t.lastFocus) ? t.lastFocus : ids[0] ?? null;
   raise(w);
   render();

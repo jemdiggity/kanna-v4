@@ -78,7 +78,7 @@ flowchart TD
 ![Two kmux windows. The front window is the key window and has two tabs.](img/kmux/windows.png)
 
 - **Key window:** one window is the key (front) window. Shortcuts, menus and protocol requests without a `window` act on it. Clicking a window makes it key.
-- **Focus:** each window remembers its focused pane and zoom state, and each tab remembers its last focused pane.
+- **Focus:** each window remembers its focused pane and whether zoom is on, and each tab remembers its last focused pane.
 - **Titles:** new tabs are named `Tab 1`, `Tab 2`, … in each window. Double-click a tab to rename it: Enter or clicking away saves, Escape cancels. Clients rename tabs with `rename-tab`. A window's title is its active tab's title.
 - **Empty containers close:** closing a tab's last pane closes the tab, and closing a window's last tab closes the window, unless it has a docked pane ([3.7](#37-docked-pane)). With no windows left, kmux offers to open a new one.
 - **Closing a tab or window** closes all of its panes.
@@ -189,7 +189,7 @@ flowchart TB
 | Closes only with its window | ⌘W in it does nothing, the Pane menu has no Close for it, and `close` on it fails with `docked: it closes with its window`. If its program exits it shows **exited**, and Restart (⌘R) starts it again. |
 | Stays with its window | Moving or dragging a tab to another window leaves it. Moving the docked pane itself (`move` to a tab, a window or beside a pane, or a drag) undocks it. Dropping a pane on it swaps the two; its edges take no drops. |
 | Focus | Next/Previous Pane go through the window's shown panes in reading order: a left dock first, a right dock last. Switching tabs gives the keyboard to the shown tab, as before. |
-| Zoom | On a tab's pane: fills the tabs' side, the docked pane stays. On the docked pane: fills the window. |
+| Zoom | The focused pane fills the window, the docked pane or a tab's pane alike. |
 | `arrange` | Arranges the shown tab only. A tree that names the docked pane is refused (`docked`). |
 
 ![The same window with the dock on the right, its divider dragged to 1/3](img/kmux/docked-pane-right.png)
@@ -285,7 +285,7 @@ The menu bar has **Edit**, **Pane**, **View** and **Window** menus. Right-clicki
 
 - Pane order is reading order: left to right, top to bottom. Pane, tab and window navigation all wrap around.
 - Moving to a pane also moves keyboard input to it.
-- Zoom makes one pane fill the tab (a docked pane: the window). Moving focus to another pane on screen (⌘] / ⌘[, or `focus`) keeps the zoom: that pane fills the tab (or the window) instead. Moving to another tab's pane cancels it; only ⇧⌘↩ turns it off.
+- Zoom is a window's mode: ⇧⌘↩ turns it on and off, and while it's on the focused pane fills the tab (in a window with a docked pane: the window). Moving around keeps it on: Next and Previous Pane and Tab, `focus`, and opening, closing or moving panes show whichever pane is focused after them.
 
 ---
 
@@ -348,8 +348,8 @@ Each request is `{ id, cmd, args }`. Each reply is `{ id, ok: true, … }` or `{
 | `rename-tab` | `tab`, `title` | The title can't be empty. |
 | `resize` | `pane`, `size` | Fails if the pane fills its tab. On the docked pane, sets its width. |
 | `list` | — | Windows (with the key window marked, each window's focused and zoomed pane, and its `dock`: `{ pane, edge, width }`, when it has one), their tabs and layout trees, and all panes. |
-| `focus` | one of `pane`, `tab`, `window` | Brings it to the front and makes its window key. A zoomed window's zoom moves to the focused pane if it's on screen, and is cancelled if not. |
-| `zoom` | `pane` | Toggles zoom. |
+| `focus` | one of `pane`, `tab`, `window` | Brings it to the front and makes its window key. With zoom on, the pane it focuses is the one shown. |
+| `zoom` | `pane` | Focuses the pane and turns its window's zoom on, or off if that pane is already the one zoomed. |
 | `close` | one of `pane`, `tab`, `window` | Closes it and everything inside it. A window's docked pane closes only with the window. |
 | `restart` | `pane` | |
 | `send` | `pane`, `text` | `term` panes only. Runs `text` as a typed line. |
@@ -467,7 +467,7 @@ Web panes' memory isn't counted: WebKit runs each page in its own process.
 | **Pane** | One area of a tab that shows one thing. |
 | **Split** | A group of panes side by side (`row`) or stacked (`column`). |
 | **Layout tree** | The nested splits and panes in a tab. |
-| **Zoom** | Temporarily showing one pane over the whole tab. |
+| **Zoom** | A window's mode that shows only its focused pane. |
 | **Docked pane** | A window's one pane outside its tabs, along its left or right edge ([3.7](#37-docked-pane)). |
 | **Tabs' side** | The rest of a window with a docked pane: the tab bar and the shown tab. |
 | **Control protocol** | The JSON requests that other programs use to drive kmux. |

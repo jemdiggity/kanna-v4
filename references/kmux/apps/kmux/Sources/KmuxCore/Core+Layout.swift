@@ -88,7 +88,6 @@ extension Core {
         destination.active = tab.id
         let ids = Model.paneIDs(tab.root)
         destination.focused = tab.lastFocus.flatMap { ids.contains($0) ? $0 : nil } ?? ids.first
-        destination.zoomed = nil
         model.key = destination.id
         model.dropEmpty()
         onChange()
@@ -155,7 +154,6 @@ extension Core {
             rest.title = "unarranged"
             rest.root = Model.normalize(.split(Split(axis: .row, kids: leftovers.map { Child(node: .pane($0), size: 1 / Double(leftovers.count)) })))
         }
-        window.zoomed = nil
         window.active = tab.id
         if !used.contains(window.focused ?? "") { window.focused = used.first }
         model.key = window.id

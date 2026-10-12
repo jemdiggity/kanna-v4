@@ -98,7 +98,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             if state.zoomed == dock.pane {
                 dockStage.frame = bounds
                 side = .zero
-            } else {
+            } else if state.zoomed == nil {
                 let total = bounds.width - Self.divider
                 let low = min(DividerView.minimum, total / 2)
                 let width = min(max((total * dock.width).rounded(), low), total - low)
@@ -112,11 +112,13 @@ final class WindowController: NSObject, NSWindowDelegate {
                 dockDivider = handle
             }
         }
-        dockStage.isHidden = state.dock == nil
-        tabBar.isHidden = side.isEmpty
+        let tabZoomed = state.dock != nil && state.zoomed != nil && state.zoomed != state.dock?.pane
+        dockStage.isHidden = state.dock == nil || tabZoomed
+        tabBar.isHidden = side.isEmpty || tabZoomed
         stage.isHidden = side.isEmpty
+        let bar = tabBar.isHidden ? 0 : TabBar.height
         tabBar.frame = NSRect(x: side.minX, y: side.maxY - TabBar.height, width: side.width, height: TabBar.height)
-        stage.frame = NSRect(x: side.minX, y: side.minY, width: side.width, height: max(0, side.height - TabBar.height))
+        stage.frame = NSRect(x: side.minX, y: side.minY, width: side.width, height: max(0, side.height - bar))
     }
 
     /// The handles over the dividers of the tab on screen, rebuilt by each render.
