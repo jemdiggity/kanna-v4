@@ -444,6 +444,25 @@ pub static COMMANDS: &[Command] = &[
         show: output::status,
     },
     Command {
+        name: "agents",
+        group: "Information",
+        summary: "Set up your agents for Kanna: Kanna's skills for Claude and Codex, a hook that tells them they're in Kanna, and Claude's sandbox letting them reach Kanna.",
+        usage: "kanna agents [status]\n       kanna agents setup [--ask]\n       kanna agents update [--ask] [--force]\n       kanna agents remove",
+        options: &[
+            ("--ask", "Say what it would do and ask first; says nothing if there's nothing to ask (the planning terminal runs it)."),
+            ("--force", "update: put Kanna's version over files you've changed."),
+        ],
+        notes: "setup copies Kanna's skills (kanna-tasks, kanna-planning, kanna-new-project, kanna-markup, kanna-explain) to ~/.agents/skills, where Codex reads them, links each from ~/.claude/skills for Claude, adds a SessionStart hook to ~/.claude/settings.json and ~/.codex/hooks.json that tells an agent in Kanna which skill to use, and adds Kanna's socket to sandbox.network.allowUnixSockets in ~/.claude/settings.json. update brings the skills up to this Kanna's: a file you've changed is merged with Kanna's changes, and where they conflict it offers your merge editor (git's merge.tool, else opendiff). remove takes back what Kanna put there. Kanna's planning terminal asks before setting up and before each update; nothing is written until you agree.",
+        examples: &[
+            ("kanna agents", "Whether your agents are set up, and whether this Kanna has newer skills."),
+            ("kanna agents setup", "Install Kanna's skills, the hook and the sandbox entry."),
+            ("kanna agents update", "Bring the skills up to this Kanna's, merging your changes."),
+            ("kanna agents remove", "Take them back out."),
+        ],
+        parse: parse_agents,
+        show: output::agents,
+    },
+    Command {
         name: "markup",
         group: "Panes",
         summary: "Open a markdown file or a local page to comment on, turn comments on or off in a pane, and answer them; the comments come to this pane.",
@@ -668,6 +687,23 @@ fn parse_status(args: &mut Argv) -> Result<Value, Failure> {
         Some(other) => Err(usage("status", &format!("unknown action \"{other}\" (explain or update)"))),
         None => Err(usage("status", "say what: explain PANE, explain --file SCREEN --agent AGENT, or update")),
     }
+}
+
+fn parse_agents(args: &mut Argv) -> Result<Value, Failure> {
+    let force = args.flag("--force");
+    let ask = args.flag("--ask");
+    let action = args.positional();
+    let request = match action.as_deref() {
+        None | Some("status") => json!({ "action": "status" }),
+        Some("setup") => json!({ "action": "setup", "ask": ask }),
+        Some("update") => json!({ "action": "update", "ask": ask, "force": force }),
+        Some("remove") => json!({ "action": "remove" }),
+        Some(other) => return Err(usage("agents", &format!("unknown action \"{other}\" (status, setup, update or remove)"))),
+    };
+    if force && request["action"] != "update" || ask && !matches!(action.as_deref(), Some("setup" | "update")) {
+        return Err(usage("agents", "--ask goes with setup or update, --force with update"));
+    }
+    Ok(request)
 }
 
 pub fn find(name: &str) -> Option<&'static Command> {

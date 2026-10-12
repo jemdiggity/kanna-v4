@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod args;
 pub mod commands;
 pub mod complete;
@@ -132,6 +133,14 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     let mut mux = Session::connect(&target, env)?;
     if command.name == "comment" && request["doc"] == true {
         return threads::comment(&request, &mut mux, json_output);
+    }
+    if command.name == "agents" && !json_output && matches!(request["action"].as_str(), Some("setup" | "update")) {
+        let tool = agents::merge_tool();
+        let mut call = |args: Value| mux.call("agents", args);
+        let mut merge = |path: &std::path::Path, base: &std::path::Path, new: &std::path::Path| agents::merge_in_editor(path, base, new, &tool);
+        let stdin = std::io::stdin();
+        let mut io = agents::Io { call: &mut call, input: &mut stdin.lock(), out: &mut std::io::stdout(), merge: &mut merge, tool: tool.clone() };
+        return agents::run(&request, &mut io);
     }
     let mut reply = match mux.call(wire(command, &request), request.clone()) {
         Ok(reply) => reply,
