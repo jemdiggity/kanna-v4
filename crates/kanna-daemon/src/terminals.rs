@@ -512,6 +512,16 @@ impl PaneHost for Terminals {
         }
     }
 
+    fn end(&self, pane: &Pane) {
+        let pid = self.live.borrow().get(&pane.id).filter(|t| t.exit_code.is_none()).map(|t| t.pid);
+        if let Some(pid) = pid.filter(|pid| *pid > 0) {
+            unsafe {
+                libc::kill(-pid, libc::SIGHUP);
+                libc::kill(pid, libc::SIGHUP);
+            }
+        }
+    }
+
     fn send(&self, pane: &Pane, text: &str) {
         self.write(&pane.id, format!("{text}\r").into_bytes());
     }

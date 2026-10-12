@@ -945,7 +945,7 @@ impl LayoutHost for Model {
             return self.plan(pane, at.window.as_deref()).map(Some);
         }
         if let (true, Some(edge)) = (at.shelf, at.dock) {
-            self.shelve(pane, edge);
+            self.shelve(pane, edge, at.backlog);
             return Ok(None);
         }
         if let Some(placed) = at.from.as_deref().and_then(|from| self.place_on_task(pane, from)) {

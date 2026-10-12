@@ -58,10 +58,11 @@ impl Model {
         }
     }
 
-    pub(crate) fn shelve(&mut self, pane: &str, edge: Edge) {
+    pub(crate) fn shelve(&mut self, pane: &str, edge: Edge, backlog: bool) {
         let mut parked = Window::new(pane.into());
         parked.dock = Some(Dock { pane: pane.into(), edge, width: DOCK_WIDTH });
         parked.desk = true;
+        parked.backlog = backlog;
         parked.parked_at = Some(now());
         self.parked.insert(0, parked);
     }

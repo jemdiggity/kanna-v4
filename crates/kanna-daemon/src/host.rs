@@ -46,6 +46,12 @@ impl PaneHost for Host {
         }
     }
 
+    fn end(&self, pane: &Pane) {
+        if pane.kind == PaneType::Term {
+            self.terminals.end(pane);
+        }
+    }
+
     fn send(&self, pane: &Pane, text: &str) {
         self.terminals.send(pane, text);
     }
