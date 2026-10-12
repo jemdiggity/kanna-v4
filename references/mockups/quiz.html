@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz Mockup</title>
+<style>
+:root {
+  --bg: #14161a; --panel: #1b1e24; --panel2: #22262d; --line: #2c313a; --text: #e6e8eb; --muted: #8b93a0;
+  --accent: #7aa2ff; --ok: #5fcf93; --warn: #f0b35a; --bad: #ef6b6b; --machine: #b48cff; --term: #16181c;
+  --tint: rgba(122, 162, 255, .18); --oktint: rgba(95, 207, 147, .13); --badtint: rgba(239, 107, 107, .13);
+  --page: #0d0e10; --shadow: 0 20px 50px rgba(0,0,0,.5); --card: #1f232a;
+  --num: #4b5260; --keyword: #c792ea; --function: #7aa2ff; --type: #e5c07b; --string: #a5d6a7;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace; --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+:root[data-theme="light"] {
+  --bg: #ffffff; --panel: #f4f5f7; --panel2: #eaecf0; --line: #d8dce2; --text: #1d2026; --muted: #6b7280;
+  --accent: #2f63d8; --ok: #1f9d5c; --warn: #b7791f; --bad: #cf3f3f; --machine: #7c4dcc; --term: #fbfbfc;
+  --tint: rgba(47, 99, 216, .14); --oktint: rgba(31, 157, 92, .10); --badtint: rgba(207, 63, 63, .09);
+  --page: #dfe2e7; --shadow: 0 20px 50px rgba(0,0,0,.18); --card: #ffffff;
+  --num: #b4bac4; --keyword: #8839c4; --function: #2f63d8; --type: #a15c00; --string: #2d7d3a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 var(--sans); }
+main { padding: 20px; max-width: 1500px; margin: 0 auto; }
+body.picture main { padding: 0; max-width: none; }
+body.picture .intro { display: none; }
+.intro h1 { font-size: 15px; margin: 0 0 4px; }
+.intro p { color: var(--muted); margin: 0 0 12px; max-width: 920px; }
+.intro code { font: 12px var(--mono); }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+button { font: 12px var(--sans); color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+
+.window { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: var(--shadow); background: var(--bg); height: 760px; display: flex; flex-direction: column; }
+body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 100vh; }
+.bar { height: 36px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 12px; }
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); display: block; }
+.where { font-size: 12px; font-weight: 600; }
+.content { flex: 1; display: flex; min-height: 0; }
+.agent { flex: 0 0 44%; min-width: 0; display: flex; flex-direction: column; }
+.agent .head { flex: none; height: 34px; padding: 0 14px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+.term { flex: 1; min-height: 0; background: var(--term); font: 12px/1.6 var(--mono); padding: 10px 14px; white-space: pre-wrap; overflow: auto; display: flex; flex-direction: column; }
+.term .scroll { flex: 1; }
+.term .c { color: var(--accent); } .term .p { color: var(--warn); } .term .g { color: var(--muted); } .term .m { color: var(--machine); }
+.term .ok { color: var(--ok); } .term .no { color: var(--bad); } .term b { font-weight: 700; }
+.term .you { color: var(--text); }
+.term code { color: var(--accent); }
+.ask { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; }
+.ask .chip { display: inline-block; background: var(--tint); color: var(--accent); border-radius: 3px; padding: 0 6px; }
+.ask .opt { cursor: pointer; display: block; }
+.ask .opt:hover { color: var(--accent); }
+.ask .opt.cur { color: var(--accent); }
+.ask .opt .d { color: var(--muted); display: block; padding-left: 5ch; }
+.ask .opt.cur .d { color: var(--muted); }
+.ask .foot { color: var(--muted); margin-top: 4px; }
+.snip { border-left: 2px solid var(--line); margin: 4px 0 4px 2ch; padding-left: 1ch; }
+.snip .n { color: var(--num); }
+.snip .lbl { color: var(--accent); font-weight: 700; }
+.prompt { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; color: var(--muted); }
+.spin { color: var(--machine); }
+
+.docs { flex: 1; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+.dtabs { height: 34px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.dtab { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; color: var(--muted); white-space: nowrap; }
+.dtab.on { color: var(--text); }
+.dtab .x { color: var(--muted); font-size: 11px; cursor: pointer; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.working { background: var(--accent); } .dot.needs { background: var(--warn); } .dot.idle { background: var(--ok); }
+
+.empty { flex: 1; overflow: auto; padding: 40px 44px; }
+.empty .sub { color: var(--muted); margin: 0 0 22px; }
+.group { margin-bottom: 22px; max-width: 760px; }
+.gh { padding: 0 0 6px; color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+.gh b { color: var(--text); }
+.row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin: 0 -10px; border-radius: 8px; }
+.row .t { flex: 1; min-width: 0; }
+.row .t .n { font-weight: 600; }
+.row .t .s { color: var(--muted); font-size: 12px; }
+.row.waiting .dot { background: transparent; border: 1.5px solid var(--muted); width: 9px; height: 9px; }
+.row.waiting .t .n { font-weight: 500; }
+
+.shelf { height: 30px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); overflow: hidden; }
+.shelf .item { display: flex; align-items: center; gap: 7px; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+.shelf .backlog { margin-left: auto; padding: 3px 8px; white-space: nowrap; }
+
+.code { flex: 1; min-height: 0; overflow: auto; font: 12.5px/19px var(--mono); padding: 8px 0; }
+.ln { display: flex; white-space: pre; }
+.ln .n { flex: none; width: 48px; padding-right: 12px; text-align: right; color: var(--num); }
+.ln.dim { opacity: .38; }
+.ln.on { background: var(--tint); box-shadow: inset 2px 0 0 var(--accent); }
+.cmt { margin: 6px 20px 6px 48px; max-width: 520px; background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; padding: 7px 11px; font: 12.5px/1.5 var(--sans); white-space: normal; }
+.cmt code { font: 11.5px var(--mono); color: var(--function); }
+.kw { color: var(--keyword); } .fn { color: var(--function); } .ty { color: var(--type); } .st { color: var(--string); }
+</style>
+</head>
+<body>
+<main>
+  <div class="intro">
+    <h1>Quiz: the agent asks about what the agents built</h1>
+    <p>A round of five multiple-choice questions about what landed on main since your last quiz, asked one at a time by an agent in its chat, about two minutes. The planning agent offers a round when something new is ready; yes opens a Quiz window: an agent in the repo on main (no task, no worktree: the quiz changes nothing), with the code it opens split beside it. Close the window to stop; the round is kept. Each answer gets a short explanation, and the agent opens the code at the line with <code>kanna comment</code>. The questions are prepared in the background after work lands on main; <code>kanna quiz</code> opens the window, and the agent there gets them from <code>kanna quiz start</code>, <code>next</code> and <code>answer</code>. Click an answer in the chat, or press 1–4.</p>
+    <div class="controls">
+      <button id="theme">Light / dark</button>
+      <button data-go="offer">The offer</button>
+      <button data-go="q1">A question</button>
+      <button data-go="a1">Answered right</button>
+      <button data-go="a2">Answered wrong: the code opens</button>
+      <button data-go="q4">Spot the bug</button>
+      <button data-go="end">End of the round</button>
+      <button data-go="prep">Nothing ready: preparing</button>
+    </div>
+  </div>
+  <div id="stage"></div>
+</main>
+<script>
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const tick = t => esc(t).replace(/`([^`]+)`/g, "<code>$1</code>");
+const hl = t => esc(t)
+  .replace(/\b(fn|let|match|true|false|if|return|self|pub|const|Some|None|Ok|Err|move)\b/g, '<span class="kw">$1</span>')
+  .replace(/(&quot;[^&]*?&quot;)/g, '<span class="st">$1</span>')
+  .replace(/\b([a-z_]+)(\()/g, '<span class="fn">$1</span>$2')
+  .replace(/\b(String|Option|Vec|Command)\b/g, '<span class="ty">$1</span>');
+
+const Q = [
+  { kind: "Behaviour", from: "6dae46b", q: "When a Codex task starts, how does Kanna run `codex`?",
+    choices: [["With `--no-daemon`", "its session runs in the task's own terminal"], ["In Codex's shared background server", "one session per task"],
+              ["As `codex exec`", "with the first message as its prompt"], ["With `resume`", "and the task's session ID, as Claude does"]],
+    answer: 0, why: "Codex's shared server runs every session's hooks with the environment of whatever started it, so the hook and `kanna task name` would see the wrong `$KANNA_PANE`. `--no-daemon` keeps the session in the task's terminal.",
+    at: "crates/kanna-daemon/src/backlog.rs:160", topic: "Codex runs with --no-daemon" },
+  { kind: "Where it lives", from: "ad2317c", q: "You edited an installed Kanna skill, and Kanna.app ships a new version of it. Where are the two merged?",
+    choices: [["In the `kanna` CLI", "with `git mergetool`"], ["In the daemon", "with `git merge-file`, against a copy of what it installed"],
+              ["In Kanna.app", "at launch"], ["In the SessionStart hook", "the next time an agent starts"]],
+    answer: 1, why: "The daemon keeps each file as it installed it, the base, and runs `git merge-file` on yours, the base and the new one. Only a conflict brings in your merge editor, from `kanna agents update --ask`.",
+    at: "crates/kanna-daemon/src/agents.rs:514", topic: "Merging your skill edits" },
+  { kind: "Why", from: "docs/specs/code-tour.md", q: "Why does Kanna.app, not the daemon, snap a comment's line to its scope?",
+    choices: [["The app has the file open", "in a code pane already"], ["The daemon can't read worktrees", "they're outside its folder"],
+              ["Tree-sitter is in the app only", "linking it into the daemon too costs about 18 MB"], ["Snapping depends on the pane", "its width and font"]],
+    answer: 2, why: "Tree-sitter is compiled into the app only, so the daemon asks the app over the app link (`app.snap`) and stores the lines it answers.",
+    at: "docs/specs/code-tour.md:115", topic: "The app snaps comments" },
+  { kind: "Spot the bug", from: "ad2317c", q: "This is `merge` from today's agent setup, with one bug put in. Which line?",
+    diff: [["521", "    let out = match files {", "A"], ["522", "        [Ok(..), ..] => Command::new(\"git\").args([\"merge-file\", \"-p\", \"-q\"])", "B"],
+           ["525", "    let _ = fs::remove_dir_all(&dir);", "C"], ["526", "    out.filter(|o| o.status.code() != Some(1)).map(|o| o.stdout)", "D"]],
+    choices: [["A", "a file that failed to write is ignored"], ["B", "`-q` hides the conflicts"], ["C", "the folder goes before the output is read"], ["D", "a merge with two conflicts gets through"]],
+    answer: 3, why: "`git merge-file` exits with the number of conflicts, so `!= Some(1)` lets 2 or more through and a file full of conflict markers gets installed. The code says `== Some(0)`.",
+    at: "crates/kanna-daemon/src/agents.rs:526", topic: "git merge-file's exit code" },
+  { kind: "Behaviour", from: "5448836", q: "What does `kanna task start` do to a task in the backlog?",
+    choices: [["Moves it to the Shelf", "and starts its agent"], ["Runs it where it is", "it gets a worktree, branch and agent, and stays in the backlog"],
+              ["Pulls it onto the Desk", "parking the task there"], ["Refuses", "when the Shelf has three tasks"]],
+    answer: 1, why: "Running and place are separate: `start` runs a task where it is, with no limit in the backlog; `shelve` moves it to the Shelf.",
+    at: "crates/kanna-daemon/src/backlog.rs:455", topic: "Start runs a task where it is" },
+];
+
+const CODE = {
+  "crates/kanna-daemon/src/backlog.rs": [
+    [150, "fn unprompted(agent: &str) -> String {"], [151, "    let agent = agent.trim();"], [152, "    let program = program(agent);"],
+    [153, "    let chooses = agent.split_whitespace().skip(1).any(|w| ASKING.contains(&w));"], [154, "    match UNPROMPTED.iter().find(|(name, _)| *name == program) {"],
+    [155, "        Some((_, flag)) if !chooses => format!(\"{agent} {flag}\"),"], [156, "        _ => agent.to_string(),"], [157, "    }"], [158, "}"], [159, ""],
+    [160, "fn in_its_terminal(agent: &str) -> String {"], [161, "    match program(agent) == \"codex\" && !agent.split_whitespace().any(|w| w == \"--no-daemon\") {"],
+    [162, "        true => format!(\"{agent} --no-daemon\"),"], [163, "        false => agent.to_string(),"], [164, "    }"], [165, "}"], [166, ""],
+    [167, "fn default_agent() -> String {"], [168, "    std::env::var(\"KANNA_AGENT\").ok().unwrap_or_else(|| \"claude\".into())"], [169, "}"],
+  ],
+  "crates/kanna-daemon/src/agents.rs": [
+    [510, "    hasher.finalize().iter().map(|b| format!(\"{b:02x}\")).collect()"], [511, "}"], [512, ""], [513, ""],
+    [514, "fn merge(mine: &[u8], base: &[u8], new: &[u8]) -> Option<Vec<u8>> {"],
+    [515, "    let dir = std::env::temp_dir().join(format!(\"kanna-merge-{}\", std::process::id()));"],
+    [516, "    fs::create_dir_all(&dir).ok()?;"],
+    [517, "    let files = [(\"mine\", mine), (\"base\", base), (\"new\", new)].map(|(name, content)| {"],
+    [518, "        let file = dir.join(name);"], [519, "        fs::write(&file, content).map(|_| file)"], [520, "    });"],
+    [521, "    let out = match files {"],
+    [522, "        [Ok(mine), Ok(base), Ok(new)] => Command::new(\"git\").args([\"merge-file\", \"-p\", \"-q\"]).output().ok(),"],
+    [523, "        _ => None,"], [524, "    };"], [525, "    let _ = fs::remove_dir_all(&dir);"],
+    [526, "    out.filter(|o| o.status.code() == Some(0)).map(|o| o.stdout)"], [527, "}"], [528, ""],
+    [529, "fn ensure<'a>(object: &'a mut Map, key: &str, made: &mut Made, tag: &str) -> Option<&'a mut Map> {"],
+  ],
+};
+const SPAN = { "crates/kanna-daemon/src/backlog.rs:160": [160, 165], "crates/kanna-daemon/src/agents.rs:514": [514, 527], "crates/kanna-daemon/src/agents.rs:526": [526, 526] };
+
+const SHELF = [
+  { title: "Swap keeps the task", status: "idle", meta: "parked 53m ago", agent: "claude" },
+  { title: "Resume every agent", status: "working", meta: "parked 12m ago", agent: "codex" },
+];
+const BACKLOG = [
+  ["Upgrade the keeper in place", "Installing a new build restarts the keeper and drops every terminal; hand its sockets over instead"],
+  ["Native diff viewer", "Show a task's branch diff in a tab, side by side, with comments like doc markup"],
+  ["Comment navigation ⌃− ⌃⇧−", "Go back and forward through the agent's comments across tabs"],
+];
+
+const fresh = () => ({ step: "offer", i: 0, picks: [], code: null, cur: 0 });
+let s = fresh();
+
+const say = t => `<span class="m">●</span> ${t}`;
+const you = t => `<span class="p">&gt;</span> <span class="you">${t}</span>`;
+const tool = (cmd, out) => `<span class="m">●</span> <b>Bash</b>(${esc(cmd)})\n  <span class="g">⎿  ${esc(out)}</span>`;
+
+function asked(k) {
+  const q = Q[k], picked = s.picks[k];
+  const diff = q.diff ? `<div class="snip">${q.diff.map(([n, t, l]) => `<span class="lbl">${l}</span> <span class="n">${n}</span> ${esc(t)}`).join("\n")}</div>` : "";
+  const lines = [say(`<b>${k + 1} of 5</b> · ${q.kind} <span class="g">· ${esc(q.from)}</span>`)].concat(picked === undefined && !q.diff ? [] : [`  ${tick(q.q)}`]);
+  return lines.join("\n") + (diff ? "\n" + diff : "") + (picked === undefined ? "" : "\n" + you(`${picked + 1}. ${tick(q.choices[picked][0])}`) + "\n" + answered(k));
+}
+
+function answered(k) {
+  const q = Q[k], right = s.picks[k] === q.answer;
+  const head = right ? `<span class="ok">Right.</span>` : `<span class="no">Not quite:</span> it's ${q.answer + 1}, ${tick(q.choices[q.answer][0].replace(/^./, c => c.toLowerCase()))}.`;
+  const opened = s.code === k ? "\n" + tool(`kanna comment ${q.at} "…"`, `opened p152 · ${q.at.split("/").pop()}`) : "";
+  return say(`${head} ${tick(q.why)}`) + opened;
+}
+
+function question(k) {
+  const q = Q[k];
+  return `<div class="ask"><span class="chip">Quiz ${k + 1}/5</span>\n<b>${tick(q.q)}</b>\n\n${q.choices.map(([a, d], j) => `<span class="opt ${j === s.cur ? "cur" : ""}" data-pick="${j}">${j === s.cur ? "❯" : " "} ${j + 1}. ${tick(a)}<span class="d">${tick(d)}</span></span>`).join("")}\n<span class="foot">Enter to select · ↑/↓ to move · Esc to pause</span></div>`;
+}
+
+function offer() {
+  const out = [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``,
+    tool("kanna quiz status", "5 questions ready · 3 tasks merged into main since your last quiz, yesterday 18:20"),
+    say(tick("Morning. Three tasks landed on main since yesterday: agent setup, `kanna agents`, and Codex's `--no-daemon`. Two more are on the Shelf, three wait in the backlog.")),
+    `  Quiz on today's changes? Five questions, about two minutes.`];
+  return wrap(out, `<div class="prompt">&gt; <span class="g">yes · later</span></div>`);
+}
+
+function chat() {
+  const out = [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude "Quiz me on what landed on main"`, ``];
+  if (s.step === "prep") {
+    out.push(tool("kanna quiz start", "preparing a round from 3 merged tasks (about a minute)"), say("Writing the questions now. I'll ask the first as soon as they're ready; carry on in the other window meanwhile."), ``, `<span class="spin">✻</span> <span class="g">Waiting for the round… (kanna quiz start --wait)</span>`);
+    return wrap(out, "");
+  }
+  let tail = "";
+  out.push(tool("kanna quiz start", "round r7 · 5 questions · 3 tasks merged since yesterday 18:20"));
+  const last = s.step === "end" ? 5 : s.i + 1;
+  for (let k = 0; k < last; k++) out.push(``, asked(k));
+  if (s.step === "q") {
+    if (s.picks[s.i] === undefined) tail = question(s.i);
+    else tail = `<div class="prompt">&gt; <span class="g">next · open the code · why not 2?</span></div>`;
+  }
+  if (s.step === "end") {
+    const n = s.picks.filter((p, k) => p === Q[k].answer).length, missed = Q.filter((q, k) => s.picks[k] !== q.answer);
+    out.push(``, tool("kanna quiz end", `knew ${n} of 5 · missed: ${missed.map(q => q.topic).join(", ")}`),
+      say(`You knew <b>${n} of 5</b> about today's changes.`),
+      ...Q.map((q, k) => `  ${s.picks[k] === q.answer ? '<span class="ok">✓</span>' : '<span class="no">✗</span>'} ${esc(q.topic)} <span class="g">· ${esc(q.at.split("/").pop())}</span>`),
+      ``, `  ${missed.length === 1 ? `“${esc(missed[0].topic)}” comes` : "The ones you missed come"} back in a later round. Close this window, or another round?`);
+    tail = `<div class="prompt">&gt; <span class="g">close it · another round</span></div>`;
+  }
+  return wrap(out, tail);
+}
+const wrap = (out, tail) => `<div class="scroll">${out.join("\n")}</div>${tail}`;
+
+function shelfPage() {
+  const list = SHELF;
+  return `<div class="empty"><p class="sub">Good progress today. Keep it going.</p>
+    <div class="group"><div class="gh"><span><b>Shelf</b> · ~/work/kanna-v4</span><span>${list.length} of 3 tasks</span></div>
+      ${list.map(t => `<div class="row"><span class="dot ${t.status}"></span><div class="t"><div class="n">${esc(t.title)}</div><div class="s">${t.agent} · ${t.status} · ${t.meta}</div></div></div>`).join("")}</div>
+    <div class="group"><div class="gh"><span><b>Backlog</b></span><span>${BACKLOG.length} waiting</span></div>
+      ${BACKLOG.map(([n, p]) => `<div class="row waiting"><span class="dot"></span><div class="t"><div class="n">${esc(n)}</div><div class="s">${esc(p)}</div></div></div>`).join("")}</div></div>`;
+}
+
+function codeTab() {
+  const q = Q[s.code], [file, line] = q.at.split(":"), lines = CODE[file] || [];
+  const [first, last] = SPAN[q.at] || [+line, +line];
+  return `<div class="dtabs" style="background:var(--panel)"><span style="font:11.5px var(--mono)">${esc(file)}</span><span class="x" data-act="uncode" style="margin-left:auto;color:var(--muted);cursor:pointer">×</span></div>
+    <div class="code">${lines.map(([n, t]) => `${n === first ? `<div class="cmt">${tick(q.why)}</div>` : ""}<div class="ln ${n >= first && n <= last ? "on" : "dim"}"><span class="n">${n}</span><span>${hl(t)}</span></div>`).join("")}</div>`;
+}
+
+function render() {
+  const onEmpty = s.step === "offer";
+  const tabs = `<div class="dtabs"><div class="dtab on"><span>Quiz</span></div></div>`;
+  const right = s.code !== null ? codeTab() : "";
+  document.getElementById("stage").innerHTML = onEmpty ? `<div class="window">
+    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Shelf</span></div>
+    <div class="content"><div class="agent"><div class="head">Planning · ~/work/kanna-v4 · main</div><div class="term">${offer()}</div></div>
+      <div class="docs">${shelfPage()}</div></div></div>` : `<div class="window">
+    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Quiz · kanna-v4</span></div>${tabs}
+    <div class="content"><div class="agent" style="${right ? "" : "flex:1"}"><div class="head">~/work/kanna-v4 · main</div><div class="term">${chat()}</div></div>
+      ${right ? `<div class="docs">${right}</div>` : ""}</div></div>`;
+  const t = document.querySelector(".term .scroll");
+  if (t) t.parentElement.scrollTop = 1e6;
+}
+
+function pick(j) {
+  if (s.step !== "q" || s.picks[s.i] !== undefined) return;
+  s.picks[s.i] = j;
+  if (j !== Q[s.i].answer && SPAN[Q[s.i].at]) s.code = s.i;
+  render();
+}
+function next() {
+  if (s.step !== "q" || s.picks[s.i] === undefined) return;
+  if (s.i === 4) s.step = "end"; else { s.i++; s.cur = 0; }
+  render();
+}
+
+document.addEventListener("click", e => {
+  const el = sel => e.target.closest(sel);
+  if (el("[data-go]")) return go(el("[data-go]").dataset.go);
+  if (el("[data-pick]")) return pick(+el("[data-pick]").dataset.pick);
+  if (el("[data-act=uncode]")) { s.code = null; return render(); }
+  if (el(".prompt") && s.step === "offer") { s.step = "q"; return render(); }
+  if (el(".prompt") && s.step === "q") return next();
+});
+document.addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey) return;
+  if (/^[1-4]$/.test(e.key)) pick(+e.key - 1);
+  else if (e.key === "ArrowDown" || e.key === "ArrowUp") { s.cur = (s.cur + (e.key === "ArrowDown" ? 1 : 3)) % 4; render(); }
+  else if (e.key === "Enter") { if (s.step === "offer") { s.step = "q"; render(); } else if (s.picks[s.i] === undefined) pick(s.cur); else next(); }
+});
+
+function go(scene) {
+  s = fresh();
+  if (scene === "q1") s.step = "q";
+  if (scene === "a1") { s.step = "q"; s.picks = [0]; }
+  if (scene === "a2") { s.step = "q"; s.i = 1; s.picks = [0, 3]; s.code = 1; }
+  if (scene === "q4") { s.step = "q"; s.i = 3; s.picks = [0, 3, 2]; }
+  if (scene === "end") { s.step = "end"; s.i = 4; s.picks = [0, 3, 2, 3, 1]; s.code = 1; }
+  if (scene === "prep") s.step = "prep";
+  render();
+}
+
+document.getElementById("theme").onclick = () => { const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "" : "light"; };
+if (location.hash.includes("picture")) document.body.classList.add("picture");
+if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
+const scene = location.hash.match(/scene=([a-z0-9]+)/);
+go(scene ? scene[1] : "offer");
+</script>
+</body>
+</html>

@@ -33,6 +33,7 @@
    - 4.19 [Code Viewer](#419-code-viewer)
    - 4.20 [Code Tour](#420-code-tour)
    - 4.21 [The Build](#421-the-build)
+   - 4.22 [Quiz](#422-quiz)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -892,6 +893,10 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 Ghostty's `build.zig` sets its own minimum (13.0) and ignores the environment, and Rust's std comes prebuilt (rebuilding it needs nightly `-Zbuild-std`). A lower minimum than the app's is safe to link: those objects use nothing newer than their own minimum. A higher one is the bug the warning reports.
 
 Changing the deployment target needs a clean cargo build. Cargo reruns the `cc` build scripts when the `[env]` value changes, but it doesn't recompile pure Rust crates, so their objects keep the old version. `kanna_cargo_release_for` (`scripts/env.sh`) keeps the version `target/release` was built for in `target/release/macos-deployment-target` and cleans `target/release` when it differs or is missing; the build scripts call it before cargo. Ghostty's builds are reused by commit (`ghostty.rev`, borrowed by worktrees through `kanna_borrow_built`), so a change to how Ghostty is built goes in the fork and the pinned commit, and the new pin makes every checkout rebuild them.
+
+### 4.22 Quiz
+
+**[Planned]** Five multiple-choice questions about what landed on main since your last quiz, asked by an agent in a Quiz window of its own (`kanna quiz`), each answer explained and a miss opening the code with `kanna comment`. The planning agent offers a round when one is ready; a short-lived background agent prepares the questions after main moves, and the daemon keeps them per repo, dropping one when its lines change. Its own spec: [specs/quiz.md](specs/quiz.md); mockup `references/mockups/quiz.html`.
 
 ---
 
