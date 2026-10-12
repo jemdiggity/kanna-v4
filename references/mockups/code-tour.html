@@ -116,11 +116,11 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 <main>
   <div class="intro">
     <h1>Code tour: the agent shows you code, one part at a time</h1>
-    <p>You ask how something works. The agent answers in the chat and, as it goes, marks the code it's talking about with <code>kanna code mark FILE:LINE "comment"</code>: the file opens in a code tab (or its tab is selected), the part is tinted and the rest dimmed, and the comment joins the tour beside the code. A line snaps to the syntax scope it opens or sits in, so <code>client.rs:244</code> shows the whole loop. Ask a question and the agent marks whatever answers it; click any stop to go back to it. <code>kanna code clear</code> ends the tour. How to run a tour is a skill, not a feature.</p>
+    <p>You ask how something works. The agent answers in the chat and, as it goes, shows you the code it's talking about with <code>kanna tour FILE:LINE "comment"</code>: the file opens in a code tab (or its tab is selected), the part is tinted and the rest dimmed, and the comment joins the tour beside the code. A line snaps to the syntax scope it opens or sits in, so <code>client.rs:244</code> shows the whole loop. Ask a question and the agent shows whatever answers it, or takes you back to an earlier stop with <code>kanna tour N</code>; click any stop to go back to it yourself. The tabs stay until you close them, or ask the agent to. How to run a tour is a skill, not a feature.</p>
     <div class="controls">
-      <button id="bNext">1 · You ask, the agent marks</button>
+      <button id="bNext">1 · You ask, the agent shows</button>
       <button id="bClick">You click stop 2</button>
-      <button id="bClear">Agent: kanna code clear</button>
+      <button id="bClear">You ask the agent to close the tabs</button>
       <span class="sep"></span>
       <button id="bTheme">Light / dark</button>
     </div>
@@ -222,6 +222,7 @@ const STEPS = [
   { mark: ["server.rs:105", "Whenever the connection can take more, `flush` sends what's queued. A long message can go out in pieces; the terminals ride along with the first piece."], after: `The queue goes out as fast as the daemon reads it.` },
   { mark: ["fdpass.rs:20", "This is where an open terminal crosses from one program to another: the message gets an extra envelope (`SCM_RIGHTS`) holding the terminals, and macOS copies them into the daemon."], after: `Make sense so far? Next is the daemon's side.` },
   { mark: ["fdpass.rs:50", "The other side: the daemon waits for a message and takes whatever terminals came with it."], after: `That's the whole trip. Ask about anything that's unclear.` },
+  { you: "wait, where did the terminals go in again?", go: 3, say: `Back at stop 3: they ride in the message's envelope.` },
   { you: "how does it know which terminal goes with which message?", say: `Each message says how many terminals it carries.`, mark: ["client.rs:244", "Each line says how many terminals belong to it (`fds`) and takes that many from the queue, in order. That's how a terminal finds its message."], after: `The terminals arrive in the same order as the messages, so
   counting is enough.` },
 ];
@@ -338,25 +339,37 @@ function next() {
   const s = STEPS[step]; if (!s) return;
   step++;
   if (s.you) log += `\n<span class="g">&gt;</span> ${esc(s.you)}\n`;
+  if (s.go) {
+    goStop(s.go - 1);
+    log += `
+<span class="g">  Bash(</span><span class="c">kanna tour ${s.go}</span><span class="g">)</span>
+<span class="ok">  ⎿ stop ${s.go} · ${trail[s.go - 1].path.split("/").pop()}:${trail[s.go - 1].from}–${trail[s.go - 1].to}</span>
+`;
+    log += `\n<span class="a">●</span> ${s.say}\n`;
+    show();
+    document.getElementById("bNext").textContent = `${step + 1} · ${STEPS[step].you ? "You ask, the agent shows" : "Agent shows the next part"}`;
+    return;
+  }
   if (s.say) log += `\n<span class="a">●</span> ${s.say}\n`;
   const r = mark(s.mark[0], s.mark[1]);
   const opened = trail.filter(t => t.path === KEEPER + s.mark[0].split(":")[0]).length === 1;
   log += `
-<span class="g">  Bash(</span><span class="c">kanna code mark ${s.mark[0]} "${esc(shortNote(s.mark[1]))}"</span><span class="g">)</span>
+<span class="g">  Bash(</span><span class="c">kanna tour ${s.mark[0]} "${esc(shortNote(s.mark[1]))}"</span><span class="g">)</span>
 <span class="ok">  ⎿ stop ${trail.length} · ${s.mark[0].split(":")[0]}:${r.from}–${r.to}${opened ? " · opened p" + (85 + tabsOpen.length) : ""}</span>
 `;
   log += `\n<span class="a">●</span> ${s.after || "Stop " + trail.length + ": " + esc(s.mark[1].split(/[.:]/)[0].replace(/`/g, "")) + "."}\n`;
   show();
-  document.getElementById("bNext").textContent = STEPS[step] ? `${step + 1} · ${STEPS[step].you ? "You ask, the agent marks" : "Agent marks the next part"}` : "Done";
+  document.getElementById("bNext").textContent = STEPS[step] ? `${step + 1} · ${STEPS[step].you ? "You ask, the agent shows" : "Agent shows the next part"}` : "Done";
 }
 document.getElementById("bNext").onclick = next;
 document.getElementById("bClick").onclick = () => { while (trail.length < 3) next(); goStop(1); };
 document.getElementById("bClear").onclick = () => {
-  log += `
-<span class="g">  Bash(</span><span class="c">kanna code clear</span><span class="g">)</span>
-<span class="ok">  ⎿ cleared ${trail.length} stops</span>
-`;
-  trail = []; cur = -1; show(); render();
+  log += `\n<span class="g">&gt;</span> thanks, close those\n`;
+  for (let i = 0; i < tabsOpen.length; i++) log += `
+<span class="g">  Bash(</span><span class="c">kanna close p${86 + i}</span><span class="g">)</span>`;
+  log += `\n\n<span class="a">●</span> Closed.\n`;
+  trail = []; cur = -1; tabsOpen = []; path = KEEPER + "fdpass.rs"; show(); render();
+  document.querySelector(".docs").style.visibility = "hidden";
 };
 const win = document.getElementById("window");
 document.getElementById("bTheme").onclick = () => { win.classList.toggle("dark"); win.classList.toggle("light"); };
