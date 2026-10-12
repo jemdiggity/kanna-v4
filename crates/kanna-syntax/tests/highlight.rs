@@ -93,3 +93,12 @@ fn file_names_and_shebangs_pick_the_language() {
         assert_eq!(language_for(name, first), Some(language), "{name}");
     }
 }
+
+#[test]
+fn multiline_declarations_and_literals_are_scopes() {
+    let text = "pub const LANGUAGES: &[Language] = &[\n    Language {\n        name: \"rust\",\n    },\n];\nconst ONE: u32 = 1;\n";
+    let found = highlight("rust", text).unwrap();
+    assert_eq!(found.scopes, vec![Scope { first: 1, last: 5 }, Scope { first: 2, last: 4 }]);
+    let text = "const table = {\n  rows: [\n    1,\n  ],\n};\n";
+    assert_eq!(highlight("typescript", text).unwrap().scopes, vec![Scope { first: 1, last: 5 }, Scope { first: 2, last: 4 }]);
+}

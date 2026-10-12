@@ -21,3 +21,8 @@
 (abstract_class_declaration) @scope
 (internal_module) @scope
 (jsx_element) @scope
+(lexical_declaration) @scope
+(variable_declaration) @scope
+(object) @scope
+(array) @scope
+(type_alias_declaration) @scope

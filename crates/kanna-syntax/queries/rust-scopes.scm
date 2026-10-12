@@ -17,3 +17,10 @@
 (closure_expression) @scope
 (unsafe_block) @scope
 (async_block) @scope
+(const_item) @scope
+(static_item) @scope
+(let_declaration) @scope
+(type_item) @scope
+(struct_expression) @scope
+(array_expression) @scope
+(macro_invocation) @scope

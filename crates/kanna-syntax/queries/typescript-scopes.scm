@@ -20,3 +20,8 @@
 (enum_declaration) @scope
 (abstract_class_declaration) @scope
 (internal_module) @scope
+(lexical_declaration) @scope
+(variable_declaration) @scope
+(object) @scope
+(array) @scope
+(type_alias_declaration) @scope

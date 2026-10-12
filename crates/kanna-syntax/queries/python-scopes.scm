@@ -11,3 +11,7 @@
 (with_statement) @scope
 (match_statement) @scope
 (case_clause) @scope
+(decorated_definition) @scope
+(assignment) @scope
+(dictionary) @scope
+(list) @scope

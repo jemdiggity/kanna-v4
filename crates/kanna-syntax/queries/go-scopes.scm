@@ -11,3 +11,7 @@
 (type_case) @scope
 (communication_case) @scope
 (default_case) @scope
+(const_declaration) @scope
+(var_declaration) @scope
+(short_var_declaration) @scope
+(composite_literal) @scope

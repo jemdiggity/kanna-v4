@@ -15,3 +15,7 @@
 (switch_entry) @scope
 (do_statement) @scope
 (catch_block) @scope
+(property_declaration) @scope
+(typealias_declaration) @scope
+(array_literal) @scope
+(dictionary_literal) @scope

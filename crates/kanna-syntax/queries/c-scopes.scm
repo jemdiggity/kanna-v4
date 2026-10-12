@@ -9,3 +9,5 @@
 (do_statement) @scope
 (switch_statement) @scope
 (case_statement) @scope
+(declaration) @scope
+(initializer_list) @scope

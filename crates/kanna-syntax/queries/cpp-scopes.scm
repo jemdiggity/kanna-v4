@@ -16,3 +16,5 @@
 (for_range_loop) @scope
 (try_statement) @scope
 (catch_clause) @scope
+(declaration) @scope
+(initializer_list) @scope

@@ -17,3 +17,7 @@
 (catch_clause) @scope
 (finally_clause) @scope
 (jsx_element) @scope
+(lexical_declaration) @scope
+(variable_declaration) @scope
+(object) @scope
+(array) @scope
