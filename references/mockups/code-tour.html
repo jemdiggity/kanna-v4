@@ -58,6 +58,9 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .dtab.on .x { visibility: visible; }
 .dtab .tag { font-size: 10.5px; color: var(--tour-edge); border: 1px solid var(--tour-edge); border-radius: 8px; padding: 0 6px; }
 .dtabs .add { color: var(--muted); padding: 0 8px; font-size: 15px; }
+.cmt { margin: 6px 24px 6px 66px; max-width: 620px; background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--tour-edge); border-radius: 6px; padding: 7px 11px; font: 12.5px/1.5 var(--sans); color: var(--fg); white-space: normal; position: sticky; left: 66px; }
+.cmt .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.cmt code { font: 11.5px var(--mono); color: var(--function); }
 .code { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); outline: none; }
 .crumbs { height: 26px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 14px 0 20px; font-size: 12px; color: var(--muted); }
 .crumbs i { font-style: normal; opacity: .6; }
@@ -89,39 +92,16 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .ln.dimmed .t { opacity: .38; transition: opacity .2s; }
 .ln .t { transition: opacity .2s; }
 
-.notes { flex: none; width: 320px; border-left: 1px solid var(--line); background: var(--bar-bg); display: none; flex-direction: column; min-height: 0; font-size: 12.5px; }
-.code.touring .notes { display: flex; }
-.notes .head { flex: none; padding: 10px 12px 8px; border-bottom: 1px solid var(--line); }
-.notes .head { display: flex; align-items: center; }
-.notes .title { flex: 1; font-weight: 600; font-size: 13px; line-height: 1.35; }
-.notes .nav { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
-.notes .nav span { flex: 1; }
-.notes .nav button { background: transparent; color: var(--fg); border-color: var(--line); padding: 1px 8px; }
-.notes .list { flex: 1; overflow: auto; padding: 8px 10px 14px; display: flex; flex-direction: column; gap: 8px; }
-.notes .file { font: 11px var(--mono); color: var(--muted); margin: 6px 2px 0; }
-.notes .file:first-child { margin-top: 0; }
-.stop { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
-.stop.on { border-color: var(--tour-edge); box-shadow: inset 3px 0 0 var(--tour-edge); }
-.stop .h { display: flex; gap: 8px; font: 11px var(--mono); color: var(--muted); margin-bottom: 4px; }
-.stop .h .k { color: var(--tour-edge); flex: none; }
-.stop .h .s { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
-.stop .where { font: 11px var(--mono); color: var(--muted); margin: -2px 0 4px; }
-.stop .b { color: var(--fg); line-height: 1.5; }
-.stop:not(.on) .b { display: none; }
-.stop:not(.on) .where { margin-bottom: 0; }
-.stop .b code { font: 11.5px var(--mono); color: var(--function); }
-.notes .keys { flex: none; border-top: 1px solid var(--line); padding: 6px 12px; color: var(--muted); font-size: 11px; }
-
+.code.touring 
 </style>
 </head>
 <body>
 <main>
   <div class="intro">
     <h1>Code tour: the agent comments on code as it explains it</h1>
-    <p>You ask how something works. The agent answers in the chat and, as it goes, comments on the code it's talking about with <code>kanna comment FILE:LINE "comment"</code>: the file opens in a code tab (or its tab is selected), the lines are tinted and the rest dimmed, and the comment is listed beside the code, folding the file's earlier comments. A line snaps to the syntax scope it opens or sits in, so <code>client.rs:244</code> shows the whole loop. Click an earlier comment to see it again. The tabs stay until you close them, or ask the agent to. How to give a tour is a skill; Kanna only gives the agent a way to comment on code.</p>
+    <p>You ask how something works. The agent answers in the chat and, as it goes, comments on the code it's talking about with <code>kanna comment FILE:LINE "comment"</code>: the file opens in a code tab (or its tab is selected), the lines are tinted and the rest dimmed, and the comment shows just above them, replacing the one before. A line snaps to the syntax scope it opens or sits in, so <code>client.rs:244</code> shows the whole loop. The tabs stay until you close them, or ask the agent to. How to give a tour is a skill; Kanna only gives the agent a way to comment on code.</p>
     <div class="controls">
       <button id="bNext">1 · You ask, the agent shows</button>
-      <button id="bClick">You click the first comment</button>
       <button id="bClear">You ask the agent to close the tabs</button>
       <span class="sep"></span>
       <button id="bTheme">Light / dark</button>
@@ -140,7 +120,6 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
           <div class="crumbs" id="crumbs"></div>
           <div class="split">
             <div class="scroller" id="scroller"><div class="sticky"><div class="rows" id="sticky"></div></div><div class="lines" id="lines"></div></div>
-            <div class="notes" id="notes"></div>
           </div>
         </div>
       </div>
@@ -263,10 +242,10 @@ document.getElementById("dtabs").addEventListener("click", e => {
 });
 function stick() {
   const f = FILES[path];
-  const first = Math.floor(Math.max(0, scroller.scrollTop - PAD) / LH) + 1;
+  const at = y => { let n = 1; for (const el of linesEl.querySelectorAll(".ln")) { if (el.offsetTop + LH > y) return +el.dataset.n; n = +el.dataset.n; } return n; };
   let rows = [];
   for (let k = 1; k <= MAX_STICKY; k++) {
-    const open = openAt(f.scopes, first + k);
+    const open = openAt(f.scopes, at(scroller.scrollTop + k * LH));
     if (open.length >= k) rows = open.slice(0, k);
   }
   if (scroller.scrollTop <= PAD) rows = [];
@@ -276,17 +255,15 @@ scroller.addEventListener("scroll", stick);
 stickyEl.addEventListener("click", e => { const ln = e.target.closest(".ln"); if (ln) scrollTo(+ln.dataset.n); });
 function line(n) { return linesEl.querySelector(`.ln[data-n="${n}"]`); }
 function scrollTo(n) {
-  const el = line(n); if (!el) return;
-  scroller.scrollTop = el.offsetTop - Math.min(MAX_STICKY, openAt(FILES[path].scopes, n).length) * LH - LH;
+  let el = line(n); if (!el) return;
+  if (el.previousElementSibling && el.previousElementSibling.classList.contains("cmt")) el = el.previousElementSibling;
+  scroller.scrollTop = el.offsetTop - Math.min(MAX_STICKY, openAt(FILES[path].scopes, n).length) * LH - 8;
 }
 
-const notes = document.getElementById("notes");
-function here() { return trail.map((t, i) => ({ ...t, i })).filter(t => t.path === path); }
 function applyTour() {
-  const list = here();
-  const touring = list.length > 0;
-  code.classList.toggle("touring", touring);
+  linesEl.querySelectorAll(".cmt").forEach(e => e.remove());
   const s = trail[curBy[path]];
+  const touring = !!s;
   linesEl.querySelectorAll(".ln").forEach(el => {
     const n = +el.dataset.n;
     const inside = touring && n >= s.from && n <= s.to;
@@ -294,14 +271,10 @@ function applyTour() {
     el.classList.toggle("dimmed", touring && !inside);
   });
   if (!touring) return;
-  let html = `<div class="head"><div class="title">Comments</div><div class="nav"><span></span><button data-d="-1">‹</button><button data-d="1">›</button></div></div><div class="list">`;
-  list.forEach(t => {
-    html += `<div class="stop ${t.i === curBy[path] ? "on" : ""}" data-i="${t.i}"><div class="h"><span class="s">${esc(t.head)}</span></div><div class="where">lines ${t.from}–${t.to}</div><div class="b">${esc(t.note).replace(/`([^`]+)`/g, "<code>$1</code>")}</div></div>`;
-  });
-  html += `</div><div class="keys">⌥↓ ⌥↑ next and previous comment</div>`;
-  notes.innerHTML = html;
-  const on = notes.querySelector(".stop.on");
-  if (on) on.scrollIntoView({ block: "nearest" });
+  const card = document.createElement("div");
+  card.className = "cmt";
+  card.innerHTML = `<div class="who">claude · lines ${s.from}–${s.to}</div>${esc(s.note).replace(/`([^`]+)`/g, "<code>$1</code>")}`;
+  line(s.from).before(card);
 }
 function goStop(i) {
   const s = trail[i];
@@ -309,20 +282,6 @@ function goStop(i) {
   if (s.path !== path) { path = s.path; render(); } else applyTour();
   scrollTo(s.from);
 }
-function step1(d) {
-  const list = here(), k = list.findIndex(t => t.i === curBy[path]);
-  const t = list[Math.max(0, Math.min(list.length - 1, k + d))]; if (t) goStop(t.i);
-}
-notes.addEventListener("click", e => {
-  const d = e.target.closest("[data-d]"); if (d) { step1(+d.dataset.d); return; }
-  const s = e.target.closest(".stop"); if (s) goStop(+s.dataset.i);
-});
-code.addEventListener("keydown", e => {
-  if (!here().length) return;
-  if (e.altKey && e.key === "ArrowDown") { step1(1); e.preventDefault(); }
-  if (e.altKey && e.key === "ArrowUp") { step1(-1); e.preventDefault(); }
-});
-
 function mark(spec, note) {
   const m = spec.match(/^(.*):(\d+)(?:-(\d+))?$/);
   const p = KEEPER + m[1], f = FILES[p];
@@ -358,7 +317,6 @@ function next() {
   document.getElementById("bNext").textContent = STEPS[step] ? `${step + 1} · ${STEPS[step].you ? "You ask, the agent shows" : "Agent shows the next part"}` : "Done";
 }
 document.getElementById("bNext").onclick = next;
-document.getElementById("bClick").onclick = () => { while (trail.length < 2) next(); goStop(0); };
 document.getElementById("bClear").onclick = () => {
   log += `\n<span class="g">&gt;</span> thanks, close those\n`;
   for (let i = 0; i < tabsOpen.length; i++) log += `
@@ -376,7 +334,6 @@ const params = new URLSearchParams(location.search);
 if (params.has("picture")) document.body.classList.add("picture");
 if (params.has("light")) document.getElementById("bTheme").click();
 for (let i = 0; i < +(params.get("step") || 0); i++) next();
-if (params.has("pick")) goStop(+params.get("pick") - 1);
 if (params.has("clear")) document.getElementById("bClear").click();
 </script>
 </body>
