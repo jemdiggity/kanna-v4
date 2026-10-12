@@ -65,23 +65,28 @@ impl Entry {
         })
     }
 
-    /// The agent's command line. A new claude task gets `session` as its ID, so Move to Backlog can resume it;
-    /// a claude task back from the backlog resumes its session, or the folder's latest one if Kanna didn't start it.
     fn command(&self, session: Option<&str>) -> String {
-        let agent = in_its_terminal(&unprompted(&self.agent));
-        let first = |agent: String| match &self.message {
-            Some(message) => format!("{agent} {}", quote(message)),
-            None => agent,
+        let command = in_its_terminal(&unprompted(&self.agent));
+        let agent = agent(&self.agent);
+        let first = |command: String| match (&self.message, agent.and_then(|a| a.prompt)) {
+            (Some(message), Some(flag)) => format!("{command} {flag} {}", quote(message)),
+            (Some(message), None) => format!("{command} {}", quote(message)),
+            (None, _) => command,
         };
-        if program(&self.agent) != "claude" {
-            return first(agent);
+        let Some(agent) = agent else { return first(command) };
+        match (&self.session, &self.folder, session.zip(agent.named), agent.latest) {
+            (Some(resume), _, _, _) => format!("{command} {} {}", agent.resume, quote(resume)),
+            (None, Some(_), _, Some(latest)) => format!("{command} {latest}"),
+            (None, None, Some((new, flag)), _) => first(format!("{command} {flag} {new}")),
+            _ => first(command),
         }
-        match (&self.session, &self.folder, session) {
-            (Some(resume), _, _) => format!("{agent} --resume {}", quote(resume)),
-            (None, Some(_), _) => format!("{agent} --continue"),
-            (None, None, Some(new)) => first(format!("{agent} --session-id {new}")),
-            (None, None, None) => first(agent),
+    }
+
+    fn resumable(mut self) -> Entry {
+        if let (None, Some(folder), Some(find)) = (&self.session, &self.folder, agent(&self.agent).and_then(|a| a.find)) {
+            self.session = find(Path::new(folder));
         }
+        self
     }
 }
 
@@ -143,16 +148,81 @@ fn program(agent: &str) -> &str {
     first.rsplit('/').next().unwrap_or(first)
 }
 
-const UNPROMPTED: &[(&str, &str)] = &[("claude", "--dangerously-skip-permissions"), ("codex", "--yolo")];
+struct Agent {
+    names: &'static [&'static str],
+    unprompted: Option<&'static str>,
+    prompt: Option<&'static str>,
+    named: Option<&'static str>,
+    resume: &'static str,
+    latest: Option<&'static str>,
+    find: Option<fn(&Path) -> Option<String>>,
+}
+
+const AGENTS: &[Agent] = &[
+    Agent { names: &["claude"], unprompted: Some("--dangerously-skip-permissions"), prompt: None, named: Some("--session-id"), resume: "--resume", latest: Some("--continue"), find: None },
+    Agent { names: &["codex"], unprompted: Some("--yolo"), prompt: None, named: None, resume: "resume", latest: Some("resume --last"), find: None },
+    Agent { names: &["copilot"], unprompted: None, prompt: Some("-i"), named: Some("--session-id"), resume: "--session-id", latest: None, find: Some(copilot_session) },
+    Agent { names: &["opencode"], unprompted: None, prompt: Some("--prompt"), named: None, resume: "--session", latest: None, find: Some(opencode_session) },
+    Agent { names: &["agy", "antigravity"], unprompted: None, prompt: Some("-i"), named: None, resume: "--conversation", latest: Some("--continue"), find: None },
+];
+
+fn agent(command: &str) -> Option<&'static Agent> {
+    let program = program(command);
+    AGENTS.iter().find(|a| a.names.contains(&program))
+}
+
+fn same_folder(a: &Path, b: &Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+}
+
+fn home() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_default())
+}
+
+fn copilot_session(folder: &Path) -> Option<String> {
+    let state = std::env::var_os("COPILOT_HOME").map_or_else(|| home().join(".copilot"), PathBuf::from).join("session-state");
+    latest_copilot_session(&state, folder)
+}
+
+fn latest_copilot_session(state: &Path, folder: &Path) -> Option<String> {
+    let field = |text: &str, key: &str| text.lines().find_map(|l| l.strip_prefix(key)).map(|v| v.trim().trim_matches(|c| c == '"' || c == '\'').to_string());
+    let mut sessions: Vec<(String, String)> = fs::read_dir(state)
+        .ok()?
+        .flatten()
+        .filter_map(|dir| {
+            let file = dir.path().join("workspace.yaml");
+            let text = fs::metadata(&file).ok().filter(|m| m.len() <= 64 << 10).and_then(|_| fs::read_to_string(&file).ok())?;
+            let cwd = field(&text, "cwd:")?;
+            same_folder(Path::new(&cwd), folder).then_some(())?;
+            Some((field(&text, "updated_at:").unwrap_or_default(), field(&text, "id:")?))
+        })
+        .collect();
+    sessions.sort();
+    sessions.pop().map(|(_, id)| id)
+}
+
+fn opencode_session(folder: &Path) -> Option<String> {
+    let data = std::env::var_os("XDG_DATA_HOME").filter(|d| !d.is_empty()).map_or_else(|| home().join(".local/share"), PathBuf::from);
+    latest_opencode_session(&data.join("opencode/opencode.db"), folder)
+}
+
+fn latest_opencode_session(db: &Path, folder: &Path) -> Option<String> {
+    if !db.is_file() {
+        return None;
+    }
+    let query = "select id, directory from session where parent_id is null and time_archived is null order by time_updated desc limit 1000";
+    let out = Command::new("/usr/bin/sqlite3").arg("-readonly").arg("-json").arg(db).arg(query).output().ok().filter(|o| o.status.success())?;
+    let rows = serde_json::from_slice::<Value>(&out.stdout).ok()?;
+    rows.as_array()?.iter().find(|row| string(row, "directory").is_some_and(|dir| same_folder(Path::new(dir), folder))).and_then(|row| string(row, "id")).map(String::from)
+}
 
 const ASKING: &[&str] = &["--dangerously-skip-permissions", "--yolo", "--permission-mode", "--ask-for-approval", "-a"];
 
 fn unprompted(agent: &str) -> String {
     let agent = agent.trim();
-    let program = program(agent);
     let chooses = agent.split_whitespace().skip(1).any(|w| ASKING.contains(&w.split('=').next().unwrap_or(w)));
-    match UNPROMPTED.iter().find(|(name, _)| *name == program) {
-        Some((_, flag)) if !chooses => format!("{agent} {flag}"),
+    match self::agent(agent).and_then(|a| a.unprompted) {
+        Some(flag) if !chooses => format!("{agent} {flag}"),
         _ => agent.to_string(),
     }
 }
@@ -463,7 +533,7 @@ impl Backlog {
             let id = entry.id.clone();
             return match entry.held.clone().filter(|pane| core.pane(pane).is_some()) {
                 Some(pane) if alive(&core, &pane) => responder.reply(Err(running(&id))),
-                Some(pane) => self.revive(&pane.clone(), Some(entry.command(None)), move |result| responder.reply(result.map(|_| started_here(&id, &pane, "backlog")))),
+                Some(pane) => self.revive(&pane.clone(), Some(entry.resumable().command(None)), move |result| responder.reply(result.map(|_| started_here(&id, &pane, "backlog")))),
                 None => self.prepare(Entry { held: None, ..entry }, None, true, responder),
             };
         }
@@ -479,7 +549,7 @@ impl Backlog {
             }
             let entry = this.running.borrow().iter().find(|(p, _)| *p == pane).map(|(_, e)| e.clone());
             let id = pane.clone();
-            this.revive(&pane, entry.map(|e| e.command(None)), move |result| responder.reply(result.map(|_| started_here(&id, &id, "shelf"))));
+            this.revive(&pane, entry.map(|e| e.resumable().command(None)), move |result| responder.reply(result.map(|_| started_here(&id, &id, "shelf"))));
         });
     }
 
@@ -564,7 +634,7 @@ impl Backlog {
         if let Some(folder) = entry.folder.clone() {
             if Path::new(&folder).is_dir() {
                 let branch = git(Path::new(&folder), &["branch", "--show-current"]).unwrap_or_default();
-                return self.launch(Starting { entry, window, backlog, responder }, folder, branch);
+                return self.launch(Starting { entry: entry.resumable(), window, backlog, responder }, folder, branch);
             }
             (entry.folder, entry.session) = (None, None);
         }
@@ -635,7 +705,7 @@ impl Backlog {
         let Some(core) = self.core.upgrade() else { return starting.responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
         let Starting { entry, window, backlog, responder } = starting;
         let name = entry.name.clone().filter(|n| core.pane(n).is_none());
-        let session = (program(&entry.agent) == "claude" && entry.folder.is_none()).then(uuid).and_then(Result::ok);
+        let session = (agent(&entry.agent).is_some_and(|a| a.named.is_some()) && entry.folder.is_none()).then(uuid).and_then(Result::ok);
         let place = if backlog { "backlog" } else { "shelf" };
         let mut args = json!({ "type": "term", "dock": "left", place: true, "cwd": folder, "cmd": entry.command(session.as_deref()), "wait": false });
         if let Some(name) = &name {
@@ -680,6 +750,7 @@ impl Backlog {
                 return this.started(pane, entry, branch, window, &weak, responder);
             }
             let again = Rc::downgrade(&this);
+            let entry = entry.resumable();
             this.revive(&pane.clone(), Some(entry.command(None)), move |result| {
                 let Some(this) = again.upgrade() else { return };
                 match result {
@@ -746,8 +817,82 @@ mod tests {
         assert_eq!(entry.command(None), "/bin/claude --dangerously-skip-permissions --continue", "a task Kanna didn't start resumes the folder's latest session");
         entry.session = Some(id.clone());
         assert_eq!(entry.command(None), format!("/bin/claude --dangerously-skip-permissions --resume '{id}'"));
-        entry.agent = "codex".into();
-        assert_eq!(entry.command(None), "codex --yolo --no-daemon 'go'", "only claude resumes for now");
+    }
+
+    fn started(agent: &str) -> Entry {
+        Entry { id: "t1".into(), name: None, message: Some("go".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: agent.into(), folder: None, session: None, held: None }
+    }
+
+    #[test]
+    fn a_codex_task_resumes_the_latest_session_in_its_worktree() {
+        let mut entry = started("codex");
+        assert_eq!(entry.command(Some("u")), "codex --yolo --no-daemon 'go'", "codex can't be given a session ID");
+        entry.folder = Some("/r/.kanna-worktrees/task-1".into());
+        assert_eq!(entry.command(None), "codex --yolo --no-daemon resume --last");
+        entry.session = Some("019f".into());
+        assert_eq!(entry.command(None), "codex --yolo --no-daemon resume '019f'");
+    }
+
+    #[test]
+    fn a_copilot_task_gets_a_session_and_resumes_it() {
+        let mut entry = started("copilot");
+        let id = uuid().unwrap();
+        assert_eq!(entry.command(Some(&id)), format!("copilot --session-id {id} -i 'go'"));
+        entry.folder = Some("/r/.kanna-worktrees/task-1".into());
+        assert_eq!(entry.command(None), "copilot -i 'go'", "copilot's --continue isn't the folder's: without a session it starts again");
+        entry.session = Some(id.clone());
+        assert_eq!(entry.command(None), format!("copilot --session-id '{id}'"));
+    }
+
+    #[test]
+    fn an_opencode_task_resumes_the_session_found_for_its_worktree() {
+        let mut entry = started("opencode");
+        assert_eq!(entry.command(Some("u")), "opencode --prompt 'go'");
+        entry.folder = Some("/r/.kanna-worktrees/task-1".into());
+        assert_eq!(entry.command(None), "opencode --prompt 'go'");
+        entry.session = Some("ses_1".into());
+        assert_eq!(entry.command(None), "opencode --session 'ses_1'");
+    }
+
+    #[test]
+    fn an_antigravity_task_continues_its_worktree_s_conversation() {
+        let mut entry = started("/usr/local/bin/agy");
+        assert_eq!(entry.command(Some("u")), "/usr/local/bin/agy -i 'go'");
+        entry.folder = Some("/r/.kanna-worktrees/task-1".into());
+        assert_eq!(entry.command(None), "/usr/local/bin/agy --continue");
+        entry.session = Some("c1".into());
+        assert_eq!(entry.command(None), "/usr/local/bin/agy --conversation 'c1'");
+    }
+
+    #[test]
+    fn an_agent_kanna_doesn_t_know_starts_again_with_its_first_message() {
+        let mut entry = started("aider");
+        entry.folder = Some("/r/.kanna-worktrees/task-1".into());
+        assert_eq!(entry.command(Some("u")), "aider 'go'");
+    }
+
+    #[test]
+    fn copilot_and_opencode_sessions_are_found_by_worktree() {
+        let dir = std::env::temp_dir().join(format!("kanna-sessions-{}", std::process::id()));
+        let (here, there) = (dir.join("here"), dir.join("there"));
+        for (id, cwd, at) in [("old", &here, "2026-01-01T00:00:00Z"), ("new", &here, "2026-02-01T00:00:00Z"), ("other", &there, "2026-03-01T00:00:00Z")] {
+            fs::create_dir_all(dir.join("state").join(id)).unwrap();
+            fs::write(dir.join("state").join(id).join("workspace.yaml"), format!("id: {id}\ncwd: {}\nupdated_at: {at}\n", cwd.display())).unwrap();
+        }
+        fs::create_dir_all(&here).unwrap();
+        assert_eq!(latest_copilot_session(&dir.join("state"), &here), Some("new".into()));
+        assert_eq!(latest_copilot_session(&dir.join("state"), &dir.join("nowhere")), None);
+        let db = dir.join("opencode.db");
+        let setup = format!(
+            "create table session (id text, parent_id text, directory text, time_updated integer, time_archived integer); insert into session values ('ses_old', null, '{h}', 1, null), ('ses_new', null, '{h}', 2, null), ('ses_child', 'ses_new', '{h}', 3, null), ('ses_other', null, '{t}', 4, null);",
+            h = here.display(),
+            t = there.display()
+        );
+        assert!(Command::new("/usr/bin/sqlite3").arg(&db).arg(setup).status().unwrap().success());
+        assert_eq!(latest_opencode_session(&db, &here), Some("ses_new".into()));
+        assert_eq!(latest_opencode_session(&db, &dir.join("nowhere")), None);
+        assert_eq!(latest_opencode_session(&dir.join("missing.db"), &here), None);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

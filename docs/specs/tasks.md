@@ -76,14 +76,29 @@ stateDiagram-v2
 
 ## 5. Stop, Done, or back to the backlog
 
-- **Stop ends a task's agent and tabs and leaves it where it is** (`kanna task stop`): on the Shelf, a Desk or in the backlog. Its agent's pane stays, exited, and its worktree and branch stay. Starting it again (`kanna task start`) runs its agent in that pane: a claude agent resumes its conversation. A stopped task still takes its place on the Shelf.
+- **Stop ends a task's agent and tabs and leaves it where it is** (`kanna task stop`): on the Shelf, a Desk or in the backlog. Its agent's pane stays, exited, and its worktree and branch stay. Starting it again (`kanna task start`) runs its agent in that pane, resuming its conversation ([which agents resume](#which-agents-resume)). A stopped task still takes its place on the Shelf.
 
 - **Done ends the task:** its agent and tabs close, or it leaves the backlog.
 - **The worktree and branch stay.** Cleaning them up is yours for now.
 - **Move to Backlog puts a task back** (Task menu, or `kanna task defer`), freeing its place on the Shelf: it leaves its Desk or the Shelf and waits in the backlog again, under its old ID if Kanna started it.
 - **It stays as it is there,** running or stopped. A running agent carries on with whatever it was doing, and its tabs stay as they were.
 - **Moving it to the Shelf again brings it back as it is:** the same agent and tabs, with no restart (a stopped one starts).
-- **If its agent's pane closed meanwhile,** starting it opens a new agent in its worktree (a new worktree only if that's gone too), and a claude agent comes back to its conversation: Kanna starts claude with a session ID of its own (`claude --session-id UUID`), keeps it with the task, and resumes it (`claude --resume UUID`). A claude task Kanna didn't start resumes the folder's latest conversation (`claude --continue`). Other agents start again with the first message, their conversation lost, until they resume too ([open questions](#8-open-questions)).
+- **If its agent's pane closed meanwhile,** starting it opens a new agent in its worktree (a new worktree only if that's gone too), and the agent comes back to its conversation.
+
+### Which agents resume
+
+Kanna gives an agent a session ID of its own when it starts, if the agent takes one, and keeps it with the task; otherwise it resumes the latest session in the task's worktree, through the agent's own flag where that flag is the folder's, or by reading the agent's records by folder. Each task has its own worktree, so the folder's latest session is the task's.
+
+| Agent | Started with | Resumed with | A task Kanna didn't start |
+|---|---|---|---|
+| claude | `claude --session-id UUID 'FIRST'` | `claude --resume UUID` | `claude --continue` (the folder's latest) |
+| codex | `codex --yolo 'FIRST'` (it takes no ID) | `codex --yolo resume --last` (the folder's latest: codex filters by folder) | the same |
+| copilot | `copilot --session-id UUID -i 'FIRST'` | `copilot --session-id UUID` | the latest session in `~/.copilot/session-state/*/workspace.yaml` whose `cwd` is the folder (`copilot --continue` isn't the folder's) |
+| opencode | `opencode --prompt 'FIRST'` (it takes no ID) | `opencode --session ID`, the latest top-level session in `~/.local/share/opencode/opencode.db` whose `directory` is the folder (`--continue` is the repo's, shared by its worktrees) | the same |
+| antigravity | `agy -i 'FIRST'` (it takes no ID) | `agy --continue` (the folder's last conversation) | the same |
+
+An agent not in the table starts again with its first message, its conversation lost; so do copilot and opencode when no session of theirs is found for the folder. Copilot, opencode and antigravity take the first message as a flag (`-i`, `--prompt`), not an argument.
+
 - **Done on a backlog task that's still running** ends its agent and tabs too.
 
 ## 6. CLI
@@ -121,7 +136,8 @@ flowchart TB
 - **Only a task's agent docks.** `kanna move PANE --dock` moves the docked pane to the other edge or another window, and refuses any other pane (`not_a_task`), so a task starts only by starting one and the limit holds.
 - **A task running in the backlog is parked, not closed:** starting a backlog task opens its agent docked straight into the backlog, outside the limit, and a task moved there keeps its window. The layout keeps that window (agent docked, tabs) with the Shelf's, marked as in the backlog and saved with the rest, so its panes keep running and survive a relaunch; the Shelf, the limit and `pull` skip it. Its backlog entry names its agent's pane, and moving it to the Shelf clears the mark.
 - **Moving a task to the Shelf** checks the limit, runs `git worktree add` if it has no worktree, opens the agent docked straight onto the Shelf in that folder with the first message (or releases its window from the backlog, starting a stopped agent), names the pane, and drops the backlog entry.
-- **Stopping** closes the task's tabs and hangs up its agent's terminal (SIGHUP to its process group), keeping the pane exited, saved with the rest. **Starting a stopped task** restarts that pane with the command that resumes it (`claude --resume UUID` for a task Kanna started), so it keeps its ID and place.
+- **Stopping** closes the task's tabs and hangs up its agent's terminal (SIGHUP to its process group), keeping the pane exited, saved with the rest. **Starting a stopped task** restarts that pane with the command that resumes it ([which agents resume](#which-agents-resume)), so it keeps its ID and place.
+- **One table per agent** in the daemon (`AGENTS` in `backlog.rs`) says how to start it without asking permission, how to pass the first message, how to name a new session, how to resume one, how to resume the folder's latest, and where to find its sessions by folder. The lookup runs when a task starts again, not before: while the agent runs, its session may not be written yet.
 - **An ID is never handed out twice.** A new task's ID is saved as it's made, so a restart can't reuse one. IDs name backlog entries only; worktrees and branches get their own random names, so a lost `backlog.json` or another Kanna on the same repo can't collide with them.
 - **A task's agent doesn't ask permission.** Starting one adds the agent's own flag for that (`claude --dangerously-skip-permissions`, `codex --yolo`) unless its command already says how to ask (`--permission-mode`, `--ask-for-approval`/`-a`). The task works in its own worktree, and you watch it on the Desk. The backlog keeps the command as written.
 - **A Codex task runs in its own terminal:** starting one adds `--no-daemon`, so Codex runs its session itself rather than in its shared background server, which runs every session's commands and hooks with the environment of whichever terminal started it. With the flag, Codex's commands and hooks get the task's `$KANNA_PANE` and `$KANNA_SOCKET`, as Claude's do.
@@ -129,7 +145,7 @@ flowchart TB
 ## 8. Open questions
 
 1. **Task IDs that travel:** backlog IDs (`t4`) are this machine's; sending tasks elsewhere will want IDs that don't clash.
-2. **Resuming every agent:** only claude comes back to its conversation when its agent's pane closed in the backlog; codex and the others need their own session IDs and resume (backlog task t15).
+2. **Codex, opencode and antigravity take no session ID up front:** they resume the folder's latest session, which is the task's while each task has its own worktree. If one starts to take an ID, it moves to the ID like claude and copilot.
 
 ## 9. Glossary
 
