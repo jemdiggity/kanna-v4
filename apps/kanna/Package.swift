@@ -18,6 +18,8 @@ let package = Package(
         .target(name: "KannaMarkdown", dependencies: ["KannaDocs", "KannaDiagram", .product(name: "Markdown", package: "swift-markdown")],
                 linkerSettings: ["AppKit"].map { .linkedFramework($0) }),
         .testTarget(name: "KannaMarkdownTests", dependencies: ["KannaMarkdown"]),
+        .target(name: "KannaCode", linkerSettings: ["AppKit"].map { .linkedFramework($0) }),
+        .testTarget(name: "KannaCodeTests", dependencies: ["KannaCode"]),
         .target(name: "KannaLinks"),
         .target(name: "KannaDrop"),
         .target(name: "KannaStatus"),
@@ -27,7 +29,7 @@ let package = Package(
         .target(name: "SimBridge", linkerSettings: ["AppKit", "IOSurface", "QuartzCore"].map { .linkedFramework($0) }),
         .executableTarget(
             name: "Kanna",
-            dependencies: ["GhosttyKit", "KannaLayoutC", "KannaDiagram", "KannaDocs", "KannaMarkdown", "KannaLinks", "KannaDrop", "KannaStatus", "SimBridge"],
+            dependencies: ["GhosttyKit", "KannaLayoutC", "KannaDiagram", "KannaDocs", "KannaMarkdown", "KannaCode", "KannaLinks", "KannaDrop", "KannaStatus", "SimBridge"],
             linkerSettings: [.linkedLibrary("c++"), .unsafeFlags(["-L", rustLibraries])]
                 + ["AppKit", "Carbon", "CoreText", "IOSurface", "Metal", "QuartzCore", "UniformTypeIdentifiers", "WebKit"].map { .linkedFramework($0) }
         ),

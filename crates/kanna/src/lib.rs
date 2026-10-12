@@ -574,6 +574,12 @@ mod tests {
             ("kanna move agent --tab", json!({ "pane": "agent", "tab": "new" })),
             ("kanna move agent --tab t3", json!({ "pane": "agent", "tab": "t3" })),
             ("kanna move agent --tab --window w2", json!({ "pane": "agent", "tab": "new", "window": "w2" })),
+            ("kanna open code /tmp/a.rs:42", json!({ "type": "code", "path": "/tmp/a.rs", "line": 42 })),
+            ("kanna open code /tmp/a.rs", json!({ "type": "code", "path": "/tmp/a.rs" })),
+            ("kanna open code /tmp/a.rs:x", json!({ "type": "code", "path": "/tmp/a.rs:x" })),
+            ("kanna navigate src /etc/hosts:3", json!({ "pane": "src", "path": "/etc/hosts", "line": 3 })),
+            ("kanna navigate src /etc/hosts", json!({ "pane": "src", "path": "/etc/hosts" })),
+            ("kanna navigate site localhost:5173", json!({ "pane": "site", "url": "localhost:5173" })),
         ];
         for (line, expected) in cases {
             let (_, request) = parse(line).unwrap_or_else(|f| panic!("{line}: {}", f.message));

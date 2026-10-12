@@ -17,7 +17,17 @@ use serde_json::{json, Value};
 
 const KANNA_ONLY: &[&str] = &["read", "status", "markup", "rename-pane", "task"];
 
-const EXTENDED: &[(&str, &str)] = &[("open", "notes"), ("send", "notes"), ("list", "notes"), ("move", "notes")];
+const EXTENDED: &[(&str, &str)] = &[
+    ("open", "notes"),
+    ("open", "usage"),
+    ("open", "examples"),
+    ("navigate", "usage"),
+    ("send", "notes"),
+    ("list", "notes"),
+    ("move", "notes"),
+];
+
+const CODE_PANES: &[(&str, &str)] = &[("open", "summary"), ("navigate", "summary")];
 
 fn from_kmux(text: &str) -> String {
     text.replace("kmux", "kanna")
@@ -25,6 +35,10 @@ fn from_kmux(text: &str) -> String {
 
 fn from_kanna(text: &str) -> String {
     text.replace("Kanna.app", "kanna").replace("Kanna", "kanna")
+}
+
+fn without_code_panes(text: &str) -> String {
+    text.replace("\n       kanna open code FILE[:LINE] [same placement options]", "").replace("\n       kanna navigate PANE FILE[:LINE]", "")
 }
 
 fn words(line: &str) -> Vec<String> {
@@ -100,12 +114,15 @@ fn every_command_is_documented_as_kmux_documents_it() {
             ("usage", theirs.usage.to_string(), ours.usage.to_string()),
             ("notes", theirs.notes.to_string(), ours.notes.to_string()),
             ("options", format!("{:?}", theirs.options), format!("{:?}", ours.options)),
-            ("examples", format!("{:?}", theirs.examples), format!("{:?}", ours.examples)),
+            ("examples", format!("{:?}", theirs.examples), format!("{:?}", &ours.examples[..ours.examples.len().min(theirs.examples.len())])),
         ];
         for (field, kmux, kanna) in fields {
             let (kmux, kanna) = (from_kmux(&kmux), from_kanna(&kanna));
-            if EXTENDED.contains(&(theirs.name, field)) {
-                assert!(kanna.starts_with(&kmux) && kanna.len() > kmux.len(), "{} {field}: kanna should add to kmux's\nkmux:  {kmux}\nkanna: {kanna}", theirs.name);
+            if CODE_PANES.contains(&(theirs.name, field)) {
+                assert!(kanna.contains("code pane"), "{} {field}: kanna's names code panes\nkanna: {kanna}", theirs.name);
+            } else if EXTENDED.contains(&(theirs.name, field)) {
+                let added = if field == "examples" { ours.examples.len() > theirs.examples.len() } else { kanna.len() > kmux.len() };
+                assert!(kanna.starts_with(&kmux) && added, "{} {field}: kanna should add to kmux's\nkmux:  {kmux}\nkanna: {kanna}", theirs.name);
             } else {
                 assert_eq!(kanna, kmux, "{} {field}", theirs.name);
             }
@@ -170,7 +187,6 @@ fn usage_errors_are_kmux_errors() {
     for line in [
         "kmux close",
         "kmux zoom",
-        "kmux open top",
         "kmux open web",
         "kmux move logs",
         "kmux zoom a b",
@@ -203,8 +219,16 @@ fn usage_errors_are_kmux_errors() {
         let kmux = kmux_parse(line).expect_err(line);
         let kanna = kanna_parse(line).expect_err(line);
         assert_eq!(kanna.0, kmux.0, "{line}");
-        assert_eq!(from_kanna(&kanna.1), from_kmux(&kmux.1), "{line}");
+        assert_eq!(without_code_panes(&from_kanna(&kanna.1)), from_kmux(&kmux.1), "{line}");
     }
+}
+
+#[test]
+fn an_unknown_pane_type_lists_code_panes_too() {
+    let kmux = kmux_parse("kmux open top").expect_err("kmux");
+    let kanna = kanna_parse("kmux open top").expect_err("kanna");
+    assert_eq!(kanna.0, kmux.0);
+    assert_eq!(without_code_panes(&from_kanna(&kanna.1)), from_kmux(&kmux.1).replace("ios or md", "ios, md or code"));
 }
 
 #[test]

@@ -21,8 +21,8 @@ pub static COMMANDS: &[Command] = &[
     Command {
         name: "open",
         group: "Panes",
-        summary: "Open a terminal, web, iOS or markdown pane and wait until it is running.",
-        usage: "kanna open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]\n       kanna open web URL [--history] [same placement options]\n       kanna open md FILE [same placement options]\n       kanna open ios --app APP [--device DEVICE] [same placement options]",
+        summary: "Open a terminal, web, iOS, markdown or code pane and wait until it is running.",
+        usage: "kanna open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]\n       kanna open web URL [--history] [same placement options]\n       kanna open md FILE [same placement options]\n       kanna open ios --app APP [--device DEVICE] [same placement options]\n       kanna open code FILE[:LINE] [same placement options]",
         options: &[
             ("--cmd CMD", "Shell command line to run in your login shell, e.g. \"npm run dev\". Put it in single quotes if it uses $VARS or ;, so your own shell leaves it alone. Default: an interactive shell."),
             ("--cwd DIR", "Working directory."),
@@ -47,6 +47,7 @@ pub static COMMANDS: &[Command] = &[
             ("kanna open ios --name phone --app build/MyApp.app --split right --size 1/3", "Run your app in the simulator, in the right third."),
             ("kanna open md docs/spec.md --name spec --split right", "Show a markdown file (with mermaid diagrams) beside this pane; it reloads when the file changes."),
             ("kanna open --name agent --cmd claude --dock", "Dock an agent on the window's left edge; it stays while you switch tabs."),
+            ("kanna open code src/main.rs:42", "Show a source file, highlighted, at line 42; it follows the file on disk."),
         ],
         parse: parse_open,
         show: output::opened,
@@ -348,8 +349,8 @@ pub static COMMANDS: &[Command] = &[
     Command {
         name: "navigate",
         group: "Panes",
-        summary: "Point a web pane at a new URL (or go back or forward), or a markdown pane at another file.",
-        usage: "kanna navigate PANE URL\n       kanna navigate PANE --back|--forward\n       kanna navigate PANE FILE.md",
+        summary: "Point a web pane at a new URL (or go back or forward), a markdown pane at another file, or a code pane at another file or line.",
+        usage: "kanna navigate PANE URL\n       kanna navigate PANE --back|--forward\n       kanna navigate PANE FILE.md\n       kanna navigate PANE FILE[:LINE]",
         options: &[
             ("--back", "Go back a page: in a markdown pane, or a web pane opened with `open web URL --history`."),
             ("--forward", "Go forward a page (after --back)."),
@@ -367,6 +368,14 @@ pub static COMMANDS: &[Command] = &[
                 (true, false, None) => Ok(json!({ "pane": pane, "back": true })),
                 (false, true, None) => Ok(json!({ "pane": pane, "forward": true })),
                 (false, false, Some(target)) if is_markdown(&target) => Ok(json!({ "pane": pane, "path": absolute(&target) })),
+                (false, false, Some(target)) if is_source(&target) => {
+                    let (file, line) = file_line(&target);
+                    let mut out = json!({ "pane": pane, "path": absolute(&file) });
+                    if let Some(line) = line {
+                        out["line"] = json!(line);
+                    }
+                    Ok(out)
+                }
                 (false, false, Some(url)) => Ok(json!({ "pane": pane, "url": url })),
                 (false, false, None) => Err(usage("navigate", "missing URL (or --back / --forward)")),
                 _ => Err(usage("navigate", "give one of URL, --back or --forward")),
@@ -631,6 +640,23 @@ fn is_markdown(target: &str) -> bool {
     [".md", ".markdown", ".mdown"].iter().any(|ext| lower.ends_with(ext)) && !lower.contains("://")
 }
 
+pub fn file_line(target: &str) -> (String, Option<u64>) {
+    if !std::path::Path::new(&absolute(target)).exists() {
+        if let Some((file, line)) = target.rsplit_once(':') {
+            if let Ok(line) = line.parse::<u64>() {
+                if line > 0 && !file.is_empty() {
+                    return (file.into(), Some(line));
+                }
+            }
+        }
+    }
+    (target.into(), None)
+}
+
+fn is_source(target: &str) -> bool {
+    !target.contains("://") && std::path::Path::new(&absolute(&file_line(target).0)).is_file()
+}
+
 fn local_page(target: &str) -> Option<String> {
     if target.contains("://") {
         return None;
@@ -704,12 +730,12 @@ fn parse_open(args: &mut Argv) -> Result<Value, Failure> {
     let history = args.flag("--history");
     let kind = match args.positional() {
         None => "term".to_string(),
-        Some(kind) if ["term", "web", "ios", "md"].contains(&kind.as_str()) => kind,
+        Some(kind) if ["term", "web", "ios", "md", "code"].contains(&kind.as_str()) => kind,
         Some(other) if is_markdown(&other) => {
             return Err(usage("open", &format!("to show a markdown file use: kanna open md {other}")));
         }
         Some(other) => {
-            return Err(usage("open", &format!("unknown pane type \"{other}\" (term, web, ios or md). To run a command use --cmd \"{other}\"")));
+            return Err(usage("open", &format!("unknown pane type \"{other}\" (term, web, ios, md or code). To run a command use --cmd \"{other}\"")));
         }
     };
     if kind == "web" {
@@ -719,6 +745,14 @@ fn parse_open(args: &mut Argv) -> Result<Value, Failure> {
     if kind == "md" {
         let file = args.positional().ok_or_else(|| usage("open", "markdown panes need a file: kanna open md FILE"))?;
         out.insert("path".into(), json!(absolute(&file)));
+    }
+    if kind == "code" {
+        let file = args.positional().ok_or_else(|| usage("open", "code panes need a file: kanna open code FILE[:LINE]"))?;
+        let (file, line) = file_line(&file);
+        out.insert("path".into(), json!(absolute(&file)));
+        if let Some(line) = line {
+            out.insert("line".into(), json!(line));
+        }
     }
     if kind == "ios" && !out.contains_key("app") {
         return Err(usage("open", "iOS panes need an app: kanna open ios --app MyApp.app (or a bundle ID)"));

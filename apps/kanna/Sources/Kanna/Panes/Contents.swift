@@ -1,4 +1,5 @@
 import AppKit
+import KannaCode
 import KannaMarkdown
 
 @MainActor
@@ -55,7 +56,8 @@ final class Contents {
     func web(_ id: String) -> WebPaneView? { slots[id]?.content as? WebPaneView }
     func ios(_ id: String) -> IosPaneView? { slots[id]?.content as? IosPaneView }
     func markdown(_ id: String) -> MarkdownPaneView? { slots[id]?.content as? MarkdownPaneView }
-    func keyView(_ id: String) -> NSView? { web(id)?.webView ?? ios(id) ?? markdown(id)?.keyView }
+    func code(_ id: String) -> CodePaneView? { slots[id]?.content as? CodePaneView }
+    func keyView(_ id: String) -> NSView? { web(id)?.webView ?? ios(id) ?? markdown(id)?.keyView ?? code(id)?.keyView }
 
     private func send(_ text: String, to agent: String, done: @escaping (String?) -> Void) {
         guard let onCall else { return done("not connected to the daemon") }
@@ -102,6 +104,12 @@ final class Contents {
                 markdown.onOpenMarkdown = { [weak self] target in self?.onRequest?("navigate", ["pane": .string(id), "path": .string(target)]) }
                 content = markdown
             }
+        case "code":
+            let code = CodePaneView(path: Self.absolute(pane["path"]?.string ?? ""), line: pane["line"]?.number.map { Int($0) })
+            code.onFocus = { [weak self] in self?.onFocus?(id) }
+            code.contextMenu = { [weak self] in self?.contextMenu?() }
+            failure = code.failure?.message
+            content = code
         case "web":
             let web = WebPaneView(url: pane["url"]?.string ?? "about:blank", markup: pane["markup"]?.bool == true)
             web.onFocus = { [weak self] in self?.onFocus?(id) }
@@ -160,6 +168,7 @@ final class Contents {
         guard let slot = slots[id], let content = slot.content else { return }
         (content as? WebPaneView)?.stop()
         (content as? IosPaneView)?.stop()
+        (content as? CodePaneView)?.stop()
         if let markdown = content as? MarkdownPaneView {
             markdown.stop()
             markdownZoom[id] = markdown.zoom

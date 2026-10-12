@@ -8,10 +8,11 @@ pub enum PaneType {
     Web,
     Ios,
     Md,
+    Code,
 }
 
 impl PaneType {
-    pub const ALL: [PaneType; 4] = [PaneType::Term, PaneType::Web, PaneType::Ios, PaneType::Md];
+    pub const ALL: [PaneType; 5] = [PaneType::Term, PaneType::Web, PaneType::Ios, PaneType::Md, PaneType::Code];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -19,6 +20,7 @@ impl PaneType {
             PaneType::Web => "web",
             PaneType::Ios => "ios",
             PaneType::Md => "md",
+            PaneType::Code => "code",
         }
     }
 
@@ -71,6 +73,7 @@ pub struct Pane {
     pub app: Option<String>,
     pub device: Option<String>,
     pub path: Option<String>,
+    pub line: Option<u64>,
     pub agent: Option<String>,
     pub markup: bool,
     pub history: Option<History>,
@@ -96,6 +99,7 @@ impl Pane {
             app: None,
             device: None,
             path: None,
+            line: None,
             agent: None,
             markup: false,
             history: None,
@@ -154,6 +158,12 @@ impl Pane {
                 out.insert("agent".into(), opt(self.agent.as_deref()));
                 if self.markup {
                     out.insert("markup".into(), Value::Bool(true));
+                }
+            }
+            PaneType::Code => {
+                out.insert("path".into(), opt(self.path.as_deref()));
+                if let Some(line) = self.line {
+                    out.insert("line".into(), num(line as f64));
                 }
             }
         }

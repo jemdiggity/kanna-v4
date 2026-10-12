@@ -54,6 +54,13 @@ pub fn pane_record(pane: &Pane) -> Map {
                 out.insert("agent".into(), Value::String(agent.clone()));
             }
         }
+        PaneType::Code => {
+            out.insert("path".into(), opt(pane.path.as_deref()));
+            if let Some(line) = pane.line {
+                out.insert("line".into(), num(line as f64));
+            }
+            out.insert("zoom".into(), num(pane.zoom.unwrap_or(1.0)));
+        }
         PaneType::Ios => {
             out.insert("app".into(), opt(pane.app.as_deref()));
             out.insert("device".into(), opt(pane.device.as_deref()));
@@ -88,6 +95,12 @@ pub fn read_record(item: &Value, id: &str, kind: PaneType) -> Pane {
             pane.zoom = item.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0);
             pane.agent = field("agent");
             pane.markup = is_true(item, "markup");
+            pane.history = Some(History::default());
+        }
+        PaneType::Code => {
+            pane.path = field("path");
+            pane.line = item.get("line").and_then(Value::as_u64).filter(|l| *l > 0);
+            pane.zoom = item.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0);
             pane.history = Some(History::default());
         }
         PaneType::Ios => {
@@ -134,7 +147,7 @@ pub(crate) fn import_panes(state: &Value) -> Result<(Vec<Pane>, usize), KmuxErro
         }
         let needed = match kind {
             PaneType::Web => Some("url"),
-            PaneType::Md => Some("path"),
+            PaneType::Md | PaneType::Code => Some("path"),
             PaneType::Ios => Some("app"),
             PaneType::Term => None,
         };

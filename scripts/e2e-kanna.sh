@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S48) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S49) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-8]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -1551,6 +1551,28 @@ S48() {
   check shows side "SIDE-READY" || { echo "S48: the side terminal lost its screen"; return 1; }
 }
 
+S49() {
+  start_daemon && start_app || return 1
+  local file="$KANNA_STATE_DIR/s48.rs"
+  for i in $(seq 120); do echo "let line_$i = $i;"; done >"$file"
+  code() { raw "{\"id\":1,\"cmd\":\"debug.code\",\"args\":{\"pane\":\"$1\"}}" | field "$2"; }
+  kanna open code --name src "$file:80" >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(code src current)" == 80 ]]' || return 1
+  check eval '(( $(code src top) > 50 && $(code src top) < 80 ))' || { echo "top $(code src top)"; return 1; }
+  check is src line 80 || return 1
+  echo 'let s48_edit = 1;' >>"$file"
+  check wait_for 5 eval 'code src text | grep -q s48_edit' || return 1
+  kanna navigate src "$file:10" >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(code src current)" == 10 ]]' || return 1
+  kanna navigate src --back >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(code src current)" == 80 ]]' || return 1
+  [[ "$(kanna open code "$KANNA_STATE_DIR/gone.rs" 2>&1)" == *"No such file: $KANNA_STATE_DIR/gone.rs"* ]] || { echo "S49: a missing file"; return 1; }
+  [[ "$(kanna open code "$KANNA_STATE_DIR" 2>&1)" == *"is a folder, not a file"* ]] || { echo "S49: a folder"; return 1; }
+  stop_app; start_app || return 1
+  check wait_for 5 eval '[[ "$(code src current)" == 80 ]]' || return 1
+  check eval 'code src text | grep -q s48_edit' || return 1
+}
+
 S42() {
   SHELL=/bin/bash PATH="$bin:$PATH" start_daemon && start_app || return 1
   kanna open --name s42 >/dev/null || return 1
@@ -1562,9 +1584,9 @@ S42() {
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-8]) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

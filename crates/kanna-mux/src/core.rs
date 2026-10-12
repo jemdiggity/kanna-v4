@@ -493,9 +493,16 @@ impl CoreHandle {
         if kind == PaneType::Md && empty("path") {
             return Err(bad_request("markdown panes need a path"));
         }
-        if args.get("path").is_some() && kind != PaneType::Md {
-            return Err(bad_request("path is only for markdown panes"));
+        if kind == PaneType::Code && empty("path") {
+            return Err(bad_request("code panes need a path"));
         }
+        if args.get("path").is_some() && !matches!(kind, PaneType::Md | PaneType::Code) {
+            return Err(bad_request("path is only for markdown and code panes"));
+        }
+        if args.get("line").is_some() && kind != PaneType::Code {
+            return Err(bad_request("line is only for code panes"));
+        }
+        let line = line_arg(args)?;
         if args.get("agent").is_some() && !matches!(kind, PaneType::Md | PaneType::Web) {
             return Err(bad_request("agent is only for markdown and web panes"));
         }
@@ -566,9 +573,10 @@ impl CoreHandle {
             pane.app = field("app");
             pane.device = field("device");
             pane.path = field("path");
+            pane.line = line;
             pane.agent = agent.clone();
             pane.markup = is_true(args, "markup");
-            if (kind == PaneType::Web && is_true(args, "history")) || kind == PaneType::Md {
+            if (kind == PaneType::Web && is_true(args, "history")) || matches!(kind, PaneType::Md | PaneType::Code) {
                 pane.history = Some(Default::default());
             }
         }
@@ -741,30 +749,36 @@ impl CoreHandle {
             None
         };
         let mut changed = pane.clone();
-        if pane.kind == PaneType::Md {
+        if matches!(pane.kind, PaneType::Md | PaneType::Code) {
+            let code = pane.kind == PaneType::Code;
+            if !code && args.get("line").is_some() {
+                return Err(bad_request("line is only for code panes"));
+            }
             let mut history = pane.history.clone().unwrap_or_default();
-            let current = pane.path.clone().unwrap_or_default();
-            let path = if let Some(step) = step {
-                let path = if step == "back" { history.back.pop() } else { history.forward.pop() };
-                let path = path.ok_or_else(|| bad_request(format!("nothing to go {step} to")))?;
+            let current = spot(pane.path.as_deref().unwrap_or_default(), pane.line);
+            let target = if let Some(step) = step {
+                let target = if step == "back" { history.back.pop() } else { history.forward.pop() };
+                let target = target.ok_or_else(|| bad_request(format!("nothing to go {step} to")))?;
                 if step == "back" { history.forward.push(current) } else { history.back.push(current) }
-                path
+                target
             } else {
                 let path = string(args, "path").filter(|p| !p.is_empty()).ok_or_else(|| bad_request("missing path"))?;
-                let target = resolve(path, &current);
+                let target = spot(&resolve(path, pane.path.as_deref().unwrap_or_default()), line_arg(args)?);
                 if target != current {
                     history.back.push(current);
                     history.forward.clear();
                 }
                 target
             };
+            let (path, line) = if code { unspot(&target) } else { (target, None) };
             changed.history = Some(history);
             changed.path = Some(path);
+            changed.line = line;
         } else {
             if pane.kind != PaneType::Web {
                 return Err(KmuxError::new(
                     "wrong_type",
-                    format!("{} is a {} pane; navigate only works on web and markdown panes", pane.label(), pane.kind.as_str()),
+                    format!("{} is a {} pane; navigate only works on web, markdown and code panes", pane.label(), pane.kind.as_str()),
                 ));
             }
             if let Some(step) = step {
@@ -777,13 +791,18 @@ impl CoreHandle {
                 changed.history = Some(history);
                 changed.url = Some(url);
             } else {
-                let url = string(args, "url").filter(|u| !u.is_empty()).ok_or_else(|| bad_request("missing url"))?;
-                moved(&mut changed, normalize_url(url));
+                let url = match (string(args, "url").filter(|u| !u.is_empty()), string(args, "path").filter(|p| p.starts_with('/'))) {
+                    (Some(url), _) => normalize_url(url),
+                    (None, Some(path)) => format!("file://{path}"),
+                    (None, None) => return Err(bad_request("missing url")),
+                };
+                moved(&mut changed, url);
             }
         }
         if let Some(pane) = self.state().panes.get_mut(&pane.id) {
             pane.history = changed.history;
             pane.path = changed.path;
+            pane.line = changed.line;
             pane.url = changed.url;
         }
         let snapshot = self.reload(&pane.id, false).await;
@@ -899,6 +918,33 @@ pub fn normalize_url(url: &str) -> String {
         rest[end..].starts_with("://")
     };
     if scheme { url.into() } else { format!("http://{url}") }
+}
+
+fn line_arg(args: &Value) -> Result<Option<u64>, KmuxError> {
+    match args.get("line") {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => match value.as_f64() {
+            Some(n) if n >= 1.0 && n.fract() == 0.0 => Ok(Some(n as u64)),
+            _ => Err(bad_request("line must be a whole number above 0")),
+        },
+    }
+}
+
+fn spot(path: &str, line: Option<u64>) -> String {
+    match line {
+        Some(line) => format!("{path}:{line}"),
+        None => path.into(),
+    }
+}
+
+fn unspot(spot: &str) -> (String, Option<u64>) {
+    match spot.rsplit_once(':') {
+        Some((path, line)) if !path.is_empty() => match line.parse::<u64>() {
+            Ok(n) if n > 0 => (path.into(), Some(n)),
+            _ => (spot.into(), None),
+        },
+        _ => (spot.into(), None),
+    }
 }
 
 pub fn resolve(link: &str, file: &str) -> String {

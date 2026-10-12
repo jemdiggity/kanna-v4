@@ -181,6 +181,14 @@ extension AppController {
                     "active": markdown.activeThread.map { .string($0) } ?? .null, "agent": markdown.agent.map { .string($0) } ?? .null,
                     "markup": .bool(markdown.markup)]
         }
+        commands["debug.code"] = { [weak self] args in
+            guard let self, let id = args["pane"]?.string, let code = contents.code(id) else { throw KannaError("wrong_type", "not a running code pane") }
+            if let line = args["reveal"]?.number { code.reveal(line: Int(line)) }
+            var out: [String: JSON] = code.debugNumbers.mapValues { .number($0) }
+            out["text"] = .string(code.file.text)
+            out["path"] = .string(code.path)
+            return out
+        }
         commands["debug.ios"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let screen = contents.ios(id)?.screen else { throw KannaError("wrong_type", "not a running ios pane") }
             if let x = args["x"]?.number, let y = args["y"]?.number {

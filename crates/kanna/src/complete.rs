@@ -45,6 +45,7 @@ const TYPES: &[(&str, &str)] = &[
     ("web", "A web page, or a local HTML file."),
     ("md", "A markdown file."),
     ("ios", "An app in the iOS simulator."),
+    ("code", "A source file, highlighted."),
 ];
 
 pub fn wants(words: &[String]) -> Vec<Want> {
@@ -303,6 +304,7 @@ fn refine(form: &[&'static str], slot: &'static str) -> &'static str {
     match (form.first().copied(), slot) {
         (Some("md"), "FILE") => "FILE.md",
         (Some("web"), "URL") => "FILE.html",
+        (_, slot) if slot.starts_with("FILE[") => "FILE",
         _ => slot,
     }
 }
@@ -382,6 +384,10 @@ fn describe(pane: &Value) -> String {
     let what = match kind {
         "web" => pane["url"].as_str().map(|u| if u.starts_with("file:") { file(u) } else { u.split('?').next().unwrap_or(u).to_string() }),
         "md" => pane["path"].as_str().map(file),
+        "code" => pane["path"].as_str().map(|path| match pane["line"].as_u64() {
+            Some(line) => format!("{}:{line}", file(path)),
+            None => file(path),
+        }),
         "ios" => pane["app"].as_str().map(String::from),
         _ => Some(pane["cmd"].as_str().map(short).unwrap_or_else(|| "shell".into())),
     };
@@ -489,7 +495,8 @@ mod tests {
 
     #[test]
     fn open_completes_the_pane_type_then_its_file() {
-        assert_eq!(words(&at("open ")), ["term", "web", "md", "ios"]);
+        assert_eq!(words(&at("open ")), ["term", "web", "md", "ios", "code"]);
+        assert_eq!(at("open code "), [Want::Files(&[])]);
         assert_eq!(at("open md "), [Want::Files(MARKDOWN)]);
         assert_eq!(at("open md --name x "), [Want::Files(MARKDOWN)]);
         assert!(words(&at("open md notes.md ")).contains(&"--split".into()));
@@ -523,7 +530,7 @@ mod tests {
         assert_eq!(words(&at("move p1 --side ")), ["left", "right", "top", "bottom", "swap"]);
         assert_eq!(at("rename-tab "), [Want::Tabs]);
         assert_eq!(at("navigate "), [Want::Panes]);
-        assert_eq!(at("navigate p1 "), [Want::Files(MARKDOWN)]);
+        assert_eq!(at("navigate p1 "), [Want::Files(MARKDOWN), Want::Files(&[])]);
         assert_eq!(at("markup ")[1..], [Want::Files(MARKDOWN), Want::Files(HTML), Want::Panes]);
         assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(HTML)], &[String::new()], &|_| None), [":files md markdown mdown html htm"]);
         assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(&[])], &[String::new()], &|_| None), [":files"]);
@@ -541,7 +548,7 @@ mod tests {
         let after = at("move p1 --tab ");
         assert!(after.contains(&Want::Tabs), "{after:?}");
         assert!(words(&after).contains(&"new".into()), "{after:?}");
-        assert_eq!(words(&at("open --dock ")), ["left", "right", "term", "web", "md", "ios"]);
+        assert_eq!(words(&at("open --dock ")), ["left", "right", "term", "web", "md", "ios", "code"]);
         assert_eq!(at("open --dock left md "), [Want::Files(MARKDOWN)]);
     }
 
