@@ -1,6 +1,6 @@
 [
   {
-    "name": "focus and zoom; focusing another pane in the tab moves the zoom to it, focusing another tab's pane cancels it",
+    "name": "zoom is the window's mode: the focused pane is zoomed wherever focus goes, tabs included, until zoom turns it off",
     "steps": [
       { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
@@ -11,14 +11,29 @@
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": "a" } ] } },
       { "send": { "cmd": "focus", "args": { "pane": "b" } } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "b", "zoomed": "b" } ] } },
+      { "send": { "cmd": "focus", "args": { "tab": "t2" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "c", "zoomed": "c", "tabs": [ { "active": false }, { "active": true } ] } ] } },
       { "send": { "cmd": "focus", "args": { "pane": "a" } } },
-      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": "a" } ] } },
-      { "send": { "cmd": "focus", "args": { "pane": "c" } } },
-      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "c", "zoomed": null, "tabs": [ { "active": false }, { "active": true } ] } ] } },
-      { "send": { "cmd": "focus", "args": { "pane": "b" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": "a", "tabs": [ { "active": true }, { "active": false } ] } ] } },
       { "send": { "cmd": "zoom", "args": { "pane": "b" } }, "expect": { "zoomed": true } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "b", "zoomed": "b" } ] } },
       { "send": { "cmd": "zoom", "args": { "pane": "b" } }, "expect": { "zoomed": false } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "b", "zoomed": null } ] } }
+    ]
+  },
+  {
+    "name": "zoom stays on as panes open, close and move: the pane focused after each is zoomed",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "zoom", "args": { "pane": "a" } }, "expect": { "zoomed": true } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "b", "zoomed": "b" } ] } },
+      { "send": { "cmd": "close", "args": { "pane": "b" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": "a" } ] } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "tab": true } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "c", "zoomed": "c" } ] } },
+      { "send": { "cmd": "move", "args": { "pane": "c", "window": "new" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "focused": "a", "zoomed": "a" }, { "id": "w2", "zoomed": null } ] } }
     ]
   },
   {

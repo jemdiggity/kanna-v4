@@ -171,7 +171,6 @@ public final class Core {
         if (type == .web && args["history"] == true) || type == .md { pane.history = History() }
         if let dock {
             model.dock(pane.id, in: window, edge: dock)
-            window.zoomed = nil
         } else {
             place(pane.id, in: window, split: split, size: size, newTab: args["tab"]?.bool ?? false)
             window.activeTab?.lastFocus = pane.id
@@ -196,7 +195,6 @@ public final class Core {
 
     func place(_ paneID: String, in window: Window, split: String, size: Double, newTab: Bool) {
         let tab = newTab || window.tabs.isEmpty ? model.makeTab(in: window) : window.activeTab!
-        window.zoomed = nil
         guard tab.root != nil else {
             tab.root = .pane(paneID)
             return
@@ -259,7 +257,6 @@ public final class Core {
             }
             let ids = Model.paneIDs(tab.root)
             window.active = tab.id
-            window.zoomed = nil
             window.focused = tab.lastFocus.flatMap { ids.contains($0) ? $0 : nil } ?? ids.first
             model.key = window.id
         } else if args["window"] != nil {
@@ -273,12 +270,10 @@ public final class Core {
 
     func focusPane(_ pane: Pane) {
         guard let window = model.window(containing: pane.id) else { return }
-        let carriesZoom = window.zoomed != nil && window.shownPanes.contains(pane.id)
         if let location = model.locate(pane.id) {
             window.active = location.tab.id
             location.tab.lastFocus = pane.id
         }
-        window.zoomed = carriesZoom ? pane.id : nil
         window.focused = pane.id
         model.key = window.id
     }
@@ -298,9 +293,9 @@ public final class Core {
         guard let window = model.window(containing: pane.id) else { throw KmuxError("not_found", "no pane \"\(pane.id)\"") }
         let was = window.zoomed == pane.id
         focusPane(pane)
-        window.zoomed = was ? nil : pane.id
+        window.zoom = !was
         onChange()
-        return ["zoomed": .bool(window.zoomed != nil)]
+        return ["zoomed": .bool(window.zoom)]
     }
 
     private func restart(_ args: JSON) async throws -> [String: JSON] {

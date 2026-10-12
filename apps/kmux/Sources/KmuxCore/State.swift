@@ -194,7 +194,10 @@ extension Core {
             let shown = window.shownPanes
             let focused = item["focused"]?.string
             window.focused = focused.flatMap { shown.contains($0) ? $0 : nil } ?? window.activeTab?.lastFocus ?? Model.paneIDs(window.activeTab?.root).first ?? window.dock?.pane
-            window.zoomed = item["zoomed"]?.string.flatMap { shown.contains($0) ? $0 : nil }
+            if let zoomed = item["zoomed"]?.string, shown.contains(zoomed) {
+                window.zoom = true
+                window.focused = zoomed
+            }
             window.tabCount = max(whole(item["tabCount"]) ?? 0, window.tabs.count)
             windows.append(window)
             counters.window = max(counters.window, n)

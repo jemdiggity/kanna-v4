@@ -12,7 +12,7 @@ const hooks = {
 
 // ---------------------------------------------------------------------------
 // State
-// window := { id, tabs, active, focused, zoomed, dock, x, y, w, h, z }
+// window := { id, tabs, active, focused, zoom, dock, x, y, w, h, z }
 // tab    := { id, root, title, lastFocus }   (title: "Tab 1", "Tab 2"… per window until renamed)
 // node   := { t: 'pane', id } | { t: 'split', dir: 'row'|'column', kids: [{ node, size }] }
 // dock   := null | { pane, edge: 'left'|'right', width }   (the window's docked pane, outside its tabs)
@@ -76,7 +76,7 @@ function makeWindow() {
   const k = keyWin();
   let geo = k ? { x: k.x + 32, y: k.y + 32, w: k.w, h: k.h } : { x: 24, y: 18, w: W - 48, h: H - 36 };
   if (geo.x + geo.w > W || geo.y + geo.h > H) geo = { x: 24, y: 18, w: Math.min(geo.w, W - 48), h: Math.min(geo.h, H - 36) };
-  const w = { id: 'w' + (++S.n.win), tabs: [], tabCount: 0, active: null, focused: null, zoomed: null, dock: null, ...geo, z: ++S.n.z };
+  const w = { id: 'w' + (++S.n.win), tabs: [], tabCount: 0, active: null, focused: null, zoom: false, dock: null, ...geo, z: ++S.n.z };
   S.windows.push(w);
   S.key = w.id;
   return w;
@@ -102,7 +102,6 @@ function dropEmpty() {
     if (!w.tabs.some(t => t.id === w.active)) w.active = w.tabs[Math.min(at, w.tabs.length - 1)]?.id ?? null;
     const ids = shownIds(w);
     if (!ids.includes(w.focused)) w.focused = ids.includes(activeTabOf(w)?.lastFocus) ? activeTabOf(w).lastFocus : paneIds(activeTabOf(w)?.root)[0] ?? w.dock?.pane ?? null;
-    if (w.zoomed && !ids.includes(w.zoomed)) w.zoomed = null;
   }
   S.windows = S.windows.filter(w => w.tabs.length || w.dock);
   if (!keyWin()) S.key = [...S.windows].sort((a, b) => b.z - a.z)[0]?.id ?? null;
@@ -154,7 +153,6 @@ function detach(id) {
     f.parent.kids.forEach(k => { k.size = gone < 1 ? k.size / (1 - gone) : 1 / n; });
     f.tab.root = normalize(f.tab.root);
   }
-  if (f.win.zoomed === id) f.win.zoomed = null;
 }
 function toTree(node, size) {
   if (!node) return null;
@@ -182,7 +180,6 @@ const label = p => p.name ? `${p.name} (${p.id})` : p.id;
 function place(paneId, w, { split = 'auto', size = 0.5, tab = false }) {
   const node = { t: 'pane', id: paneId };
   const t = tab || !w.tabs.length ? makeTab(w) : activeTabOf(w);
-  w.zoomed = null;
   if (!t.root) { t.root = node; return; }
   const ids = paneIds(t.root);
   const target = ids.includes(w.focused) ? w.focused : ids[ids.length - 1];
@@ -376,7 +373,7 @@ function exportState() {
     kmux: 'state', version: STATE_VERSION, key: S.key,
     counters: { pane: S.n.pane, tab: S.n.tab, window: S.n.win },
     windows: S.windows.map(w => ({
-      id: w.id, frame: { x: w.x, y: w.y, w: w.w, h: w.h }, active: w.active, focused: w.focused, zoomed: w.zoomed, tabCount: w.tabCount,
+      id: w.id, frame: { x: w.x, y: w.y, w: w.w, h: w.h }, active: w.active, focused: w.focused, zoomed: zoomedOf(w), tabCount: w.tabCount,
       ...(w.dock ? { dock: { ...w.dock } } : {}),
       tabs: w.tabs.map(t => ({ id: t.id, title: t.title, lastFocus: t.lastFocus, layout: exportNode(t.root) })),
     })),
@@ -439,7 +436,7 @@ function importState(st) {
     winIds.add(sw.id);
     const f = isObj(sw.frame) ? sw.frame : {};
     const geo = ['x', 'y', 'w', 'h'].every(k => Number.isFinite(f[k])) && f.w > 0 && f.h > 0 ? { x: f.x, y: f.y, w: f.w, h: f.h } : { x: 24, y: 18, w: 600, h: 400 };
-    const w = { id: sw.id, tabs: [], tabCount: 0, active: str(sw.active), focused: str(sw.focused), zoomed: str(sw.zoomed), dock: null, ...geo, z: ++N.n.z };
+    const w = { id: sw.id, tabs: [], tabCount: 0, active: str(sw.active), focused: str(sw.focused), zoom: false, dock: null, ...geo, z: ++N.n.z };
     for (const stab of sw.tabs) {
       if (!isObj(stab) || !/^t[1-9]\d*$/.test(stab.id ?? '') || tabIds.has(stab.id)) throw bad(`tab ${JSON.stringify(stab?.id ?? null)}`);
       tabIds.add(stab.id);
@@ -460,7 +457,7 @@ function importState(st) {
     if (!w.tabs.some(t => t.id === w.active)) w.active = w.tabs[0]?.id ?? null;
     const shown = shownIds(w);
     if (!shown.includes(w.focused)) w.focused = shown.includes(activeTabOf(w)?.lastFocus) ? activeTabOf(w).lastFocus : paneIds(activeTabOf(w)?.root)[0] ?? w.dock?.pane ?? null;
-    if (!shown.includes(w.zoomed)) w.zoomed = null;
+    if (shown.includes(str(sw.zoomed))) { w.zoom = true; w.focused = str(sw.zoomed); }
     w.tabCount = Math.max(Number.isInteger(sw.tabCount) ? sw.tabCount : 0, w.tabs.length);
     N.windows.push(w);
     N.n.win = Math.max(N.n.win, num(w.id, 'w'));
@@ -487,11 +484,11 @@ function restoreState(st) {
 // ---------------------------------------------------------------------------
 // kmux core: handles control-protocol requests (see docs/kmux-spec.md §7)
 // ---------------------------------------------------------------------------
+function zoomedOf(w) { return w.zoom ? w.focused : null; }
+
 function focusPane(p) {
   const f = findPane(p.id);
-  const carriesZoom = !!f.win.zoomed && shownIds(f.win).includes(p.id);
   if (f.tab) { f.win.active = f.tab.id; f.tab.lastFocus = p.id; }
-  f.win.zoomed = carriesZoom ? p.id : null;
   f.win.focused = p.id;
   raise(f.win);
 }
@@ -524,7 +521,7 @@ async function handle(req) {
         if (args.dock != null && (args.split != null || args.size != null || args.tab)) throw kerr('bad_request', 'a docked pane takes no split, size or tab');
         const w = targetWin(args.window);
         const p = createPane(type, args);
-        if (args.dock) { dockPane(p.id, w, args.dock); w.zoomed = null; }
+        if (args.dock) dockPane(p.id, w, args.dock);
         else {
           place(p.id, w, { split: args.split || 'auto', size, tab: !!args.tab });
           findPane(p.id).tab.lastFocus = p.id;
@@ -573,7 +570,6 @@ async function handle(req) {
           nt.title = 'unarranged';
           nt.root = normalize({ t: 'split', dir: 'row', kids: leftovers.map(id => ({ node: { t: 'pane', id }, size: 1 / leftovers.length })) });
         }
-        w.zoomed = null;
         w.active = t.id;
         if (!used.includes(w.focused)) w.focused = used[0];
         raise(w);
@@ -644,7 +640,6 @@ async function handle(req) {
         dest.active = t.id;
         const ids = paneIds(t.root);
         dest.focused = ids.includes(t.lastFocus) ? t.lastFocus : ids[0];
-        dest.zoomed = null;
         raise(dest);
         dropEmpty();
         hooks.render();
@@ -683,7 +678,7 @@ async function handle(req) {
           windows: S.windows.map(w => ({
             id: w.id, key: w.id === S.key,
             focused: w.focused ? S.panes[w.focused].name || w.focused : null,
-            zoomed: w.zoomed ? S.panes[w.zoomed].name || w.zoomed : null,
+            zoomed: zoomedOf(w) ? S.panes[zoomedOf(w)].name || zoomedOf(w) : null,
             ...(w.dock ? { dock: dockView(w) } : {}),
             tabs: w.tabs.map(t => ({ id: t.id, title: tabTitle(t), active: t.id === w.active, layout: toTree(t.root) })),
           })),
@@ -695,7 +690,6 @@ async function handle(req) {
         else if (args.tab) {
           const t = needTab(args.tab), w = winOfTab(t), ids = paneIds(t.root);
           w.active = t.id;
-          w.zoomed = null;
           w.focused = ids.includes(t.lastFocus) ? t.lastFocus : ids[0];
           raise(w);
         } else if (args.window) raise(targetWin(args.window));
@@ -706,12 +700,12 @@ async function handle(req) {
 
       case 'zoom': {
         const p = need(args.pane);
-        const was = findPane(p.id).win.zoomed === p.id;
+        const was = zoomedOf(findPane(p.id).win) === p.id;
         focusPane(p);
         const w = findPane(p.id).win;
-        w.zoomed = was ? null : p.id;
+        w.zoom = !was;
         hooks.render();
-        return ok({ zoomed: !!w.zoomed });
+        return ok({ zoomed: w.zoom });
       }
 
       case 'close': {

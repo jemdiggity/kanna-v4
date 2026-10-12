@@ -77,7 +77,7 @@ public final class Window {
     public var tabs: [Tab] = []
     public var active: String?
     public var focused: String?
-    public var zoomed: String?
+    public var zoom = false
     /// Where the window is on screen, in the host's coordinates; saved with
     /// the layout so a restored window comes back in place.
     public var frame: Frame?
@@ -86,6 +86,8 @@ public final class Window {
     var tabCount = 0
 
     init(id: String) { self.id = id }
+
+    public var zoomed: String? { zoom ? focused : nil }
 
     public var activeTab: Tab? { tabs.first { $0.id == active } ?? tabs.first }
 
@@ -241,7 +243,6 @@ public final class Model {
     func detach(_ id: String) {
         if let window = dockWindow(id) {
             window.dock = nil
-            if window.zoomed == id { window.zoomed = nil }
             return
         }
         guard let location = locate(id) else { return }
@@ -253,7 +254,6 @@ public final class Model {
         } else {
             location.tab.root = nil
         }
-        if location.window.zoomed == id { location.window.zoomed = nil }
     }
 
     /// Puts `node` next to the target pane, taking `size` of the target's space.
@@ -325,7 +325,6 @@ public final class Model {
             } else {
                 window.focused = Self.paneIDs(window.activeTab?.root).first ?? window.dock?.pane
             }
-            if let zoomed = window.zoomed, !ids.contains(zoomed) { window.zoomed = nil }
         }
         windows.removeAll { $0.tabs.isEmpty && $0.dock == nil }
         if keyWindow == nil { key = windows.last?.id }

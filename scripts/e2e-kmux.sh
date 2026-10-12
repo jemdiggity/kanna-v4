@@ -130,7 +130,9 @@ layout="$(field windows.0.tabs.0.layout <<<"$(state)")"
 key "cmd+]"; [[ "$(field windows.0.focused <<<"$(state)")" == k1 ]] || fail "cmd+] should wrap to k1"
 key "cmd+["; [[ "$(field windows.0.focused <<<"$(state)")" == p9 ]] || fail "cmd+[ should wrap back to p9"
 key "cmd+shift+return"; [[ "$(field windows.0.zoomed <<<"$(state)")" == p9 ]] || fail "cmd+shift+return should zoom"
-key "cmd+["; [[ "$(field windows.0.zoomed <<<"$(state)")" == None ]] || fail "moving focus should unzoom"
+key "cmd+["; [[ "$(field windows.0.zoomed <<<"$(state)")" == p8 ]] || fail "cmd+[ should keep zoom on, on p8"
+key "cmd+]"; [[ "$(field windows.0.zoomed <<<"$(state)")" == p9 ]] || fail "cmd+] should keep zoom on, on p9"
+key "cmd+shift+return"; [[ "$(field windows.0.zoomed <<<"$(state)")" == None ]] || fail "cmd+shift+return should turn zoom off"
 sleep 1
 drawn three-panes "*" 3
 key "cmd+t"; [[ "$(field windows.0.tabs <<<"$(state)" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 2 ]] || fail "cmd+t should add a tab"
@@ -219,6 +221,8 @@ key "cmd+]"; [[ "$(win "$dkw" focused)" == '"agent"' ]] || fail "cmd+] should co
 key "cmd+shift+return"
 [[ "$(win "$dkw" zoomed)" == '"agent"' ]] || fail "zoom on the docked pane"
 [[ "$(field panes <<<"$(raw '{"id":1,"cmd":"debug.snapshot"}')" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 1 ]] || fail "a zoomed docked pane should fill the window"
+key "cmd+]"; [[ "$(win "$dkw" zoomed)" == '"dt2"' ]] || fail "cmd+] should keep zoom on, on dt2: $(win "$dkw" zoomed)"
+[[ "$(field panes <<<"$(raw '{"id":1,"cmd":"debug.snapshot"}')" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 1 ]] || fail "a zoomed tab pane should cover the docked pane"
 key "cmd+shift+return"
 "$cli" move agent --dock right >/dev/null
 [[ "$(win "$dkw" dock)" == '{"edge": "right", "pane": "agent", "width": "2/5"}' ]] || fail "move --dock right: $(win "$dkw" dock)"

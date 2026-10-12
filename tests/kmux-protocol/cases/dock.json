@@ -143,7 +143,7 @@
     ]
   },
   {
-    "name": "zoom on the docked pane of a window with no tabs fills the window; a new tab pane or switching tabs cancels it",
+    "name": "zoom on the docked pane of a window with no tabs fills the window, and stays on through a new tab pane and switching tabs",
     "steps": [
       { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } } },
       { "send": { "cmd": "zoom", "args": { "pane": "agent" } }, "expect": { "zoomed": true } },
@@ -152,11 +152,12 @@
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "zoomed": null } ] } },
       { "send": { "cmd": "zoom", "args": { "pane": "agent" } }, "expect": { "zoomed": true } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
-      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": null } ] } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": "a" } ] } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "tab": true } } },
-      { "send": { "cmd": "zoom", "args": { "pane": "agent" } }, "expect": { "zoomed": true } },
+      { "send": { "cmd": "focus", "args": { "pane": "agent" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "zoomed": "agent" } ] } },
       { "send": { "cmd": "focus", "args": { "tab": "t1" } } },
-      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": null, "tabs": [ { "active": true }, { "active": false } ] } ] } }
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": "a", "tabs": [ { "active": true }, { "active": false } ] } ] } }
     ]
   },
   {
