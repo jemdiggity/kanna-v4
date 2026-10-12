@@ -23,10 +23,13 @@ extension AppController {
             main.addItem(item)
             return submenu
         }
-        let app = menu("Kanna", [("New Instance", #selector(newInstance), nil, nil)])
-        if Self.instanceName != "default" { app.insertItem(withTitle: "Instance: \(Self.instanceName)", action: nil, keyEquivalent: "", at: 0) }
-        app.addItem(.separator())
+        let app = menu("Kanna", [])
+        if Self.instanceName != "default" {
+            app.addItem(withTitle: "Instance: \(Self.instanceName)", action: nil, keyEquivalent: "")
+            app.addItem(.separator())
+        }
         app.addItem(withTitle: "Quit \(KannaBuild.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        _ = menu("File", [("New Desk", #selector(newDeskWindow), nil, .cmd("n"))])
         let edit = NSMenu(title: "Edit")
         let editItems: [(String, String, String?, Shortcut)?] = [
             ("Undo", "undo:", nil, .cmd("z")), ("Redo", "redo:", nil, .shiftCmd("z")), nil,
@@ -84,7 +87,6 @@ extension AppController {
             ("Actual Size", #selector(actualSize), "reset_font_size", .cmd("0")),
         ])
         _ = menu("Task", [
-            ("Start a Task", #selector(startTaskHere), nil, nil),
             ("Park", #selector(parkTask), nil, .cmd(".")),
             ("Move to Backlog", #selector(deferTask), nil, nil),
             nil,
@@ -95,7 +97,7 @@ extension AppController {
             ("Pull Shelf Task 3", #selector(pullShelf3), "goto_tab:3", .cmd("3")),
         ])
         let windowMenu = menu("Window", [
-            ("New Window", #selector(newWindow), "new_window", .cmd("n")),
+            ("New Window", #selector(newWindow), nil, nil),
             ("Close Window", #selector(closeWindow), "close_window", .shiftCmd("w")),
             ("Move Tab to New Window", #selector(moveTabToNewWindow), nil, nil),
             nil,
@@ -127,16 +129,7 @@ extension AppController {
         }
     }
 
-    @objc func newInstance() {
-        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("KANNA_") && !$0.key.hasPrefix("KMUX_") }
-        environment["KANNA_SOCKET"] = Self.instanceSocket(Self.unusedInstanceName)
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        configuration.environment = environment
-        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
-            if let error { FileHandle.standardError.write(Data("kanna: could not start a new instance: \(error)\n".utf8)) }
-        }
-    }
+    @objc func newDeskWindow() { newDesk() }
 
     @objc func splitRight() { split("right") }
     @objc func splitDown() { split("down") }
@@ -225,7 +218,6 @@ extension AppController {
             item.title = lastParked == nil ? "Park" : "Unpark"
             return keyWindow?["dock"]?["pane"] != nil || lastParked != nil
         case #selector(deferTask): return keyWindow?["dock"]?["pane"] != nil
-        case #selector(startTaskHere): return keyWindow?["desk"]?.bool == true
         case #selector(pullWaitingTask): return waitingTask != nil
         case #selector(pullShelf1): return shelfPull(1) != nil
         case #selector(pullShelf2): return shelfPull(2) != nil
@@ -340,26 +332,6 @@ extension AppController {
         } else {
             request("close", ["window": .string(id)])
         }
-    }
-
-    func placeNewKey() {
-        let items = (NSApp.mainMenu?.items ?? []).flatMap { $0.submenu?.items ?? [] }
-        guard let start = items.first(where: { $0.action == #selector(startTaskHere) }),
-              let new = items.first(where: { $0.action == #selector(newWindow) }) else { return }
-        let key = new.keyEquivalent.isEmpty ? start.keyEquivalent : new.keyEquivalent
-        let mask = new.keyEquivalent.isEmpty ? start.keyEquivalentModifierMask : new.keyEquivalentModifierMask
-        guard !key.isEmpty else { return }
-        let desk = keyWindow?["desk"]?.bool == true
-        let (holder, other) = desk ? (start, new) : (new, start)
-        guard holder.keyEquivalent != key else { return }
-        other.keyEquivalent = ""
-        holder.keyEquivalent = key
-        holder.keyEquivalentModifierMask = mask
-    }
-
-    @objc func startTaskHere() {
-        guard let window = keyWindow, window["desk"]?.bool == true, let id = window["id"]?.string else { return }
-        startBlankTask(in: id)
     }
 
     @objc func parkTask() {

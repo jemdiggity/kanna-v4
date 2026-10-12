@@ -34,7 +34,7 @@ stateDiagram-v2
     shelf --> [*]: Done
 ```
 
-- **A window with a docked pane is a Desk**; its contents are its task. Make one with `kanna open --dock --cmd claude`, then open tabs. A UI for starting tasks comes later.
+- **A window with a docked pane is a Desk**; its contents are its task. Tasks come from the backlog ([tasks](tasks.md)); File → New Desk (⌘N) opens another Desk window, in `~`, for another project.
 - **Its name** is the docked pane's name, else its terminal's title. **Its folder and branch** are the docked pane's working directory and that folder's git branch, shown, never changed.
 - **Done** closes the task's panes, ending its agent and terminals.
 - **A task belongs to a project**: the git repository its folder is in (else the folder), and a Desk's Shelf shows its project's tasks. Making and naming tasks: [tasks](tasks.md).

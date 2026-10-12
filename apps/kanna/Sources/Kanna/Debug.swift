@@ -128,7 +128,7 @@ extension AppController {
                     "header": controller.agentHeader.isHidden ? .null : .string(controller.agentHeader.text),
                     "backlog": .array(controller.backlog.map { .string($0.id) }), "running": .number(Double(controller.running)),
                     "waiting": .string(controller.shelfStrip.waitingText), "note": .string(controller.note),
-                    "blank": .bool(controller.shelfPage.blankCenter != nil), "planner": controller.plannerShown.map { .string($0) } ?? .null, "window": window(id) ?? .null, "scroll": scrolled]
+                    "planner": controller.plannerShown.map { .string($0) } ?? .null, "window": window(id) ?? .null, "scroll": scrolled]
         }
         commands["debug.web"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let web = contents.web(id) else { throw KannaError("wrong_type", "not a web pane") }
@@ -276,10 +276,6 @@ extension AppController {
             guard controller.shelfPage.visibleBacklog.contains(task) else { throw KannaError("not_found", "\(task) is scrolled out of \(id)'s view") }
             window = controller.window
             point = spot.center
-        } else if let id = args["blank"]?.string {
-            guard let controller = controllers[id], let center = controller.shelfPage.blankCenter else { throw KannaError("not_found", "\(id) shows no Start a task button") }
-            window = controller.window
-            point = center
         } else if let id = args["park"]?.string {
             guard let controller = controllers[id], !controller.agentHeader.isHidden else { throw KannaError("not_found", "\(id) shows no agent header") }
             window = controller.window

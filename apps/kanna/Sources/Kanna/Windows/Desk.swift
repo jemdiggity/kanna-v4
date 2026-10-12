@@ -219,12 +219,8 @@ extension AppController {
         request("backlog", ["action": "start", "task": .string(task)]) { [weak self] reply in self?.noted(window, reply) }
     }
 
-    func startBlankTask(in window: String) {
-        guard let controller = controllers[window] else { return }
-        controller.note = ""
-        let root = controller.projectRoot ?? NSHomeDirectory()
-        let args: [String: JSON] = ["action": "blank", "repo": .string(root), "window": .string(window)]
-        request("backlog", args) { [weak self] reply in self?.noted(window, reply) }
+    func newDesk() {
+        layoutCommand("task", ["action": "desk", "project": .string(NSHomeDirectory())])
     }
 
     func openPlanner(in window: String) {

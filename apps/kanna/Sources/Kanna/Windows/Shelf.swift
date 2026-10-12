@@ -186,9 +186,7 @@ final class ShelfPage: NSView {
     ]
     var onPull: ((String) -> Void)?
     var onStart: ((String) -> Void)?
-    var onBlank: (() -> Void)?
     private var shown: DeskPage?
-    private let blank = NSButton(title: "Start a task  ⌘N", target: nil, action: nil)
     private let scroller = NSScrollView()
     private let document = FlippedView()
 
@@ -209,10 +207,6 @@ final class ShelfPage: NSView {
         scroller.horizontalScrollElasticity = .none
         scroller.documentView = document
         addSubview(scroller)
-        blank.bezelStyle = .rounded
-        blank.controlSize = .regular
-        blank.target = self
-        blank.action = #selector(startBlank)
         paint()
     }
 
@@ -225,8 +219,6 @@ final class ShelfPage: NSView {
 
     private func paint() { layer?.backgroundColor = resolved(.textBackgroundColor) }
 
-    @objc private func startBlank() { onBlank?() }
-
     var rows: [(task: String, center: NSPoint)] {
         document.subviews.compactMap { $0 as? ShelfRow }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
     }
@@ -234,8 +226,6 @@ final class ShelfPage: NSView {
     var backlogRows: [(task: String, center: NSPoint)] {
         document.subviews.compactMap { $0 as? BacklogRow }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
     }
-
-    var blankCenter: NSPoint? { blank.superview == nil || !blank.isEnabled ? nil : blank.convert(NSPoint(x: blank.bounds.midX, y: blank.bounds.midY), to: nil) }
 
     var visibleBacklog: [String] {
         let seen = document.visibleRect
@@ -288,12 +278,7 @@ final class ShelfPage: NSView {
             document.addSubview(row)
             y += row.frame.height
         }
-        blank.isEnabled = !page.full
-        blank.toolTip = page.full ? "Three tasks already run: finish one first" : "A new agent in a worktree of its own; tell it what to do and it names the task"
-        blank.sizeToFit()
-        blank.frame.origin = NSPoint(x: left - 6, y: y + 4)
-        document.addSubview(blank)
-        y += blank.frame.height + 28
+        y += 28
         y = header("Backlog", detail: nil, count: "\(page.backlog.count) waiting", y: y, left: left, width: width)
         if page.backlog.isEmpty {
             let none = label("Empty. Ask the planning agent for tasks.", color: .secondaryLabelColor)

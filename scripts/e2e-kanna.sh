@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S51) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S52) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[01]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-2]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -569,7 +569,9 @@ S11() {
   check test "$(win w1 tabs.1.title)" == web || return 1
   click_tab "$(win w1 tabs.0.id)"; check test "$(win w1 tabs.0.active)" == True || return 1
   click_tab "$tab2"
-  key cmd+n; check test "$(state | field windows | count)" == 2 || return 1
+  raw '{"id":1,"cmd":"debug.menu","args":{"item":"New Window"}}' >/dev/null; sleep 0.3
+  check test "$(state | field windows | count)" == 2 || return 1
+  check test "$(raw '{"id":1,"cmd":"debug.desk","args":{"window":"w2"}}' | field desk)" == False || return 1
   check test "$(win w2 key)" == True || return 1
   sleep 1
   check drawn "$(snap w2 s11-second-window)" 1 || return 1
@@ -581,10 +583,13 @@ S11() {
   for item in "Split Right" "Split Down" "New Web Pane Right" "New Markdown Pane Below…" "Open URL…" "Back" "Forward" "Home" "Next Pane" \
               "Previous Pane" "Zoom" "Move Pane to New Window" "Restart" "Close Pane" "New Tab" "Next Tab" "Previous Tab" "Zoom In" "Zoom Out" \
               "Actual Size" "New Window" "Close Window" "Move Tab to New Window" "Next Window" "Previous Window" "Undo" "Cut" "Copy" "Paste" \
-              "Select All" "New Instance" "Quit $(/usr/libexec/PlistBuddy -c "Print CFBundleName" "${app%/Contents/MacOS/Kanna}/Contents/Info.plist")"; do
+              "Select All" "New Desk" "Quit $(/usr/libexec/PlistBuddy -c "Print CFBundleName" "${app%/Contents/MacOS/Kanna}/Contents/Info.plist")"; do
     [[ "$menus" == *"\"item\":\"$item\""* ]] || { echo "no menu item \"$item\""; return 1; }
   done
   [[ "$menus" == *'"item":"Split Right","menu":"Pane","shortcut":"⌘d"'* ]] || { echo "Split Right isn't ⌘D: $menus"; return 1; }
+  [[ "$menus" == *'"item":"New Desk","menu":"File","shortcut":"⌘n"'* ]] || { echo "New Desk isn't File ⌘N: $menus"; return 1; }
+  [[ "$menus" == *'"item":"New Window","menu":"Window","shortcut":""'* ]] || { echo "New Window has a shortcut: $menus"; return 1; }
+  [[ "$menus" != *'"New Instance"'* && "$menus" != *'"Start a Task"'* ]] || { echo "a removed menu item is back: $menus"; return 1; }
 }
 
 S12() {
@@ -1433,23 +1438,19 @@ S45() {
   check shows "$planner" "planner=1 context=300000" || { echo "S45: the planning terminal lost its scrollback"; return 1; }
   [[ "$(desk header)" == "Planning · "*"${repo#/private} · main" ]] || { desk header; return 1; }
   kanna task start t2 >/dev/null || { echo "S45 line $LINENO"; return 1; }
-  (cd "$repo" && kanna task new "Third") >/dev/null || { echo "S45 line $LINENO"; return 1; }
-  check wait_for 5 eval '[[ "$(desk running)" == 2 && "$(desk blank)" == True ]]' || { desk running; return 1; }
+  (cd "$repo" && kanna task new "Third" && kanna task new "Fourth") >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(desk running)" == 2 && "$(desk backlog)" == "[\"t3\", \"t4\"]" ]]' || { desk running; desk backlog; return 1; }
   key cmd+t; key cmd+d
   check test "$(desk window.tabs)" == "[]" || { echo "S45: the Shelf got a tab"; desk window.tabs; return 1; }
-  key cmd+n
-  check wait_for 10 eval '[[ "$(desk window.dock.pane)" == p* ]]' || { kanna list; return 1; }
-  kanna task park >/dev/null || { echo "S45 line $LINENO"; return 1; }
-  check wait_for 5 eval '[[ "$(desk running)" == 3 && "$(desk blank)" == False ]]' || { desk running; return 1; }
   raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t3","window":"w1"}}' >/dev/null
+  check wait_for 10 eval '[[ "$(desk running)" == 3 && "$(desk backlog)" == "[\"t4\"]" ]]' || { desk running; desk backlog; return 1; }
+  check test "$(desk window.dock)" == None || { echo "S45: starting a backlog task docked it"; return 1; }
+  raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t4","window":"w1"}}' >/dev/null
   check wait_for 5 eval '[[ "$(desk note)" == *"3 tasks running"* ]]' || { desk note; return 1; }
   stop_app; start_app || { echo "S45 line $LINENO"; return 1; }
   check wait_for 10 eval '[[ "$(desk planner)" == "$planner" ]]' || { echo "S45: the planning terminal didn't survive the app's restart"; kanna list; return 1; }
-  local elsewhere="$KANNA_STATE_DIR/elsewhere"
-  mkdir -p "$elsewhere" && git -C "$elsewhere" init -q -b main && git -C "$elsewhere" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || return 1
-  local refused; refused="$(raw "{\"id\":1,\"cmd\":\"backlog\",\"args\":{\"action\":\"blank\",\"repo\":\"$elsewhere\"}}")"
-  [[ "$refused" == *'"ok":false'* && "$refused" == *"cd there first"* ]] || { echo "S45 line $LINENO: $refused"; return 1; }
-  check test ! -e "$elsewhere/.kanna-worktrees" || { echo "S45 line $LINENO"; return 1; }
+  local refused; refused="$(raw "{\"id\":1,\"cmd\":\"backlog\",\"args\":{\"action\":\"blank\",\"repo\":\"$repo\"}}")"
+  [[ "$refused" == *'"ok":false'* && "$refused" == *"backlog needs an action"* ]] || { echo "S45: the backlog still starts blank tasks: $refused"; return 1; }
   key cmd+shift+w
   check wait_for 5 eval '! kanna list --json | grep -q "\"$planner\""' || { echo "S45: closing the window left its planning terminal running"; kanna list; return 1; }
 }
@@ -1642,6 +1643,37 @@ S50() {
   check wait_for 5 eval '[[ "$(code $id comment_first)" == 40 && "$(code $id comment_text)" == "Each step." ]]' || return 1
 }
 
+S52() {
+  local repo="$KANNA_STATE_DIR/repo"
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S52 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  start_daemon && start_app || return 1
+  kanna open --name plain >/dev/null || { echo "S52 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(win w1 key)" == True ]]' || { echo "S52 line $LINENO"; return 1; }
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$2\"}}" | field "$1"; }
+  key cmd+n
+  check wait_for 5 eval '[[ "$(state | field windows | count)" == 2 && "$(win w2 key)" == True ]]' || { echo "S52: ⌘N opened no window"; kanna list; return 1; }
+  check test "$(desk desk w2)" == True || { echo "S52: ⌘N opened a window that isn't a Desk"; return 1; }
+  check test "$(desk window.project w2)" == "$HOME" || { echo "S52: the new Desk isn't on ~"; desk window w2; return 1; }
+  check wait_for 10 eval '[[ "$(desk planner w2)" == p* ]]' || { echo "S52: the new Desk has no planning terminal"; kanna list; return 1; }
+  local planner; planner="$(desk planner w2)"
+  check test "$(desk window.dock w2)" == None || { echo "S52: the new Desk docked something"; return 1; }
+  check test "$(desk window.tabs w2)" == "[]" || { echo "S52: the new Desk has tabs"; return 1; }
+  check wait_for 5 is "$planner" state running || { echo "S52: the planning terminal isn't running"; kanna list; return 1; }
+  check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "S52: the planning terminal isn't in ~"; return 1; }
+  check wait_for 10 shows "$planner" "This terminal is for planning" || { kanna read "$planner"; return 1; }
+  check test "$(kanna task list | grep -c "$planner")" == 0 || { echo "S52: the planning terminal is listed as a task"; return 1; }
+  check test "$(raw '{"id":1,"cmd":"debug.stats"}' | field pid)" == "$app_pid" || { echo "S52: the new Desk is in another instance"; return 1; }
+  kanna send "$planner" "cd '$repo'" >/dev/null || { echo "S52 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk header w2)" == "Planning · "*"${repo#/private} · main" ]]' || { desk header w2; return 1; }
+  (cd "$repo" && KANNA_PANE="$planner" kanna task new "Here") >/dev/null || { echo "S52 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(desk backlog w2)" == "[\"t1\"]" ]]' || { echo "S52: the Shelf didn't follow the planning terminal"; desk backlog w2; return 1; }
+  raw '{"id":1,"cmd":"debug.menu","args":{"item":"New Desk"}}' | grep -q '"ok":true' || { echo "S52: File > New Desk didn't run"; return 1; }
+  check wait_for 5 eval '[[ "$(state | field windows | count)" == 3 && "$(desk desk w3)" == True ]]' || { echo "S52: New Desk opened no Desk"; kanna list; return 1; }
+  check wait_for 10 eval '[[ "$(desk planner w3)" == p* ]]' || { echo "S52 line $LINENO"; return 1; }
+  check test "$(cd "$(pane "$(desk planner w3)" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "S52: the second new Desk isn't in ~"; return 1; }
+}
+
 S42() {
   SHELL=/bin/bash PATH="$bin:$PATH" start_daemon && start_app || return 1
   kanna open --name s42 >/dev/null || return 1
@@ -1682,9 +1714,9 @@ S51() {
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[01]) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-2]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

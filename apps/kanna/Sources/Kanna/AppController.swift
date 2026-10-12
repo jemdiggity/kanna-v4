@@ -59,12 +59,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         return support.appendingPathComponent(KannaBuild.instanceFolder(name)).appendingPathComponent("kanna.sock").path
     }
 
-    static var unusedInstanceName: String {
-        var number = 2
-        while SocketServer.isListening(instanceSocket(String(number))) { number += 1 }
-        return String(number)
-    }
-
     static var appSocketPath: String {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent("kanna/kanna.sock").path
@@ -384,7 +378,6 @@ final class AppController: NSObject, NSApplicationDelegate {
             controller.render(window, panes)
             if wantsPlanner(window) { openPlanner(in: id) }
         }
-        placeNewKey()
         if let key = state["key"]?.string, let controller = controllers[key], !controller.window.isKeyWindow {
             present(controller.window)
         }
@@ -427,7 +420,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         controller.agentHeader.onPark = { [weak self] in self?.layoutCommand("task", ["action": "park", "window": .string(id)]) }
         controller.shelfPage.onPull = { [weak self] task in self?.pullTask(task, into: id) }
         controller.shelfPage.onStart = { [weak self] task in self?.startTask(task, from: id) }
-        controller.shelfPage.onBlank = { [weak self] in self?.startBlankTask(in: id) }
         controller.onBecomeKey = { [weak self, weak controller] in
             guard let self, let controller, let appLayout else { return }
             if controller.window.isKeyWindow, state["key"]?.string != id {
