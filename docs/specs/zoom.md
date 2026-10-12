@@ -1,6 +1,6 @@
 # Zoom
 
-**Status:** proposed: zoom as a window's mode (built today: a zoomed pane that ⌘] and ⌘[ move within its tab) · **Reference:** kmux ([`references/kmux`](../../references/kmux/docs/kmux-spec.md), its §5 and protocol cases `focus.json` and `dock.json`) · **Used by:** [Docked pane](docked-pane.md), [Desk](desk.md)
+**Status:** built (2026-10-12), in kmux and Kanna · **Reference:** kmux ([`references/kmux`](../../references/kmux/docs/kmux-spec.md), its §5 and protocol cases `focus.json` and `dock.json`) · **Used by:** [Docked pane](docked-pane.md), [Desk](desk.md)
 
 **Zoom** is a window's mode. ⇧⌘↩ turns it on and off; while it's on, whichever pane has focus fills the window, and the layout stays as it was underneath. You move around as usual, by pane (⌘] ⌘[) or by tab (⇧⌘] ⇧⌘[), and see one pane at a time.
 
@@ -48,11 +48,11 @@ In a window without a docked pane, the focused pane fills the tab as in kmux.
 
 ## 4. How it's built
 
-- **The core** (kmux's, then `crates/kanna-mux/src/model.rs`) keeps one flag per window, `zoom`, in place of today's zoomed pane per tab and per window. The zoomed pane is the window's focused pane while the flag is on, so nothing has to move a zoom from pane to pane or clear it when panes come and go.
-- **The protocol and state file** keep their `zoomed` field: `list` and `layout.json` show the focused pane while zoom is on, and a saved `zoomed` turns zoom on after a relaunch.
-- **The view** the app draws has the focused pane as the window's whole tree (`root`), or no tree when the focused pane is the docked pane ([kanna spec 4.7](../kanna-spec.md#47-the-layout)).
-- **kmux first.** The mode and the whole-window fill go into kmux (its core, reference model, protocol cases, app and spec), then into Kanna with a subtree pull.
-- **Checked by** kmux's protocol cases, run in kmux and in `kanna-mux`; `kanna-mux` owner tests for the mode and relaunch; and e2e S11 (⌘] ⌘[ and ⇧⌘] ⇧⌘[ with zoom on) and S38 (the docked pane with and without tabs). S38's snapshots are this spec's pictures.
+- **The core** (kmux's `Window.zoom`, then `crates/kanna-mux/src/model.rs`'s) keeps one flag per window. The zoomed pane is the window's focused pane while it's on (`Window::zoomed()`), so nothing moves a zoom from pane to pane or clears it when panes come and go.
+- **The protocol and state file** keep their `zoomed` field: `list` and `layout.json` show the focused pane while zoom is on, and a saved `zoomed` turns zoom on, focused there, after a relaunch.
+- **The view** the app draws has the focused pane as the window's whole tree (`root`), or no tree when it's the docked pane or a Desk's planning terminal, which then fills the window ([kanna spec 4.7](../kanna-spec.md#47-the-layout)).
+- **kmux first.** The mode and the whole-window fill went into kmux (its core, reference model, protocol cases, app, e2e and spec), then into Kanna with a subtree pull.
+- **Checked by** kmux's protocol cases (`focus.json`, `dock.json`), run in kmux, its reference model and `kanna-mux`; the `kanna-mux` owner test for the mode across tabs, a new pane and a relaunch; and e2e S11 (⌘] ⌘[ and ⇧⌘] ⇧⌘[ with zoom on, a new tab's pane shown) and S38 (the docked pane with and without tabs, ⌘] from it into the tabs). S38's snapshots are this spec's pictures.
 
 ## 5. Glossary
 

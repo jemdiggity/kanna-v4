@@ -511,7 +511,7 @@ S11() {
   key "cmd+["; check test "$(win w1 focused)" == p3 || return 1
   key cmd+shift+return; check test "$(win w1 zoomed)" == p3 || return 1
   key cmd+t; check wait_for 5 eval '[[ "$(win w1 tabs.1.layout)" == *p4* ]]' || return 1
-  check test "$(win w1 zoomed)" == None || return 1
+  check test "$(win w1 zoomed)" == p4 || return 1
   key "cmd+shift+["; check test "$(win w1 zoomed)" == p3 || return 1
   kanna close p4 >/dev/null || return 1
   check test "$(win w1 zoomed)" == p3 || return 1
@@ -955,6 +955,12 @@ S38() {
   key cmd+shift+return; check test "$(win w1 zoomed)" == agent || return 1
   shot="$(snap w1 s38-zoomed)"
   check test "$(field panes <<<"$shot" | count)" == 1 || return 1
+  key "cmd+]"; check test "$(win w1 zoomed)" == dt2 || return 1
+  check test "$(field panes <<<"$(snap w1 s38-zoomed-server)" | count)" == 1 || return 1
+  key "cmd+shift+["; check test "$(win w1 zoomed)" == dt1 || return 1
+  check test "$(win w1 tabs.0.active)" == True || return 1
+  key "cmd+shift+]"; check test "$(win w1 zoomed)" == dt2 || return 1
+  key "cmd+["; check test "$(win w1 zoomed)" == agent || return 1
   key cmd+shift+return; check test "$(win w1 zoomed)" == None || return 1
   kanna open --name dt3 --split right --cmd "printf 'GET / 200 4ms\n'; exec sleep 600" >/dev/null || return 1
   check test "$(win w1 focused)" == dt3 || return 1

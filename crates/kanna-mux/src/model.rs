@@ -53,12 +53,11 @@ pub struct Tab {
     pub title: String,
     pub root: Option<Node>,
     pub last_focus: Option<String>,
-    pub zoomed: Option<String>,
 }
 
 impl Tab {
     pub(crate) fn new(id: String, title: String) -> Tab {
-        Tab { id, title, root: None, last_focus: None, zoomed: None }
+        Tab { id, title, root: None, last_focus: None }
     }
 }
 
@@ -94,12 +93,12 @@ pub struct Window {
     pub project: Option<String>,
     /// The window's planning agent: shown docked on the left while no task is, never a task itself.
     pub planner: Option<Dock>,
-    pub dock_zoomed: Option<String>,
+    pub zoom: bool,
 }
 
 impl Window {
     pub(crate) fn new(id: String) -> Window {
-        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, project: None, planner: None, dock_zoomed: None }
+        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, project: None, planner: None, zoom: false }
     }
 
     pub fn shown_panes(&self) -> Vec<String> {
@@ -130,32 +129,10 @@ impl Window {
             let last = self.active_tab().and_then(|t| t.last_focus.clone()).filter(|l| ids.contains(l));
             self.focused = last.or_else(|| ids.first().cloned()).or_else(|| self.side_pane());
         }
-        if self.zoomed().is_some_and(|z| !shown.contains(z)) {
-            self.set_zoomed(None);
-        }
     }
 
     pub fn zoomed(&self) -> Option<&String> {
-        match self.dock.as_ref() {
-            Some(dock) if self.dock_zoomed.as_ref() == Some(&dock.pane) => Some(&dock.pane),
-            _ => self.active_tab().and_then(|t| t.zoomed.as_ref()),
-        }
-    }
-
-    fn set_zoomed(&mut self, pane: Option<String>) {
-        self.dock_zoomed = pane.clone().filter(|p| self.docks(p));
-        if let Some(t) = self.active_index() {
-            self.tabs[t].zoomed = pane.filter(|p| !self.docks(p));
-        }
-    }
-
-    fn unzoom(&mut self, pane: &str) {
-        if self.dock_zoomed.as_deref() == Some(pane) {
-            self.dock_zoomed = None;
-        }
-        for tab in self.tabs.iter_mut().filter(|t| t.zoomed.as_deref() == Some(pane)) {
-            tab.zoomed = None;
-        }
+        self.focused.as_ref().filter(|_| self.zoom)
     }
 
     fn active_index(&self) -> Option<usize> {
@@ -471,7 +448,6 @@ impl Model {
         if let Some(w) = self.dock_window(id) {
             let window = &mut self.windows[w];
             window.dock = None;
-            window.unzoom(id);
             return;
         }
         let Some(location) = self.locate(id) else { return };
@@ -488,7 +464,6 @@ impl Model {
         } else {
             tab.root = None;
         }
-        window.unzoom(id);
     }
 
     fn insert(&mut self, node: Node, beside: &str, (w, t): (usize, usize), axis: Axis, after: bool, size: f64) {
@@ -608,15 +583,9 @@ impl Model {
         let location = self.locate(id);
         let Some(w) = location.as_ref().map(|l| l.window).or_else(|| self.dock_window(id)).or_else(|| self.planner_window(id)) else { return };
         let window = &mut self.windows[w];
-        let carries_zoom = window.zoomed().is_some() && window.shown_panes().iter().any(|p| p == id);
         if let Some(location) = location {
             window.active = Some(window.tabs[location.tab].id.clone());
             window.tabs[location.tab].last_focus = Some(id.into());
-        }
-        if carries_zoom {
-            window.set_zoomed(Some(id.into()));
-        } else if window.zoomed().is_some_and(|z| z != id) {
-            window.set_zoomed(None);
         }
         window.focused = Some(id.into());
         self.key = Some(window.id.clone());
@@ -655,8 +624,7 @@ impl Model {
             let window = &mut self.windows[w];
             let ids = pane_ids(window.tabs[t].root.as_ref());
             window.active = Some(window.tabs[t].id.clone());
-            window.dock_zoomed = None;
-            window.focused = window.zoomed().cloned().or_else(|| window.tabs[t].last_focus.clone().filter(|l| ids.contains(l))).or_else(|| ids.first().cloned());
+            window.focused = window.tabs[t].last_focus.clone().filter(|l| ids.contains(l)).or_else(|| ids.first().cloned());
             self.key = Some(window.id.clone());
         } else if args.get("window").is_some() {
             let w = self.target_window(string(args, "window"))?;
@@ -673,8 +641,8 @@ impl Model {
         let was = self.windows[w].zoomed() == Some(&id);
         self.focus_pane(&id);
         let window = &mut self.windows[w];
-        window.set_zoomed(if was { None } else { Some(id) });
-        Ok(reply([("zoomed", Value::Bool(window.zoomed().is_some()))]))
+        window.zoom = !was;
+        Ok(reply([("zoomed", Value::Bool(window.zoom))]))
     }
 
     fn rename_tab(&mut self, args: &Value) -> Result<Map, KmuxError> {
@@ -799,8 +767,7 @@ impl Model {
         let ids = pane_ids(self.windows[d].tabs[t].root.as_ref());
         let window = &mut self.windows[d];
         window.active = Some(tab.clone());
-        window.dock_zoomed = None;
-        window.focused = window.zoomed().cloned().or_else(|| window.tabs[t].last_focus.clone().filter(|l| ids.contains(l))).or_else(|| ids.first().cloned());
+        window.focused = window.tabs[t].last_focus.clone().filter(|l| ids.contains(l)).or_else(|| ids.first().cloned());
         let id = window.id.clone();
         self.key = Some(id.clone());
         self.drop_empty();
@@ -920,7 +887,6 @@ impl Model {
         }
         let window = &mut self.windows[w];
         window.active = Some(tab.clone());
-        window.set_zoomed(None);
         if !window.focused.as_ref().is_some_and(|f| used.contains(f)) {
             window.focused = used.first().cloned();
         }
@@ -990,15 +956,12 @@ impl LayoutHost for Model {
         if let Some(edge) = at.dock {
             self.dock(pane, w, edge);
             let window = &mut self.windows[w];
-            window.set_zoomed(None);
             window.focused = Some(pane.into());
             self.key = Some(window.id.clone());
             return Ok(Some(window.id.clone()));
         }
         let t = if at.new_tab || self.windows[w].tabs.is_empty() { self.make_tab(w, true) } else { self.windows[w].active_index().unwrap() };
-        self.windows[w].dock_zoomed = None;
         let tab = &mut self.windows[w].tabs[t];
-        tab.zoomed = None;
         if tab.root.is_none() {
             tab.root = Some(Node::Pane(pane.into()));
         } else {
@@ -1119,7 +1082,6 @@ impl LayoutHost for Model {
                             ("id", tab.id.clone().into()),
                             ("title", tab.title.clone().into()),
                             ("lastFocus", opt(tab.last_focus.as_deref())),
-                            ("zoomed", opt(tab.zoomed.as_deref())),
                             ("layout", tab.root.as_ref().map_or(Value::Null, Model::export_node)),
                         ]))
                     })
@@ -1233,7 +1195,6 @@ impl LayoutHost for Model {
                 let ids = pane_ids(root.as_ref());
                 tab.root = root;
                 tab.last_focus = string(entry, "lastFocus").filter(|l| ids.iter().any(|id| id == l)).map(String::from);
-                tab.zoomed = string(entry, "zoomed").map(String::from);
                 window.tabs.push(tab);
                 counters.0 = counters.0.max(tn);
             }
@@ -1268,12 +1229,9 @@ impl LayoutHost for Model {
                 .or_else(|| window.active_tab().and_then(|t| t.last_focus.clone()))
                 .or(first)
                 .or_else(|| window.side_pane());
-            for tab in &mut window.tabs {
-                let ids = pane_ids(tab.root.as_ref());
-                tab.zoomed = tab.zoomed.take().filter(|z| ids.contains(z));
-            }
-            if window.zoomed().is_none() {
-                window.set_zoomed(string(item, "zoomed").filter(|z| shown.iter().any(|s| s == z)).map(String::from));
+            if let Some(zoomed) = string(item, "zoomed").filter(|z| shown.iter().any(|s| s == z)) {
+                window.zoom = true;
+                window.focused = Some(zoomed.into());
             }
             window.tab_count = whole(item.get("tabCount")).unwrap_or(0).max(window.tabs.len());
             window.desk = item.get("desk").and_then(Value::as_bool).unwrap_or(false);
