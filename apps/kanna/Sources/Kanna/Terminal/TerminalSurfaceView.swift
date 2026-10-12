@@ -57,10 +57,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         syncSurfaceGeometry()
     }
 
-    private func updateVisibility() {
+    private var visible: Bool { window.map { Self.ignoresOcclusion || $0.occlusionState.contains(.visible) } ?? false }
+
+    func updateVisibility() {
         guard let surface else { return }
-        let visible = window.map { Self.ignoresOcclusion || $0.occlusionState.contains(.visible) } ?? false
         ghostty_surface_set_occlusion(surface, visible)
+    }
+
+    var hiddenFromGhostty: Bool { surface != nil && !visible }
+
+    var presented: ObjectIdentifier? { (layer?.contents as AnyObject?).map(ObjectIdentifier.init) }
+
+    func showToGhostty() {
+        guard let surface else { return }
+        ghostty_surface_set_occlusion(surface, true)
     }
 
     private func syncSurfaceGeometry() {

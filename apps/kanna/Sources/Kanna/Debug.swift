@@ -92,12 +92,8 @@ extension AppController {
             guard let self else { return [:] }
             let id = args["window"]?.string ?? state["key"]?.string ?? controllers.keys.sorted().first
             guard let id, let controller = controllers[id], let window = window(id) else { throw KannaError("not_found", "no window \"\(args["window"]?.string ?? "")\"") }
-            controller.window.displayIfNeeded()
-            let shown: [(id: String, view: NSView)] = WindowController.shownPanes(window).compactMap { pane in
-                guard let view = panes[pane], view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.superview != nil else { return nil }
-                return (pane, view.terminal ?? view)
-            }
-            var reply = try Snapshot.run(controller.window, id: id, panes: shown, tabBar: controller.tabBar, path: args["path"]?.string, marker: args["marker"]?.string)
+            let shown: [(id: String, view: NSView)] = shownPaneViews(window).map { ($0.id, $0.view.terminal ?? $0.view) }
+            var reply = try await Snapshot.run(controller.window, id: id, panes: shown, tabBar: controller.tabBar, path: args["path"]?.string, marker: args["marker"]?.string)
             if case .array(let list)? = reply["panes"] {
                 reply["panes"] = .array(list.map { entry in
                     guard case .object(var fields) = entry, let pane = entry["id"]?.string, let message = panes[pane]?.message else { return entry }

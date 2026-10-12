@@ -178,7 +178,7 @@ impl App {
                     reply["id"] = message["id"].clone();
                     let _ = writeln!(writer, "{reply}");
                 }
-                if message["cmd"].as_str().is_some_and(|c| c.starts_with("debug.")) {
+                if message["cmd"].as_str().is_some_and(|c| c.starts_with("debug.") || c == "screenshot") {
                     let reply = json!({"id": message["id"], "ok": true, "cmd": message["cmd"], "args": message["args"]});
                     let _ = writeln!(writer, "{reply}");
                 }

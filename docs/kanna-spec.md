@@ -328,6 +328,7 @@ sequenceDiagram
 
 - **The daemon decides a terminal's size.** The view asks with `resize`; the daemon sets the pty's size, and the view takes the size `grid` gives it, in order with the output.
 - **Requests for the app** (every `debug.*` command the core doesn't answer itself: `debug.app`, `debug.type`, `debug.key`, `debug.text`, `debug.snapshot`, `debug.web`, `debug.md`, `debug.ios`, and kmux's UI commands `debug.click`, `debug.drag`, `debug.menu`, `debug.pinch`, `debug.stats`, [4.10](#410-windows-tabs-and-splits)) can come from any client. The daemon turns a pane name into its ID, passes the request on and returns the app's reply. With no app attached they fail with `no_app`; if the app goes away first, with `app_gone`. If the app doesn't answer within 10 s they fail with `timeout`.
+- **`screenshot` is passed on the same way**, by name, with its pane name turned into an ID; it isn't a debug command, so the app always answers it ([4.11](#411-the-kanna-cli)).
 - **Debug commands are off by default.** The app answers `debug.*` only when started with `KANNA_DEBUG=1` (the test scripts set it). `debug.snapshot` takes a plain file name and writes a new file in `$KANNA_STATE_DIR` (or `$TMPDIR`); it never overwrites one.
 - **Limits:** a resize beyond 1000 cells a side is refused; a line over 16 MiB drops the app; an app that falls 16 MiB behind on output stops getting it and starts its terminals over (snapshot, grid) once it has caught up, and one 64 MiB behind is dropped.
 - **The layout is the app's** ([4.7](#47-the-layout)): the daemon keeps none and asks the app for every layout step. M0's `layout` notice, which mirrored a layout the daemon kept, is gone.
@@ -341,7 +342,8 @@ sequenceDiagram
 - **Typed text goes out as key events.** Committed text is sent as the key event's text, as Ghostty's app does; `ghostty_surface_text` is the paste path and would wrap every keystroke in bracketed-paste markers. A lone control character is reported without Control, function-key private-use characters aren't text, and text starting with a control character or DEL is dropped so the encoder works from the key code (Shift+Return reaches kitty-keyboard programs as `CSI 13;2u`).
 - **The clipboard follows Ghostty's rules**, not kmux's: a paste, and an OSC 52 read or write, go through Ghostty's `clipboard-read` (default: ask) and `clipboard-write` (default: allow) settings and its unsafe-paste check; the app only supplies the clipboard and the confirmation sheet ([4.12](#412-terminal-behaviour)).
 - **Focus follows the first responder**, not key-window status, so a pane keeps its focused cursor across reparenting. `ghostty_surface_set_occlusion` takes visibility: false stops the renderer updating at all, so `KANNA_IGNORE_OCCLUSION=1` (the test scripts) keeps hidden windows drawing.
-- **`debug.snapshot` captures with `CGWindowListCreateImage`**, looked up at run time: it is obsoleted in the macOS 15 SDK but still exported, and an app may capture its own windows without the screen-recording permission ScreenCaptureKit needs.
+- **`screenshot` and `debug.snapshot` capture with `CGWindowListCreateImage`**, looked up at run time: it is obsoleted in the macOS 15 SDK but still exported, and an app may capture its own windows without the screen-recording permission ScreenCaptureKit needs. It copies what the window server has: the window's chrome and every pane's layer, whatever their kind.
+- **A capture draws hidden terminals first.** A window behind others (every `--bg` window, or one you've covered) is occluded, so its terminals are hidden from Ghostty, which then doesn't redraw them: a terminal resized while hidden (by a split) holds a frame that was never drawn, and a capture of it is blocks of colour. So before capturing, each terminal hidden from Ghostty is shown to it until its layer has a new frame (at most 1 s), and hidden again after.
 
 ### 4.7 The Layout
 
@@ -645,13 +647,13 @@ Why this and not:
 | Build kmux's source files into `kanna` and rebrand the strings as it runs | a private file of kmux's would become kanna's API, so any refactor in kmux breaks kanna's build; replacing "kmux" in text gets some sentences wrong; and Kanna's additions (`read`, its notes) can't be added to kmux's fixed table |
 | **Port it, and check the port against kmux's source** (chosen) | one source of truth for Kanna's commands, inside kanna; kmux stays the reference: when kmux's CLI changes and kanna hasn't followed, the test fails, as kmux's protocol cases do for the core |
 
-**What the conformance test checks:** the same commands, groups and order as kmux (plus Kanna's: `read`, `send-key`, …); every summary, usage, option, note and example is kmux's with "kmux" read as "kanna" (the notes of `open`, `send` and `list` may only add to kmux's); every kmux example and request line parses to the same request; every usage error has kmux's exit code and message; every reply prints as kmux prints it. kmux's own CLI tests (`every_documented_example_parses`, `requests`, `usage_errors_say_what_to_do`, `layouts_print_as_expressions`) are ported as kanna's unit tests.
+**What the conformance test checks:** the same commands, groups and order as kmux (plus Kanna's: `read`, `send-key`, `screenshot`, …); every summary, usage, option, note and example is kmux's with "kmux" read as "kanna" (the notes of `open`, `send` and `list` may only add to kmux's); every kmux example and request line parses to the same request; every usage error has kmux's exit code and message; every reply prints as kmux prints it. kmux's own CLI tests (`every_documented_example_parses`, `requests`, `usage_errors_say_what_to_do`, `layouts_print_as_expressions`) are ported as kanna's unit tests.
 
 **Commands** (`kanna help`, `kanna help COMMAND` or `kanna COMMAND --help`):
 
 | Group | Commands |
 |---|---|
-| Panes | `open`, `close`, `focus`, `zoom`, `restart`, `send`, `send-key` (Kanna's), `read` (Kanna's), `resize`, `move`, `navigate` |
+| Panes | `open`, `close`, `focus`, `zoom`, `restart`, `send`, `send-key` (Kanna's), `read` (Kanna's), `screenshot` (Kanna's), `resize`, `move`, `navigate` |
 | Tabs and windows | `arrange`, `rename-tab`, `move-tab` |
 | Information | `list`, `capabilities` |
 | More | `help [COMMAND\|instances\|raw]`, `commands [--json]`, `raw REQUEST`, `instances [--json]`, `instances prune` |
@@ -663,6 +665,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 | | kmux | kanna | Why |
 |---|---|---|---|
 | `read PANE [--lines N]` | — | prints a terminal's screen as text, scrollback with `--lines` | the daemon keeps every screen, with or without the app; agents read terminals |
+| `screenshot [PANE \| --window WINDOW] [-o\|--out FILE] [--force]` | — | saves a PNG of a pane (cut from its window) or a window as it is drawn now, and prints its path (below) | agents check their UI work (a diff, a web or markdown pane) by looking at it |
 | `status explain PANE`, `status explain --file SCREEN --agent AGENT`, `status update`; `list`'s STATUS column and `status` field | — | agent status ([4.17](#417-agent-status)); the column shows only when a pane has a status, so a kmux reply prints as kmux prints it | the daemon judges agent panes; `capabilities` lists `status` |
 | `send-key PANE KEY...` | — (`send` types a line and presses Return; `debug.key` goes through the app's window) | presses keys in a terminal, encoded for the program's current modes, without the app ([6](#6-commands)) | agents answer another agent's menu, interrupt a command or submit a prompt; kmux's research recommends cmux's `send-key`, and kmux gets it from this port |
 | `--` | — (`--json` is taken from anywhere, so it can't be typed) | ends the options: `kanna send p1 -- --json` | text that looks like an option |
@@ -682,7 +685,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 | `kanna PATH` (a folder, not a command's name) | an unknown command | a new, empty Desk on PATH's project (`task desk`, which gives the window a `project`), docking nothing, so it uses none of the project's three running tasks: it shows its planning terminal (in PATH) beside the project's Shelf and backlog; its tabs, splits and tasks start in the project; a command's name wins over a folder of the same name (`kanna ./open`) | open Kanna on a project, as `code PATH` does |
 | `open --cwd DIR` | sent as given | made absolute where kanna runs | the daemon's directory isn't yours |
 | `open` a terminal without `--cwd` (and every new tab, split and window from the app) | starts in `$HOME` | starts in its task's folder: the folder the task's agent opened in (its worktree, or the repo for a task without one), the agent being the terminal it opens from or the docked pane of the window it opens in; the agent moving or printing another folder changes nothing; outside a task, a window from the app starts in the window's repo (a Desk with no task holds no tabs or splits) (the repo of the last task docked there, the key window's for a new window), and so does the window's planning terminal; else `$HOME` | a task's terminals work on the task |
-| `capabilities` | kmux's fields | kmux's fields, `read` among the commands, and `app`: whether Kanna.app is attached (its own line in the text) | so a script can tell |
+| `capabilities` | kmux's fields | kmux's fields, Kanna's commands (`read`, `screenshot`, `status`, `backlog`) among the commands, and `app`: whether Kanna.app is attached (its own line in the text) | so a script can tell |
 | `raw REQUEST` | sends it | sends it, and starts the app on `no_app` like any command | one way of reaching Kanna |
 | `kanna mux` | — | gone (M0's): `capabilities` and `instances` say what it said | kmux has no such command |
 
@@ -734,11 +737,13 @@ sequenceDiagram
 
 | Works | Needs the app (`no_app`: started, or exit 6 with `KANNA_SOCKET`) |
 |---|---|
-| `list` (terminals, no windows), `send`, `send-key`, `read`, `close PANE`, `restart`, `open` (a terminal, unplaced), `capabilities`, `raw` of these | `open` with `--split`, `--size`, `--tab` or `--window`; `open web\|md\|ios`; `focus`, `zoom`, `resize`, `move`, `arrange`, `rename-tab`, `move-tab`; `close --tab\|--window`; `navigate`; every `debug.*` |
+| `list` (terminals, no windows), `send`, `send-key`, `read`, `close PANE`, `restart`, `open` (a terminal, unplaced), `capabilities`, `raw` of these | `open` with `--split`, `--size`, `--tab` or `--window`; `open web\|md\|ios`; `focus`, `zoom`, `resize`, `move`, `arrange`, `rename-tab`, `move-tab`; `close --tab\|--window`; `navigate`; `screenshot`; every `debug.*` |
+
+**`screenshot`** saves a PNG of a pane or a window as it's drawn now, without `KANNA_DEBUG`. Its own spec: [specs/screenshot.md](specs/screenshot.md).
 
 **The app's `debug.*` commands** go through the daemon by name: every `debug.*` the core doesn't answer itself (only `debug.saveState` and `debug.restoreState`) is passed to the app with pane names turned into IDs, so a debug command the app adds (kmux's `debug.click`, `debug.drag`, `debug.menu`, …) needs no change in the daemon. The app answers one it doesn't know with kmux's `unknown command`.
 
-**Checked by** `crates/kanna/tests/kmux_reference.rs` (against kmux's source), the unit tests in `crates/kanna/src` (kmux's CLI tests, ported; target and instance resolution; the app started), `crates/kanna/tests/cli.rs` (every command through a real daemon with a test app answering through `LayoutOwner`, and without it; help, marks and `commands --json`; errors and exit codes; instances; the kmux backend), `crates/kanna/tests/no_launch.rs` (nothing starts with `KANNA_SOCKET`; a missing app is exit 3), `crates/kanna-daemon/tests/app_link.rs` (`debug.*` and `capabilities`), and S20–S22 of `scripts/e2e-kanna.sh`: every command against the real app (S20), without it (S21), and an instance started by `--instance` and listed by `instances` (S22).
+**Checked by** `crates/kanna/tests/kmux_reference.rs` (against kmux's source), the unit tests in `crates/kanna/src` (kmux's CLI tests, ported; target and instance resolution; the app started), `crates/kanna/tests/cli.rs` (every command through a real daemon with a test app answering through `LayoutOwner`, and without it; help, marks and `commands --json`; errors and exit codes; instances; the kmux backend), `crates/kanna/tests/no_launch.rs` (nothing starts with `KANNA_SOCKET`; a missing app is exit 3), `crates/kanna-daemon/tests/app_link.rs` (`debug.*` and `capabilities`), and S20–S22 and S49 of `scripts/e2e-kanna.sh`: every command against the real app (S20), without it (S21), an instance started by `--instance` and listed by `instances` (S22), and `screenshot` of a pane and a window, with the app started without `KANNA_DEBUG` or `KANNA_IGNORE_OCCLUSION`: PNG sizes, a legible terminal, `--force`, a hidden pane and the caller's window (S49).
 
 ### 4.12 Terminal Behaviour
 
@@ -986,6 +991,7 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 | `kanna send PANE TEXT` | Type text into a terminal pane. |
 | `kanna send-key PANE KEY...` | Press keys in a terminal pane: `kanna send-key agent down down return`, `kanna send-key server ctrl+c`. Kanna's (kmux has no `send-key` yet). |
 | `kanna read PANE [--lines N]` | Print a terminal pane's screen as text; with `--lines`, its last N lines, counting scrollback. Kanna.app only (kmux has no `read` yet). |
+| `kanna screenshot [PANE\|--window WINDOW] [-o FILE] [--force]` | Save a PNG of a pane or a window and print its path ([4.11](#411-the-kanna-cli)). Kanna's. |
 | `kanna navigate PANE URL\|FILE\|--back\|--forward` | Point a web pane at a new URL (or move through its history), or a markdown pane at another `.md` file. |
 | `kanna capabilities` | Show what the running mux supports (and, for Kanna, whether the app is attached). |
 | `kanna instances` | For developing Kanna: list the running instances of every channel ([4.11](#411-the-kanna-cli)). |

@@ -209,8 +209,9 @@ impl CoreHandle {
     }
 
     pub fn commands(&self) -> Vec<String> {
-        let mut commands: Vec<String> = CORE_COMMANDS.iter().chain(self.0.layout.commands()).map(|c| c.to_string()).collect();
+        let mut commands: Vec<String> = CORE_COMMANDS.iter().chain(self.0.layout.commands()).map(|c| c.to_string()).chain(self.0.extra.borrow().keys().cloned()).collect();
         commands.sort();
+        commands.dedup();
         commands
     }
 
