@@ -30,7 +30,7 @@ sequenceDiagram
     D->>App: snap line 92
     App-->>D: 92–103
     D->>App: code tab for server.rs, with the comment
-    A->>You: explains it in the chat
+    A->>You: a line: where it is, go on?
     You->>A: a question
     A->>D: kanna comment client.rs:244 "…"
     You->>A: thanks, close those
@@ -69,11 +69,12 @@ sequenceDiagram
 `kanna-explain` (in `.agents/kanna-skills`) tells the agent when and how to explain code so the user keeps a mental model of it:
 
 - **When:** the user asks how something works, wants to understand code the agent wrote or changed, or seems to be losing track of the code.
-- **Pick the way that fits.** Comments on the code (`kanna comment FILE:LINE`) for how a part works; a markdown doc with diagrams, such as a sequence or a layer diagram, for how the parts fit together, commented on the same way (`kanna comment DOC.md:LINE`); often both, the doc first and the code after.
-- **One comment at a time.** Comment on one part, explain it in the chat, keep the comment to the one thing to remember about it, and stop: ask the user to tell you when to go on. Never comment on several parts in one turn.
+- **The explanation is in the comments, not the chat.** A comment on the code (`kanna comment FILE:LINE`) says what that part does and the one thing to remember about it; the chat gets a line or two at most.
+- **The big picture in a temporary markdown doc:** object hierarchies, class or layer stacks, call and data flows, as a diagram (mermaid class or sequence diagram, layer diagram, table) in a short doc under `$TMPDIR/kanna-explain/`, never in the repo, commented on the same way (`kanna comment DOC.md:LINE`); the doc first, the code after.
+- **One comment at a time.** Comment on one part, focus its pane, say where you are in a line, and stop: ask the user to tell you when to go on. Never comment on several parts in one turn.
 - **Follow the questions.** Answer by commenting on the code that answers it.
 - **Small parts.** A function or a block; `FILE:FIRST-LAST` for a few lines inside a long one.
-- **At the end, offer to leave the tabs open or close them** (`kanna close`), and do what the user picks.
+- **At the end, offer to leave the tabs open or close them** (`kanna close`), and do what the user picks; the temporary docs are deleted.
 
 ## 5. How it's built
 

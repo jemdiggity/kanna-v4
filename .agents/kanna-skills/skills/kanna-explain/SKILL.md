@@ -5,42 +5,39 @@ description: Use in a Kanna terminal ($KANNA_PANE is set) when the user asks how
 
 # Kanna explain
 
-Help the user keep a mental model of the code: show them the code you're talking about, one part at a time, with a comment on it.
+Explain code where it is, not in the chat: the explanation goes in comments on the code and in diagrams, and the chat stays a line or two.
 
-## Pick the way that fits
+## Code: comment on it
 
-- **How a part works:** comment on the code itself.
+```sh
+kanna comment src/fdpass.rs:50 "Waits for a message and takes the terminals that came with it."
+```
 
-  ```sh
-  kanna comment src/fdpass.rs:50 "Waits for a message and takes the terminals that came with it."
-  ```
+The file opens in a code tab beside you, those lines tinted and the rest dimmed, the comment just above them. `FILE:LINE` takes the whole function or block at that line; `FILE:FIRST-LAST` takes just those lines. A new comment in the same file replaces the last one.
 
-  The file opens in a code tab beside you (or its tab is selected), those lines are tinted, the rest dimmed, and the comment shows just above them. `FILE:LINE` takes the whole function, loop or block that line opens or sits in; `FILE:FIRST-LAST` takes just those lines, for a few lines inside a long function. A new comment in the same file replaces the last one.
+- **The comment is the explanation.** Short and plain: what this part does and the one thing to remember about it.
+- **Small parts.** A function, a match, a loop; not a whole file.
 
-- **How the parts fit together:** a markdown doc with a diagram (a sequence diagram, or a layer diagram of the processes), then comment on it the same way.
+## The big picture: a temporary markdown doc
 
-  ```sh
-  kanna comment docs/how-it-works.md:12 "The keeper owns the terminals; the daemon only borrows them."
-  ```
+For how parts fit together (object hierarchies, class or layer stacks, who calls whom, how data flows), write a short markdown doc with a diagram in `$TMPDIR/kanna-explain/`, never in the repo, and comment on it:
 
-  On a markdown file the comment is a thread beside the doc, on the block at that line; the user's replies in it come to you as `[kanna comment …]` messages (see the `kanna-markup` skill). A line on an image or a diagram puts the thread on the text just above it.
+```sh
+kanna comment "$TMPDIR/kanna-explain/backlog.md:3" "The daemon owns the backlog; the app only shows it."
+```
 
-Often both: the doc for the big picture first, then the code.
+- **A diagram, not prose:** a mermaid `classDiagram` for a hierarchy, a `sequenceDiagram` for a flow, a layer diagram for a stack (the `layer-diagrams` skill), a table for a set of parallel things. A heading and the diagram; at most a line of text under it.
+- **Big picture first,** then the code it points to.
 
-## One comment at a time
+## One part at a time
 
-1. Comment on one part.
-2. Focus the pane `kanna comment` printed, so the user sees what you're talking about:
+1. Comment on one part (code or doc).
+2. Focus the pane `kanna comment` printed: `kanna focus p129`.
+3. In the chat, one or two lines at most: where you are and "tell me when to go on". Don't repeat the comment, don't explain in the chat.
+4. Stop and wait. Never comment on several parts in one turn.
 
-   ```sh
-   kanna focus p129
-   ```
-
-3. Explain it in the chat. Keep the comment itself to the one thing to remember about that part.
-4. Stop, and ask the user to tell you when to go on. Never comment on several parts in one turn.
-
-When the user asks a question, answer it by commenting on the code that answers it.
+When the user asks a question, answer it with a comment on the code or doc that answers it, and a line in the chat.
 
 ## At the end
 
-Offer to leave the tabs open or close them, and do what the user picks (`kanna close PANE` for each code tab you opened; `kanna comment` printed their IDs).
+Offer to leave the tabs open or close them, and do what the user picks (`kanna close PANE` for each tab `kanna comment` opened). Delete the temporary docs.

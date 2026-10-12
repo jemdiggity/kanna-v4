@@ -8,7 +8,7 @@ Skills for coding agents (Claude Code and Codex), usable in any project.
 | [`spec-docs`](skills/spec-docs/SKILL.md) | Write specs in plain English with a table of contents, a glossary and diagrams, high level first. |
 | [`layer-diagrams`](skills/layer-diagrams/SKILL.md) | Draw architecture as a layer stack (UI on top, like OSI): processes as boxes, layers as bars, colour by owner, clients on top, rendered and checked before showing. |
 | [`kanna-markup`](skills/kanna-markup/SKILL.md) | Answer the user's comments on a doc or mockup they review in Kanna, in the comment's thread. |
-| [`kanna-explain`](skills/kanna-explain/SKILL.md) | In a Kanna terminal: explain code by commenting on it, one part at a time, and on markdown docs with diagrams for how the parts fit. |
+| [`kanna-explain`](skills/kanna-explain/SKILL.md) | In a Kanna terminal: explain code in comments on it, one part at a time, and the big picture in temporary markdown docs with diagrams; the chat stays a line or two. |
 | [`kanna-tasks`](skills/kanna-tasks/SKILL.md) | In a Kanna terminal: name your task, and add follow-up work to the repo's backlog with a first message that stands alone. |
 | [`kanna-planning`](skills/kanna-planning/SKILL.md) | As a Kanna window's planning agent: say what's running and waiting, plan with the user, make backlog tasks, and start or end them only when asked. |
 | [`kanna-new-project`](skills/kanna-new-project/SKILL.md) | As a planning agent in an empty folder or one that isn't a repo yet: decide what the project is, set it up with the user's say-so, and plan its first tasks. |
