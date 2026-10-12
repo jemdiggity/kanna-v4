@@ -489,8 +489,9 @@ function restoreState(st) {
 // ---------------------------------------------------------------------------
 function focusPane(p) {
   const f = findPane(p.id);
+  const carriesZoom = !!f.win.zoomed && shownIds(f.win).includes(p.id);
   if (f.tab) { f.win.active = f.tab.id; f.tab.lastFocus = p.id; }
-  if (f.win.zoomed && f.win.zoomed !== p.id) f.win.zoomed = null;
+  f.win.zoomed = carriesZoom ? p.id : null;
   f.win.focused = p.id;
   raise(f.win);
 }
