@@ -61,8 +61,8 @@ public final class CodePaneView: NSView {
         textView.backgroundColor = CodeTheme.background
         textView.textColor = CodeTheme.text
         textView.font = CodeTheme.font(size: fontSize)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = false
+        textView.isHorizontallyResizable = false
         textView.minSize = .zero
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = []
