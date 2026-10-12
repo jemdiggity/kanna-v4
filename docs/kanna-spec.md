@@ -590,7 +590,7 @@ sequenceDiagram
 - Every item acts on the key window and its focused pane. Pane, tab and window cycling go in reading order and wrap; zoom is the window's mode: while it's on, the focused pane fills the window wherever focus goes, until ⇧⌘↩ ([zoom](specs/zoom.md)). A new web pane starts with its URL selected for editing; a new markdown pane asks for a file; a new iOS pane opens Settings.
 - **Ghostty keybindings** that no menu item takes reach the app as actions: `new_split`, `goto_split` (previous, left and up go back; the rest forward), `toggle_split_zoom`, `new_tab`, `goto_tab` (next, previous), `new_window`, `close_window`, `goto_window`, and `close_surface` (closes the pane). The pane the key was typed in is focused first. `GhosttyRuntime` passes them on (`onAction`, `onClose`); the app decides.
 - **Right-clicking a pane** opens the Pane menu for it (it takes focus first): in a terminal unless its program uses the mouse, below WebKit's own items in a web pane, below the text items in a markdown pane, alone in an iOS pane.
-- **Instances** ([4.11](#411-the-kanna-cli)): unlike kmux, Kanna has no New Instance menu item: kmux used one to work on another project, and in Kanna that's a Desk (File → New Desk). Instances stay for dev builds and `kanna --instance`. An instance other than the default one shows its name in its window titles (`Tab 1 — w1 · work`) and at the top of the Kanna menu; the name comes from the socket's folder, as the daemon's does.
+- **Instances** ([4.11](#411-the-kanna-cli)): unlike kmux, Kanna has no New Instance menu item: kmux used one to work on another project, and in Kanna that's a Desk (File → New Desk). Instances are a developer and testing tool, reached through dev builds and `kanna --instance`. An instance other than the default one shows its name in its window titles (`Tab 1 — w1 · work`) and at the top of the Kanna menu; the name comes from the socket's folder, as the daemon's does.
 
 **Debug commands** (with `KANNA_DEBUG=1`; the daemon passes them to the app, turning a top-level `pane` name into its ID; nested ones are resolved by the app):
 
@@ -678,7 +678,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 | `raw REQUEST` | sends it | sends it, and starts the app on `no_app` like any command | one way of reaching Kanna |
 | `kanna mux` | — | gone (M0's): `capabilities` and `instances` say what it said | kmux has no such command |
 
-**Instances.** A Kanna instance is a whole Kanna: a daemon, its keeper, its terminals, a Kanna.app and its saved layout, all in one folder, since a daemon holds a lock on its folder and keeps its keeper, terminals and the app's `layout.json` there ([4.8](#48-restarting-the-daemon)). Its folder is in the application support folder (`$XDG_DATA_HOME` or `~/.local/share` on Linux), named for the build's channel ([build channels](specs/build-channels.md)): the default instance of a dev build is `kanna-dev` (production's `kanna-prod`, staging's `kanna-staging`); an instance named `work` uses `kanna-dev-work` beside it, so its socket is `kanna-dev-work/kanna.sock` (short enough for a Unix socket's 104 bytes with a 32-character name). kmux puts every instance's socket in one folder instead; Kanna can't, as two daemons can't share a folder.
+**Instances.** Instances are a tool for developing and testing Kanna (dev builds, e2e runs, `kanna --instance`), not a user feature: the app offers none, and a user works on another project in a Desk (File → New Desk, `kanna PATH`). A Kanna instance is a whole Kanna: a daemon, its keeper, its terminals, a Kanna.app and its saved layout, all in one folder, since a daemon holds a lock on its folder and keeps its keeper, terminals and the app's `layout.json` there ([4.8](#48-restarting-the-daemon)). Its folder is in the application support folder (`$XDG_DATA_HOME` or `~/.local/share` on Linux), named for the build's channel ([build channels](specs/build-channels.md)): the default instance of a dev build is `kanna-dev` (production's `kanna-prod`, staging's `kanna-staging`); an instance named `work` uses `kanna-dev-work` beside it, so its socket is `kanna-dev-work/kanna.sock` (short enough for a Unix socket's 104 bytes with a 32-character name). kmux puts every instance's socket in one folder instead; Kanna can't, as two daemons can't share a folder.
 
 ```text
 ~/Library/Application Support/
@@ -953,8 +953,8 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 | `kanna read PANE [--lines N]` | Print a terminal pane's screen as text; with `--lines`, its last N lines, counting scrollback. Kanna.app only (kmux has no `read` yet). |
 | `kanna navigate PANE URL\|FILE\|--back\|--forward` | Point a web pane at a new URL (or move through its history), or a markdown pane at another `.md` file. |
 | `kanna capabilities` | Show what the running mux supports (and, for Kanna, whether the app is attached). |
-| `kanna instances` | List the running Kanna instances of every channel ([4.11](#411-the-kanna-cli)). |
-| `kanna instances prune` | Delete the folders of dev instances whose worktree is gone ([build channels](specs/build-channels.md)). |
+| `kanna instances` | For developing Kanna: list the running instances of every channel ([4.11](#411-the-kanna-cli)). |
+| `kanna instances prune` | For developing Kanna: delete the folders of dev instances whose worktree is gone ([build channels](specs/build-channels.md)). |
 | `kanna help [COMMAND]`, `kanna commands [--json]`, `kanna raw REQUEST` | Help; every command, for scripts; one control-protocol request as JSON. |
 
 `PANE` can be a name (`site`) or an ID (`p2`).

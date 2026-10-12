@@ -223,11 +223,15 @@ const INSTANCES_HELP: &str = "kanna instances — List the running Kanna instanc
 usage: kanna instances [--json]\n\
        kanna instances prune\n\
 \n\
+Instances are a tool for developing and testing Kanna, not a user feature: the app\n\
+doesn't offer them. To work on another project, open a Desk on it (kanna PATH, or\n\
+File > New Desk in the app).\n\
+\n\
 Each instance is a separate Kanna: its own daemon, keeper, terminals, Kanna.app and saved\n\
 layout, in its own folder in your application support folder. Kanna comes in three channels,\n\
 each a separate app that can run beside the others: production (Kanna, folder kanna-prod),\n\
 staging (Kanna Staging, kanna-staging) and dev (Kanna Dev, kanna-dev). An instance named\n\
-work uses the folder kanna-dev-work, with its socket at kanna-dev-work/kanna.sock. A dev\n\
+test uses the folder kanna-dev-test, with its socket at kanna-dev-test/kanna.sock. A dev\n\
 build made in a git worktree is an app of its own whose default instance is named after the\n\
 worktree: built in .kanna-worktrees/task-3f9a1c2e, it is Kanna Dev task-3f9a1c2e, keeping\n\
 its files in kanna-dev-task-3f9a1c2e.\n\
@@ -248,10 +252,10 @@ is gone, once nothing runs in them.\n\
 examples:\n  \
   kanna instances\n      \
       Which instances are running, and which one commands go to.\n  \
-  kanna --instance work open --name server --cmd \"npm run dev\"\n      \
-      Start (or use) the instance named work, and open a pane in it.\n  \
-  KANNA_INSTANCE=work kanna list\n      \
-      The same choice, for every command in a script.\n  \
+  kanna --instance test open --name probe --cmd \"sh\"\n      \
+      Start (or use) a scratch instance named test, apart from the Kanna you work in.\n  \
+  KANNA_INSTANCE=test kanna list\n      \
+      The same choice, for every command in a test script.\n  \
   kanna instances prune\n      \
       Clean up after worktrees you've removed.";
 
@@ -353,7 +357,7 @@ fn overview(target: &Target) -> String {
         "help COMMAND", "Details, options and examples for one command (or: kanna COMMAND --help).",
         "commands", "All commands with summaries; `kanna commands --json` describes them for scripts.",
         "raw REQUEST", "Send a control-protocol request as JSON, e.g. kanna raw '{\"cmd\":\"list\"}'.",
-        "instances", "List the running Kanna instances (separate daemons and apps, each with its own panes).",
+        "instances", "For developing Kanna: list the running instances (dev builds and test daemons).",
         "completions", "Tab completion for zsh or bash: source <(kanna completions zsh) in ~/.zshrc.",
         "config schema", "The JSON Schema of Kanna's settings (~/.kanna-v4/config.json, a repo's .kanna/config.json).",
     );
@@ -390,7 +394,7 @@ fn overview(target: &Target) -> String {
          Kanna.app brings back the layout it saved; --fresh (or KANNA_FRESH=1) opens a new window instead.\n\
          With KANNA_SOCKET set, kanna never starts the app.\n\
          {backend}\
-         Instance: {} of {} at {} (--instance NAME for another; kanna help instances).\n\
+         Instance: {} of {} at {} (for developing Kanna, --instance NAME picks another; kanna help instances).\n\
          Exit codes: 0 ok, 1 failed, 2 bad usage, 3 Kanna not reachable, 4 not found, 5 not supported by the running Kanna,\n\
          6 needs Kanna.app, which isn't attached and wasn't started.",
         target.instance,
@@ -426,7 +430,7 @@ pub fn describe(supported: Option<&[String]>) -> Value {
         "usage": "kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]",
         "globalOptions": [
             { "flag": "--mux kanna|kmux", "description": "Talk to Kanna (default; also KANNA_MUX) or to a kmux you run." },
-            { "flag": "--instance NAME", "description": "Talk to the Kanna instance NAME (default: $KANNA_SOCKET, else $KANNA_INSTANCE, else default). See kanna help instances." },
+            { "flag": "--instance NAME", "description": "For developing and testing Kanna: talk to the instance NAME (default: $KANNA_SOCKET, else $KANNA_INSTANCE, else default). See kanna help instances." },
             { "flag": "--bg", "description": "If Kanna.app has to be started, keep it behind your other windows (also KANNA_BG=1)." },
             { "flag": "--fresh", "description": "If Kanna.app has to be started, open a new window instead of the layout it saved (also KANNA_FRESH=1)." },
             { "flag": "--json", "description": "Print the reply as JSON." },

@@ -4,6 +4,8 @@
 
 A build of Kanna is one of three **channels**, chosen when it's built. Each channel is a separate app (its own name, bundle ID and folders), so all three run side by side; a **dev** build made in a git worktree is, in addition, an app of its own named after the worktree, so every task's Kanna runs beside the others and beside the one it was built from.
 
+Channels and instances are for developing and testing Kanna, not a user feature: the app offers no way to start an instance, and users get one Kanna and work on another project in a Desk (File → New Desk, `kanna PATH`). Developers reach instances through dev builds, the e2e scripts and `kanna --instance`.
+
 ## 1. What each build is
 
 | Build | App name | Bundle ID | Default instance | Its folder | CLI starts it with |

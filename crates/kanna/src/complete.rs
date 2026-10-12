@@ -23,7 +23,7 @@ pub const AGENTS: &[&str] = &["antigravity", "claude", "codex", "copilot", "open
 
 const GLOBAL: &[(&str, &str)] = &[
     ("--mux kanna|kmux", "Which multiplexer to control."),
-    ("--instance INSTANCE", "Which Kanna instance to control."),
+    ("--instance INSTANCE", "For developing Kanna: which instance to control."),
     ("--bg", "Start Kanna.app in the background if it isn't running."),
     ("--fresh", "Start a new Kanna without restoring the saved layout."),
     ("--json", "Print the reply as JSON."),
@@ -34,7 +34,7 @@ const GLOBAL: &[(&str, &str)] = &[
 const MORE: &[(&str, &str)] = &[
     ("help", "Details, options and examples for one command."),
     ("commands", "All commands with summaries."),
-    ("instances", "List the running Kanna instances."),
+    ("instances", "For developing Kanna: list the running instances."),
     ("raw", "Send a control-protocol request as JSON."),
     ("completions", "Tab completion for zsh or bash."),
     ("config", "Kanna's settings: config schema prints their JSON Schema."),
