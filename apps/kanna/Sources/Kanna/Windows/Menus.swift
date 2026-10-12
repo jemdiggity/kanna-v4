@@ -42,6 +42,12 @@ extension AppController {
             let item = edit.addItem(withTitle: label, action: Selector(action), keyEquivalent: shortcut.key)
             item.keyEquivalentModifierMask = shortcut.modifiers
         }
+        edit.addItem(.separator())
+        for (label, finder, shortcut) in [("Find…", NSTextFinder.Action.showFindInterface, Shortcut.cmd("f")), ("Find Next", .nextMatch, .cmd("g")), ("Find Previous", .previousMatch, .shiftCmd("g"))] {
+            let item = edit.addItem(withTitle: label, action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: shortcut.key)
+            item.keyEquivalentModifierMask = shortcut.modifiers
+            item.tag = finder.rawValue
+        }
         let editItem = NSMenuItem()
         editItem.submenu = edit
         main.addItem(editItem)

@@ -16,7 +16,7 @@ public final class CodePaneView: NSView {
     public var zoom: CGFloat { fontSize / CodeTheme.fontSize }
     public var currentLine: Int { textView.currentLine }
 
-    let scrollView = NSScrollView()
+    let scrollView = CodeScrollView()
     let textView: CodeTextView
     let gutter: CodeGutter
     let sticky = CodeStickyView()
@@ -89,6 +89,7 @@ public final class CodePaneView: NSView {
         }
         addSubview(scrollView)
         sticky.onPick = { [weak self] line in self?.reveal(line: line, toTop: true) }
+        scrollView.onTile = { [weak self] in self?.updateSticky() }
         addSubview(sticky)
     }
 
@@ -231,7 +232,8 @@ public final class CodePaneView: NSView {
         let rows = CodeScopes.pinned(top: topLine, in: highlights.scopes)
         let clip = scrollView.contentView
         let height = CGFloat(rows.count) * lineHeight
-        sticky.frame = NSRect(x: 0, y: bounds.height - height, width: max(0, bounds.width - (scrollView.verticalScroller?.frame.width ?? 0)), height: height)
+        let top = convert(clip.frame, from: scrollView).maxY - clip.contentInsets.top
+        sticky.frame = NSRect(x: 0, y: top - height, width: bounds.width, height: height)
         sticky.isHidden = rows.isEmpty
         sticky.gutterWidth = gutter.ruleThickness
         sticky.textX = clip.frame.minX - clip.bounds.minX + textView.textContainerInset.width
@@ -250,32 +252,44 @@ public final class CodePaneView: NSView {
 
     public func reveal(line: Int, toTop: Bool) {
         guard let rect = textView.rect(forLine: CodeScopes.top(showing: line, in: highlights.scopes)) else { return }
-        scrollView.contentView.scroll(to: NSPoint(x: -scrollView.contentView.contentInsets.left, y: max(0, rect.minY - textView.textContainerInset.height)))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
+        let clip = scrollView.contentView
+        clip.scroll(to: NSPoint(x: -clip.contentInsets.left, y: rect.minY - textView.textContainerInset.height - clip.contentInsets.top))
+        scrollView.reflectScrolledClipView(clip)
         textView.currentLine = min(max(line, 1), file.lineCount)
     }
 
     public func reveal(line: Int) {
         guard let rect = textView.rect(forLine: line) else { return }
-        let target = max(0, rect.minY - scrollView.contentSize.height / 3)
-        scrollView.contentView.scroll(to: NSPoint(x: -scrollView.contentView.contentInsets.left, y: target))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
+        let clip = scrollView.contentView
+        let visible = clip.bounds.height - clip.contentInsets.top
+        clip.scroll(to: NSPoint(x: -clip.contentInsets.left, y: max(-clip.contentInsets.top, rect.minY - clip.contentInsets.top - visible / 3)))
+        scrollView.reflectScrolledClipView(clip)
         textView.currentLine = min(max(line, 1), file.lineCount)
         textView.flash(line: textView.currentLine)
     }
 
     public var debugNumbers: [String: Double] {
         let clip = scrollView.contentView
-        return ["zoom": Double(zoom), "font_size": Double(fontSize), "spans": Double(highlights.spans.count), "scopes": Double(highlights.scopes.count), "lines": Double(file.lineCount), "top": Double(topLine), "current": Double(currentLine), "gutter": Double(gutter.ruleThickness),
+        return ["clip_top": Double(convert(clip.frame, from: scrollView).maxY), "height": Double(bounds.height), "sticky_top": Double(sticky.frame.maxY), "find_bar_height": Double(scrollView.findBarView?.frame.height ?? -1), "find_bar_y": Double(scrollView.findBarView.map { convert($0.frame, from: $0.superview).minY } ?? -1), "find_bar": scrollView.isFindBarVisible ? 1 : 0, "selection_line": Double(file.line(at: textView.selectedRange().location)), "selection_length": Double(textView.selectedRange().length), "zoom": Double(zoom), "font_size": Double(fontSize), "spans": Double(highlights.spans.count), "scopes": Double(highlights.scopes.count), "lines": Double(file.lineCount), "top": Double(topLine), "current": Double(currentLine), "gutter": Double(gutter.ruleThickness),
                 "clip_x": Double(clip.frame.minX), "clip_width": Double(clip.frame.width), "scroll_x": Double(clip.bounds.minX),
                 "scroll_y": Double(clip.bounds.minY), "changed": Double(gutter.changed.min() ?? 0), "pinned": Double(pinned.count), "indent_unit": Double(textView.indentUnit), "text_x": Double(textView.frame.minX), "text_width": Double(textView.frame.width)]
     }
 
     public var topLine: Int {
-        let y = scrollView.contentView.bounds.minY + textView.textContainerInset.height
+        let y = scrollView.contentView.bounds.minY + scrollView.contentView.contentInsets.top + textView.textContainerInset.height
         guard textView.textStorage?.length ?? 0 > 0 else { return 1 }
         let index = layoutManager.characterIndexForGlyph(at: layoutManager.glyphIndex(for: NSPoint(x: 0, y: y), in: textView.textContainer!))
         return file.line(at: index)
+    }
+}
+
+@MainActor
+final class CodeScrollView: NSScrollView {
+    var onTile: (() -> Void)?
+
+    override func tile() {
+        super.tile()
+        onTile?()
     }
 }
 

@@ -1568,6 +1568,11 @@ S49() {
   raw '{"id":1,"cmd":"debug.click","args":{"pane":"src","at":[120,200]}}' >/dev/null; sleep 0.3
   key() { raw "{\"id\":1,\"cmd\":\"debug.key\",\"args\":{\"key\":\"$1\"}}" >/dev/null; }
   key cmd+shift+=; key cmd+shift+=
+  key cmd+f
+  check wait_for 5 eval '[[ "$(code src find_bar)" == 1 ]]' || return 1
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"line_77 "}}' >/dev/null; key return
+  check wait_for 5 eval '[[ "$(code src selection_line)" == 77 && "$(code src selection_length)" == 8 ]]' || { echo "found at $(code src selection_line)"; return 1; }
+  key escape
   check wait_for 5 eval '[[ "$(code src font_size)" == 14.5 ]]' || { echo "font $(code src font_size)"; return 1; }
   kanna navigate src "$file:10" >/dev/null || return 1
   check wait_for 5 eval '[[ "$(code src current)" == 10 ]]' || return 1
