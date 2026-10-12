@@ -69,7 +69,7 @@ sequenceDiagram
 - **One comment at a time.** Comment on one part, explain it in the chat, keep the comment to the one thing to remember about it, and stop: ask the user to tell you when to go on. Never comment on several parts in one turn.
 - **Follow the questions.** Answer by commenting on the code that answers it.
 - **Small parts.** A function or a block; `FILE:FIRST-LAST` for a few lines inside a long one.
-- **Close the tabs** when the user asks.
+- **At the end, offer to leave the tabs open or close them** (`kanna close`), and do what the user picks.
 
 ## 5. How it's built
 
