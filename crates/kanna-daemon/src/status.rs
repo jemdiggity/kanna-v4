@@ -110,19 +110,22 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 fn run(shared: &Shared) {
     while !shared.stop.load(Ordering::SeqCst) {
-        let agents = tick(shared, Instant::now());
+        let now = Instant::now();
+        let (agents, due) = tick(shared, now);
+        let pause = due.map_or(TICK, |t| t.saturating_duration_since(now).min(TICK));
         let (flag, condvar) = &shared.wake;
         let guard = lock(flag);
-        let (mut poked, _) = condvar.wait_timeout_while(guard, if agents { TICK } else { IDLE_TICK }, |p| !*p).unwrap_or_else(|e| e.into_inner());
+        let (mut poked, _) = condvar.wait_timeout_while(guard, if agents { pause } else { IDLE_TICK }, |p| !*p).unwrap_or_else(|e| e.into_inner());
         *poked = false;
     }
 }
 
-fn tick(shared: &Shared, now: Instant) -> bool {
+fn tick(shared: &Shared, now: Instant) -> (bool, Option<Instant>) {
     let rules = shared.store.rules();
     let generation = shared.store.generation();
     let mut watches = lock(&shared.watches);
     let mut any = false;
+    let mut due: Option<Instant> = None;
     for (pane, watch) in watches.iter_mut() {
         let serial = watch.serial;
         let send = |status: Option<Status>| {
@@ -160,8 +163,11 @@ fn tick(shared: &Shared, now: Instant) -> bool {
         }
         let mut feed = lock(&watch.feed);
         let activity = feed.activity();
-        let recheck = watch.tracker.recheck().is_some_and(|t| now >= t);
-        if !(activity.dirty_since.is_some() || watch.fresh || recheck) || !activity.settled(now) {
+        let recheck = watch.tracker.recheck();
+        let pending = activity.dirty_since.is_some() || watch.fresh || recheck.is_some_and(|t| now >= t);
+        if !pending || !activity.settled(now) {
+            let next = if pending { activity.wake(now) } else { recheck };
+            due = due.into_iter().chain(next).min();
             continue;
         }
         let screen = feed.status_screen();
@@ -171,6 +177,7 @@ fn tick(shared: &Shared, now: Instant) -> bool {
         if let Some(status) = watch.tracker.judge(verdict.status, now) {
             send(Some(status));
         }
+        due = due.into_iter().chain(watch.tracker.recheck()).min();
     }
-    any
+    (any, due)
 }
