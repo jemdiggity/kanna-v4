@@ -92,8 +92,9 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .notes { flex: none; width: 320px; border-left: 1px solid var(--line); background: var(--bar-bg); display: none; flex-direction: column; min-height: 0; font-size: 12.5px; }
 .code.touring .notes { display: flex; }
 .notes .head { flex: none; padding: 10px 12px 8px; border-bottom: 1px solid var(--line); }
-.notes .title { font-weight: 600; font-size: 13px; line-height: 1.35; }
-.notes .nav { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--muted); font-size: 11.5px; }
+.notes .head { display: flex; align-items: center; }
+.notes .title { flex: 1; font-weight: 600; font-size: 13px; line-height: 1.35; }
+.notes .nav { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
 .notes .nav span { flex: 1; }
 .notes .nav button { background: transparent; color: var(--fg); border-color: var(--line); padding: 1px 8px; }
 .notes .list { flex: 1; overflow: auto; padding: 8px 10px 14px; display: flex; flex-direction: column; gap: 8px; }
@@ -106,7 +107,8 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .stop .h .s { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
 .stop .where { font: 11px var(--mono); color: var(--muted); margin: -2px 0 4px 15px; }
 .stop .b { color: var(--fg); line-height: 1.5; }
-.stop:not(.on) .b { color: var(--muted); }
+.stop:not(.on) .b { display: none; }
+.stop:not(.on) .where { margin-bottom: 0; }
 .stop .b code { font: 11.5px var(--mono); color: var(--function); }
 .notes .keys { flex: none; border-top: 1px solid var(--line); padding: 6px 12px; color: var(--muted); font-size: 11px; }
 
@@ -291,7 +293,7 @@ function applyTour() {
     el.classList.toggle("dimmed", touring && s.path === path && !inside);
   });
   if (!touring) return;
-  let html = `<div class="head"><div class="title">Tour</div><div class="nav"><span>Stop ${cur + 1} of ${trail.length}</span><button data-d="-1">‹</button><button data-d="1">›</button></div></div><div class="list">`;
+  let html = `<div class="head"><div class="title">Tour</div><div class="nav"><span></span><button data-d="-1">‹</button><button data-d="1">›</button></div></div><div class="list">`;
   trail.forEach((t, i) => {
     html += `<div class="stop ${i === cur ? "on" : ""}" data-i="${i}"><div class="h"><span class="k">${i + 1}</span><span class="s">${esc(t.head)}</span></div><div class="where">${t.path.split("/").pop()}:${t.from}–${t.to}</div><div class="b">${esc(t.note).replace(/`([^`]+)`/g, "<code>$1</code>")}</div></div>`;
   });
