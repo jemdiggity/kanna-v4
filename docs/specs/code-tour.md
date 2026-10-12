@@ -66,8 +66,8 @@ sequenceDiagram
 
 - **When:** the user asks how something works, wants to understand code the agent wrote or changed, or seems to be losing track of the code.
 - **Pick the way that fits.** Comments on the code (`kanna comment`) for how a part works, walked through while talking; a markdown doc with diagrams (`kanna open md`), such as a sequence or a layer diagram, for how the parts fit together; often both, the doc first and the comments after.
-- **Comment as you explain, one at a time.** Run `kanna comment` as you talk about a part, not all at once up front; explain in the chat, and keep the comment to the one thing to remember about it.
-- **Follow the questions.** Answer by commenting on the code that answers it. Check in every few comments.
+- **One comment at a time.** Comment on one part, explain it in the chat, keep the comment to the one thing to remember about it, and stop: ask the user to tell you when to go on. Never comment on several parts in one turn.
+- **Follow the questions.** Answer by commenting on the code that answers it.
 - **Small parts.** A function or a block; `FILE:FIRST-LAST` for a few lines inside a long one.
 - **Close the tabs** when the user asks.
 

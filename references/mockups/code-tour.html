@@ -101,7 +101,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
     <h1>Code tour: the agent comments on code as it explains it</h1>
     <p>You ask how something works. The agent answers in the chat and, as it goes, comments on the code it's talking about with <code>kanna comment FILE:LINE "comment"</code>: the file opens in a code tab (or its tab is selected), the lines are tinted and the rest dimmed, and the comment shows just above them, replacing the one before. A line snaps to the syntax scope it opens or sits in, so <code>client.rs:244</code> shows the whole loop. The tabs stay until you close them, or ask the agent to. How to give a tour is a skill; Kanna only gives the agent a way to comment on code.</p>
     <div class="controls">
-      <button id="bNext">1 · You ask, the agent shows</button>
+      <button id="bNext">1 · You ask, the agent comments</button>
       <button id="bClear">You ask the agent to close the tabs</button>
       <span class="sep"></span>
       <button id="bTheme">Light / dark</button>
@@ -199,10 +199,11 @@ for (const f of Object.values(FILES)) { f.lines = f.text.split("\n"); f.scopes =
 const KEEPER = "crates/kanna-keeper/src/";
 const STEPS = [
   { say: `It hands over the open terminal itself, through the socket.
-  I'll show you, one piece at a time.`, mark: ["server.rs:92", "When the keeper has something to tell the daemon, like \"here's the terminal you asked for\", it puts the message and the open terminals that go with it in a queue for that connection."], after: `On the right: the keeper doesn't send straight away, it queues.` },
-  { mark: ["server.rs:105", "Whenever the connection can take more, `flush` sends what's queued. A long message can go out in pieces; the terminals ride along with the first piece."], after: `The queue goes out as fast as the daemon reads it.` },
-  { mark: ["fdpass.rs:20", "This is where an open terminal crosses from one program to another: the message gets an extra envelope (`SCM_RIGHTS`) holding the terminals, and macOS copies them into the daemon."], after: `Make sense so far? Next is the daemon's side.` },
-  { mark: ["fdpass.rs:50", "The other side: the daemon waits for a message and takes whatever terminals came with it."], after: `That's the whole trip. Ask about anything that's unclear.` },
+  I'll show you, one piece at a time.`, mark: ["server.rs:92", "When the keeper has something to tell the daemon, like \"here's the terminal you asked for\", it puts the message and the open terminals that go with it in a queue for that connection."], after: `On the right: the keeper doesn't send straight away, it
+  queues. Tell me when to go on.` },
+  { you: "go on", mark: ["server.rs:105", "Whenever the connection can take more, `flush` sends what's queued. A long message can go out in pieces; the terminals ride along with the first piece."], after: `The queue goes out as fast as the daemon reads it. Go on?` },
+  { you: "ok", mark: ["fdpass.rs:20", "This is where an open terminal crosses from one program to another: the message gets an extra envelope (`SCM_RIGHTS`) holding the terminals, and macOS copies them into the daemon."], after: `That's the crossing. Next is the daemon's side; say when.` },
+  { you: "go on", mark: ["fdpass.rs:50", "The other side: the daemon waits for a message and takes whatever terminals came with it."], after: `That's the whole trip. Ask about anything that's unclear.` },
   { you: "how does it know which terminal goes with which message?", say: `Each message says how many terminals it carries.`, mark: ["client.rs:244", "Each line says how many terminals belong to it (`fds`) and takes that many from the queue, in order. That's how a terminal finds its message."], after: `The terminals arrive in the same order as the messages, so
   counting is enough.` },
 ];
@@ -314,7 +315,7 @@ function next() {
 `;
   log += `\n<span class="a">●</span> ${s.after || esc(s.mark[1].split(/[.:]/)[0].replace(/`/g, "")) + "."}\n`;
   show();
-  document.getElementById("bNext").textContent = STEPS[step] ? `${step + 1} · ${STEPS[step].you ? "You ask, the agent shows" : "Agent shows the next part"}` : "Done";
+  document.getElementById("bNext").textContent = STEPS[step] ? `${step + 1} · ${STEPS[step].you ? "You answer, the agent comments" : "The agent comments"}` : "Done";
 }
 document.getElementById("bNext").onclick = next;
 document.getElementById("bClear").onclick = () => {
