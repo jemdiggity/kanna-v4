@@ -1,6 +1,6 @@
 [
   {
-    "name": "focus and zoom; focusing another pane cancels zoom",
+    "name": "focus and zoom; focusing another pane in the tab moves the zoom to it, focusing another tab's pane cancels it",
     "steps": [
       { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "split": "right" } } },
@@ -10,9 +10,15 @@
       { "send": { "cmd": "zoom", "args": { "pane": "a" } }, "expect": { "zoomed": true } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": "a" } ] } },
       { "send": { "cmd": "focus", "args": { "pane": "b" } } },
-      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "b", "zoomed": null } ] } },
-      { "send": { "cmd": "zoom", "args": { "pane": "b" } } },
-      { "send": { "cmd": "zoom", "args": { "pane": "b" } }, "expect": { "zoomed": false } }
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "b", "zoomed": "b" } ] } },
+      { "send": { "cmd": "focus", "args": { "pane": "a" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": "a" } ] } },
+      { "send": { "cmd": "focus", "args": { "pane": "c" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "c", "zoomed": null, "tabs": [ { "active": false }, { "active": true } ] } ] } },
+      { "send": { "cmd": "focus", "args": { "pane": "b" } } },
+      { "send": { "cmd": "zoom", "args": { "pane": "b" } }, "expect": { "zoomed": true } },
+      { "send": { "cmd": "zoom", "args": { "pane": "b" } }, "expect": { "zoomed": false } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "b", "zoomed": null } ] } }
     ]
   },
   {

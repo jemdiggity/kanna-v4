@@ -285,7 +285,7 @@ The menu bar has **Edit**, **Pane**, **View** and **Window** menus. Right-clicki
 
 - Pane order is reading order: left to right, top to bottom. Pane, tab and window navigation all wrap around.
 - Moving to a pane also moves keyboard input to it.
-- Zoom makes one pane fill the tab (a docked pane: the window). Moving focus to another pane cancels it.
+- Zoom makes one pane fill the tab (a docked pane: the window). Moving focus to another pane on screen (⌘] / ⌘[, or `focus`) keeps the zoom: that pane fills the tab (or the window) instead. Moving to another tab's pane cancels it; only ⇧⌘↩ turns it off.
 
 ---
 
@@ -348,7 +348,7 @@ Each request is `{ id, cmd, args }`. Each reply is `{ id, ok: true, … }` or `{
 | `rename-tab` | `tab`, `title` | The title can't be empty. |
 | `resize` | `pane`, `size` | Fails if the pane fills its tab. On the docked pane, sets its width. |
 | `list` | — | Windows (with the key window marked, each window's focused and zoomed pane, and its `dock`: `{ pane, edge, width }`, when it has one), their tabs and layout trees, and all panes. |
-| `focus` | one of `pane`, `tab`, `window` | Brings it to the front and makes its window key. |
+| `focus` | one of `pane`, `tab`, `window` | Brings it to the front and makes its window key. A zoomed window's zoom moves to the focused pane if it's on screen, and is cancelled if not. |
 | `zoom` | `pane` | Toggles zoom. |
 | `close` | one of `pane`, `tab`, `window` | Closes it and everything inside it. A window's docked pane closes only with the window. |
 | `restart` | `pane` | |

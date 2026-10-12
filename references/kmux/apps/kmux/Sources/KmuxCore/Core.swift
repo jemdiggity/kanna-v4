@@ -273,11 +273,12 @@ public final class Core {
 
     func focusPane(_ pane: Pane) {
         guard let window = model.window(containing: pane.id) else { return }
+        let carriesZoom = window.zoomed != nil && window.shownPanes.contains(pane.id)
         if let location = model.locate(pane.id) {
             window.active = location.tab.id
             location.tab.lastFocus = pane.id
         }
-        if let zoomed = window.zoomed, zoomed != pane.id { window.zoomed = nil }
+        window.zoomed = carriesZoom ? pane.id : nil
         window.focused = pane.id
         model.key = window.id
     }
