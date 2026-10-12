@@ -11,6 +11,16 @@ struct CodeScopesTests {
         #expect(CodeScopes.open(at: 5, in: scopes) == [])
     }
 
+    @Test func aCommentedLineTakesTheScopeItOpensOrTheSmallestItSitsIn() {
+        let nested = scopes + [CodeScope(first: 5, last: 6)]
+        #expect(CodeScopes.snap(line: 5, last: nil, in: nested, lineCount: 30) == CodeScope(first: 5, last: 13))
+        #expect(CodeScopes.snap(line: 9, last: nil, in: scopes, lineCount: 30) == CodeScope(first: 8, last: 10))
+        #expect(CodeScopes.snap(line: 11, last: nil, in: scopes, lineCount: 30) == CodeScope(first: 7, last: 12))
+        #expect(CodeScopes.snap(line: 14, last: nil, in: scopes, lineCount: 30) == CodeScope(first: 14, last: 14))
+        #expect(CodeScopes.snap(line: 9, last: 9, in: scopes, lineCount: 30) == CodeScope(first: 9, last: 9))
+        #expect(CodeScopes.snap(line: 28, last: 40, in: scopes, lineCount: 30) == CodeScope(first: 28, last: 30))
+    }
+
     @Test func pinnedRowsAreTheScopesOfTheFirstLineBelowThem() {
         #expect(CodeScopes.pinned(top: 1, in: scopes) == [])
         #expect(CodeScopes.pinned(top: 6, in: scopes) == [5])

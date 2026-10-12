@@ -189,6 +189,7 @@ extension AppController {
             out["text"] = .string(code.file.text)
             out["path"] = .string(code.path)
             out["language"] = code.language.map { .string($0) } ?? .null
+            out["comment_text"] = code.commentText.map { .string($0) } ?? .null
             out["captures"] = .array(code.highlights.spans.prefix(200).map { .array([.number(Double($0.range.location)), .number(Double($0.range.length)), .string($0.capture)]) })
             return out
         }

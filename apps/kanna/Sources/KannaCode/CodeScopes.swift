@@ -33,6 +33,14 @@ public enum CodeScopes {
         return top
     }
 
+    public static func snap(line: Int, last: Int?, in scopes: [CodeScope], lineCount: Int) -> CodeScope {
+        let line = min(max(line, 1), max(lineCount, 1))
+        if let last { return CodeScope(first: line, last: min(max(last, line), max(lineCount, line))) }
+        if let opening = scopes.filter({ $0.first == line }).max(by: { $0.last < $1.last }) { return opening }
+        if let around = scopes.filter({ $0.first <= line && $0.last >= line }).min(by: { $0.last - $0.first < $1.last - $1.first }) { return around }
+        return CodeScope(first: line, last: line)
+    }
+
     public static func indents(_ file: CodeFile, tab: Int = 4) -> [Int] {
         let units = Array(file.text.utf16)
         var columns: [Int?] = []

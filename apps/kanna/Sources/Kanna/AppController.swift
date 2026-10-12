@@ -138,6 +138,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             guard let self, let id = panes.id(of: view) else { return }
             closePane(id)
         }
+        installAppCommands()
         installCommands()
         installAgentStatus()
         for signal in [SIGTERM, SIGINT, SIGHUP] {

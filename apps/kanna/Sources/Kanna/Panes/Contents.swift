@@ -106,7 +106,12 @@ final class Contents {
                 content = markdown
             }
         case "code":
-            let code = CodePaneView(path: Self.absolute(pane["path"]?.string ?? ""), line: pane["line"]?.number.map { Int($0) }, zoom: codeZoom[id] ?? pane["zoom"]?.number.map { CGFloat($0) } ?? 1)
+            let path = pane["path"]?.string ?? ""
+            let note = pane["comment"]
+            let comment = note?["path"]?.string == path ? note.flatMap { note in
+                note["first"]?.number.map { CodeComment(first: Int($0), last: Int(note["last"]?.number ?? $0), text: note["text"]?.string ?? "") }
+            } : nil
+            let code = CodePaneView(path: Self.absolute(path), line: pane["line"]?.number.map { Int($0) }, zoom: codeZoom[id] ?? pane["zoom"]?.number.map { CGFloat($0) } ?? 1, comment: comment)
             code.onZoom = { [weak self, weak code] in
                 guard let code else { return }
                 self?.codeZoom[id] = code.zoom

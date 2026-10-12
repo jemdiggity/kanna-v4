@@ -10,6 +10,11 @@ enum CodeTheme {
     static let changed = color(dark: 0x5fcf93, light: 0x1f9d5c)
     static let guide = color(dark: 0x2a2f37, light: 0xe4e7eb)
     static let line = color(dark: 0x2c313a, light: 0xd8dce2)
+    static let tint = color(dark: 0x1e2433, light: 0xeef3fc)
+    static let tintEdge = color(dark: 0x7aa2ff, light: 0x2f63d8)
+    static let card = color(dark: 0x1f232a, light: 0xffffff)
+    static let muted = color(dark: 0x8b93a0, light: 0x6b7280)
+    static let dim = NSColor(name: nil) { appearance in rgb(isDark(appearance) ? 0x14161a : 0xffffff).withAlphaComponent(0.6) }
 
     static let keyword = color(dark: 0xc792ea, light: 0x8839c4)
     static let function = color(dark: 0x7aa2ff, light: 0x2f63d8)
