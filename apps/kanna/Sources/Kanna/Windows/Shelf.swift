@@ -77,17 +77,18 @@ struct DeskPage: Equatable {
 @MainActor
 final class ShelfStrip: NSView {
     static let height: CGFloat = 30
+    static let titleFloor: CGFloat = 60
     var onPull: ((String) -> Void)?
     private var shown: [ShelfTask] = []
     private var waiting = 0
     private let count = NSTextField(labelWithString: "")
+    private var ticker: Timer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         count.font = .systemFont(ofSize: 12)
         count.textColor = .tertiaryLabelColor
-        count.autoresizingMask = [.minXMargin]
         paint()
     }
 
@@ -100,10 +101,30 @@ final class ShelfStrip: NSView {
         paint()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        ticker?.invalidate()
+        ticker = window == nil ? nil : Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        relayout()
+    }
+
     private func paint() { layer?.backgroundColor = resolved(.windowBackgroundColor) }
 
+    private var shelfItems: [ShelfItem] { subviews.compactMap { $0 as? ShelfItem } }
+
     var items: [(task: String, center: NSPoint)] {
-        subviews.compactMap { $0 as? ShelfItem }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
+        shelfItems.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
+    }
+
+    var geometry: JSON {
+        ["width": .number(Double(bounds.width)),
+         "items": .array(shelfItems.map { ["task": .string($0.task.id), "meta": .string($0.metaText), "right": .number(Double($0.frame.maxX))] })]
     }
 
     func show(_ tasks: [ShelfTask], waiting: Int) {
@@ -112,18 +133,53 @@ final class ShelfStrip: NSView {
         self.waiting = waiting
         subviews.forEach { $0.removeFromSuperview() }
         count.stringValue = "\(waiting) in backlog"
-        count.isHidden = waiting == 0
         count.sizeToFit()
-        count.frame.origin = NSPoint(x: bounds.width - count.frame.width - 12, y: (Self.height - count.frame.height) / 2)
         addSubview(count)
-        var x: CGFloat = 8
         for (index, task) in tasks.enumerated() {
             let item = ShelfItem(task: task, key: index < 3 ? "⌘\(index + 1)" : nil)
             item.onPress = { [weak self] in self?.onPull?(task.id) }
-            item.frame.origin = NSPoint(x: x, y: (Self.height - item.frame.height) / 2)
+            item.onHover = { [weak self] in self?.relayout() }
             addSubview(item)
+        }
+        relayout()
+    }
+
+    private func tick() {
+        shelfItems.forEach { $0.refresh() }
+        relayout()
+    }
+
+    fileprivate func relayout() {
+        let items = shelfItems
+        let gaps = CGFloat(max(0, items.count - 1)) * 4
+        let chrome = items.reduce(0) { $0 + $1.chrome }
+        let metas = items.map(\.metaWidth)
+        let titles = items.map(\.titleWidth)
+        var room = bounds.width - 8 - gaps - chrome - metas.reduce(0, +)
+        count.isHidden = waiting == 0
+        if !count.isHidden, room - count.frame.width - 20 < titles.map { min($0, Self.titleFloor) }.reduce(0, +) {
+            count.isHidden = true
+        }
+        if !count.isHidden { room -= count.frame.width + 20 }
+        let fitted = Self.shrink(titles, to: room, floor: Self.titleFloor)
+        let leftover = room - fitted.reduce(0, +)
+        let fittedMetas = leftover < 0 ? Self.shrink(metas, to: metas.reduce(0, +) + leftover, floor: 0) : metas
+        var x: CGFloat = 8
+        for (index, item) in items.enumerated() {
+            item.fit(title: fitted[index], meta: fittedMetas[index])
+            item.frame.origin = NSPoint(x: x, y: (Self.height - item.frame.height) / 2)
             x += item.frame.width + 4
         }
+        count.frame.origin = NSPoint(x: bounds.width - count.frame.width - 12, y: (Self.height - count.frame.height) / 2)
+    }
+
+    static func shrink(_ widths: [CGFloat], to total: CGFloat, floor: CGFloat) -> [CGFloat] {
+        let floors = widths.map { min($0, floor) }
+        let spare = zip(widths, floors).map { $0 - $1 }.reduce(0, +)
+        let cut = widths.reduce(0, +) - total
+        guard cut > 0 else { return widths }
+        guard cut < spare else { return floors }
+        return zip(widths, floors).map { ($0 - ($0 - $1) * cut / spare).rounded(.down) }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -136,35 +192,60 @@ final class ShelfStrip: NSView {
 private final class ShelfItem: NSView {
     let task: ShelfTask
     var onPress: (() -> Void)?
+    var onHover: (() -> Void)?
     private let title: NSTextField
-    private let extra: NSTextField
+    private let meta: NSTextField
+    private let key: NSTextField?
     private var hover = false
+    private(set) var titleWidth: CGFloat = 0
+    private(set) var metaWidth: CGFloat = 0
 
     init(task: ShelfTask, key: String?) {
         self.task = task
         title = NSTextField(labelWithString: task.title)
-        extra = NSTextField(labelWithString: "· \(task.meta)" + (key.map { "  \($0)" } ?? ""))
-        for label in [title, extra] {
+        meta = NSTextField(labelWithString: "")
+        self.key = key.map { NSTextField(labelWithString: $0) }
+        super.init(frame: NSRect(x: 0, y: 0, width: 0, height: 22))
+        for label in [title, meta] + [self.key].compactMap({ $0 }) {
             label.font = .systemFont(ofSize: 12)
             label.lineBreakMode = .byTruncatingTail
             label.sizeToFit()
+            addSubview(label)
         }
-        title.textColor = task.status == "needs-you" ? .systemOrange : .secondaryLabelColor
-        extra.textColor = .tertiaryLabelColor
-        let width = min(title.frame.width, 260)
-        super.init(frame: NSRect(x: 0, y: 0, width: 8 + 8 + 7 + width + 8, height: 22))
-        title.frame = NSRect(x: 23, y: (22 - title.frame.height) / 2, width: width, height: title.frame.height)
-        extra.frame = NSRect(x: title.frame.maxX + 6, y: title.frame.minY, width: extra.frame.width, height: extra.frame.height)
-        extra.isHidden = true
-        addSubview(title)
-        addSubview(extra)
-        toolTip = task.meta
+        self.key?.font = .systemFont(ofSize: 11)
+        self.key?.sizeToFit()
+        self.key?.textColor = .tertiaryLabelColor
+        self.key?.isHidden = true
+        meta.textColor = .tertiaryLabelColor
+        titleWidth = min(title.frame.width, 260)
+        paintTitle()
+        refresh()
+        toolTip = task.title
         wantsLayer = true
         layer?.cornerRadius = 6
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    var metaText: String { meta.isHidden ? "" : meta.stringValue }
+
+    var chrome: CGFloat { 23 + 6 + 8 + (hover ? (key.map { $0.frame.width + 6 } ?? 0) : 0) }
+
+    func refresh() {
+        meta.stringValue = "· \(task.meta)"
+        meta.sizeToFit()
+        metaWidth = meta.frame.width
+    }
+
+    func fit(title width: CGFloat, meta room: CGFloat) {
+        title.frame = NSRect(x: 23, y: (22 - title.frame.height) / 2, width: width, height: title.frame.height)
+        meta.isHidden = room < 12
+        meta.frame = NSRect(x: title.frame.maxX + 6, y: title.frame.minY, width: meta.isHidden ? 0 : room, height: meta.frame.height)
+        key?.isHidden = !hover
+        key?.frame.origin = NSPoint(x: meta.frame.maxX + 6, y: (22 - (key?.frame.height ?? 0)) / 2)
+        frame.size.width = (hover ? key?.frame.maxX ?? meta.frame.maxX : meta.frame.maxX) + 8
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         ShelfTask.color(task.status).setFill()
@@ -174,29 +255,19 @@ private final class ShelfItem: NSView {
     override func mouseEntered(with event: NSEvent) { setHover(true) }
     override func mouseExited(with event: NSEvent) { setHover(false) }
 
+    private func paintTitle() {
+        title.textColor = hover ? .labelColor : task.status == "needs-you" ? .systemOrange : .secondaryLabelColor
+    }
+
     private func setHover(_ on: Bool) {
         hover = on
-        extra.isHidden = !on
-        title.textColor = on ? .labelColor : task.status == "needs-you" ? .systemOrange : .secondaryLabelColor
-        frame.size.width = (on ? extra.frame.maxX : title.frame.maxX) + 8
+        paintTitle()
         layer?.backgroundColor = on ? resolved(.quaternaryLabelColor) : nil
-        superview?.needsLayout = true
-        (superview as? ShelfStrip)?.relayout()
+        onHover?()
     }
 
     override func mouseDown(with event: NSEvent) { onPress?() }
 }
-
-extension ShelfStrip {
-    fileprivate func relayout() {
-        var x: CGFloat = 8
-        for item in subviews where item is ShelfItem {
-            item.frame.origin.x = x
-            x += item.frame.width + 4
-        }
-    }
-}
-
 @MainActor
 final class ShelfPage: NSView, NSSearchFieldDelegate {
     static let cheers = [

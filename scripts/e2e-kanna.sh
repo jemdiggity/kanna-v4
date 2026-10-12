@@ -1711,6 +1711,20 @@ S51() {
   check wait_for 10 eval '[[ "$(desk backlog)" != *"t20"* && "$(desk shelf.0.title)" == "Task 20" ]]' || { desk backlog; desk shelf; return 1; }
   check eval '(( $(desk scroll.top) > 0 && $(desk scroll.top) <= top ))' || { echo "S51: the page lost its scroll position"; desk scroll; return 1; }
   check eval '(( $(desk scroll.top) + $(desk scroll.visible) <= $(desk scroll.height) ))' || { desk scroll; return 1; }
+  (cd "$repo" && kanna task new "The Shelf strip shows every parked task's time beside its name" "hello" --agent "$agent" && kanna task new "Long titles truncate before the times and the strip never overflows" "hello" --agent "$agent") >/dev/null || { echo "S51 line $LINENO"; return 1; }
+  kanna task start t21 >/dev/null && kanna task start t22 >/dev/null || { echo "S51 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk running)" == 3 ]]' || { desk running; return 1; }
+  kanna task pull "Task 20" >/dev/null || { echo "S51 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk strip)" == True && "$(desk title)" == "Task 20" ]]' || { desk stripLayout; return 1; }
+  fits() { desk stripLayout "$1" | python3 -c 'import json, sys; g = json.load(sys.stdin); items = g["items"]
+sys.exit(not (len(items) == 2 and all(i["meta"].startswith("· parked ") for i in items) and all(i["right"] <= g["width"] for i in items)))'; }
+  check eval 'fits "\"size\":[1400,420]"' || { desk stripLayout; return 1; }
+  check test "$(desk waiting)" == "19 in backlog" || { desk waiting; return 1; }
+  check eval 'fits "\"size\":[520,420]"' || { desk stripLayout; return 1; }
+  check test "$(desk waiting)" == "19 in backlog" || { echo "S51: the backlog count gave way before the titles"; desk stripLayout; return 1; }
+  check eval 'fits "\"size\":[400,420]"' || { desk stripLayout; return 1; }
+  check test "$(desk waiting)" == "" || { echo "S51: the backlog count didn't give way on a narrow strip"; desk stripLayout; return 1; }
+  sleep 0.3; snap w1 s51-strip >/dev/null
 }
 
 S53() {
