@@ -66,7 +66,7 @@ sequenceDiagram
 | Click a line | marks it as the current line |
 | Click a pinned scope | scrolls to that line |
 | Drag, ⌘A, ⌘C | selects and copies text |
-| The markdown pane's Vim keys ([markdown-keys.md](markdown-keys.md)) | the same, with a line of code as "a line", `}` `{` to the next or previous blank line, and `]]` `[[` to the next or previous scope's first line (a function, a type); `/` `?` `n` `N` use the find bar's matches |
+| The markdown pane's reading keys ([markdown-keys.md](markdown-keys.md)): `less`'s `j` `k`, `d` `u`, `f` `b`, `space`, `g` `G`, `/` `n`, with Vim's ⌃ forms too | the same, with a line of code as "a line", `}` `{` to the next or previous blank line, and `]]` `[[` to the next or previous scope's first line (a function, a type); `/` `?` `n` `N` use the find bar's matches |
 | ⌘F, ⌘G, ⇧⌘G, Esc | find, next match, previous match, close the find bar |
 | ⌘= ⌘− ⌘0 | font size bigger, smaller, back |
 | Back / Forward (Pane menu, mouse buttons 4 and 5) | the file and line shown before / after |
