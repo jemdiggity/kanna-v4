@@ -929,10 +929,12 @@ print(len(v) if isinstance(v, list) else v)' "$1" "$2"; }
 
 S38() {
   start_daemon && start_app || return 1
-  kanna open --name dt1 --cmd "printf 'DOCK TAB ONE\n'; exec sleep 600" >/dev/null || return 1
-  kanna open --name dt2 --tab --cmd "printf 'DOCK TAB TWO\n'; exec sleep 600" >/dev/null || return 1
+  kanna open --name dt1 --cmd "printf 'test result: ok. 41 passed; 0 failed\n'; exec sleep 600" >/dev/null || return 1
+  kanna open --name dt2 --tab --cmd "printf 'dev server on http://localhost:3000\n'; exec sleep 600" >/dev/null || return 1
+  kanna rename-tab t1 tests >/dev/null || return 1
+  kanna rename-tab t2 server >/dev/null || return 1
   local opened refused shot first
-  opened="$(kanna open --name agent --dock --cmd "printf 'DOCK AGENT\n'; exec sleep 600")"
+  opened="$(kanna open --name agent --dock --cmd "printf 'agent: zoom as a mode\n'; exec sleep 600")"
   [[ "$opened" == *"(agent) docked left in window w1: running" ]] || { echo "open --dock should say where it docked: $opened"; return 1; }
   check test "$(win w1 dock)" == '{"edge": "left", "pane": "agent", "width": "2/5"}' || return 1
   [[ "$(kanna list)" == *"dock: p3 (agent)  left 2/5"* ]] || { echo "list should show the dock on its own line: $(kanna list)"; return 1; }
@@ -954,7 +956,7 @@ S38() {
   shot="$(snap w1 s38-zoomed)"
   check test "$(field panes <<<"$shot" | count)" == 1 || return 1
   key cmd+shift+return; check test "$(win w1 zoomed)" == None || return 1
-  kanna open --name dt3 --split right --cmd "printf 'DOCK TAB THREE\n'; exec sleep 600" >/dev/null || return 1
+  kanna open --name dt3 --split right --cmd "printf 'GET / 200 4ms\n'; exec sleep 600" >/dev/null || return 1
   check test "$(win w1 focused)" == dt3 || return 1
   raw '{"id":1,"cmd":"debug.click","args":{"pane":"agent"}}' >/dev/null; sleep 0.3
   raw '{"id":1,"cmd":"debug.click","args":{"pane":"dt3"}}' >/dev/null; sleep 0.3
@@ -987,7 +989,7 @@ S38() {
   [[ "$refused" == *"agent isn't a task, and only a task's agent docks"* ]] || { echo "docking a pane that isn't a task should say why: $refused"; return 1; }
   check test "$(win w1 dock)" == None || return 1
   kanna close agent >/dev/null || return 1
-  kanna open --name agent --dock --cmd "printf 'DOCK AGENT\n'; exec sleep 600" >/dev/null || return 1
+  kanna open --name agent --dock --cmd "printf 'agent: zoom as a mode\n'; exec sleep 600" >/dev/null || return 1
   kanna close dt2 >/dev/null || return 1
   check test "$(win w1 tabs)" == '[]' || return 1
   check test "$(win w1 dock.pane)" == agent || return 1
