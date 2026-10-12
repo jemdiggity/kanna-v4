@@ -15,14 +15,14 @@
   --fg: #e6e8eb; --bar-bg: #1b1e24; --line: #2c313a; --muted: #8b93a0;
   --keyword: #c792ea; --function: #7aa2ff; --type: #e5c07b; --string: #a5d6a7; --number: #f78c6c; --constant: #f78c6c;
   --comment: #6b7280; --macro: #56b6c2; --attribute: #8b93a0; --property: #c9d1e0; --operator: #89ddff; --punctuation: #8b93a0;
-  --termbg: #16181c; --tour: rgba(122,162,255,.12); --tour-edge: #7aa2ff; --card: #1f232a; --guide: #2a2f37; --shadow: rgba(0,0,0,.55);
+  --termbg: #16181c; --guide: #2a2f37; --shadow: rgba(0,0,0,.55);
 }
 .window.light {
   --bg: #ffffff; --gutter: #ffffff; --num: #b4bac4; --num-on: #1d2026; --cur: #f4f5f7; --sel: rgba(47,99,216,.2);
   --fg: #1d2026; --bar-bg: #f4f5f7; --line: #d8dce2; --muted: #6b7280;
   --keyword: #8839c4; --function: #2f63d8; --type: #a15c00; --string: #2d7d3a; --number: #c2410c; --constant: #c2410c;
   --comment: #8a919c; --macro: #0e7490; --attribute: #6b7280; --property: #374151; --operator: #0369a1; --punctuation: #6b7280;
-  --termbg: #fbfbfc; --tour: rgba(47,99,216,.08); --tour-edge: #2f63d8; --card: #f7f8fa; --guide: #e4e7eb; --shadow: rgba(0,0,0,.14);
+  --termbg: #fbfbfc; --guide: #e4e7eb; --shadow: rgba(0,0,0,.14);
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 var(--sans); }
@@ -36,7 +36,6 @@ h1 { font-size: 15px; margin: 0 0 4px; }
 button { font: 12px var(--sans); color: var(--text); background: #2a2c31; border: 1px solid #3a3d44; border-radius: 5px; padding: 4px 9px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button.on { background: var(--accent); border-color: var(--accent); }
-button.later { border-style: dashed; }
 
 .window { border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: 0 20px 50px rgba(0,0,0,.5); background: var(--bg); color: var(--fg); height: 700px; display: flex; flex-direction: column; }
 body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 100vh; }
@@ -61,8 +60,6 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .crumbs { height: 26px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 14px 0 20px; font-size: 12px; color: var(--muted); }
 .crumbs i { font-style: normal; opacity: .6; }
 .crumbs b { font-weight: 400; color: var(--fg); }
-.crumbs .spacer { flex: 1; }
-.crumbs .chip { border: 1px solid var(--tour-edge); border-radius: 5px; padding: 0 8px; color: var(--fg); white-space: nowrap; }
 
 .split { flex: 1; display: flex; min-height: 0; position: relative; }
 .scroller { flex: 1; min-width: 0; overflow: auto; position: relative; }
@@ -89,32 +86,18 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .tk-comment { color: var(--comment); font-style: italic; } .tk-macro { color: var(--macro); } .tk-attribute { color: var(--attribute); }
 .tk-property { color: var(--property); } .tk-operator { color: var(--operator); } .tk-punctuation { color: var(--punctuation); }
 
-.ln.in-tour { background: var(--tour); }
-.ln.in-tour .n { background: var(--tour); box-shadow: inset 2px 0 0 var(--tour-edge); }
-.ln.dimmed .t { opacity: .38; }
 
-.notes { flex: 0 0 300px; border-left: 1px solid var(--line); background: var(--bar-bg); padding: 10px; display: none; flex-direction: column; gap: 10px; overflow: auto; font-size: 12.5px; }
-.code.touring .notes { display: flex; }
-.notes .top { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; }
-.stop { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; }
-.stop.on { border-color: var(--tour-edge); }
-.stop .h { display: flex; justify-content: space-between; font: 11px var(--mono); color: var(--muted); margin-bottom: 4px; }
-.stop .b { color: var(--fg); line-height: 1.5; }
-.stop .b code { font: 11.5px var(--mono); color: var(--function); }
-.later-tag { font-size: 10.5px; border: 1px dashed var(--tour-edge); color: var(--tour-edge); border-radius: 10px; padding: 0 7px; }
 </style>
 </head>
 <body>
 <main>
   <div class="intro">
     <h1>Code viewer: a read-only code pane with syntax highlighting, beside the agent</h1>
-    <p>The agent (or you) opens a source file with <code>kanna open code FILE[:LINE]</code>. The pane shows it highlighted, with line numbers, at that line; it follows the file on disk. You read, select and copy; you don't edit. The dashed button previews where this goes later: the agent tours the code, highlighting a range per stop and explaining it.</p>
+    <p>The agent (or you) opens a source file with <code>kanna open code FILE[:LINE]</code>. The pane shows it highlighted, with line numbers, at that line; it follows the file on disk. You read, select and copy; you don't edit.</p>
     <div class="controls">
       <button id="openAt">Agent opens fdpass.rs:50</button>
       <button id="change">File changes on disk</button>
       <button id="theme">Light / dark</button>
-      <span class="sep"></span>
-      <button id="tour" class="later">Later: code tour</button>
     </div>
   </div>
   <div class="window dark" id="window">
@@ -131,10 +114,9 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
           <span class="add">+</span>
         </div>
       <div class="code" id="code" tabindex="0">
-        <div class="crumbs"><span>crates</span><i>›</i><span>kanna-keeper</span><i>›</i><span>src</span><i>›</i><b>fdpass.rs</b><span class="spacer"></span><span class="chip" id="tourChip" hidden>Tour 2 / 3</span></div>
+        <div class="crumbs"><span>crates</span><i>›</i><span>kanna-keeper</span><i>›</i><span>src</span><i>›</i><b>fdpass.rs</b></div>
         <div class="split">
           <div class="scroller" id="scroller"><div class="sticky"><div class="rows" id="sticky"></div></div><div class="lines" id="lines"></div></div>
-          <div class="notes" id="notes"></div>
         </div>
       </div>
       </div>
@@ -302,7 +284,6 @@ function render(keepScroll) {
     return `<div class="ln" data-n="${i + 1}"><span class="n">${i + 1}</span><span class="t">${guides(next.match(/^ */)[0].length) || " "}</span></div>`;
   }).join("");
   if (keepScroll) scroller.scrollTop = top;
-  applyTour();
   stick();
 }
 const stickyEl = document.getElementById("sticky");
@@ -368,34 +349,6 @@ document.getElementById("change").onclick = () => {
 const win = document.getElementById("window");
 document.getElementById("theme").onclick = () => { win.classList.toggle("dark"); win.classList.toggle("light"); };
 
-const STOPS = [
-  { from: 5, to: 7, title: "cmsg_space", text: "Works out how much room a note needs to carry some open files along with a message." },
-  { from: 50, to: 90, title: "recv", text: "Waits for a message from the keeper. Besides text, the message can carry open terminals, which the daemon takes over." },
-  { from: 71, to: 85, title: "walk the control messages", text: "Unpacks each open file from the message, one by one." },
-];
-let touring = false, stop = 1;
-const notes = document.getElementById("notes");
-function applyTour() {
-  code.classList.toggle("touring", touring);
-  document.getElementById("tourChip").hidden = !touring;
-  linesEl.querySelectorAll(".ln").forEach(el => {
-    const n = +el.dataset.n, s = STOPS[stop];
-    const inside = touring && n >= s.from && n <= s.to;
-    el.classList.toggle("in-tour", inside);
-    el.classList.toggle("dimmed", touring && !inside);
-  });
-  if (!touring) return;
-  document.getElementById("tourChip").textContent = `Tour ${stop + 1} / ${STOPS.length}`;
-  notes.innerHTML = `<div class="top"><span>Tour by p85 · keeper fd passing</span><span class="later-tag">later</span></div>` +
-    STOPS.map((s, i) => `<div class="stop ${i === stop ? "on" : ""}" data-i="${i}"><div class="h"><span>${s.title}</span><span>${s.from}–${s.to}</span></div><div class="b">${s.text}</div></div>`).join("");
-}
-notes.addEventListener("click", e => {
-  const s = e.target.closest(".stop"); if (s) { stop = +s.dataset.i; applyTour(); goTo(STOPS[stop].from); }
-});
-document.getElementById("tour").onclick = e => {
-  touring = !touring; e.target.classList.toggle("on", touring); applyTour();
-  if (touring) goTo(STOPS[stop].from);
-};
 
 render(false);
 setCur(1);
@@ -404,7 +357,6 @@ if (params.has("picture")) document.body.classList.add("picture");
 if (params.has("light")) document.getElementById("theme").click();
 if (params.has("at")) document.getElementById("openAt").click();
 if (params.has("changed")) { document.getElementById("change").click(); goTo(source.split("\n").findIndex(l => l.includes("more than {MAX_FDS}")) + 1); }
-if (params.has("tour")) document.getElementById("tour").click();
 if (params.has("line")) goTo(+params.get("line"), true);
 </script>
 </body>
