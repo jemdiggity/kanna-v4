@@ -1625,6 +1625,19 @@ S50() {
   [[ "$said" == "opened p"*" · s50-other.rs:7" && "$said" != *" $id "* ]] || { echo "other: $said"; return 1; }
   [[ "$(kanna comment "$KANNA_STATE_DIR/gone.rs:3" "Nothing." 2>&1)" == *"No such file: $KANNA_STATE_DIR/gone.rs"* ]] || { echo "S50: a missing file"; return 1; }
   [[ "$(kanna comment "$other:99" "Past the end." 2>&1)" == *"has 30 lines"* ]] || { echo "S50: past the end"; return 1; }
+  local doc="$KANNA_STATE_DIR/s50.md" agent md
+  printf '# Tabs\n\nA tab container holds **several** panes\nand shows one at a time.\n\n- Panes only: it holds panes.\n- One active: the rest keep running.\n' >"$doc"
+  agent="$(kanna open --name s50agent --cmd cat | awk '{print $2}')"
+  said="$(KANNA_PANE=$agent kanna comment "$doc:4" "The key idea: one pane shows at a time.")" || return 1
+  [[ "$said" == "c1 · s50.md:3 in p"* ]] || { echo "doc: $said"; return 1; }
+  md="${said##* in }"
+  mdf() { raw "{\"id\":1,\"cmd\":\"debug.md\",\"args\":{\"pane\":\"$md\"}}" | field "$1"; }
+  check wait_for 5 eval '[[ "$(mdf threads.0.messages.0)" == "agent: The key idea: one pane shows at a time." ]]' || return 1
+  check wait_for 5 eval '[[ "$(mdf markup)" == True && "$(mdf agent)" == "$agent" ]]' || { echo "markup $(mdf markup) agent $(mdf agent)"; return 1; }
+  check wait_for 5 eval 'raw "{\"id\":1,\"cmd\":\"debug.md\",\"args\":{\"pane\":\"$md\",\"mark\":\"c1\"}}" | grep -q "\"y\""' || { echo "c1 has no mark"; return 1; }
+  said="$(KANNA_PANE=$agent kanna comment "$doc:7" "The others keep running.")" || return 1
+  [[ "$said" == "c2 · s50.md:7 in $md" ]] || { echo "doc again: $said"; return 1; }
+  check wait_for 5 eval '[[ "$(mdf active)" == c2 ]]' || { echo "active $(mdf active)"; return 1; }
   stop_app; start_app || return 1
   check wait_for 5 eval '[[ "$(code $id comment_first)" == 40 && "$(code $id comment_text)" == "Each step." ]]' || return 1
 }

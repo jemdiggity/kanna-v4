@@ -467,7 +467,7 @@ pub static COMMANDS: &[Command] = &[
             ("--tab", "Open the file in a new tab, even if it's already open."),
             ("--window ID|new", "Open the file in that window, or a new one."),
         ],
-        notes: "Opens FILE in a code pane at LINE, or uses the code pane in this window that already shows it, tints the lines and dims the rest, with the comment in a box above them; it replaces the pane's last comment. LINE takes the whole scope it opens or sits in (a function, a loop, a block); LINE-LAST takes those lines as they are. The pane keeps the comment until it closes. Prints the pane and the lines commented on.",
+        notes: "On a markdown file, starts a comment thread (as `kanna markup`'s) on the block at LINE (a paragraph, a list item, a heading), written by you, in the doc's pane with comments on; the user's replies in it come to you as comments do.\nOn a source file, opens FILE in a code pane at LINE, or uses the code pane in this window that already shows it, tints the lines and dims the rest, with the comment in a box above them; it replaces the pane's last comment. LINE takes the whole scope it opens or sits in (a function, a loop, a block); LINE-LAST takes those lines as they are. The pane keeps the comment until it closes. Prints the pane and the lines commented on.",
         examples: &[
             ("kanna comment src/fdpass.rs:50 \"Waits for a message and takes the terminals that came with it.\"", "Comment on the function that starts at line 50."),
             ("kanna comment src/client.rs:244-246 \"Takes as many terminals as the message says.\"", "Comment on lines 244 to 246 exactly."),
@@ -613,6 +613,15 @@ fn parse_comment(args: &mut Argv) -> Result<Value, Failure> {
         out.insert("last".into(), json!(last));
     }
     out.insert("text".into(), json!(text));
+    if is_markdown(&file) {
+        if last.is_some() {
+            return Err(usage("comment", "a comment on a markdown file is on the block at one line: FILE.md:LINE"));
+        }
+        out.insert("doc".into(), json!(true));
+        if let Some(agent) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
+            out.insert("agent".into(), json!(agent));
+        }
+    }
     from_caller(&mut out);
     Ok(Value::Object(out))
 }

@@ -61,8 +61,13 @@ extension MarkdownPaneView {
         let stamp = store.stamp
         guard stamp != storeStamp else { return }
         storeStamp = stamp
+        let known = Set(record.threads.map(\.id))
         record = store.read()
         refreshMarks()
+        if markup, let started = record.threads.last(where: { !known.contains($0.id) && $0.isOpen && $0.messages.first?.who == "agent" }) {
+            if !threadsVisible { toggleThreads() }
+            reveal(started.id)
+        }
     }
 
     func refreshMarks() {

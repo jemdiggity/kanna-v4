@@ -1,3 +1,4 @@
+use crate::target::Session;
 use kanna_client::{exit, fail, Failure};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
@@ -398,5 +399,160 @@ mod tests {
         let image = json!({ "image": "desk.png", "region": [0.05, 0.2, 0.25, 0.3] });
         assert_eq!(what(&image), "image desk.png, the box from 5%,20% to 30%,50% (left,top to right,bottom)");
         assert_eq!(now().len(), "2026-10-11T09:00:00".len());
+    }
+}
+
+pub fn comment(request: &Value, mux: &mut Session, json_output: bool) -> Result<(), Failure> {
+    let path = request["path"].as_str().unwrap_or_default();
+    let file = Path::new(path);
+    let source = std::fs::read_to_string(file).map_err(|_| fail(exit::NOT_FOUND, format!("No such file: {path}")))?;
+    let line = request["line"].as_u64().unwrap_or(1) as usize;
+    let count = source.lines().count();
+    let (first, quote) = block_at(&source, line).ok_or_else(|| fail(exit::USAGE, format!("comment: {path} has {count} lines")))?;
+    let text = request["text"].as_str().unwrap_or_default().to_string();
+    let agent = request["agent"].clone();
+    let listed = mux.call("list", json!({}))?;
+    let shown = listed["panes"].as_array().into_iter().flatten().find(|p| p["type"] == "md" && p["path"] == path).cloned();
+    let pane = match shown {
+        Some(pane) if pane["markup"] == true && (agent.is_null() || pane["agent"] == agent) => pane,
+        Some(pane) => {
+            let mut args = json!({ "pane": pane["id"] });
+            if !agent.is_null() {
+                args["agent"] = agent.clone();
+            }
+            mux.call("markup", args)?["pane"].clone()
+        }
+        None => {
+            let mut args = json!({ "type": "md", "path": path, "markup": true });
+            for key in ["agent", "from", "name", "split", "size", "tab", "window", "wait"] {
+                if !request[key].is_null() {
+                    args[key] = request[key].clone();
+                }
+            }
+            mux.call("open", args)?["pane"].clone()
+        }
+    };
+    let mut id = String::new();
+    update(file, |doc| {
+        let next = doc["next"].as_u64().unwrap_or(1);
+        id = format!("c{next}");
+        doc["next"] = json!(next + 1);
+        if doc["agent"].is_null() && !agent.is_null() {
+            doc["agent"] = agent.clone();
+        }
+        let thread = json!({ "id": id, "quote": quote, "line": first, "state": "open", "status": "replied", "messages": [{ "who": "agent", "text": text, "at": now() }] });
+        match doc["threads"].as_array_mut() {
+            Some(list) => list.push(thread),
+            None => doc["threads"] = json!([thread]),
+        }
+        Ok(())
+    })?;
+    if json_output {
+        println!("{}", json!({ "thread": id, "line": first, "pane": pane }));
+    } else {
+        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        println!("{id} · {name}:{first} in {}", pane["id"].as_str().unwrap_or("?"));
+    }
+    Ok(())
+}
+
+pub fn block_at(source: &str, line: usize) -> Option<(usize, String)> {
+    let lines: Vec<&str> = source.lines().collect();
+    if line == 0 || line > lines.len() {
+        return None;
+    }
+    let mut fenced = vec![false; lines.len()];
+    let mut drawn = vec![false; lines.len()];
+    let mut inside: Option<bool> = None;
+    for (i, text) in lines.iter().enumerate() {
+        let trimmed = text.trim_start();
+        let fence = trimmed.starts_with("```") || trimmed.starts_with("~~~");
+        if fence && inside.is_none() {
+            inside = Some(trimmed.trim_start_matches(['`', '~']).trim().starts_with("mermaid"));
+        } else if fence {
+            fenced[i] = true;
+            drawn[i] = inside == Some(true);
+            inside = None;
+            continue;
+        }
+        fenced[i] = inside.is_some();
+        drawn[i] = inside == Some(true);
+    }
+    let picture = |i: usize| drawn[i] || (lines[i].trim_start().starts_with("![") && lines[i].trim_end().ends_with(')'));
+    let text = |i: usize| !lines[i].trim().is_empty() && !picture(i) && !(fenced[i] && lines[i].trim_start().starts_with(['`', '~']));
+    let mut at = line - 1;
+    if picture(at) {
+        while at > 0 && !text(at) {
+            at -= 1;
+        }
+    }
+    while at < lines.len() && !text(at) {
+        at += 1;
+    }
+    if at == lines.len() {
+        at = line - 1;
+        while at > 0 && !text(at) {
+            at -= 1;
+        }
+    }
+    let item = |text: &str| {
+        let t = text.trim_start();
+        t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") || t.split_once(". ").is_some_and(|(n, _)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    };
+    let breaks = |text: &str| text.trim().is_empty() || text.trim_start().starts_with('#') || text.trim_start().starts_with('|');
+    let (start, end) = if fenced[at] || lines[at].trim_start().starts_with('#') || lines[at].trim_start().starts_with('|') {
+        (at, at)
+    } else {
+        let mut start = at;
+        while start > 0 && !item(lines[start]) && !breaks(lines[start - 1]) && !fenced[start - 1] {
+            start -= 1;
+        }
+        let mut end = at;
+        while end + 1 < lines.len() && !breaks(lines[end + 1]) && !item(lines[end + 1]) && !fenced[end + 1] {
+            end += 1;
+        }
+        (start, end)
+    };
+    let joined = lines[start..=end].iter().map(|l| strip(l)).collect::<Vec<_>>().join(" ");
+    let plain = joined
+        .split(|c: char| "*_`[]()<>|#~".contains(c))
+        .map(str::trim)
+        .filter(|part| part.chars().any(char::is_alphanumeric))
+        .max_by_key(|part| part.chars().count())
+        .unwrap_or(joined.trim())
+        .to_string();
+    Some((start + 1, plain))
+}
+
+fn strip(text: &str) -> &str {
+    let t = text.trim_start().trim_start_matches('>').trim_start().trim_start_matches('#').trim_start();
+    for marker in ["- ", "* ", "+ "] {
+        if let Some(rest) = t.strip_prefix(marker) {
+            return rest.trim_start_matches("[ ] ").trim_start_matches("[x] ");
+        }
+    }
+    match t.split_once(". ") {
+        Some((n, rest)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => rest,
+        _ => t.trim_end(),
+    }
+}
+
+#[cfg(test)]
+mod comment_tests {
+    use super::block_at;
+
+    #[test]
+    fn a_line_comments_on_the_plain_words_of_its_block() {
+        let doc = "# Tab Container\n\nA tab container is a slot in a split\nthat holds **several** panes.\n\n- Panes only: a container holds panes.\n- One active: one pane is shown,\n  the others keep running.\n\n```sh\nkanna open --in docs\n```\n";
+        assert_eq!(block_at(doc, 1), Some((1, "Tab Container".into())));
+        assert_eq!(block_at(doc, 4), Some((3, "A tab container is a slot in a split that holds".into())));
+        assert_eq!(block_at(doc, 2), Some((3, "A tab container is a slot in a split that holds".into())));
+        assert_eq!(block_at(doc, 8), Some((7, "One active: one pane is shown, the others keep running.".into())));
+        assert_eq!(block_at(doc, 6), Some((6, "Panes only: a container holds panes.".into())));
+        assert_eq!(block_at(doc, 11), Some((11, "kanna open --in docs".into())));
+        assert_eq!(block_at(doc, 40), None);
+        let pictures = "## How it fits\n\nThe keeper hands terminals over.\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n![The stack](stack.png)\n";
+        assert_eq!(block_at(pictures, 6), Some((3, "The keeper hands terminals over.".into())));
+        assert_eq!(block_at(pictures, 10), Some((3, "The keeper hands terminals over.".into())));
     }
 }

@@ -130,6 +130,9 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         return threads::run(&request, json_output);
     }
     let mut mux = Session::connect(&target, env)?;
+    if command.name == "comment" && request["doc"] == true {
+        return threads::comment(&request, &mut mux, json_output);
+    }
     let mut reply = match mux.call(wire(command, &request), request.clone()) {
         Ok(reply) => reply,
         Err(failure) => return Err(explain(command, failure, &mut mux, &target)),
