@@ -270,7 +270,7 @@ pub static COMMANDS: &[Command] = &[
         name: "task",
         group: "Tabs and windows",
         summary: "Make, list, start, park, pull, defer, name or end tasks: an agent docked in a Desk window with its tabs, or a task waiting in its repo's backlog.",
-        usage: "kanna task new NAME [FIRST-MESSAGE] [--agent CMD]\n       kanna task start TASK [--window WINDOW]\n       kanna task list\n       kanna task park [TASK] [--window WINDOW]\n       kanna task pull TASK [--window WINDOW|new]\n       kanna task defer [TASK]\n       kanna task name [TASK] NAME\n       kanna task done [TASK]",
+        usage: "kanna task new NAME [FIRST-MESSAGE] [--agent CMD]\n       kanna task start TASK [--window WINDOW]\n       kanna task list [QUERY]\n       kanna task park [TASK] [--window WINDOW]\n       kanna task pull TASK [--window WINDOW|new]\n       kanna task defer [TASK]\n       kanna task name [TASK] NAME\n       kanna task done [TASK]",
         options: &[
             ("--window WINDOW|new", "park: the Desk to clear (default: the task's, or the key window's). pull: the Desk to put it on (default: the key window if it's a Desk, else a new one). start: the Desk to put it on (default: the Shelf)."),
             ("--agent CMD", "new: the agent to start (default: claude)."),
@@ -280,6 +280,7 @@ pub static COMMANDS: &[Command] = &[
             ("kanna task new \"Fix the S39 pinch\" \"The mark drifts when you pinch; find out why and add a test\"", "Add a task to this repo's backlog."),
             ("kanna task start t3", "Start a backlog task on the Shelf: its own worktree and branch, and its agent with the first message."),
             ("kanna task list", "Every task, and where it is: a Desk window, the Shelf or the backlog."),
+            ("kanna task list resume agent", "Only the tasks with both words in their name or first message."),
             ("kanna task park", "Park this task (run from its terminal), or the key window's."),
             ("kanna task pull agent", "Put the task docked as agent back on this Desk."),
             ("kanna task name agent \"Tab bar light mode\"", "Name the task docked as agent; from its terminal, leave out agent."),
@@ -295,7 +296,11 @@ pub static COMMANDS: &[Command] = &[
             }
             let mut out = json!({ "action": action });
             match action.as_str() {
-                "list" => {}
+                "list" => {
+                    if let Some(query) = args.rest() {
+                        out["query"] = json!(query);
+                    }
+                }
                 "new" => {
                     out["name"] = json!(args.positional().ok_or_else(|| usage("task", "new needs a NAME: kanna task new NAME [FIRST-MESSAGE]"))?);
                     if let Some(message) = args.positional() {

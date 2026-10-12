@@ -30,7 +30,7 @@ Run the `kanna` on your PATH, from this terminal, as it is: its `KANNA_*` variab
 
 | Command | Does |
 |---|---|
-| `kanna task list` | Every task: ID, where it is, status, repo, name |
+| `kanna task list [QUERY]` | Every task: ID, where it is, status, repo, name; QUERY keeps those whose name or first message has every word |
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog |
 | `kanna task start TASK` | Move a backlog task to the Shelf: worktree, branch, agent, first message |
 | `kanna task pull TASK` | Put a task on this Desk (it hides you until it's parked) |

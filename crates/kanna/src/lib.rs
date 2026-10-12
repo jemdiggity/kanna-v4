@@ -141,6 +141,9 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         if let Ok(backlog) = mux.call("backlog", serde_json::json!({ "action": "list" })) {
             reply["backlog"] = backlog["tasks"].clone();
         }
+        if let Some(query) = request["query"].as_str() {
+            output::keep_matching(&mut reply, query);
+        }
     }
     if json_output {
         println!("{reply}");

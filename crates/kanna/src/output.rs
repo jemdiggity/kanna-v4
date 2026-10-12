@@ -115,6 +115,9 @@ pub fn task(request: &Value, reply: &Value) -> String {
         Some("list") => {
             let tasks = reply["tasks"].as_array().cloned().unwrap_or_default();
             let waiting = reply["backlog"].as_array().cloned().unwrap_or_default();
+            if let (true, Some(query)) = (tasks.is_empty() && waiting.is_empty(), request["query"].as_str()) {
+                return format!("no task matches \"{query}\"");
+            }
             if tasks.is_empty() && waiting.is_empty() {
                 return "no tasks: add one with `kanna task new NAME \"FIRST MESSAGE\"`, or dock an agent with `kanna open --dock --cmd claude`".into();
             }
@@ -154,6 +157,19 @@ pub fn task(request: &Value, reply: &Value) -> String {
         Some("name") => format!("named {} \"{}\"", request["pane"].as_str().unwrap_or("?"), request["name"].as_str().unwrap_or("")),
         Some("done") => format!("{} is done: closed {}", request["task"].as_str().unwrap_or("?"), join(&reply["closed"])),
         _ => String::new(),
+    }
+}
+
+pub fn keep_matching(reply: &mut Value, query: &str) {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    let matches = |task: &Value| {
+        let text = [&task["name"], &task["message"]].iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n").to_lowercase();
+        words.iter().all(|word| text.contains(word.as_str()))
+    };
+    for list in ["tasks", "backlog"] {
+        if let Some(tasks) = reply[list].as_array_mut() {
+            tasks.retain(matches);
+        }
     }
 }
 

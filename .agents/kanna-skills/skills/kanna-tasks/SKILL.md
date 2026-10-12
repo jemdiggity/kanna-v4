@@ -58,7 +58,7 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 |---|---|
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog |
-| `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
+| `kanna task list [QUERY]` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name; QUERY keeps those whose name or first message has every word |
 | `kanna task start TASK` | Move a backlog task to the Shelf: worktree, branch, agent, first message |
 | `kanna task pull TASK` | Bring a task onto the Desk, parking the one there (only when the user asks) |
 | `kanna task park [TASK]` | Move the Desk's task to the Shelf (only when the user asks) |

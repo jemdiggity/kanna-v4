@@ -139,6 +139,9 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["task", "park", "notes"]).ok(), "parked p7; w4 is an empty Desk");
     let listed = daemon.kanna(&["task", "list"]).ok();
     assert_eq!(listed, "TASK  NAME   WHERE\np7    agent  Shelf  parked just now", "{listed}");
+    assert_eq!(daemon.kanna(&["task", "list", "AGE"]).ok(), listed);
+    assert_eq!(daemon.kanna(&["task", "list", "agent", "notes"]).ok(), "no task matches \"agent notes\"");
+    assert_eq!(daemon.kanna(&["--json", "task", "list", "nothing"]).json()["tasks"], json!([]));
     assert_eq!(daemon.kanna(&["task", "park", "agent"]).ok(), "p7 is already on the Shelf");
     assert_eq!(daemon.kanna(&["task", "pull", "agent", "--window", "w4"]).ok(), "pulled p7 onto w4");
     assert_eq!(daemon.kanna(&["focus", "--window", "w1"]).ok(), "key window is now w1");
