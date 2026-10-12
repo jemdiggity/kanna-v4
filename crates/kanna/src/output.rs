@@ -122,29 +122,45 @@ pub fn task(request: &Value, reply: &Value) -> String {
                 return "no tasks: add one with `kanna task new NAME \"FIRST MESSAGE\"`, or dock an agent with `kanna open --dock --cmd claude`".into();
             }
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
-            let rows: Vec<[String; 4]> = tasks
+            let state = |t: &Value| match (t["running"].as_bool(), t["status"].as_str()) {
+                (Some(false), _) => "stopped".to_string(),
+                (_, Some("needs-you")) => "needs you".to_string(),
+                (_, Some(status)) if status != "exited" => status.to_string(),
+                _ => "running".to_string(),
+            };
+            let rows: Vec<[String; 5]> = tasks
                 .iter()
                 .map(|t| {
                     let place = t["window"].as_str().map_or("Shelf".to_string(), |w| format!("Desk {w}"));
                     let parked = t["parkedAt"].as_f64().map_or(String::new(), |at| format!("parked {}", ago(now - at)));
-                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), place, parked]
+                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), place, state(t), parked]
                 })
                 .chain(waiting.iter().map(|t| {
                     let made = t["madeAt"].as_f64().map_or(String::new(), |at| format!("made {} · {}", ago(now - at), tilde(t["repo"].as_str().unwrap_or(""))));
-                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), "Backlog".into(), made]
+                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), "Backlog".into(), state(t), made]
                 }))
                 .collect();
-            let width = |i: usize| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0).max(["TASK", "NAME", "WHERE", ""][i].len());
-            let line = |r: [&str; 4]| format!("{:w0$}  {:w1$}  {:w2$}  {}", r[0], r[1], r[2], r[3], w0 = width(0), w1 = width(1), w2 = width(2)).trim_end().to_string();
-            std::iter::once(line(["TASK", "NAME", "WHERE", ""])).chain(rows.iter().map(|r| line([&r[0], &r[1], &r[2], &r[3]]))).collect::<Vec<_>>().join("\n")
+            let head = ["TASK", "NAME", "WHERE", "STATE", ""];
+            let width = |i: usize| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0).max(head[i].len());
+            let line = |r: [&str; 5]| format!("{:w0$}  {:w1$}  {:w2$}  {:w3$}  {}", r[0], r[1], r[2], r[3], r[4], w0 = width(0), w1 = width(1), w2 = width(2), w3 = width(3)).trim_end().to_string();
+            std::iter::once(line(head)).chain(rows.iter().map(|r| line([&r[0], &r[1], &r[2], &r[3], &r[4]]))).collect::<Vec<_>>().join("\n")
         }
         Some("park") if reply["parked"] == Value::Bool(true) => format!("parked {id}; {} is an empty Desk", reply["window"].as_str().unwrap_or("?")),
         Some("park") => format!("{id} is already on the Shelf"),
         Some("pull") if reply["moved"] == Value::Bool(true) => format!("pulled {id} onto {}", reply["window"].as_str().unwrap_or("?")),
         Some("pull") => format!("{id} is on {}; brought it forward", reply["window"].as_str().unwrap_or("?")),
         Some("new") => format!("added {} \"{}\" to the backlog of {}", reply["task"]["id"].as_str().unwrap_or("?"), reply["task"]["name"].as_str().unwrap_or(""), tilde(reply["task"]["repo"].as_str().unwrap_or("?"))),
+        Some("start") if reply["resumed"] == Value::Bool(true) => format!("started {} again{}: {}", reply["task"].as_str().unwrap_or("?"), place(reply), reply["pane"].as_str().unwrap_or("?")),
         Some("start") => format!(
-            "started {} on the {}: {} in {}{}",
+            "started {} in the backlog: {} in {}{}",
+            reply["task"].as_str().unwrap_or("?"),
+            reply["pane"].as_str().unwrap_or("?"),
+            tilde(reply["folder"].as_str().unwrap_or("?")),
+            reply["branch"].as_str().map_or(String::new(), |b| format!(" ({b})"))
+        ),
+        Some("stop") => format!("stopped {}{}; `kanna task start {}` starts it again", reply["task"].as_str().unwrap_or("?"), place(reply), reply["task"].as_str().unwrap_or("?")),
+        Some("shelve") => format!(
+            "moved {} to the {}: {} in {}{}",
             reply["task"].as_str().unwrap_or("?"),
             reply["window"].as_str().map_or("Shelf".to_string(), |w| format!("Desk {w}")),
             reply["pane"].as_str().unwrap_or("?"),
@@ -153,11 +169,20 @@ pub fn task(request: &Value, reply: &Value) -> String {
         ),
         Some("done") if reply.get("closed").is_none() => format!("took {} off the backlog", reply["task"]["id"].as_str().unwrap_or("?")),
         Some("desk") => format!("opened {} on {}", reply["window"].as_str().unwrap_or("?"), tilde(reply["project"].as_str().unwrap_or("?"))),
-        Some("defer") => format!("moved {} to the backlog as {}, still running: start it to bring it back", reply["pane"].as_str().unwrap_or("?"), reply["task"]["id"].as_str().unwrap_or("?")),
+        Some("defer") => format!(
+            "moved {} to the backlog as {}, {}: shelve it to bring it back",
+            reply["pane"].as_str().unwrap_or("?"),
+            reply["task"]["id"].as_str().unwrap_or("?"),
+            if reply["running"] == Value::Bool(false) { "stopped" } else { "still running" }
+        ),
         Some("name") => format!("named {} \"{}\"", request["pane"].as_str().unwrap_or("?"), request["name"].as_str().unwrap_or("")),
         Some("done") => format!("{} is done: closed {}", request["task"].as_str().unwrap_or("?"), join(&reply["closed"])),
         _ => String::new(),
     }
+}
+
+fn place(reply: &Value) -> &'static str {
+    if reply["place"] == "backlog" { " in the backlog" } else { "" }
 }
 
 pub fn keep_matching(reply: &mut Value, query: &str) {

@@ -135,10 +135,10 @@ fn every_command_works_through_the_daemon_and_the_app() {
     let opened = daemon.kanna(&["open", "--window", "new", "--dock", "--name", "agent", "--no-wait"]).ok();
     assert!(opened.starts_with("opened p7 (agent) docked left in window w4"), "{opened}");
     daemon.kanna(&["open", "--window", "w4", "--name", "notes", "--no-wait"]).ok();
-    assert_eq!(daemon.kanna(&["task", "list"]).ok(), "TASK  NAME   WHERE\np7    agent  Desk w4");
+    assert_eq!(daemon.kanna(&["task", "list"]).ok(), "TASK  NAME   WHERE    STATE\np7    agent  Desk w4  running");
     assert_eq!(daemon.kanna(&["task", "park", "notes"]).ok(), "parked p7; w4 is an empty Desk");
     let listed = daemon.kanna(&["task", "list"]).ok();
-    assert_eq!(listed, "TASK  NAME   WHERE\np7    agent  Shelf  parked just now", "{listed}");
+    assert_eq!(listed, "TASK  NAME   WHERE  STATE\np7    agent  Shelf  running  parked just now", "{listed}");
     assert_eq!(daemon.kanna(&["task", "list", "AGE"]).ok(), listed);
     assert_eq!(daemon.kanna(&["task", "list", "agent", "notes"]).ok(), "no task matches \"agent notes\"");
     assert_eq!(daemon.kanna(&["--json", "task", "list", "nothing"]).json()["tasks"], json!([]));

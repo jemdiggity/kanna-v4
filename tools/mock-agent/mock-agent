@@ -39,6 +39,8 @@ def main():
         print(VERSION)
         return 0
     out("\x1b]0;mock-agent\x07mock-agent: type turn, work N, ask or exit\r\n")
+    if sys.argv[1:]:
+        out("args: " + " ".join(sys.argv[1:]) + "\r\n")
     composer()
     asking = False
     for line in sys.stdin:
