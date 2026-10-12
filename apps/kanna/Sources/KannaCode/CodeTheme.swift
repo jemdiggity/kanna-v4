@@ -22,18 +22,27 @@ enum CodeTheme {
 
     static func color(capture: String) -> NSColor? {
         switch capture {
-        case "keyword", "tag", "variable.builtin": keyword
-        case "function.macro": macro
-        case "function", "function.builtin", "function.method": function
-        case "type", "type.builtin", "constructor": type
-        case "string", "string.special": string
-        case "constant", "constant.builtin", "number", "escape": constant
-        case "comment": comment
-        case "attribute", "label": attribute
-        case "property": property
-        case "operator": operatorColor
-        case "punctuation", "punctuation.bracket", "punctuation.delimiter", "punctuation.special": punctuation
-        default: nil
+        case "function.macro", "constant.macro", "keyword.directive": return macro
+        case "constructor": return type
+        case "string.escape", "escape", "character", "boolean", "number", "number.float": return constant
+        case "tag.attribute", "label": return attribute
+        case "tag.delimiter": return punctuation
+        case "variable.builtin", "tag": return keyword
+        case "variable.member": return property
+        default: break
+        }
+        switch capture.split(separator: ".").first ?? "" {
+        case "keyword": return keyword
+        case "function": return function
+        case "type": return type
+        case "string": return string
+        case "constant": return constant
+        case "comment": return comment
+        case "attribute": return attribute
+        case "property": return property
+        case "operator": return operatorColor
+        case "punctuation": return punctuation
+        default: return nil
         }
     }
 

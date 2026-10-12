@@ -1,0 +1,13 @@
+(function_definition) @scope
+(class_definition) @scope
+(if_statement) @scope
+(elif_clause) @scope
+(else_clause) @scope
+(for_statement) @scope
+(while_statement) @scope
+(try_statement) @scope
+(except_clause) @scope
+(finally_clause) @scope
+(with_statement) @scope
+(match_statement) @scope
+(case_clause) @scope

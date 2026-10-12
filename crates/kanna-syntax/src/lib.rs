@@ -10,20 +10,37 @@ use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter}
 
 pub const CAPTURES: &[&str] = &[
     "attribute",
+    "boolean",
+    "character",
     "comment",
+    "comment.documentation",
     "constant",
     "constant.builtin",
+    "constant.macro",
     "constructor",
     "embedded",
     "escape",
     "function",
     "function.builtin",
+    "function.call",
     "function.macro",
     "function.method",
     "keyword",
+    "keyword.conditional",
+    "keyword.coroutine",
+    "keyword.directive",
+    "keyword.exception",
+    "keyword.function",
+    "keyword.import",
+    "keyword.modifier",
+    "keyword.operator",
+    "keyword.repeat",
+    "keyword.return",
+    "keyword.type",
     "label",
     "module",
     "number",
+    "number.float",
     "operator",
     "property",
     "punctuation",
@@ -31,12 +48,18 @@ pub const CAPTURES: &[&str] = &[
     "punctuation.delimiter",
     "punctuation.special",
     "string",
+    "string.escape",
+    "string.regexp",
     "string.special",
     "tag",
+    "tag.attribute",
+    "tag.delimiter",
     "type",
     "type.builtin",
+    "type.definition",
     "variable",
     "variable.builtin",
+    "variable.member",
     "variable.parameter",
 ];
 
@@ -65,17 +88,42 @@ struct Compiled {
 }
 
 fn compiled(name: &str) -> Option<&'static Compiled> {
-    static ALL: OnceLock<HashMap<&'static str, Option<Compiled>>> = OnceLock::new();
-    let all = ALL.get_or_init(|| LANGUAGES.iter().map(|language| (language.name, compile(language))).collect());
-    all.get(name).and_then(Option::as_ref)
+    static ALL: OnceLock<HashMap<&'static str, (&'static Language, OnceLock<Option<Compiled>>)>> = OnceLock::new();
+    let all = ALL.get_or_init(|| LANGUAGES.iter().map(|language| (language.name, (language, OnceLock::new()))).collect());
+    let (language, compiled) = all.get(name)?;
+    compiled.get_or_init(|| compile(language)).as_ref()
 }
 
 fn compile(language: &Language) -> Option<Compiled> {
     let grammar = (language.grammar)();
-    let mut highlight = HighlightConfiguration::new(grammar.clone(), language.name, language.highlights, language.injections, language.locals).ok()?;
+    let join = |parts: &[&str]| {
+        let joined = parts.join("\n");
+        if language.neovim { languages::neovim(&joined) } else { joined }
+    };
+    let (highlights, injections, locals) = (join(language.highlights), join(language.injections), join(language.locals));
+    let mut highlight = HighlightConfiguration::new(grammar.clone(), language.name, &highlights, &injections, &locals).ok()?;
     highlight.configure(CAPTURES);
     let scopes = (!language.scopes.is_empty()).then(|| Query::new(&grammar, language.scopes).ok()).flatten();
     Some(Compiled { highlight, scopes })
+}
+
+pub fn problems() -> Vec<String> {
+    let mut out = Vec::new();
+    for language in LANGUAGES {
+        let grammar = (language.grammar)();
+        let join = |parts: &[&str]| {
+            let joined = parts.join("\n");
+            if language.neovim { languages::neovim(&joined) } else { joined }
+        };
+        let (highlights, injections, locals) = (join(language.highlights), join(language.injections), join(language.locals));
+        if let Err(e) = HighlightConfiguration::new(grammar.clone(), language.name, &highlights, &injections, &locals) {
+            out.push(format!("{}: highlights: {e:?}", language.name));
+        }
+        if let Err(e) = Query::new(&grammar, language.scopes) {
+            out.push(format!("{}: scopes: {e}", language.name));
+        }
+    }
+    out
 }
 
 pub fn highlight(language: &str, text: &str) -> Option<Highlights> {

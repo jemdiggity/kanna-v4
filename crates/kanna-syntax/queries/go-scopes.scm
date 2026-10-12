@@ -1,0 +1,13 @@
+(function_declaration) @scope
+(method_declaration) @scope
+(func_literal) @scope
+(type_declaration) @scope
+(if_statement) @scope
+(for_statement) @scope
+(expression_switch_statement) @scope
+(type_switch_statement) @scope
+(select_statement) @scope
+(expression_case) @scope
+(type_case) @scope
+(communication_case) @scope
+(default_case) @scope

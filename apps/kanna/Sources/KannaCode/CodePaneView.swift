@@ -154,7 +154,7 @@ public final class CodePaneView: NSView {
         for span in found.spans where NSMaxRange(span.range) <= length {
             guard let color = CodeTheme.color(capture: span.capture) else { continue }
             storage.addAttribute(.foregroundColor, value: color, range: span.range)
-            if span.capture == "comment" { storage.addAttribute(.font, value: italic, range: span.range) }
+            if span.capture.hasPrefix("comment") { storage.addAttribute(.font, value: italic, range: span.range) }
         }
         storage.endEditing()
         onHighlighted?()

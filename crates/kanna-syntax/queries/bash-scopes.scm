@@ -1,0 +1,9 @@
+(function_definition) @scope
+(if_statement) @scope
+(elif_clause) @scope
+(else_clause) @scope
+(for_statement) @scope
+(c_style_for_statement) @scope
+(while_statement) @scope
+(case_statement) @scope
+(case_item) @scope

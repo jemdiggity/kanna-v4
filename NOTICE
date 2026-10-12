@@ -170,6 +170,22 @@ Kanna.app links, unmodified:
   swift-markdown 0.7.3 (https://github.com/swiftlang/swift-markdown),
       Apache-2.0, and swift-cmark (cmark-gfm), BSD-2-Clause and MIT, as
       published by the Swift project.
+  tree-sitter and tree-sitter-highlight 0.27 (https://github.com/tree-sitter/tree-sitter),
+      MIT, with these grammars and the queries they ship, through
+      crates/kanna-syntax: tree-sitter-rust, -swift, -typescript,
+      -javascript, -python, -go, -c, -cpp, -bash, -json, -html and -css
+      (MIT), tree-sitter-toml-ng and tree-sitter-yaml (MIT), and
+      tree-sitter-svelte-ng (MIT), each at the version Cargo.lock pins.
+
+Kanna.app includes, vendored unmodified:
+
+  tree-sitter-vue (https://github.com/tree-sitter-grammars/tree-sitter-vue),
+      MIT, Copyright (c) 2024 Amaan Qureshi, at ce8011a: the generated
+      parser and scanner and its vue and html_tags queries, in
+      crates/kanna-syntax/vendor/tree-sitter-vue with its LICENSE. Svelte
+      also uses those html_tags queries. Neovim-only parts of the queries
+      (Lua patterns, spell captures) are translated as they are loaded,
+      in crates/kanna-syntax/src/languages.rs.
 
 ================================================================================
 Ghostty

@@ -1,0 +1,17 @@
+(function_declaration) @scope
+(init_declaration) @scope
+(deinit_declaration) @scope
+(class_declaration) @scope
+(protocol_declaration) @scope
+(subscript_declaration) @scope
+(computed_property) @scope
+(lambda_literal) @scope
+(for_statement) @scope
+(while_statement) @scope
+(repeat_while_statement) @scope
+(if_statement) @scope
+(guard_statement) @scope
+(switch_statement) @scope
+(switch_entry) @scope
+(do_statement) @scope
+(catch_block) @scope

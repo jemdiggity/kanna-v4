@@ -1,0 +1,11 @@
+(function_definition) @scope
+(struct_specifier) @scope
+(enum_specifier) @scope
+(union_specifier) @scope
+(if_statement) @scope
+(else_clause) @scope
+(for_statement) @scope
+(while_statement) @scope
+(do_statement) @scope
+(switch_statement) @scope
+(case_statement) @scope
