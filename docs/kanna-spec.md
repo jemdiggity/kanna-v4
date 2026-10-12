@@ -871,6 +871,10 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 **[Built]** A read-only code pane, `kanna open code FILE[:LINE]`: the file highlighted with tree-sitter (Rust, Swift, TypeScript and JavaScript with React's JSX, Python, Go, C, C++, Shell, JSON, TOML, YAML, HTML, CSS, Vue, Svelte), opened at a line, following the file on disk, with sticky scope and indent guides. The first step towards the code tour, where the agent walks the user through code. Its own spec: [specs/code-viewer.md](specs/code-viewer.md); mockup `references/mockups/code-viewer.html`.
 
+### 4.20 Code Tour
+
+**[Proposed]** The agent walks the user through code: it writes a tour, a markdown file in `.kanna/tours/` with a `## FILE:LINE` heading and one plain explanation per stop, and opens it with `kanna tour FILE`. A code tab per file shows the current stop tinted, the rest dimmed, with the stops listed beside it; a line snaps to its tree-sitter scope and follows the code when it moves. The daemon keeps the current stop on the code panes' records (`kanna tour go N`, a click on a stop); the app snaps and draws. Its own spec: [specs/code-tour.md](specs/code-tour.md); mockup `references/mockups/code-tour.html`.
+
 ---
 
 ## 5. Mux Backends

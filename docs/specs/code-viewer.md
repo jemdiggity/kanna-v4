@@ -1,6 +1,6 @@
 # Code Viewer
 
-**Status:** built · **Mockup:** [`references/mockups/code-viewer.html`](../../references/mockups/code-viewer.html) · **Next:** the code tour (backlog t28, mockup [`references/mockups/code-tour.html`](../../references/mockups/code-tour.html)) builds on it
+**Status:** built · **Mockup:** [`references/mockups/code-viewer.html`](../../references/mockups/code-viewer.html) · **Next:** the [code tour](code-tour.md) builds on it
 
 A **code pane** shows a source file, highlighted, beside the agent. The agent opens one to show you the code it's talking about; you read, select and copy. It's read-only: the agent edits, the pane follows the file. It's the first step towards the code tour, where the agent walks you through code to keep your mental model of it.
 
