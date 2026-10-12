@@ -137,6 +137,18 @@ flowchart TB
 - **Kanna's own, not kmux's.** kmux is the reference for the mux's pane types ([4.3](../kanna-spec.md#43-kmux-is-the-reference-model)), but the code pane is built in Kanna only: kmux gets no code pane, and `open code` is a Kanna command its protocol cases don't cover. The code tour it leads to is Kanna's agent layer, which has no kmux counterpart.
 - **The pane is one more of the app's panes** ([4.9](../kanna-spec.md#49-web-markdown-and-ios-panes)): the daemon's core gives it its ID, checks and answers its commands and lends its record to the app, which shows it.
 - **Highlighting is tree-sitter, in a new Rust crate, `kanna-syntax`**, linked into the app as a static library with a C header, as `kanna-layout` is. One call takes a language and the text and returns the spans (byte range and capture name, such as `keyword`, `function`, `type`, `string`) and the scopes (start and end lines). Why tree-sitter rather than TextMate grammars (syntect): it parses the code into a tree, which sticky scope needs now and the code tour needs next (stops that are whole functions and blocks); the same grammars and queries are used by Zed, Neovim and Helix.
+- **Why tree-sitter**, against the other ways to highlight:
+
+| | tree-sitter | TextMate grammars (syntect) | highlight.js |
+|---|---|---|---|
+| How | parses the file into a syntax tree | regular expressions, line by line | regular expressions, in JavaScript |
+| Knows functions and blocks | yes: sticky scope, `]]` `[[`, tour stops | no | no |
+| On a file change | reparses, in milliseconds | re-runs the lines | re-runs the file |
+| Broken code mid-edit | still parses the rest | can colour the rest of the file wrong | the same |
+| Native | C, compiled into the app | Rust | needs a JavaScript engine |
+| Used by | Zed, Neovim, Helix, GitHub's code view | Sublime Text, bat | websites |
+| Cost | each grammar is compiled in: **[Assumption]** 10–20 MB for these languages | grammars are data files | — |
+
 - **Grammars** come from each language's tree-sitter crate with its own highlight query. **Scopes** come from a small query per language naming the nodes that open one (functions, types, `impl`, loops, conditionals, blocks), after Neovim's treesitter-context.
 - **Languages inside languages** (a Vue or Svelte component's `<script>` and `<style>`, an HTML page's) are tree-sitter's injections: the outer grammar's injection query names the parts and the language of each, and `kanna-syntax` highlights them with that grammar. Vue's grammar crates on crates.io are young forks, so its grammar source is vendored into the crate at a pinned commit, as Helix and Zed do.
 - **Find is AppKit's** find bar (`NSTextFinder`) on the pane's text view, with its incremental match highlighting.
