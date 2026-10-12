@@ -32,6 +32,16 @@ public struct CodeFile: Equatable {
 
     public func start(ofLine line: Int) -> Int { lineStarts[min(max(line, 1), lineCount) - 1] }
 
+    public var lines: [Substring] { text.split(separator: "\n", omittingEmptySubsequences: false) }
+
+    public func changedLines(from old: CodeFile) -> Set<Int> {
+        var changed = Set<Int>()
+        for change in lines.difference(from: old.lines) {
+            if case .insert(let offset, _, _) = change { changed.insert(offset + 1) }
+        }
+        return changed.filter { $0 <= lineCount }
+    }
+
     public enum Failure: Error, Equatable {
         case missing(String)
         case folder(String)

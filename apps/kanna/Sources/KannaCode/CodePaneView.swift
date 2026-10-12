@@ -11,6 +11,9 @@ public final class CodePaneView: NSView {
     public private(set) var language: String?
     public private(set) var highlights = CodeHighlights()
     public var onHighlighted: (() -> Void)?
+    public var onZoom: (() -> Void)?
+    public var onHistory: ((Bool) -> Void)?
+    public var zoom: CGFloat { fontSize / CodeTheme.fontSize }
     public var currentLine: Int { textView.currentLine }
 
     let scrollView = NSScrollView()
@@ -24,8 +27,9 @@ public final class CodePaneView: NSView {
     private var scrollObserver: NSObjectProtocol?
     private var pendingLine: Int?
 
-    public init(path: String, line: Int?) {
+    public init(path: String, line: Int?, zoom: CGFloat = 1) {
         self.path = path
+        fontSize = Self.clamp((CodeTheme.fontSize * zoom * 2).rounded() / 2)
         let storage = NSTextStorage()
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
@@ -106,6 +110,37 @@ public final class CodePaneView: NSView {
         }
     }
 
+    static let smallest: CGFloat = 9
+    static let largest: CGFloat = 32
+
+    static func clamp(_ size: CGFloat) -> CGFloat { min(max(size, smallest), largest) }
+
+    public func zoom(by step: Int) {
+        let target = step == 0 ? CodeTheme.fontSize : Self.clamp(fontSize + CGFloat(step))
+        guard target != fontSize else { return }
+        let top = topLine
+        fontSize = target
+        textView.font = CodeTheme.font(size: fontSize)
+        let attributes: [NSAttributedString.Key: Any] = [.font: CodeTheme.font(size: fontSize), .foregroundColor: CodeTheme.text]
+        textView.textStorage?.setAttributedString(NSAttributedString(string: file.text, attributes: attributes))
+        apply(highlights)
+        sizeText()
+        if let rect = textView.rect(forLine: top) {
+            scrollView.contentView.scroll(to: NSPoint(x: -scrollView.contentView.contentInsets.left, y: max(0, rect.minY - textView.textContainerInset.height)))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        gutter.needsDisplay = true
+        onZoom?()
+    }
+
+    public override func otherMouseDown(with event: NSEvent) {
+        switch event.buttonNumber {
+        case 3: onHistory?(true)
+        case 4: onHistory?(false)
+        default: super.otherMouseDown(with: event)
+        }
+    }
+
     private func fileStamp() -> (Date, Int)? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
         return ((attributes[.modificationDate] as? Date) ?? .distantPast, (attributes[.size] as? Int) ?? 0)
@@ -115,7 +150,9 @@ public final class CodePaneView: NSView {
         guard let now = fileStamp() else { return }
         if let stamp, stamp == now { return }
         let top = scrollView.contentView.bounds.origin
+        let old = file
         load()
+        gutter.changed = file.changedLines(from: old)
         scrollView.contentView.scroll(to: top)
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
@@ -229,9 +266,9 @@ public final class CodePaneView: NSView {
 
     public var debugNumbers: [String: Double] {
         let clip = scrollView.contentView
-        return ["spans": Double(highlights.spans.count), "scopes": Double(highlights.scopes.count), "lines": Double(file.lineCount), "top": Double(topLine), "current": Double(currentLine), "gutter": Double(gutter.ruleThickness),
+        return ["zoom": Double(zoom), "font_size": Double(fontSize), "spans": Double(highlights.spans.count), "scopes": Double(highlights.scopes.count), "lines": Double(file.lineCount), "top": Double(topLine), "current": Double(currentLine), "gutter": Double(gutter.ruleThickness),
                 "clip_x": Double(clip.frame.minX), "clip_width": Double(clip.frame.width), "scroll_x": Double(clip.bounds.minX),
-                "scroll_y": Double(clip.bounds.minY), "pinned": Double(pinned.count), "indent_unit": Double(textView.indentUnit), "text_x": Double(textView.frame.minX), "text_width": Double(textView.frame.width)]
+                "scroll_y": Double(clip.bounds.minY), "changed": Double(gutter.changed.min() ?? 0), "pinned": Double(pinned.count), "indent_unit": Double(textView.indentUnit), "text_x": Double(textView.frame.minX), "text_width": Double(textView.frame.width)]
     }
 
     public var topLine: Int {
@@ -339,6 +376,7 @@ final class CodeTextView: NSTextView {
 final class CodeGutter: NSRulerView {
     weak var textView: CodeTextView?
     var file = CodeFile(text: "") { didSet { needsDisplay = true } }
+    var changed: Set<Int> = [] { didSet { needsDisplay = true } }
 
     override init(scrollView: NSScrollView?, orientation: NSRulerView.Orientation) {
         super.init(scrollView: scrollView, orientation: orientation)
@@ -377,6 +415,10 @@ final class CodeGutter: NSRulerView {
             if current {
                 CodeTheme.currentLine.setFill()
                 NSRect(x: 0, y: y, width: bounds.width, height: fragment.height).fill()
+            }
+            if changed.contains(line) {
+                CodeTheme.changed.setFill()
+                NSBezierPath(roundedRect: NSRect(x: 3, y: y + 2, width: 3, height: fragment.height - 4), xRadius: 1.5, yRadius: 1.5).fill()
             }
             let label = String(line) as NSString
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: current ? CodeTheme.currentNumber : CodeTheme.number]

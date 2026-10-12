@@ -189,6 +189,8 @@ extension AppController {
         guard let pane = focusedPane else { return }
         if let markdown = contents.markdown(pane) {
             markdown.zoom(by: step)
+        } else if let code = contents.code(pane) {
+            code.zoom(by: step)
         } else if let web = contents.web(pane) {
             web.zoom(by: step)
         } else if let surface = panes.terminal(pane)?.surface {
@@ -199,13 +201,13 @@ extension AppController {
     @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let pane = focusedPane ?? ""
         switch item.action {
-        case #selector(zoomIn), #selector(zoomOut), #selector(actualSize): return panes.terminal(pane) != nil || contents.markdown(pane) != nil || contents.web(pane) != nil
+        case #selector(zoomIn), #selector(zoomOut), #selector(actualSize): return panes.terminal(pane) != nil || contents.markdown(pane) != nil || contents.web(pane) != nil || contents.code(pane) != nil
         case #selector(pressHome): return contents.ios(pane)?.screen != nil
         case #selector(openURL): return contents.web(pane) != nil
         case #selector(toggleComments):
             item.state = commentsOn(pane) ? .on : .off
             return contents.web(pane) != nil || contents.markdown(pane) != nil
-        case #selector(goBack), #selector(goForward): return contents.web(pane) != nil || contents.markdown(pane) != nil
+        case #selector(goBack), #selector(goForward): return contents.web(pane) != nil || contents.markdown(pane) != nil || contents.code(pane) != nil
         case #selector(nextPane), #selector(previousPane), #selector(toggleZoom), #selector(movePaneToNewWindow), #selector(restartPane):
             return focusedPane != nil
         case #selector(closeFocusedPane): return focusedPane.map { !docked($0) } ?? false

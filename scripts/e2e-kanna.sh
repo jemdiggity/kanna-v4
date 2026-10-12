@@ -1564,6 +1564,11 @@ S49() {
   check wait_for 5 eval '(( $(code src spans) > 300 ))' || { echo "spans $(code src spans)"; return 1; }
   echo 'let s48_edit = 1;' >>"$file"
   check wait_for 5 eval 'code src text | grep -q s48_edit' || return 1
+  check wait_for 5 eval '[[ "$(code src changed)" == 121 ]]' || { echo "changed $(code src changed)"; return 1; }
+  raw '{"id":1,"cmd":"debug.click","args":{"pane":"src","at":[120,200]}}' >/dev/null; sleep 0.3
+  key() { raw "{\"id\":1,\"cmd\":\"debug.key\",\"args\":{\"key\":\"$1\"}}" >/dev/null; }
+  key cmd+shift+=; key cmd+shift+=
+  check wait_for 5 eval '[[ "$(code src font_size)" == 14.5 ]]' || { echo "font $(code src font_size)"; return 1; }
   kanna navigate src "$file:10" >/dev/null || return 1
   check wait_for 5 eval '[[ "$(code src current)" == 10 ]]' || return 1
   kanna navigate src --back >/dev/null || return 1
@@ -1580,6 +1585,7 @@ S49() {
   stop_app; start_app || return 1
   check wait_for 5 eval '[[ "$(code src current)" == 80 ]]' || return 1
   check eval 'code src text | grep -q s48_edit' || return 1
+  check test "$(code src font_size)" == 14.5 || { echo "font after relaunch $(code src font_size)"; return 1; }
 }
 
 S42() {

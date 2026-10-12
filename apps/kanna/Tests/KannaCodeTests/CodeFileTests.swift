@@ -29,6 +29,14 @@ struct CodeFileTests {
         #expect(file.lineStarts == [0, ("let 🦀 = 1;\n" as NSString).length])
     }
 
+    @Test func changedLinesAreTheNewFilesInsertedOrEditedLines() {
+        let old = CodeFile(text: "a\nb\nc\nd\n")
+        #expect(CodeFile(text: "a\nB\nc\nd\n").changedLines(from: old) == [2])
+        #expect(CodeFile(text: "a\nb\nnew\nc\nd\n").changedLines(from: old) == [3])
+        #expect(CodeFile(text: "a\nc\nd\n").changedLines(from: old) == [])
+        #expect(CodeFile(text: "a\nb\nc\nd\n").changedLines(from: old) == [])
+    }
+
     @Test func missingFoldersAndBinariesFailWithTheirMessage() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("kanna-code-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

@@ -42,6 +42,7 @@ final class Contents {
     var contextMenu: (() -> NSMenu?)?
     private var markdownSpots: [String: [String: (y: CGFloat, zoom: CGFloat)]] = [:]
     private var markdownZoom: [String: CGFloat] = [:]
+    private var codeZoom: [String: CGFloat] = [:]
 
     func slot(_ id: String) -> PaneSlot {
         if let slot = slots[id] { return slot }
@@ -105,7 +106,13 @@ final class Contents {
                 content = markdown
             }
         case "code":
-            let code = CodePaneView(path: Self.absolute(pane["path"]?.string ?? ""), line: pane["line"]?.number.map { Int($0) })
+            let code = CodePaneView(path: Self.absolute(pane["path"]?.string ?? ""), line: pane["line"]?.number.map { Int($0) }, zoom: codeZoom[id] ?? pane["zoom"]?.number.map { CGFloat($0) } ?? 1)
+            code.onZoom = { [weak self, weak code] in
+                guard let code else { return }
+                self?.codeZoom[id] = code.zoom
+                self?.onUpdate?(id, ["zoom": .number(Double(code.zoom))])
+            }
+            code.onHistory = { [weak self] back in self?.onRequest?("navigate", ["pane": .string(id), back ? "back" : "forward": true]) }
             code.onFocus = { [weak self] in self?.onFocus?(id) }
             code.contextMenu = { [weak self] in self?.contextMenu?() }
             failure = code.failure?.message
@@ -183,6 +190,7 @@ final class Contents {
         slots.removeValue(forKey: id)?.removeFromSuperview()
         markdownSpots.removeValue(forKey: id)
         markdownZoom.removeValue(forKey: id)
+        codeZoom.removeValue(forKey: id)
     }
 
     static func absolute(_ path: String) -> String {
