@@ -174,12 +174,12 @@ body.picture .cmd input::placeholder { color: transparent; }
 <main>
   <div class="intro">
     <h1>Desk: one task per window, the rest on the Shelf</h1>
-    <p>A task is what a Desk holds: its agent, docked on the left, and its tabs. The Desk shows one; the Shelf below holds the project's other tasks, their agents still running. With no task on it, the Desk is the planning agent's: it's docked on the left, beside the full Shelf. Tell it what you want ("split the login work into three tasks") and it adds tasks to the backlog. Click a Shelf item to swap, Park to clear the Desk, ⌘N to start a task with a fresh agent, <code>kanna task new "NAME" "FIRST MESSAGE"</code> in an agent's pane (as an agent would) to add one to the backlog, drag the line between the agent and the tabs, or type a <code>kanna</code> command in the agent's pane as the agent would.</p>
+    <p>A task is what a Desk holds: its agent, docked on the left, and its tabs. The Desk shows one; the Shelf below holds the project's other tasks, their agents still running. With no task on it, the Desk shows its planning terminal on the left, beside the full Shelf: it prints how to start, then it's a shell. Start your agent there (<code>claude</code>), or <code>cd</code> elsewhere and the Shelf follows; tell the agent what you want ("split the login work into three tasks") and it adds tasks to the backlog. Click a Shelf item to swap, Park to clear the Desk, ⌘N to start a task with a fresh agent, <code>kanna task new "NAME" "FIRST MESSAGE"</code> in an agent's pane (as an agent would) to add one to the backlog, drag the line between the agent and the tabs, or type a <code>kanna</code> command in the agent's pane as the agent would.</p>
     <div class="controls">
       <button id="theme">Light / dark</button>
       <button id="newwin">New Desk window</button>
       <button id="ring" title="A parked task's agent stops to ask you something: it moves to the front of the Shelf, needs you">Simulate: a parked agent needs you</button>
-      <button id="fresh" title="A window with nothing in it: the planning agent's terminal prints how to start, then runs the agent">Simulate: no tasks</button>
+      <button id="fresh" title="A window with nothing in it: the planning terminal prints how to start, then it's a shell">Simulate: no tasks</button>
       <button id="reset">Reset</button>
     </div>
     <div class="keys">
@@ -244,7 +244,7 @@ function shelf(w = keyWin()) {
 function planners() {
   for (const w of s.windows) {
     if (w.desk || w.planner) continue;
-    w.planner = { id: "p" + s.nextPane++, planner: true, repo: repoOf(w), agent: "claude", fresh: !inRepo(repoOf(w)).length && !backlog(repoOf(w)).length, width: 0.38, log: [] };
+    w.planner = { id: "p" + s.nextPane++, planner: true, repo: repoOf(w), agent: null, width: 0.38, log: [] };
   }
 }
 const plannerOf = id => s.windows.map(w => w.planner).find(p => p && p.id === id);
@@ -294,7 +294,7 @@ function agentTerm(t) {
     ``,
     `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : t.id === "p4" ? "Done. S36 passes; screenshots in light and dark attached." : "Found it: the query answers before the theme loads."}`,
   ];
-  return (t.planner ? plannerHead(t) : head).concat(t.log).join("\n") + `<div class="cmd"><span class="p">&gt;</span><input data-cmd="${t.id}" placeholder="${t.planner ? "split the login work into three tasks · what's waiting? · start the first one" : t.agent ? `kanna task new &quot;Fix the S39 pinch&quot; &quot;the mark drifts…&quot; · kanna task list · kanna task park` : "claude · codex · or any shell command"}" spellcheck="false" autocomplete="off"></div>`;
+  return (t.planner ? plannerHead(t) : head).concat(t.log).join("\n") + `<div class="cmd">${t.planner && !t.agent ? `<span class="c">${esc(t.repo.replace("~/work/", ""))}</span>&nbsp;<span class="p">❯</span>` : `<span class="p">&gt;</span>`}<input data-cmd="${t.id}" placeholder="${t.planner && !t.agent ? "claude · codex · cd kmux" : t.planner ? "split the login work into three tasks · what's waiting? · start the first one · exit" : t.agent ? `kanna task new &quot;Fix the S39 pinch&quot; &quot;the mark drifts…&quot; · kanna task list · kanna task park` : "claude · codex · or any shell command"}" spellcheck="false" autocomplete="off"></div>`;
 }
 
 const guide = [
@@ -308,11 +308,30 @@ const guide = [
   `  2. Tell it what you want to work on.`,
   `  3. It adds tasks to the backlog, each with a first message.`,
   `  4. Move to Shelf starts one: its own agent, branch and worktree.`,
-  `  5. Click a task to work with it; Park (⌘.) brings you back here.`,
+  `     Up to three run at once.`,
+  `  5. Click a task to work with it. Park (⌘.) brings you back here.`,
   ``,
 ];
 function plannerHead(t) {
-  return (t.fresh ? guide : []).concat([`<span class="c">${esc(t.repo.replace("~/work/", ""))}</span> <span class="p">❯</span> claude`, ``, `<span class="m">●</span> ${t.fresh ? "What are we working on?" : `Back on the Shelf. ${backlog(t.repo).length} tasks wait in the backlog; want me to start one?`}`]);
+  return guide;
+}
+
+function plannerShell(t, line) {
+  const words = line.trim().split(/\s+/);
+  const prompt = `<span class="c">${esc(t.repo.replace("~/work/", ""))}</span> <span class="p">❯</span> ${esc(line.trim())}`;
+  if (words[0] === "claude" || words[0] === "codex") {
+    t.agent = words[0];
+    t.log.push(prompt, ``, `<span class="m">●</span> What are we working on?`);
+  } else if (words[0] === "cd" && words[1]) {
+    const w = s.windows.find(w => w.planner === t);
+    t.repo = words[1].startsWith("~") ? words[1] : "~/work/" + words[1];
+    if (!s.repos.includes(t.repo)) s.repos.push(t.repo);
+    if (w) w.repo = t.repo;
+    t.log.push(prompt);
+  } else {
+    t.log.push(prompt, `<span class="out">(ran in the shell; start your agent with claude or codex)</span>`);
+  }
+  render();
 }
 
 const kindOf = f => f === "tests" || f.startsWith("shell") ? "term" : f.startsWith("localhost") || f.startsWith("http") || f.endsWith(".html") ? "web" : /\.(png|jpg|gif|pdf|mp4)$/.test(f) ? "img" : f.endsWith(".md") ? "md" : "text";
@@ -512,6 +531,7 @@ function waitingLongest() {
 function run(t, line) {
   const words = line.trim().split(/\s+/);
   const say = text => t.log.push(`<span class="p">❯</span> ${esc(line.trim())}`, ...text.split("\n").map(l => `<span class="out">${esc(l)}</span>`));
+  if (t.planner && !t.agent && words[0] !== "kanna") return plannerShell(t, line);
   if (!t.agent && (words[0] === "claude" || words[0] === "codex")) {
     t.agent = words[0];
     say(`${words[0]} started: tell it what you want to work on`);
@@ -521,6 +541,7 @@ function run(t, line) {
   if (t.planner && words[0] !== "kanna") {
     t.log.push(`<span class="p">&gt;</span> ${esc(line.trim())}`);
     const ask = line.toLowerCase();
+    if (ask.trim() === "exit" || ask.trim() === "/exit") { t.agent = null; t.log.push(`<span class="out">(back in the shell)</span>`); return render(); }
     if (/what.*(wait|running)|status/.test(ask)) {
       const r = inRepo(t.repo), b = backlog(t.repo);
       t.log.push(`<span class="m">●</span> ${r.length} running (${r.map(x => esc(x.title || "New task") + ", " + statusText[x.status]).join("; ") || "none"}), ${b.length} waiting in the backlog.`);
@@ -647,7 +668,12 @@ const fresh = () => { s.tasks = []; s.order = []; s.windows.forEach(w => { w.des
 document.getElementById("fresh").onclick = () => { fresh(); render(); };
 if (location.hash.includes("picture")) document.body.classList.add("picture");
 if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
-if (location.hash.includes("empty")) { parkTask(task("p1")); s.windows[0].desk = null; }
+if (location.hash.includes("empty")) {
+  parkTask(task("p1"));
+  s.windows[0].desk = null;
+  planners();
+  Object.assign(s.windows[0].planner, { agent: "claude", log: [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``, `<span class="p">&gt;</span> what's waiting?`, `<span class="m">●</span> Two tasks run (Doc markup reference model, working; Tab bar follows light mode, idle), and 3 wait in the backlog. Want me to start one?`] });
+}
 if (location.hash.includes("fresh")) fresh();
 if (location.hash.includes("needs")) { task("p4").status = "needs"; task("p4").needsAt = Date.now(); }
 setInterval(() => { if (!drag && !document.activeElement?.closest?.("[data-cmd]")) render(); }, 30000);
