@@ -515,7 +515,14 @@ S11() {
   key "cmd+shift+["; check test "$(win w1 zoomed)" == p3 || return 1
   kanna close p4 >/dev/null || return 1
   check test "$(win w1 zoomed)" == p3 || return 1
-  key "cmd+["; check test "$(win w1 zoomed)" == None || return 1
+  key "cmd+["; check test "$(win w1 zoomed)" == p2 || return 1
+  check test "$(win w1 focused)" == p2 || return 1
+  key "cmd+]"; check test "$(win w1 zoomed)" == p3 || return 1
+  check drawn "$(snap w1 s11-zoom-p3)" 1 || return 1
+  key "cmd+]"; check test "$(win w1 zoomed)" == k1 || return 1
+  check drawn "$(snap w1 s11-zoom-k1)" 1 || return 1
+  key cmd+shift+return; check test "$(win w1 zoomed)" == None || return 1
+  key "cmd+["; check test "$(win w1 focused)" == p3 || return 1
   raw '{"id":1,"cmd":"debug.click","args":{"pane":"k1"}}' >/dev/null; sleep 0.3
   check test "$(win w1 focused)" == k1 || return 1
   sleep 1

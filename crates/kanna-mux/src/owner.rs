@@ -466,9 +466,13 @@ mod tests {
         command(&mut owner, "focus", json!({ "tab": "t1" }));
         assert_eq!(window(&owner)["zoomed"], "p1");
         assert_eq!(window(&owner)["focused"], "p1");
+        command(&mut owner, "focus", json!({ "pane": "p2" }));
+        assert_eq!(window(&owner)["zoomed"], "p2", "focusing another pane on screen moves the zoom to it");
+        command(&mut owner, "focus", json!({ "pane": "p1" }));
+        assert_eq!(window(&owner)["zoomed"], "p1");
         command(&mut owner, "focus", json!({ "pane": "p3" }));
         command(&mut owner, "focus", json!({ "pane": "p2" }));
-        assert_eq!(window(&owner)["zoomed"], Value::Null, "focusing another pane still unzooms");
+        assert_eq!(window(&owner)["zoomed"], Value::Null, "focusing another tab's pane unzooms the tab it lands on");
         command(&mut owner, "zoom", json!({ "pane": "p2" }));
         command(&mut owner, "focus", json!({ "tab": "t2" }));
         owner.save().unwrap();

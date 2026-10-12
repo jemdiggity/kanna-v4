@@ -600,11 +600,14 @@ impl Model {
         let location = self.locate(id);
         let Some(w) = location.as_ref().map(|l| l.window).or_else(|| self.dock_window(id)).or_else(|| self.planner_window(id)) else { return };
         let window = &mut self.windows[w];
+        let carries_zoom = window.zoomed().is_some() && window.shown_panes().iter().any(|p| p == id);
         if let Some(location) = location {
             window.active = Some(window.tabs[location.tab].id.clone());
             window.tabs[location.tab].last_focus = Some(id.into());
         }
-        if window.zoomed().is_some_and(|z| z != id) {
+        if carries_zoom {
+            window.set_zoomed(Some(id.into()));
+        } else if window.zoomed().is_some_and(|z| z != id) {
             window.set_zoomed(None);
         }
         window.focused = Some(id.into());
