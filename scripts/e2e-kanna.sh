@@ -1754,6 +1754,7 @@ S62() {
   start_daemon || return 1
   env -u KANNA_DEBUG -u KANNA_IGNORE_OCCLUSION "$app" --bg >>"$out/app.log" 2>&1 &
   app_pid=$!
+  check wait_for 10 eval '[[ "$(kanna capabilities)" == *"Kanna.app: attached"* ]]' || return 1
   local shots="$KANNA_STATE_DIR/shots"; mkdir -p "$shots" && shots="$(cd "$shots" && pwd -P)"
   kanna open --name s62 --cmd 'for i in $(seq 80); do echo "S62 $i the quick brown fox jumps over the lazy dog"; done; exec cat' >/dev/null || return 1
   check wait_for 5 shows s62 "S62 80" || return 1
