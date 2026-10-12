@@ -7,6 +7,7 @@ case "${1:-${KANNA_CHANNEL:-dev}}" in
   production|staging|dev) export KANNA_CHANNEL="${1:-${KANNA_CHANNEL:-dev}}" ;;
   *) echo "usage: scripts/build-kanna-app.sh [production|staging|dev]   (default: dev, or \$KANNA_CHANNEL)" >&2; exit 2 ;;
 esac
+macos_target="$(kanna_macos_target "$repo_root")"
 host="$(rustc -vV | sed -n 's/^host: //p')"
 kanna_borrow_built "$repo_root" ghosttykit
 kanna_borrow_built "$repo_root" "ghostty-vt/$host"
@@ -32,6 +33,7 @@ if [[ -z "${KANNA_GHOSTTY_VT_DIR:-}" ]]; then
   fi
 fi
 
+kanna_cargo_release_for "$repo_root" "$macos_target"
 (cd "$repo_root" && cargo build --release -p kanna-ffi -p kanna-daemon -p kanna-keeper)
 
 configuration="${KANNA_CONFIGURATION:-release}"
@@ -68,7 +70,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>0.1.0</string>
-<key>LSMinimumSystemVersion</key><string>15.0</string>
+<key>LSMinimumSystemVersion</key><string>$macos_target</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST

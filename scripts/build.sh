@@ -9,6 +9,8 @@ case "${1:-${KANNA_CHANNEL:-dev}}" in
 esac
 echo "==> Channel: $KANNA_CHANNEL"
 . "$scripts/env.sh"
+macos_target="$(kanna_macos_target "$repo_root")"
+echo "==> macOS deployment target: $macos_target"
 host="$(rustc -vV | sed -n 's/^host: //p')"
 pinned() { [[ -z "${GHOSTTY_SOURCE_DIR:-}" && "$(cat "$1/ghostty.rev" 2>/dev/null)" == "$KANNA_GHOSTTY_COMMIT" ]]; }
 
@@ -31,6 +33,7 @@ else
 fi
 
 echo "==> kanna, kanna-daemon, kanna-keeper, libkanna_ffi (cargo build --workspace --release)"
+kanna_cargo_release_for "$repo_root" "$macos_target"
 cargo build --manifest-path "$repo_root/Cargo.toml" --workspace --release
 
 echo "==> Swift app and target/Kanna.app (scripts/build-kanna-app.sh)"

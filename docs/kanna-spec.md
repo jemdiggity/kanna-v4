@@ -31,6 +31,8 @@
    - 4.17 [Agent Status](#417-agent-status)
    - 4.18 [Tab Completion](#418-tab-completion)
    - 4.19 [Code Viewer](#419-code-viewer)
+   - 4.20 [Code Tour](#420-code-tour)
+   - 4.21 [The Build](#421-the-build)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -875,6 +877,21 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 ### 4.20 Code Tour
 
 **[Built]** The agent comments on code as it explains it: `kanna comment FILE:LINE "text"` opens the file in a code tab, tints those lines (snapped to their tree-sitter scope), dims the rest and lists the comment beside the code, folding the earlier ones. Comments live on the code pane\'s record; the daemon asks the app to snap. How to give a tour is the `kanna-tour` skill. Its own spec: [specs/code-tour.md](specs/code-tour.md); mockup `references/mockups/code-tour.html`. In `crates/kanna-mux` (`comment`, the record), `crates/kanna` (the command, threads on docs), `apps/kanna/Sources/KannaCode` (the box, tint and dim) and `AppCommands.swift` (`app.snap`); checked by `crates/kanna-daemon/tests/panes.rs` and S50.
+
+### 4.21 The Build
+
+**What Kanna compiles is built for the app's macOS, set in one place; nothing it links is built for a newer one.** The app's minimum macOS is `MACOSX_DEPLOYMENT_TARGET` in `.cargo/config.toml` (`force = true`, so a shell's own value can't override it), which every cargo build reads: rustc links for it and the `cc` crate compiles the tree-sitter grammars' C for it. Without it, rustc builds for macOS 11 and `cc` for the SDK's version (26.5), and linking the app warns for every such object that it was built for a newer macOS than the app. `apps/kanna/Package.swift`'s `platforms` must say the same version; `kanna_macos_target` in `scripts/env.sh` reads both, and `scripts/build.sh` and `scripts/build-kanna-app.sh` stop if they differ. The app's `LSMinimumSystemVersion` comes from it too.
+
+| Piece | Built by | Minimum macOS |
+|---|---|---|
+| `libkanna_ffi.a`, daemon, keeper, CLI | cargo (rustc, `cc`) | the app's (15.0) |
+| Kanna.app | SwiftPM | the app's (15.0) |
+| GhosttyKit, libghostty-vt | Zig, in Ghostty's build | 13.0, Ghostty's own floor |
+| Rust's std, `compiler_builtins` (in `libkanna_ffi.a`) | prebuilt, shipped with the toolchain | 11.0, Rust's default |
+
+Ghostty's `build.zig` sets its own minimum (13.0) and ignores the environment, and Rust's std comes prebuilt (rebuilding it needs nightly `-Zbuild-std`). A lower minimum than the app's is safe to link: those objects use nothing newer than their own minimum. A higher one is the bug the warning reports.
+
+Changing the deployment target needs a clean cargo build. Cargo reruns the `cc` build scripts when the `[env]` value changes, but it doesn't recompile pure Rust crates, so their objects keep the old version. `kanna_cargo_release_for` (`scripts/env.sh`) keeps the version `target/release` was built for in `target/release/macos-deployment-target` and cleans `target/release` when it differs or is missing; the build scripts call it before cargo. Ghostty's builds are reused by commit (`ghostty.rev`, borrowed by worktrees through `kanna_borrow_built`), so a change to how Ghostty is built goes in the fork and the pinned commit, and the new pin makes every checkout rebuild them.
 
 ---
 
