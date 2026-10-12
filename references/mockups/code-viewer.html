@@ -10,19 +10,19 @@
   --text: #e6e6e6; --dim: #8b8f98; --soft: #c9ccd3; --accent: #3478f6; --ok: #4cb782;
   --mono: "SF Mono", ui-monospace, Menlo, monospace; --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
 }
-.code.dark {
+.window.dark {
   --bg: #14161a; --gutter: #14161a; --num: #4b5260; --num-on: #c9ccd3; --cur: #1b1e24; --sel: rgba(122,162,255,.28);
   --fg: #e6e8eb; --bar-bg: #1b1e24; --line: #2c313a; --muted: #8b93a0;
   --keyword: #c792ea; --function: #7aa2ff; --type: #e5c07b; --string: #a5d6a7; --number: #f78c6c; --constant: #f78c6c;
   --comment: #6b7280; --macro: #56b6c2; --attribute: #8b93a0; --property: #c9d1e0; --operator: #89ddff; --punctuation: #8b93a0;
-  --tour: rgba(122,162,255,.12); --tour-edge: #7aa2ff; --card: #1f232a; --guide: #2a2f37; --shadow: rgba(0,0,0,.55);
+  --termbg: #16181c; --tour: rgba(122,162,255,.12); --tour-edge: #7aa2ff; --card: #1f232a; --guide: #2a2f37; --shadow: rgba(0,0,0,.55);
 }
-.code.light {
+.window.light {
   --bg: #ffffff; --gutter: #ffffff; --num: #b4bac4; --num-on: #1d2026; --cur: #f4f5f7; --sel: rgba(47,99,216,.2);
   --fg: #1d2026; --bar-bg: #f4f5f7; --line: #d8dce2; --muted: #6b7280;
   --keyword: #8839c4; --function: #2f63d8; --type: #a15c00; --string: #2d7d3a; --number: #c2410c; --constant: #c2410c;
   --comment: #8a919c; --macro: #0e7490; --attribute: #6b7280; --property: #374151; --operator: #0369a1; --punctuation: #6b7280;
-  --tour: rgba(47,99,216,.08); --tour-edge: #2f63d8; --card: #f7f8fa; --guide: #e4e7eb; --shadow: rgba(0,0,0,.14);
+  --termbg: #fbfbfc; --tour: rgba(47,99,216,.08); --tour-edge: #2f63d8; --card: #f7f8fa; --guide: #e4e7eb; --shadow: rgba(0,0,0,.14);
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 var(--sans); }
@@ -38,26 +38,31 @@ button:hover { border-color: var(--accent); }
 button.on { background: var(--accent); border-color: var(--accent); }
 button.later { border-style: dashed; }
 
-.window { border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: 0 20px 50px rgba(0,0,0,.5); background: var(--chrome); }
-body.picture .window { border-radius: 0; border: 0; box-shadow: none; }
-.titlebar { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--dim); font-weight: 600; }
-.lights { display: flex; gap: 7px; margin-right: 10px; }
-.lights i { width: 12px; height: 12px; border-radius: 50%; background: #4a4c52; display: block; }
-.wtabs { height: 32px; background: var(--tabbar); display: flex; padding-left: 14px; border-bottom: 1px solid #000; }
-.wtab { padding: 0 14px; display: flex; align-items: center; color: var(--text); font-weight: 600; border-bottom: 2px solid var(--accent); }
-.body { height: 640px; display: flex; }
-body.picture .body { height: calc(100vh - 67px); }
-.divider { width: 1px; background: #000; flex: none; }
-
-.term { flex: 0 0 36%; min-width: 0; background: var(--term); font: 12px/1.55 var(--mono); padding: 10px 12px; white-space: pre-wrap; overflow: hidden; color: #d7dae0; }
-.term .c { color: #7fb4ca; } .term .p { color: #e5c07b; } .term .g { color: var(--dim); } .term .a { color: #d18ae6; } .term .ok { color: var(--ok); }
-
-.code { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); outline: none; }
-.toolbar { height: 34px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--bar-bg); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
-.toolbar .path { font: 11.5px var(--mono); color: var(--fg); }
-.toolbar .spacer { flex: 1; }
-.toolbar .chip { border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; white-space: nowrap; }
-.toolbar .chip.tour { border-color: var(--tour-edge); color: var(--fg); }
+.window { border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: 0 20px 50px rgba(0,0,0,.5); background: var(--bg); color: var(--fg); height: 700px; display: flex; flex-direction: column; }
+body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 100vh; }
+.bar { height: 36px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 12px; }
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); display: block; }
+.bar b { font-weight: 600; font-size: 13px; }
+.content { flex: 1; display: flex; min-height: 0; }
+.agent { flex: 0 0 36%; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.agent .head { flex: none; height: 34px; padding: 0 14px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--function); }
+.term { flex: 1; min-height: 0; background: var(--termbg); font: 12px/1.6 var(--mono); padding: 10px 12px; white-space: pre-wrap; overflow: hidden; color: var(--fg); }
+.term .c { color: var(--function); } .term .p { color: var(--type); } .term .g { color: var(--muted); } .term .a { color: var(--keyword); } .term .ok { color: var(--string); }
+.docs { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dtabs { height: 34px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.dtab { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; color: var(--muted); white-space: nowrap; }
+.dtab.on { color: var(--fg); }
+.dtab .x { color: var(--muted); font-size: 11px; visibility: hidden; }
+.dtab.on .x { visibility: visible; }
+.dtabs .add { color: var(--muted); padding: 0 8px; font-size: 15px; }
+.code { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); outline: none; }
+.crumbs { height: 26px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 14px 0 20px; font-size: 12px; color: var(--muted); }
+.crumbs i { font-style: normal; opacity: .6; }
+.crumbs b { font-weight: 400; color: var(--fg); }
+.crumbs .spacer { flex: 1; }
+.crumbs .chip { border: 1px solid var(--tour-edge); border-radius: 5px; padding: 0 8px; color: var(--fg); white-space: nowrap; }
 
 .split { flex: 1; display: flex; min-height: 0; position: relative; }
 .scroller { flex: 1; min-width: 0; overflow: auto; position: relative; }
@@ -112,22 +117,26 @@ body.picture .body { height: calc(100vh - 67px); }
       <button id="tour" class="later">Later: code tour</button>
     </div>
   </div>
-  <div class="window">
-    <div class="titlebar"><span class="lights"><i></i><i></i><i></i></span><span>fdpass.rs — w1</span></div>
-    <div class="wtabs"><div class="wtab">Tab 1</div></div>
-    <div class="body">
-      <div class="term" id="term"></div>
-      <div class="divider"></div>
-      <div class="code dark" id="code" tabindex="0">
-        <div class="toolbar">
-          <span class="path">crates/kanna-keeper/src/fdpass.rs</span>
-          <span class="spacer"></span>
-          <span class="chip" id="tourChip" hidden>Tour 2 / 3</span>
+  <div class="window dark" id="window">
+    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><b>Code viewer</b></div>
+    <div class="content">
+      <div class="agent">
+        <div class="head"><span class="dot"></span>~/work/kanna-v4 · code-viewer</div>
+        <div class="term" id="term"></div>
+      </div>
+      <div class="docs">
+        <div class="dtabs">
+          <div class="dtab"><span>code-viewer.html</span><span class="x">✕</span></div>
+          <div class="dtab on"><span>fdpass.rs</span><span class="x">✕</span></div>
+          <span class="add">+</span>
         </div>
+      <div class="code" id="code" tabindex="0">
+        <div class="crumbs"><span>crates</span><i>›</i><span>kanna-keeper</span><i>›</i><span>src</span><i>›</i><b>fdpass.rs</b><span class="spacer"></span><span class="chip" id="tourChip" hidden>Tour 2 / 3</span></div>
         <div class="split">
           <div class="scroller" id="scroller"><div class="sticky"><div class="rows" id="sticky"></div></div><div class="lines" id="lines"></div></div>
           <div class="notes" id="notes"></div>
         </div>
+      </div>
       </div>
     </div>
   </div>
@@ -330,8 +339,7 @@ linesEl.addEventListener("mouseup", e => {
 });
 
 const term = document.getElementById("term");
-const TERM_BASE = `<span class="g">~/work/kanna-v4 (code-viewer)</span>
-<span class="p">❯</span> claude
+const TERM_BASE = `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> claude
 <span class="a">●</span> You asked how the keeper hands ptys to the daemon. The
   fd passing is in <span class="c">fdpass.rs</span>; I'll open it next to us.
 `;
@@ -339,7 +347,7 @@ term.innerHTML = TERM_BASE;
 
 document.getElementById("openAt").onclick = () => {
   term.innerHTML = TERM_BASE + `
-<span class="g">  Bash(</span><span class="c">kanna open code crates/kanna-keeper/src/fdpass.rs:50 --split right</span><span class="g">)</span>
+<span class="g">  Bash(</span><span class="c">kanna open code crates/kanna-keeper/src/fdpass.rs:50</span><span class="g">)</span>
 <span class="ok">  ⎿ p86 opened</span>
 
 <span class="a">●</span> Line 50 is <span class="c">recv</span>: it reads one message and any file
@@ -357,7 +365,8 @@ document.getElementById("change").onclick = () => {
   if (changed) { const n = source.split("\n").findIndex(l => l.includes("more than {MAX_FDS}")) + 1; line(n).classList.add("edited"); }
 };
 
-document.getElementById("theme").onclick = () => { code.classList.toggle("dark"); code.classList.toggle("light"); };
+const win = document.getElementById("window");
+document.getElementById("theme").onclick = () => { win.classList.toggle("dark"); win.classList.toggle("light"); };
 
 const STOPS = [
   { from: 5, to: 7, title: "cmsg_space", text: "Works out how much room a note needs to carry some open files along with a message." },
