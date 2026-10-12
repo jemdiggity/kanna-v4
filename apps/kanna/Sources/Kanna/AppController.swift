@@ -420,6 +420,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         controller.agentHeader.onPark = { [weak self] in self?.layoutCommand("task", ["action": "park", "window": .string(id)]) }
         controller.shelfPage.onPull = { [weak self] task in self?.pullTask(task, into: id) }
         controller.shelfPage.onStart = { [weak self] task in self?.startTask(task, from: id) }
+        controller.shelfPage.onLeaveSearch = { [weak self, weak controller] in
+            guard let self, let controller, let planner = controller.plannerShown, let view = panes.keyView(planner) else { return }
+            controller.window.makeFirstResponder(view)
+        }
         controller.onBecomeKey = { [weak self, weak controller] in
             guard let self, let controller, let appLayout else { return }
             if controller.window.isKeyWindow, state["key"]?.string != id {

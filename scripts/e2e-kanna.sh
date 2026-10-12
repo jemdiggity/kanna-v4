@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S52) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S53) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-2]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-3]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -1713,10 +1713,64 @@ S51() {
   check eval '(( $(desk scroll.top) + $(desk scroll.visible) <= $(desk scroll.height) ))' || { desk scroll; return 1; }
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-2]) echo M4 ;; esac
+S53() {
+  local agent="$repo_root/tools/mock-agent/mock-agent" repo="$KANNA_STATE_DIR/repo"
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S53 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  start_daemon || { echo "S53 line $LINENO"; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
+  desk() { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}' | field "$1"; }
+  search() { desk search."$1"; }
+  type() { raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$1\"}}" >/dev/null; sleep 0.3; }
+  check wait_for 10 eval '[[ "$(desk planner)" == p* ]]' || { echo "S53: no planning terminal"; kanna list; return 1; }
+  check test "$(search shown)" == False || { echo "S53: a search field over an empty backlog"; return 1; }
+  (cd "$repo" && kanna task new "Fix flaky status test" "S40 waits for working; follow the status" --agent "$agent" \
+    && kanna task new "Resume every agent's session" "Give codex its own session ID and resume it" --agent "$agent" \
+    && kanna task new "Shelf strip shows parked time" "Show how long ago each item was parked" --agent "$agent" \
+    && kanna task new "Start tasks past the Shelf" "Let a fourth task wait for a slot" --agent "$agent") >/dev/null || { echo "S53 line $LINENO"; return 1; }
+  for i in $(seq 5 12); do (cd "$repo" && kanna task new "Task $i" "hello" --agent "$agent") >/dev/null || { echo "S53 line $LINENO"; return 1; }; done
+  check wait_for 5 eval '[[ "$(desk backlog)" == *"t12"* && "$(search shown)" == True ]]' || { desk backlog; desk search; return 1; }
+  key cmd+f
+  check test "$(search focused)" == True || { echo "S53: ⌘F didn't reach the backlog search"; desk responder; return 1; }
+  type shelf
+  check test "$(search found)" == '["t3", "t4"]' || { desk search; return 1; }
+  check test "$(search selected)" == 0 || { desk search; return 1; }
+  type " parked"
+  check test "$(search found)" == '["t3"]' || { desk search; return 1; }
+  key escape
+  check test "$(search query)" == "" || { echo "S53: esc didn't clear the search"; desk search; return 1; }
+  check test "$(search found | grep -o '"t' | wc -l | tr -d ' ')" == 12 || { desk search; return 1; }
+  check test "$(search focused)" == True || { desk search; return 1; }
+  key escape
+  check test "$(search focused)" == False || { echo "S53: a second esc stayed in the search"; desk search; return 1; }
+  check test "$(desk responder)" == TerminalSurfaceView || { echo "S53: a second esc didn't go back to the planning terminal"; desk responder; return 1; }
+  key cmd+f; type "RESUME codex"
+  check test "$(search found)" == '["t2"]' || { echo "S53: no match on a first message, ignoring case"; desk search; return 1; }
+  type " nothing"
+  check test "$(search found)" == '[]' || { desk search; return 1; }
+  key escape; type shelf
+  raw '{"id":1,"cmd":"debug.app","args":{"appearance":"light"}}' >/dev/null; sleep 0.3; snap w1 s53-light >/dev/null
+  raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null; sleep 0.3; snap w1 s53-dark >/dev/null
+  key down
+  check test "$(search selected)" == 1 || { desk search; return 1; }
+  key down
+  check test "$(search selected)" == 1 || { echo "S53: the selection ran past the last match"; desk search; return 1; }
+  key up
+  check test "$(search selected)" == 0 || { desk search; return 1; }
+  key down; key return
+  check wait_for 10 eval '[[ "$(desk backlog)" != *"t4"* && "$(desk shelf.0.title)" == "Start tasks past the Shelf" ]]' || { desk backlog; desk shelf; desk note; return 1; }
+  check wait_for 5 eval '[[ "$(search query)" == "" ]]' || { echo "S53: the search stayed after starting its task"; desk search; return 1; }
+  local listed; listed="$(cd "$repo" && kanna task list shelf)"
+  check test "$(wc -l <<<"$listed" | tr -d ' ')" == 3 || { echo "$listed"; return 1; }
+  [[ "$listed" == *"Start tasks past the Shelf"*"Shelf"* && "$listed" == *"t3"*"Backlog"* ]] || { echo "S53: kanna task list QUERY"; echo "$listed"; return 1; }
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-3]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
