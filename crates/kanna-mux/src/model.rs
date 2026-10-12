@@ -94,11 +94,12 @@ pub struct Window {
     pub project: Option<String>,
     /// The window's planning agent: shown docked on the left while no task is, never a task itself.
     pub planner: Option<Dock>,
+    pub dock_zoomed: Option<String>,
 }
 
 impl Window {
     pub(crate) fn new(id: String) -> Window {
-        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, project: None, planner: None }
+        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, project: None, planner: None, dock_zoomed: None }
     }
 
     pub fn shown_panes(&self) -> Vec<String> {
@@ -135,16 +136,23 @@ impl Window {
     }
 
     pub fn zoomed(&self) -> Option<&String> {
-        self.active_tab().and_then(|t| t.zoomed.as_ref())
+        match self.dock.as_ref() {
+            Some(dock) if self.dock_zoomed.as_ref() == Some(&dock.pane) => Some(&dock.pane),
+            _ => self.active_tab().and_then(|t| t.zoomed.as_ref()),
+        }
     }
 
     fn set_zoomed(&mut self, pane: Option<String>) {
+        self.dock_zoomed = pane.clone().filter(|p| self.docks(p));
         if let Some(t) = self.active_index() {
-            self.tabs[t].zoomed = pane;
+            self.tabs[t].zoomed = pane.filter(|p| !self.docks(p));
         }
     }
 
     fn unzoom(&mut self, pane: &str) {
+        if self.dock_zoomed.as_deref() == Some(pane) {
+            self.dock_zoomed = None;
+        }
         for tab in self.tabs.iter_mut().filter(|t| t.zoomed.as_deref() == Some(pane)) {
             tab.zoomed = None;
         }
@@ -647,6 +655,7 @@ impl Model {
             let window = &mut self.windows[w];
             let ids = pane_ids(window.tabs[t].root.as_ref());
             window.active = Some(window.tabs[t].id.clone());
+            window.dock_zoomed = None;
             window.focused = window.zoomed().cloned().or_else(|| window.tabs[t].last_focus.clone().filter(|l| ids.contains(l))).or_else(|| ids.first().cloned());
             self.key = Some(window.id.clone());
         } else if args.get("window").is_some() {
@@ -790,6 +799,7 @@ impl Model {
         let ids = pane_ids(self.windows[d].tabs[t].root.as_ref());
         let window = &mut self.windows[d];
         window.active = Some(tab.clone());
+        window.dock_zoomed = None;
         window.focused = window.zoomed().cloned().or_else(|| window.tabs[t].last_focus.clone().filter(|l| ids.contains(l))).or_else(|| ids.first().cloned());
         let id = window.id.clone();
         self.key = Some(id.clone());
@@ -986,6 +996,7 @@ impl LayoutHost for Model {
             return Ok(Some(window.id.clone()));
         }
         let t = if at.new_tab || self.windows[w].tabs.is_empty() { self.make_tab(w, true) } else { self.windows[w].active_index().unwrap() };
+        self.windows[w].dock_zoomed = None;
         let tab = &mut self.windows[w].tabs[t];
         tab.zoomed = None;
         if tab.root.is_none() {
@@ -1257,10 +1268,9 @@ impl LayoutHost for Model {
                 .or_else(|| window.active_tab().and_then(|t| t.last_focus.clone()))
                 .or(first)
                 .or_else(|| window.side_pane());
-            let docked = window.dock.as_ref().map(|d| d.pane.clone());
             for tab in &mut window.tabs {
                 let ids = pane_ids(tab.root.as_ref());
-                tab.zoomed = tab.zoomed.take().filter(|z| ids.contains(z) || docked.as_ref() == Some(z));
+                tab.zoomed = tab.zoomed.take().filter(|z| ids.contains(z));
             }
             if window.zoomed().is_none() {
                 window.set_zoomed(string(item, "zoomed").filter(|z| shown.iter().any(|s| s == z)).map(String::from));

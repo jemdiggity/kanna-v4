@@ -993,6 +993,13 @@ S38() {
   check test "$(win w1 dock.pane)" == agent || return 1
   sleep 0.5
   check drawn "$(snap w1 s38-only-dock)" 1 || return 1
+  check test "$(win w1 focused)" == agent || return 1
+  key cmd+shift+return; check test "$(win w1 zoomed)" == agent || return 1
+  sleep 0.5
+  shot="$(snap w1 s38-only-dock-zoomed)"
+  check drawn "$shot" 1 || return 1
+  check python3 -c 'import json, sys; s = json.loads(sys.argv[1]); assert s["panes"][0]["width"] == s["width"], s' "$shot" || return 1
+  key cmd+shift+return; check test "$(win w1 zoomed)" == None || return 1
   kanna close --window w1 >/dev/null || return 1
   [[ "$(kanna list)" != *agent* ]] || { echo "closing the window should close its docked pane"; return 1; }
 

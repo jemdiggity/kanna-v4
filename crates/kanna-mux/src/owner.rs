@@ -647,6 +647,29 @@ mod tests {
     }
 
     #[test]
+    fn a_window_with_only_a_docked_pane_zooms_it_and_keeps_the_zoom_across_a_relaunch() {
+        let dir = folder("dock-zoom");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({ "dock": "left" }));
+        let window = |owner: &LayoutOwner| owner.view()["windows"][0].clone();
+        let zoom = |owner: &mut LayoutOwner| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "zoom", "args": { "pane": "p1" } } }));
+        assert_eq!(window(&owner)["tabs"], json!([]));
+        assert_eq!(zoom(&mut owner)["zoomed"], true);
+        assert_eq!(window(&owner)["zoomed"], "p1");
+        assert_eq!(window(&owner)["root"], Value::Null);
+        owner.save().unwrap();
+
+        let (mut again, _) = LayoutOwner::open(Some(file), false);
+        again.handle(&json!({ "call": "attach", "panes": table(&["p1"]) }));
+        assert_eq!(window(&again)["zoomed"], "p1");
+        assert_eq!(zoom(&mut again)["zoomed"], false);
+        assert_eq!(window(&again)["zoomed"], Value::Null);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_zoomed_tab_pane_beside_a_docked_pane_is_drawn_alone_and_unzooms_on_a_second_zoom() {
         let (mut owner, _) = LayoutOwner::open(None, false);
         owner.handle(&json!({ "call": "attach", "panes": [] }));
