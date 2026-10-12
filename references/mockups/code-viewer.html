@@ -91,9 +91,6 @@ body.picture .body { height: calc(100vh - 67px); }
 .notes { flex: 0 0 300px; border-left: 1px solid var(--line); background: var(--bar-bg); padding: 10px; display: none; flex-direction: column; gap: 10px; overflow: auto; font-size: 12.5px; }
 .code.touring .notes { display: flex; }
 .notes .top { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; }
-.levels { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.levels span { flex: 1; text-align: center; padding: 3px 0; cursor: pointer; color: var(--muted); font-size: 11.5px; }
-.levels span.on { background: var(--tour-edge); color: #fff; }
 .stop { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; }
 .stop.on { border-color: var(--tour-edge); }
 .stop .h { display: flex; justify-content: space-between; font: 11px var(--mono); color: var(--muted); margin-bottom: 4px; }
@@ -106,7 +103,7 @@ body.picture .body { height: calc(100vh - 67px); }
 <main>
   <div class="intro">
     <h1>Code viewer: a read-only code pane with syntax highlighting, beside the agent</h1>
-    <p>The agent (or you) opens a source file with <code>kanna open code FILE[:LINE]</code>. The pane shows it highlighted, with line numbers, at that line; it follows the file on disk. You read, select and copy; you don't edit. The dashed button previews where this goes later: the agent tours the code, highlighting a range per stop and explaining it at the reader's level.</p>
+    <p>The agent (or you) opens a source file with <code>kanna open code FILE[:LINE]</code>. The pane shows it highlighted, with line numbers, at that line; it follows the file on disk. You read, select and copy; you don't edit. The dashed button previews where this goes later: the agent tours the code, highlighting a range per stop and explaining it.</p>
     <div class="controls">
       <button id="openAt">Agent opens fdpass.rs:50</button>
       <button id="change">File changes on disk</button>
@@ -363,17 +360,11 @@ document.getElementById("change").onclick = () => {
 document.getElementById("theme").onclick = () => { code.classList.toggle("dark"); code.classList.toggle("light"); };
 
 const STOPS = [
-  { from: 5, to: 7, title: "cmsg_space", text: {
-    plain: "Works out how much room a note needs to carry some open files along with a message.",
-    engineer: "Bytes of ancillary buffer for <code>n</code> fds: <code>CMSG_SPACE</code> adds the header and alignment padding." } },
-  { from: 50, to: 90, title: "recv", text: {
-    plain: "Waits for a message from the keeper. Besides text, the message can carry open terminals, which the daemon takes over.",
-    engineer: "<code>recvmsg</code> with a control buffer for up to 16 fds, retried on <code>EINTR</code>; each <code>SCM_RIGHTS</code> fd becomes an <code>OwnedFd</code> (cloexec set by hand off Linux). <code>MSG_CTRUNC</code> means fds were dropped, so it fails." } },
-  { from: 71, to: 85, title: "walk the control messages", text: {
-    plain: "Unpacks each open file from the message, one by one.",
-    engineer: "Iterates cmsgs with <code>CMSG_NXTHDR</code>; fd count is the payload length over <code>size_of::&lt;RawFd&gt;()</code>; <code>read_unaligned</code> since <code>CMSG_DATA</code> isn't fd-aligned." } },
+  { from: 5, to: 7, title: "cmsg_space", text: "Works out how much room a note needs to carry some open files along with a message." },
+  { from: 50, to: 90, title: "recv", text: "Waits for a message from the keeper. Besides text, the message can carry open terminals, which the daemon takes over." },
+  { from: 71, to: 85, title: "walk the control messages", text: "Unpacks each open file from the message, one by one." },
 ];
-let touring = false, stop = 1, level = "plain";
+let touring = false, stop = 1;
 const notes = document.getElementById("notes");
 function applyTour() {
   code.classList.toggle("touring", touring);
@@ -386,12 +377,10 @@ function applyTour() {
   });
   if (!touring) return;
   document.getElementById("tourChip").textContent = `Tour ${stop + 1} / ${STOPS.length}`;
-  notes.innerHTML = `<div class="top"><span>Tour by p85 · keeper fd passing</span><span class="later-tag">later</span></div>
-    <div class="levels"><span data-l="plain" class="${level === "plain" ? "on" : ""}">Plain</span><span data-l="engineer" class="${level === "engineer" ? "on" : ""}">Engineer</span></div>` +
-    STOPS.map((s, i) => `<div class="stop ${i === stop ? "on" : ""}" data-i="${i}"><div class="h"><span>${s.title}</span><span>${s.from}–${s.to}</span></div><div class="b">${s.text[level]}</div></div>`).join("");
+  notes.innerHTML = `<div class="top"><span>Tour by p85 · keeper fd passing</span><span class="later-tag">later</span></div>` +
+    STOPS.map((s, i) => `<div class="stop ${i === stop ? "on" : ""}" data-i="${i}"><div class="h"><span>${s.title}</span><span>${s.from}–${s.to}</span></div><div class="b">${s.text}</div></div>`).join("");
 }
 notes.addEventListener("click", e => {
-  const l = e.target.closest("[data-l]"); if (l) { level = l.dataset.l; applyTour(); return; }
   const s = e.target.closest(".stop"); if (s) { stop = +s.dataset.i; applyTour(); goTo(STOPS[stop].from); }
 });
 document.getElementById("tour").onclick = e => {
