@@ -547,6 +547,11 @@ impl CoreHandle {
             return Err(bad_request("a planning agent is a terminal in a window, with no dock, split, size or tab"));
         }
 
+        if kind == PaneType::Code && name.is_none() && !new_tab && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none() {
+            if let Some(opened) = self.open_again(string(args, "path").unwrap_or_default(), line, string(args, "from")).await? {
+                return Ok(opened);
+            }
+        }
         let turn = self.0.turns.take().await;
         taken(self)?;
         if dock.is_some() {
@@ -593,6 +598,44 @@ impl CoreHandle {
         let summary = self.summary(&id, &snapshot);
         let location = Value::Object(self.layout(json!({ "op": "location", "pane": id })).await.unwrap_or_default());
         Ok(opened(summary, &location, &placed))
+    }
+
+    async fn open_again(&self, path: &str, line: Option<u64>, from: Option<&str>) -> Result<Option<Map>, KmuxError> {
+        let from = from.and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
+        let window = match from {
+            Some(from) => self.layout(json!({ "op": "location", "pane": from })).await?.remove("window"),
+            None => {
+                let windows = self.layout(json!({ "op": "windows" })).await?.remove("windows").unwrap_or_default();
+                windows.as_array().and_then(|w| w.iter().find(|w| w["key"] == true)).map(|w| w["id"].clone())
+            }
+        };
+        let Some(window) = window.filter(|w| !w.is_null()) else { return Ok(None) };
+        let showing: Vec<String> = {
+            let s = self.state();
+            s.panes.ids().into_iter().filter(|id| s.panes.get(id).is_some_and(|p| p.kind == PaneType::Code && p.path.as_deref() == Some(path))).collect()
+        };
+        for id in showing {
+            let location = self.layout(json!({ "op": "location", "pane": id })).await?;
+            if location.get("window") != Some(&window) {
+                continue;
+            }
+            {
+                let _turn = self.0.turns.take().await;
+                self.layout(json!({ "op": "command", "cmd": "focus", "args": { "pane": id } })).await?;
+            }
+            self.changed();
+            let current = self.state().panes.get(&id).and_then(|p| p.line);
+            let summary = match line.filter(|line| Some(*line) != current) {
+                Some(line) => self.navigate(&json!({ "pane": id, "path": path, "line": line })).await?.remove("pane").unwrap_or_default(),
+                None => {
+                    let snapshot = self.state().panes.get(&id).cloned().unwrap();
+                    self.summary(&id, &snapshot)
+                }
+            };
+            let location = Value::Object(location);
+            return Ok(Some(opened(summary, &location, &location)));
+        }
+        Ok(None)
     }
 
     async fn task_folder(&self, from: Option<&str>, window: Option<&str>) -> Option<String> {

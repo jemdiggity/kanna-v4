@@ -39,6 +39,14 @@ fn a_code_pane_opens_a_file_at_a_line_and_moves_between_lines() {
     assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][1]["line"], json!(40));
     daemon.kanna(&["navigate", "src", "--back"]).ok();
     assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][1]["line"], json!(12));
+    daemon.kanna(&["focus", "a"]).ok();
+    assert_eq!(daemon.kanna(&["open", "code", "main.rs:30"]).ok(), "opened p2 (src) in window w1, tab t2: running");
+    assert!(daemon.kanna(&["list"]).ok().starts_with("*w1  focused: src"));
+    assert_eq!(daemon.kanna(&["open", "code", "main.rs"]).ok(), "opened p2 (src) in window w1, tab t2: running");
+    let panes = daemon.kanna(&["list", "--json"]).json()["panes"].clone();
+    assert_eq!((panes.as_array().unwrap().len(), panes[1]["line"].clone()), (2, json!(30)));
+    assert_eq!(daemon.kanna(&["open", "code", "main.rs", "--tab"]).ok(), "opened p3 in window w1, tab t3: running");
+    assert_eq!(daemon.kanna(&["close", "p3"]).ok(), "closed p3");
     assert_eq!(daemon.kanna(&["close", "src"]).ok(), "closed p2");
     daemon.kanna(&["open", "code"]).fails(2, "open: code panes need a file: kanna open code FILE[:LINE]");
     daemon.kanna(&["raw", r#"{"cmd":"open","args":{"type":"code"}}"#]).fails(2, "code panes need a path");
