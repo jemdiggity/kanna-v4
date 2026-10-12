@@ -1734,7 +1734,9 @@ S53() {
   check wait_for 5 eval '[[ "$(desk backlog)" == *"t12"* && "$(search shown)" == True ]]' || { desk backlog; desk search; return 1; }
   key cmd+f
   check test "$(search focused)" == True || { echo "S53: ⌘F didn't reach the backlog search"; desk responder; return 1; }
+  local at; at="$(search left),$(search right)"
   type shelf
+  check test "$(search left),$(search right)" == "$at" || { echo "S53: the search field moved as the count changed"; desk search; return 1; }
   check test "$(search found)" == '["t3", "t4"]' || { desk search; return 1; }
   check test "$(search selected)" == 0 || { desk search; return 1; }
   type " parked"

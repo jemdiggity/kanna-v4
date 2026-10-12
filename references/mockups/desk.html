@@ -174,6 +174,9 @@ body.picture .cmd input::placeholder { color: transparent; }
 .find input::placeholder { color: var(--muted); }
 .find kbd { font: 11px var(--mono); color: var(--muted); }
 .find:focus-within kbd { visibility: hidden; }
+.gh .count { display: inline-grid; justify-items: end; }
+.gh .count > span { grid-area: 1 / 1; }
+.gh .count > span + span { visibility: hidden; }
 .find .clear { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); color: var(--panel); font-size: 10px; line-height: 1; cursor: pointer; }
 .find .clear:hover { background: var(--text); }
 .row mark { background: var(--tint); color: inherit; border-radius: 2px; }
@@ -422,7 +425,7 @@ function shelfPageHTML(w) {
   return `<div class="empty"><p class="sub">${cheers[cheerAt]}</p>
     <div class="group"><div class="gh"><span><b>Shelf</b> · ${esc(repo)}</span><span>${count} of ${LIMIT} tasks</span></div>
       ${list.map((t, i) => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${titleOf(t)}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${ago(t)} · ${esc(t.branch)}</div></div><span class="go">⌘${i + 1} · Pull →</span></div>`).join("") || `<div class="s" style="color:var(--muted)">Nothing on the Shelf.</div>`}</div>
-    <div class="group"><div class="gh"><span><b>Backlog</b></span>${waiting.length ? `<label class="find"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><input data-find="${w.id}" value="${esc(q)}" placeholder="Search the backlog" spellcheck="false" autocomplete="off">${q ? `<span class="clear" data-clear="${w.id}" title="Clear">✕</span>` : `<kbd>⌘F</kbd>`}</label>` : ""}<span>${q ? `${found.length} of ${waiting.length}` : `${waiting.length} waiting`}</span></div>
+    <div class="group"><div class="gh"><span><b>Backlog</b></span>${waiting.length ? `<label class="find"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><input data-find="${w.id}" value="${esc(q)}" placeholder="Search the backlog" spellcheck="false" autocomplete="off">${q ? `<span class="clear" data-clear="${w.id}" title="Clear">✕</span>` : `<kbd>⌘F</kbd>`}</label>` : ""}<span class="count"><span>${q ? `${found.length} of ${waiting.length}` : `${waiting.length} waiting`}</span><span>${waiting.length} waiting</span><span>${waiting.length} of ${waiting.length}</span></span></div>
       ${found.map((t, i) => `<div class="row waiting ${q && i === sel ? "sel" : ""}" data-promote="${t.id}"><span class="dot"></span><div class="t"><div class="n">${t.title ? marked(t.title, q) : titleOf(t)}</div><div class="s">${marked(t.prompt, q)} · from ${esc(makerOf(t))}, ${ago({ parkedAt: t.madeAt })} ago</div></div><span class="go ${full ? "off" : ""}">${full ? "Shelf full" : q && i === sel ? "↩ Move to Shelf" : "Move to Shelf →"}</span></div>`).join("") || (q ? `<div class="nohit">No backlog task matches “${esc(q)}”.</div>` : `<div class="s" style="color:var(--muted)">Empty. Ask the planning agent for tasks.</div>`)}
       <p class="note">${esc(s.note)}</p></div></div>`;
 }

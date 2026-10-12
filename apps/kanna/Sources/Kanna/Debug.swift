@@ -123,7 +123,8 @@ extension AppController {
             let scrolled: JSON = ["top": .number(Double(page.scrollTop)), "height": .number(Double(page.contentHeight)),
                                   "visible": .number(Double(page.visibleHeight)), "backlog": .array(page.visibleBacklog.map { .string($0) })]
             let search: JSON = ["shown": .bool(page.searchShown), "focused": .bool(page.searching), "query": .string(page.query),
-                                "found": .array(page.found.map { .string($0) }), "selected": .number(Double(page.selected))]
+                                "found": .array(page.found.map { .string($0) }), "selected": .number(Double(page.selected)),
+                                "left": .number(Double(page.searchFrame.minX)), "right": .number(Double(page.searchFrame.maxX))]
             let tasks = controller.shelf.map { task -> JSON in ["task": .string(task.id), "title": .string(task.title), "status": task.status.map { .string($0) } ?? .null] }
             return ["desk": .bool(controller.desk), "empty": .bool(controller.emptyDesk), "shelf": .array(tasks),
                     "strip": .bool(!controller.shelfStrip.isHidden), "page": .bool(!controller.shelfPage.isHidden), "title": .string(controller.window.title),

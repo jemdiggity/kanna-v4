@@ -286,6 +286,8 @@ final class ShelfPage: NSView, NSSearchFieldDelegate {
 
     var searchShown: Bool { search.superview != nil && !search.isHidden }
 
+    var searchFrame: NSRect { search.frame }
+
     func focusSearch() {
         guard searchShown else { return }
         window?.makeFirstResponder(search)
@@ -382,7 +384,8 @@ final class ShelfPage: NSView, NSSearchFieldDelegate {
         let hits = page.backlog.filter { $0.matches(query) }
         selected = min(selected, max(0, hits.count - 1))
         let head = header("Backlog", detail: nil, count: query.isEmpty ? "\(page.backlog.count) waiting" : "\(hits.count) of \(page.backlog.count)", y: y, left: left, width: width)
-        placeSearch(shown: !page.backlog.isEmpty, beside: head.tally, left: left)
+        let widest = ["\(page.backlog.count) waiting", "\(page.backlog.count) of \(page.backlog.count)"].map { ($0 as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width }.max() ?? 0
+        placeSearch(shown: !page.backlog.isEmpty, right: head.tally.maxX - ceil(widest), middle: head.tally.midY, left: left)
         y = head.bottom
         if page.backlog.isEmpty {
             let none = label("Empty. Ask the planning agent for tasks.", color: .secondaryLabelColor)
@@ -407,7 +410,7 @@ final class ShelfPage: NSView, NSSearchFieldDelegate {
         scroll(toY: top)
     }
 
-    private func placeSearch(shown: Bool, beside tally: NSRect, left: CGFloat) {
+    private func placeSearch(shown: Bool, right edge: CGFloat, middle: CGFloat, left: CGFloat) {
         guard shown else {
             search.removeFromSuperview()
             searchKey.removeFromSuperview()
@@ -417,10 +420,10 @@ final class ShelfPage: NSView, NSSearchFieldDelegate {
             document.addSubview(search)
             document.addSubview(searchKey)
         }
-        let right = tally.minX - 12
+        let right = edge - 12
         let field = min(320, max(120, right - left - 100))
-        search.frame = NSRect(x: right - field, y: tally.midY - 11, width: field, height: 22)
-        searchKey.frame.origin = NSPoint(x: search.frame.maxX - searchKey.frame.width - 24, y: tally.midY - searchKey.frame.height / 2)
+        search.frame = NSRect(x: right - field, y: middle - 11, width: field, height: 22)
+        searchKey.frame.origin = NSPoint(x: search.frame.maxX - searchKey.frame.width - 24, y: middle - searchKey.frame.height / 2)
         searchKey.isHidden = !query.isEmpty || search.currentEditor() != nil
     }
 
