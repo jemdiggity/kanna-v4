@@ -2,7 +2,7 @@
 
 **Status:** proposed · **Mockup:** [`references/mockups/code-tour.html`](../../references/mockups/code-tour.html) · **Builds on:** the [code viewer](code-viewer.md)
 
-A **code tour** is the agent commenting on code while it explains it, so you keep a mental model of how it works, whether you're a vibe coder, an engineer or not technical at all. As it talks, the agent comments on the part it's talking about: the file opens in a code tab, those lines are tinted and the rest dimmed, and the comment shows just above them. You ask questions as it goes; it comments on whatever answers them. The agent pitches its words to whoever it's talking to; there's no level to choose.
+A **code tour** is the agent commenting on code while it explains it, so you keep a mental model of how it works, whether you're a vibe coder, an engineer or not technical at all. As it talks, the agent comments on the part it's talking about: the file opens in a code tab, those lines are tinted and the rest dimmed, and the comment shows just above them. You ask questions as it goes; it comments on whatever answers them.
 
 Kanna gives the agent one command, `kanna comment`; how to explain code is a skill (`kanna-explain`), not a feature, and comments are one of its ways, beside markdown docs with diagrams.
 
@@ -67,7 +67,6 @@ sequenceDiagram
 - **When:** the user asks how something works, wants to understand code the agent wrote or changed, or seems to be losing track of the code.
 - **Pick the way that fits.** Comments on the code (`kanna comment`) for how a part works, walked through while talking; a markdown doc with diagrams (`kanna open md`), such as a sequence or a layer diagram, for how the parts fit together; often both, the doc first and the comments after.
 - **Comment as you explain, one at a time.** Run `kanna comment` as you talk about a part, not all at once up front; explain in the chat, and keep the comment to the one thing to remember about it.
-- **Plain words, pitched to the user.** A non-technical user gets what the code does and why; an engineer gets how. No jargon the user hasn't used.
 - **Follow the questions.** Answer by commenting on the code that answers it. Check in every few comments.
 - **Small parts.** A function or a block; `FILE:FIRST-LAST` for a few lines inside a long one.
 - **Close the tabs** when the user asks.
