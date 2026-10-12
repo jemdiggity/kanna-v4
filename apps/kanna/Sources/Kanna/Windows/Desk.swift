@@ -216,7 +216,7 @@ extension AppController {
 
     func startTask(_ task: String, from window: String) {
         controllers[window]?.note = ""
-        request("backlog", ["action": "start", "task": .string(task)]) { [weak self] reply in self?.noted(window, reply) }
+        request("backlog", ["action": "shelve", "task": .string(task)]) { [weak self] reply in self?.noted(window, reply) }
     }
 
     func newDesk() {
