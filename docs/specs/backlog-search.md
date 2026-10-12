@@ -14,7 +14,7 @@ Find a backlog task by typing part of its name or first message, and start it fr
 - **⌘F** (Edit › Find…) puts the cursor in it while the Desk has no task, from the planning terminal too; it scrolls the field into view.
 - **It filters as you type.** A task matches when every word you type appears in its name or first message, ignoring case, in any order. Matches are marked in both. No match: "No backlog task matches "…"."
 - **The first match is selected.** ↑ ↓ move the selection, and ↩ moves the selected task to the Shelf, as clicking it does (refused the same way when the Shelf is full). Clicking any row still works.
-- **esc** clears the search; with nothing typed, it goes back to the planning terminal.
+- **esc** clears the search; with nothing typed, it goes back to the planning terminal. The field's **×** clears it too, and shows in place of the ⌘F hint once you've typed.
 - **The search clears** when you start a task from it, and when a task comes onto the Desk.
 - **Rows look as they do unfiltered,** whatever state they show (waiting, running in the backlog, blocked): the search only hides the ones that don't match.
 
