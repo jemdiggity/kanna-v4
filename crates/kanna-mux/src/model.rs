@@ -89,6 +89,8 @@ pub struct Window {
     pub dock: Option<Dock>,
     pub desk: bool,
     pub parked_at: Option<f64>,
+    /// A parked task moved back to its repo's backlog, still running: off the Shelf until it starts again.
+    pub backlog: bool,
     /// The folder a Desk was opened on (`kanna PATH`), for its project until a task docks there.
     pub project: Option<String>,
     /// The window's planning agent: shown docked on the left while no task is, never a task itself.
@@ -98,7 +100,7 @@ pub struct Window {
 
 impl Window {
     pub(crate) fn new(id: String) -> Window {
-        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, project: None, planner: None, zoom: false }
+        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, backlog: false, project: None, planner: None, zoom: false }
     }
 
     pub fn shown_panes(&self) -> Vec<String> {
@@ -154,8 +156,7 @@ pub struct Location {
 
 pub struct Model {
     pub(crate) windows: Vec<Window>,
-    pub(crate) shelf: Vec<Window>,
-    pub(crate) backlog: Vec<Window>,
+    pub(crate) parked: Vec<Window>,
     pub key: Option<String>,
     pub(crate) counters: (usize, usize),
     pub pane_is_wide: Box<dyn Fn(&str) -> bool + Send>,
@@ -163,7 +164,7 @@ pub struct Model {
 
 impl Default for Model {
     fn default() -> Model {
-        Model { windows: vec![], shelf: vec![], backlog: vec![], key: None, counters: (0, 0), pane_is_wide: Box::new(|_| true) }
+        Model { windows: vec![], parked: vec![], key: None, counters: (0, 0), pane_is_wide: Box::new(|_| true) }
     }
 }
 
@@ -925,8 +926,7 @@ fn reply<const N: usize>(fields: [(&str, Value); N]) -> Map {
 
 struct Restored {
     windows: Vec<Window>,
-    shelf: Vec<Window>,
-    backlog: Vec<Window>,
+    parked: Vec<Window>,
     key: Option<String>,
     pub(crate) counters: (usize, usize),
 }
@@ -1108,6 +1108,9 @@ impl LayoutHost for Model {
                 if let Some(at) = window.parked_at {
                     out.insert("parkedAt".into(), num(at));
                 }
+                if window.backlog {
+                    out.insert("backlog".into(), Value::Bool(true));
+                }
                 if let Some(project) = &window.project {
                     out.insert("project".into(), project.clone().into());
                 }
@@ -1121,11 +1124,8 @@ impl LayoutHost for Model {
             ("counters", Value::Object(reply([("tab", num(self.counters.0 as f64)), ("window", num(self.counters.1 as f64))]))),
             ("windows", Value::Array(self.windows.iter().map(export).collect())),
         ]);
-        if !self.shelf.is_empty() {
-            out.insert("shelf".into(), Value::Array(self.shelf.iter().map(export).collect()));
-        }
-        if !self.backlog.is_empty() {
-            out.insert("backlog".into(), Value::Array(self.backlog.iter().map(export).collect()));
+        if !self.parked.is_empty() {
+            out.insert("parked".into(), Value::Array(self.parked.iter().map(export).collect()));
         }
         out
     }
@@ -1242,6 +1242,7 @@ impl LayoutHost for Model {
             window.desk = item.get("desk").and_then(Value::as_bool).unwrap_or(false);
             window.project = string(item, "project").map(String::from);
             window.parked_at = if parked { Some(item.get("parkedAt").and_then(Value::as_f64).unwrap_or(0.0)) } else { None };
+            window.backlog = parked && item.get("backlog").and_then(Value::as_bool) == Some(true);
             if !parked {
                 counters.1 = counters.1.max(n);
             }
@@ -1251,25 +1252,20 @@ impl LayoutHost for Model {
         for item in saved_windows {
             windows.push(read(item, false)?);
         }
-        let mut shelf = vec![];
-        for item in state.get("shelf").and_then(Value::as_array).into_iter().flatten() {
-            shelf.push(read(item, true)?);
-        }
-        let mut backlog = vec![];
-        for item in state.get("backlog").and_then(Value::as_array).into_iter().flatten() {
-            backlog.push(read(item, true)?);
+        let mut parked = vec![];
+        for item in state.get("parked").or_else(|| state.get("shelf")).and_then(Value::as_array).into_iter().flatten() {
+            parked.push(read(item, true)?);
         }
         windows.retain(|w: &Window| !w.tabs.is_empty() || w.dock.is_some() || w.desk);
         let key = string(state, "key").filter(|k| windows.iter().any(|w| w.id == *k)).map(String::from).or_else(|| windows.last().map(|w| w.id.clone()));
 
-        Ok(SavedLayout { placed, layout: Box::new(Restored { windows, shelf, backlog, key, counters }) })
+        Ok(SavedLayout { placed, layout: Box::new(Restored { windows, parked, key, counters }) })
     }
 
     fn install_state(&mut self, saved: SavedLayout) {
         let Ok(restored) = saved.layout.downcast::<Restored>() else { return };
         self.windows = restored.windows;
-        self.shelf = restored.shelf;
-        self.backlog = restored.backlog;
+        self.parked = restored.parked;
         self.key = restored.key;
         self.counters = (self.counters.0.max(restored.counters.0), self.counters.1.max(restored.counters.1));
         self.drop_empty();

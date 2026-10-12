@@ -14,16 +14,16 @@ fn reply<const N: usize>(fields: [(&str, Value); N]) -> Map {
 }
 
 impl Model {
-    pub fn shelf(&self) -> &[Window] {
-        &self.shelf
+    pub fn shelf(&self) -> impl Iterator<Item = &Window> {
+        self.parked.iter().filter(|p| !p.backlog)
     }
 
     pub fn parked_panes(&self) -> Vec<String> {
-        self.shelf.iter().chain(&self.backlog).flat_map(|p| p.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(p.dock.iter().map(|d| d.pane.clone()))).collect()
+        self.parked.iter().flat_map(|p| p.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(p.dock.iter().map(|d| d.pane.clone()))).collect()
     }
 
     pub(crate) fn detach_parked(&mut self, id: &str) -> bool {
-        for parked in self.shelf.iter_mut().chain(&mut self.backlog) {
+        for parked in &mut self.parked {
             if parked.dock.as_ref().is_some_and(|d| d.pane == id) {
                 parked.dock = None;
                 return true;
@@ -39,15 +39,14 @@ impl Model {
     }
 
     pub(crate) fn settle_shelf(&mut self) {
-        for parked in self.shelf.iter_mut().chain(&mut self.backlog) {
+        for parked in &mut self.parked {
             parked.tabs.retain(|t| t.root.is_some());
             if !parked.tabs.iter().any(|t| Some(&t.id) == parked.active.as_ref()) {
                 parked.active = parked.tabs.first().map(|t| t.id.clone());
             }
         }
-        let orphans: Vec<Window> = self.shelf.iter().chain(&self.backlog).filter(|p| p.dock.is_none() && !p.tabs.is_empty()).cloned().collect();
-        self.shelf.retain(|p| p.dock.is_some());
-        self.backlog.retain(|p| p.dock.is_some());
+        let orphans: Vec<Window> = self.parked.iter().filter(|p| p.dock.is_none() && !p.tabs.is_empty()).cloned().collect();
+        self.parked.retain(|p| p.dock.is_some());
         for orphan in orphans {
             let w = self.make_window();
             let window = &mut self.windows[w];
@@ -64,7 +63,7 @@ impl Model {
         parked.dock = Some(Dock { pane: pane.into(), edge, width: DOCK_WIDTH });
         parked.desk = true;
         parked.parked_at = Some(now());
-        self.shelf.insert(0, parked);
+        self.parked.insert(0, parked);
     }
 
     pub(crate) fn task_panes(&mut self, task: &str) -> Result<Vec<String>, KmuxError> {
@@ -73,7 +72,7 @@ impl Model {
                 self.windows[w].desk = true;
                 &self.windows[w]
             }
-            None => self.shelf.iter().chain(&self.backlog).find(|p| p.dock.as_ref().is_some_and(|d| d.pane == task)).ok_or_else(|| not_found(format!("no task \"{task}\"")))?,
+            None => self.parked.iter().find(|p| p.dock.as_ref().is_some_and(|d| d.pane == task)).ok_or_else(|| not_found(format!("no task \"{task}\"")))?,
         };
         Ok(window.dock.iter().map(|d| d.pane.clone()).chain(window.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref()))).collect())
     }
@@ -88,9 +87,9 @@ impl Model {
             self.key = Some(window.id.clone());
             return Some(Some(window.id.clone()));
         }
-        let at = self.shelf.iter().position(|p| p.dock.as_ref().is_some_and(|d| d.pane == from))?;
+        let at = self.parked.iter().position(|p| p.dock.as_ref().is_some_and(|d| d.pane == from))?;
         self.counters.0 += 1;
-        let parked = &mut self.shelf[at];
+        let parked = &mut self.parked[at];
         parked.tab_count += 1;
         let mut tab = Tab::new(format!("t{}", self.counters.0), format!("Tab {}", parked.tab_count));
         tab.root = Some(Node::Pane(pane.into()));
@@ -162,14 +161,14 @@ impl Model {
         parked.desk = true;
         parked.parked_at = Some(now());
         let id = parked.id.clone();
-        self.shelf.insert(0, parked);
+        self.parked.insert(0, parked);
         self.windows[w].settle_focus();
         Some(id)
     }
 
     fn task_window(&self, reference: &str, panes: &Panes) -> Result<(String, Option<usize>), KmuxError> {
         let id = panes.need(Some(reference))?.id.clone();
-        if self.shelf.iter().any(|p| p.id == id) {
+        if self.shelf().any(|p| p.id == id) {
             return Ok((id, None));
         }
         let w = self.window_containing(&id).ok_or_else(|| not_found(format!("{reference} is not on a Desk or the Shelf")))?;
@@ -234,8 +233,8 @@ impl Model {
                 let w = self.desk_for(string("window"))?;
                 let window = self.windows[w].id.clone();
                 self.park_window(w);
-                let i = self.shelf.iter().position(|p| p.id == task).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
-                let parked = self.shelf.remove(i);
+                let i = self.parked.iter().position(|p| p.id == task).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
+                let parked = self.parked.remove(i);
                 let target = &mut self.windows[w];
                 target.dock = parked.dock;
                 target.tabs = parked.tabs;
@@ -253,17 +252,17 @@ impl Model {
                 if let Some(w) = at {
                     self.park_window(w);
                 }
-                let i = self.shelf.iter().position(|p| p.id == task).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
-                let held = self.shelf.remove(i);
-                self.backlog.push(held);
+                let held = self.parked.iter_mut().find(|p| p.id == task).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
+                held.backlog = true;
                 Ok(reply([("task", task.into())]))
             }
             "release" => {
                 let reference = string("task").ok_or_else(|| bad_request("release needs a task"))?;
-                let i = self.backlog.iter().position(|p| p.id == reference).ok_or_else(|| not_found(format!("no task \"{reference}\" held in the backlog")))?;
-                let mut held = self.backlog.remove(i);
+                let i = self.parked.iter().position(|p| p.id == reference && p.backlog).ok_or_else(|| not_found(format!("no task \"{reference}\" held in the backlog")))?;
+                let mut held = self.parked.remove(i);
+                held.backlog = false;
                 held.parked_at = Some(now());
-                self.shelf.insert(0, held);
+                self.parked.insert(0, held);
                 Ok(reply([("task", reference.into())]))
             }
             "desk" => {
@@ -295,7 +294,7 @@ impl Model {
             ]))
         };
         let mut tasks: Vec<Value> = self.windows.iter().filter_map(|w| w.dock.as_ref().map(|d| entry(&d.pane, Some(&w.id), None, w.tabs.len()))).collect();
-        tasks.extend(self.shelf.iter().map(|p| entry(&p.id, None, p.parked_at, p.tabs.len())));
+        tasks.extend(self.shelf().map(|p| entry(&p.id, None, p.parked_at, p.tabs.len())));
         reply([("tasks", Value::Array(tasks))])
     }
 }

@@ -233,7 +233,6 @@ impl LayoutOwner {
         let shelf: Vec<Value> = self
             .model
             .shelf()
-            .iter()
             .map(|parked| {
                 json!({
                     "task": parked.id,
@@ -310,7 +309,7 @@ fn changed(changed: bool) -> Map {
 
 pub fn prune_state(state: &Value, live: &HashSet<String>) -> Value {
     let mut state = state.clone();
-    for list in ["windows", "shelf"] {
+    for list in ["windows", "parked", "shelf"] {
         let Some(windows) = state.get_mut(list).and_then(Value::as_array_mut) else { continue };
         for window in windows.iter_mut() {
             let gone = window.get("dock").and_then(|d| d.get("pane")).and_then(Value::as_str).is_some_and(|pane| !live.contains(pane));
