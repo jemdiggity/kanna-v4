@@ -2,7 +2,7 @@ import AppKit
 
 @MainActor
 final class TabBar: NSView {
-    static let height: CGFloat = 28
+    static let height: CGFloat = 34
 
     var editing: Bool { items.contains { $0.isEditing } }
     var onSelect: ((String) -> Void)?
@@ -55,7 +55,7 @@ final class TabBar: NSView {
         plus.isBordered = false
         plus.font = .systemFont(ofSize: 15)
         plus.contentTintColor = .secondaryLabelColor
-        plus.frame = NSRect(x: x + 4, y: 3, width: 22, height: 22)
+        plus.frame = NSRect(x: x + 4, y: (TabBar.height - 22) / 2, width: 22, height: 22)
         plus.toolTip = "New tab"
         addSubview(plus)
         self.plus = plus

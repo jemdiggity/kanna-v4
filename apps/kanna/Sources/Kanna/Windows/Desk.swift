@@ -61,7 +61,7 @@ func tilde(_ path: String) -> String {
 
 @MainActor
 final class AgentHeader: NSView {
-    static let height: CGFloat = 34
+    static let height = TabBar.height
     var onPark: (() -> Void)?
     private let label = NSTextField(labelWithString: "")
     private let park = ParkButton()
