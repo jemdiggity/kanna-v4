@@ -13,8 +13,7 @@ A **code pane** shows a source file, highlighted, beside the agent. The agent op
 3. [Keys and mouse](#3-keys-and-mouse)
 4. [CLI](#4-cli)
 5. [How it's built](#5-how-its-built)
-6. [Open questions](#6-open-questions)
-7. [Glossary](#7-glossary)
+6. [Glossary](#6-glossary)
 
 ## 1. Opening a file
 
@@ -67,6 +66,7 @@ sequenceDiagram
 | Click a line | marks it as the current line |
 | Click a pinned scope | scrolls to that line |
 | Drag, ⌘A, ⌘C | selects and copies text |
+| The markdown pane's Vim keys ([markdown-keys.md](markdown-keys.md)) | the same, with a line of code as "a line", `}` `{` to the next or previous blank line, and `]]` `[[` to the next or previous scope's first line (a function, a type); `/` `?` `n` `N` use the find bar's matches |
 | ⌘F, ⌘G, ⇧⌘G, Esc | find, next match, previous match, close the find bar |
 | ⌘= ⌘− ⌘0 | font size bigger, smaller, back |
 | Back / Forward (Pane menu, mouse buttons 4 and 5) | the file and line shown before / after |
@@ -112,11 +112,7 @@ flowchart TB
 - **A reload reparses the whole file** off the main thread, then swaps in the new text and spans at the same scroll position. Changed lines come from a line diff with the previous text.
 - **Checks:** `kanna-syntax` tests per language (a fixture file, its expected captures and scopes); `crates/kanna-daemon/tests/panes.rs` for the record, `open code` and `navigate`; an e2e scenario that opens a file at a line, reads `debug.code`, changes the file and sees it reload with the line marked, and relaunches.
 
-## 6. Open questions
-
-1. **Vim keys:** should the markdown pane's proposed keys ([markdown-keys.md](markdown-keys.md): `j` `k`, `⌃d` `⌃u`, `gg` `G`, `/` `n`) work in a code pane too? Both are read-only, so the keys are free.
-
-## 7. Glossary
+## 6. Glossary
 
 | Term | Meaning |
 |---|---|

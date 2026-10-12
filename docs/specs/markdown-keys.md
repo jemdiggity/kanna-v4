@@ -2,7 +2,7 @@
 
 **Status:** proposed
 
-A markdown pane is a preview, so its keys are free for moving around. With the pane focused, Vim's scrolling and search keys work, so you can read a doc without reaching for the mouse.
+A markdown pane is a preview, so its keys are free for moving around. With the pane focused, Vim's scrolling and search keys work, so you can read a doc without reaching for the mouse. A [code pane](code-viewer.md) takes the same keys.
 
 ## Contents
 
