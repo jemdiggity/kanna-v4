@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code Viewer Mockup</title>
+<style>
+:root {
+  --chrome: #26282c; --tabbar: #1e1f22; --bar: #202226; --term: #292c33; --page: #111214;
+  --text: #e6e6e6; --dim: #8b8f98; --soft: #c9ccd3; --accent: #3478f6; --ok: #4cb782;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace; --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+.code.dark {
+  --bg: #14161a; --gutter: #14161a; --num: #4b5260; --num-on: #c9ccd3; --cur: #1b1e24; --sel: rgba(122,162,255,.28);
+  --fg: #e6e8eb; --bar-bg: #1b1e24; --line: #2c313a; --muted: #8b93a0;
+  --keyword: #c792ea; --function: #7aa2ff; --type: #e5c07b; --string: #a5d6a7; --number: #f78c6c; --constant: #f78c6c;
+  --comment: #6b7280; --macro: #56b6c2; --attribute: #8b93a0; --property: #c9d1e0; --operator: #89ddff; --punctuation: #8b93a0;
+  --tour: rgba(122,162,255,.12); --tour-edge: #7aa2ff; --card: #1f232a;
+}
+.code.light {
+  --bg: #ffffff; --gutter: #ffffff; --num: #b4bac4; --num-on: #1d2026; --cur: #f4f5f7; --sel: rgba(47,99,216,.2);
+  --fg: #1d2026; --bar-bg: #f4f5f7; --line: #d8dce2; --muted: #6b7280;
+  --keyword: #8839c4; --function: #2f63d8; --type: #a15c00; --string: #2d7d3a; --number: #c2410c; --constant: #c2410c;
+  --comment: #8a919c; --macro: #0e7490; --attribute: #6b7280; --property: #374151; --operator: #0369a1; --punctuation: #6b7280;
+  --tour: rgba(47,99,216,.08); --tour-edge: #2f63d8; --card: #f7f8fa;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 var(--sans); }
+main { padding: 20px; max-width: 1500px; margin: 0 auto; }
+body.picture main { padding: 0; max-width: none; }
+body.picture .intro { display: none; }
+h1 { font-size: 15px; margin: 0 0 4px; }
+.intro p { color: var(--dim); margin: 0 0 14px; max-width: 900px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; align-items: center; }
+.controls .sep { width: 1px; height: 18px; background: #3a3d44; margin: 0 4px; }
+button { font: 12px var(--sans); color: var(--text); background: #2a2c31; border: 1px solid #3a3d44; border-radius: 5px; padding: 4px 9px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.on { background: var(--accent); border-color: var(--accent); }
+button.later { border-style: dashed; }
+
+.window { border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: 0 20px 50px rgba(0,0,0,.5); background: var(--chrome); }
+body.picture .window { border-radius: 0; border: 0; box-shadow: none; }
+.titlebar { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--dim); font-weight: 600; }
+.lights { display: flex; gap: 7px; margin-right: 10px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: #4a4c52; display: block; }
+.wtabs { height: 32px; background: var(--tabbar); display: flex; padding-left: 14px; border-bottom: 1px solid #000; }
+.wtab { padding: 0 14px; display: flex; align-items: center; color: var(--text); font-weight: 600; border-bottom: 2px solid var(--accent); }
+.body { height: 640px; display: flex; }
+body.picture .body { height: calc(100vh - 67px); }
+.divider { width: 1px; background: #000; flex: none; }
+
+.term { flex: 0 0 36%; min-width: 0; background: var(--term); font: 12px/1.55 var(--mono); padding: 10px 12px; white-space: pre-wrap; overflow: hidden; color: #d7dae0; }
+.term .c { color: #7fb4ca; } .term .p { color: #e5c07b; } .term .g { color: var(--dim); } .term .a { color: #d18ae6; } .term .ok { color: var(--ok); }
+
+.code { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); outline: none; }
+.toolbar { height: 34px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--bar-bg); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.toolbar .path { font: 11.5px var(--mono); color: var(--fg); }
+.toolbar .spacer { flex: 1; }
+.toolbar .chip { border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; white-space: nowrap; }
+.toolbar .chip.tour { border-color: var(--tour-edge); color: var(--fg); }
+
+.split { flex: 1; display: flex; min-height: 0; position: relative; }
+.scroller { flex: 1; min-width: 0; overflow: auto; position: relative; }
+.lines { font: 12.5px/19px var(--mono); padding: 8px 0 240px; min-width: max-content; }
+.ln { display: flex; white-space: pre; position: relative; }
+.ln .n { flex: none; width: 52px; padding-right: 14px; text-align: right; color: var(--num); user-select: none; background: var(--gutter); position: sticky; left: 0; z-index: 1; }
+.ln .t { padding-right: 24px; }
+.ln.cur { background: var(--cur); }
+.ln.cur .n { color: var(--num-on); background: var(--cur); }
+.ln.flash { animation: flash 1.1s; }
+@keyframes flash { 0% { background: var(--sel); } 100% { background: transparent; } }
+.ln.edited .n::before { content: ""; position: absolute; left: 3px; top: 3px; bottom: 3px; width: 3px; border-radius: 2px; background: var(--ok); }
+::selection { background: var(--sel); }
+
+.tk-keyword { color: var(--keyword); } .tk-function { color: var(--function); } .tk-type { color: var(--type); }
+.tk-string { color: var(--string); } .tk-number { color: var(--number); } .tk-constant { color: var(--constant); }
+.tk-comment { color: var(--comment); font-style: italic; } .tk-macro { color: var(--macro); } .tk-attribute { color: var(--attribute); }
+.tk-property { color: var(--property); } .tk-operator { color: var(--operator); } .tk-punctuation { color: var(--punctuation); }
+
+.ln.in-tour { background: var(--tour); }
+.ln.in-tour .n { background: var(--tour); box-shadow: inset 2px 0 0 var(--tour-edge); }
+.ln.dimmed .t { opacity: .38; }
+
+.notes { flex: 0 0 300px; border-left: 1px solid var(--line); background: var(--bar-bg); padding: 10px; display: none; flex-direction: column; gap: 10px; overflow: auto; font-size: 12.5px; }
+.code.touring .notes { display: flex; }
+.notes .top { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; }
+.levels { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.levels span { flex: 1; text-align: center; padding: 3px 0; cursor: pointer; color: var(--muted); font-size: 11.5px; }
+.levels span.on { background: var(--tour-edge); color: #fff; }
+.stop { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; }
+.stop.on { border-color: var(--tour-edge); }
+.stop .h { display: flex; justify-content: space-between; font: 11px var(--mono); color: var(--muted); margin-bottom: 4px; }
+.stop .b { color: var(--fg); line-height: 1.5; }
+.stop .b code { font: 11.5px var(--mono); color: var(--function); }
+.later-tag { font-size: 10.5px; border: 1px dashed var(--tour-edge); color: var(--tour-edge); border-radius: 10px; padding: 0 7px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="intro">
+    <h1>Code viewer: a read-only code pane with syntax highlighting, beside the agent</h1>
+    <p>The agent (or you) opens a source file with <code>kanna open code FILE[:LINE]</code>. The pane shows it highlighted, with line numbers, at that line; it follows the file on disk. You read, select and copy; you don't edit. The dashed button previews where this goes later: the agent tours the code, highlighting a range per stop and explaining it at the reader's level.</p>
+    <div class="controls">
+      <button id="openAt">Agent opens fdpass.rs:50</button>
+      <button id="change">File changes on disk</button>
+      <button id="theme">Light / dark</button>
+      <span class="sep"></span>
+      <button id="tour" class="later">Later: code tour</button>
+    </div>
+  </div>
+  <div class="window">
+    <div class="titlebar"><span class="lights"><i></i><i></i><i></i></span><span>fdpass.rs — w1</span></div>
+    <div class="wtabs"><div class="wtab">Tab 1</div></div>
+    <div class="body">
+      <div class="term" id="term"></div>
+      <div class="divider"></div>
+      <div class="code dark" id="code" tabindex="0">
+        <div class="toolbar">
+          <span class="path">crates/kanna-keeper/src/fdpass.rs</span>
+          <span class="spacer"></span>
+          <span id="pos">Ln 1</span>
+          <span class="chip">Rust</span>
+          <span class="chip" id="tourChip" hidden>Tour 2 / 3</span>
+        </div>
+        <div class="split">
+          <div class="scroller" id="scroller"><div class="lines" id="lines"></div></div>
+          <div class="notes" id="notes"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+const SOURCE = `use std::io;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+
+const MAX_FDS: usize = 16;
+
+fn cmsg_space(n: usize) -> usize {
+    unsafe { libc::CMSG_SPACE((n * std::mem::size_of::<RawFd>()) as u32) as usize }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const SEND_FLAGS: libc::c_int = libc::MSG_NOSIGNAL;
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const SEND_FLAGS: libc::c_int = 0;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const RECV_FLAGS: libc::c_int = libc::MSG_CMSG_CLOEXEC;
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const RECV_FLAGS: libc::c_int = 0;
+
+pub fn send(sock: RawFd, bytes: &[u8], fds: &[RawFd], nonblocking: bool) -> io::Result<usize> {
+    let mut iov = libc::iovec { iov_base: bytes.as_ptr() as *mut _, iov_len: bytes.len() };
+    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+    msg.msg_iov = &mut iov;
+    msg.msg_iovlen = 1;
+    let mut control = vec![0u64; cmsg_space(fds.len().max(1)).div_ceil(8)];
+    if !fds.is_empty() {
+        msg.msg_control = control.as_mut_ptr().cast();
+        msg.msg_controllen = cmsg_space(fds.len()) as _;
+        unsafe {
+            let cmsg = libc::CMSG_FIRSTHDR(&msg);
+            (*cmsg).cmsg_level = libc::SOL_SOCKET;
+            (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+            (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of_val(fds) as u32) as _;
+            std::ptr::copy_nonoverlapping(fds.as_ptr(), libc::CMSG_DATA(cmsg).cast::<RawFd>(), fds.len());
+        }
+    }
+    let flags = SEND_FLAGS | if nonblocking { libc::MSG_DONTWAIT } else { 0 };
+    loop {
+        let n = unsafe { libc::sendmsg(sock, &msg, flags) };
+        if n >= 0 {
+            return Ok(n as usize);
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() != io::ErrorKind::Interrupted {
+            return Err(e);
+        }
+    }
+}
+
+pub fn recv(sock: RawFd, buf: &mut [u8], nonblocking: bool) -> io::Result<(usize, Vec<OwnedFd>)> {
+    let mut iov = libc::iovec { iov_base: buf.as_mut_ptr().cast(), iov_len: buf.len() };
+    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+    msg.msg_iov = &mut iov;
+    msg.msg_iovlen = 1;
+    let mut control = vec![0u64; cmsg_space(MAX_FDS).div_ceil(8)];
+    msg.msg_control = control.as_mut_ptr().cast();
+    msg.msg_controllen = cmsg_space(MAX_FDS) as _;
+    let flags = RECV_FLAGS | if nonblocking { libc::MSG_DONTWAIT } else { 0 };
+    let n = loop {
+        let n = unsafe { libc::recvmsg(sock, &mut msg, flags) };
+        if n >= 0 {
+            break n as usize;
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() != io::ErrorKind::Interrupted {
+            return Err(e);
+        }
+    };
+    let mut fds = Vec::new();
+    unsafe {
+        let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
+        while !cmsg.is_null() {
+            if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
+                let data = libc::CMSG_DATA(cmsg).cast::<RawFd>();
+                let len = (*cmsg).cmsg_len as usize - (data as usize - cmsg as usize);
+                for i in 0..len / std::mem::size_of::<RawFd>() {
+                    let fd = std::ptr::read_unaligned(data.add(i));
+                    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                    crate::sig::set_cloexec(fd);
+                    fds.push(OwnedFd::from_raw_fd(fd));
+                }
+            }
+            cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
+        }
+    }
+    if msg.msg_flags & libc::MSG_CTRUNC != 0 {
+        return Err(io::Error::other("too many file descriptors in one message"));
+    }
+    Ok((n, fds))
+}`;
+
+const KEYWORDS = new Set("as break const continue crate else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while dyn".split(" "));
+const PRIMS = new Set("u8 u16 u32 u64 usize i8 i16 i32 i64 isize bool char str f32 f64".split(" "));
+const RULES = [
+  [/^\/\/.*/, "comment"],
+  [/^#!?\[[^\]]*(\([^)]*(\([^)]*\))*[^)]*\))?[^\]]*\]/, "attribute"],
+  [/^"(\\.|[^"\\])*"/, "string"],
+  [/^b?'(\\.|[^'\\])'/, "string"],
+  [/^\d[\d_]*(\.\d+)?(u8|u16|u32|u64|usize|i32|i64|f64)?/, "number"],
+  [/^[a-z_][a-z0-9_]*!/, "macro"],
+  [/^[A-Z][A-Z0-9_]+\b/, "constant"],
+  [/^[A-Z][A-Za-z0-9]*/, "type"],
+  [/^[a-z_][a-z0-9_]*(?=\s*(::<[^>]*>)?\()/, "function"],
+  [/^[a-z_][a-z0-9_]*/, "ident"],
+  [/^(->|=>|::|&&|\|\||[=!<>]=|[-+*\/%&|^!<>=?])/, "operator"],
+  [/^[{}()\[\];,.:]/, "punctuation"],
+  [/^\s+/, null],
+  [/^./, null],
+];
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function highlight(line) {
+  let out = "", rest = line, prev = "";
+  while (rest.length) {
+    for (const [re, kind] of RULES) {
+      const m = rest.match(re);
+      if (!m) continue;
+      let k = kind, text = m[0];
+      if (k === "ident") k = KEYWORDS.has(text) ? "keyword" : PRIMS.has(text) ? "type" : prev === "." ? "property" : null;
+      if (k === "type" && KEYWORDS.has(text)) k = "keyword";
+      out += k ? `<span class="tk-${k}">${esc(text)}</span>` : esc(text);
+      if (!/^\s+$/.test(text)) prev = text;
+      rest = rest.slice(text.length);
+      break;
+    }
+  }
+  return out;
+}
+
+const code = document.getElementById("code");
+const linesEl = document.getElementById("lines");
+const scroller = document.getElementById("scroller");
+const pos = document.getElementById("pos");
+let source = SOURCE;
+
+function render(keepScroll) {
+  const top = scroller.scrollTop;
+  linesEl.innerHTML = source.split("\n").map((l, i) =>
+    `<div class="ln" data-n="${i + 1}"><span class="n">${i + 1}</span><span class="t">${highlight(l) || " "}</span></div>`).join("");
+  if (keepScroll) scroller.scrollTop = top;
+  applyTour();
+}
+function line(n) { return linesEl.querySelector(`.ln[data-n="${n}"]`); }
+function setCur(n) {
+  linesEl.querySelectorAll(".ln.cur").forEach(e => e.classList.remove("cur"));
+  const el = line(n); if (!el) return;
+  el.classList.add("cur"); pos.textContent = `Ln ${n}`;
+}
+function goTo(n) {
+  const el = line(n);
+  scroller.scrollTop = el.offsetTop - scroller.clientHeight / 3;
+  setCur(n);
+  el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+}
+linesEl.addEventListener("mouseup", e => {
+  if (!window.getSelection().isCollapsed) return;
+  const ln = e.target.closest(".ln"); if (ln) setCur(+ln.dataset.n);
+});
+
+const term = document.getElementById("term");
+const TERM_BASE = `<span class="g">~/work/kanna-v4 (code-viewer)</span>
+<span class="p">❯</span> claude
+<span class="a">●</span> You asked how the keeper hands ptys to the daemon. The
+  fd passing is in <span class="c">fdpass.rs</span>; I'll open it next to us.
+`;
+term.innerHTML = TERM_BASE;
+
+document.getElementById("openAt").onclick = () => {
+  term.innerHTML = TERM_BASE + `
+<span class="g">  Bash(</span><span class="c">kanna open code crates/kanna-keeper/src/fdpass.rs:50 --split right</span><span class="g">)</span>
+<span class="ok">  ⎿ p86 opened</span>
+
+<span class="a">●</span> Line 50 is <span class="c">recv</span>: it reads one message and any file
+  descriptors that came with it (SCM_RIGHTS).
+`;
+  goTo(50);
+};
+
+let changed = false;
+document.getElementById("change").onclick = () => {
+  changed = !changed;
+  const marker = "        return Err(io::Error::other(\"too many file descriptors in one message\"));";
+  source = changed ? SOURCE.replace(marker, "        return Err(io::Error::other(format!(\"more than {MAX_FDS} file descriptors in one message\")));") : SOURCE;
+  render(true);
+  if (changed) { const n = source.split("\n").findIndex(l => l.includes("more than {MAX_FDS}")) + 1; line(n).classList.add("edited"); }
+};
+
+document.getElementById("theme").onclick = () => { code.classList.toggle("dark"); code.classList.toggle("light"); };
+
+const STOPS = [
+  { from: 5, to: 7, title: "cmsg_space", text: {
+    plain: "Works out how much room a note needs to carry some open files along with a message.",
+    engineer: "Bytes of ancillary buffer for <code>n</code> fds: <code>CMSG_SPACE</code> adds the header and alignment padding." } },
+  { from: 50, to: 90, title: "recv", text: {
+    plain: "Waits for a message from the keeper. Besides text, the message can carry open terminals, which the daemon takes over.",
+    engineer: "<code>recvmsg</code> with a control buffer for up to 16 fds, retried on <code>EINTR</code>; each <code>SCM_RIGHTS</code> fd becomes an <code>OwnedFd</code> (cloexec set by hand off Linux). <code>MSG_CTRUNC</code> means fds were dropped, so it fails." } },
+  { from: 71, to: 85, title: "walk the control messages", text: {
+    plain: "Unpacks each open file from the message, one by one.",
+    engineer: "Iterates cmsgs with <code>CMSG_NXTHDR</code>; fd count is the payload length over <code>size_of::&lt;RawFd&gt;()</code>; <code>read_unaligned</code> since <code>CMSG_DATA</code> isn't fd-aligned." } },
+];
+let touring = false, stop = 1, level = "plain";
+const notes = document.getElementById("notes");
+function applyTour() {
+  code.classList.toggle("touring", touring);
+  document.getElementById("tourChip").hidden = !touring;
+  linesEl.querySelectorAll(".ln").forEach(el => {
+    const n = +el.dataset.n, s = STOPS[stop];
+    const inside = touring && n >= s.from && n <= s.to;
+    el.classList.toggle("in-tour", inside);
+    el.classList.toggle("dimmed", touring && !inside);
+  });
+  if (!touring) return;
+  document.getElementById("tourChip").textContent = `Tour ${stop + 1} / ${STOPS.length}`;
+  notes.innerHTML = `<div class="top"><span>Tour by p85 · keeper fd passing</span><span class="later-tag">later</span></div>
+    <div class="levels"><span data-l="plain" class="${level === "plain" ? "on" : ""}">Plain</span><span data-l="engineer" class="${level === "engineer" ? "on" : ""}">Engineer</span></div>` +
+    STOPS.map((s, i) => `<div class="stop ${i === stop ? "on" : ""}" data-i="${i}"><div class="h"><span>${s.title}</span><span>${s.from}–${s.to}</span></div><div class="b">${s.text[level]}</div></div>`).join("");
+}
+notes.addEventListener("click", e => {
+  const l = e.target.closest("[data-l]"); if (l) { level = l.dataset.l; applyTour(); return; }
+  const s = e.target.closest(".stop"); if (s) { stop = +s.dataset.i; applyTour(); goTo(STOPS[stop].from); }
+});
+document.getElementById("tour").onclick = e => {
+  touring = !touring; e.target.classList.toggle("on", touring); applyTour();
+  if (touring) goTo(STOPS[stop].from);
+};
+
+render(false);
+setCur(1);
+if (new URLSearchParams(location.search).has("picture")) document.body.classList.add("picture");
+</script>
+</body>
+</html>
