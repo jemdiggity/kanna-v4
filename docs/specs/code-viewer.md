@@ -99,6 +99,7 @@ flowchart TB
     class V,S new
 ```
 
+- **Kanna's own, not kmux's.** kmux is the reference for the mux's pane types ([4.3](../kanna-spec.md#43-kmux-is-the-reference-model)), but the code pane is built in Kanna only: kmux gets no code pane, and `open code` is a Kanna command its protocol cases don't cover. The code tour it leads to is Kanna's agent layer, which has no kmux counterpart.
 - **The pane is one more of the app's panes** ([4.9](../kanna-spec.md#49-web-markdown-and-ios-panes)): the daemon's core gives it its ID, checks and answers its commands and lends its record to the app, which shows it. A new `PaneType::Code` in `kanna-mux`, the `code` kind in the CLI and its completion, and a `CodePaneView` in the app beside `MarkdownPaneView`.
 - **Highlighting is tree-sitter, in a new Rust crate, `kanna-syntax`**, linked into the app as a static library with a C header, as `kanna-layout` is. One call takes a language and the text and returns the spans (byte range and capture name, such as `keyword`, `function`, `type`, `string`) and the scopes (start and end lines). Why tree-sitter rather than TextMate grammars (syntect): it parses the code into a tree, which sticky scope needs now and the code tour needs next (stops that are whole functions and blocks); the same grammars and queries are used by Zed, Neovim and Helix.
 - **Grammars** come from each language's tree-sitter crate with its own highlight query. **Scopes** come from a small query per language naming the nodes that open one (functions, types, `impl`, loops, conditionals, blocks), after Neovim's treesitter-context.
@@ -109,9 +110,8 @@ flowchart TB
 
 ## 6. Open questions
 
-1. **kmux first?** kmux is the reference for the mux's pane types ([4.3](../kanna-spec.md#43-kmux-is-the-reference-model)) and has no code pane. The docked pane was built in kmux first. Should the code pane be too, or is it Kanna's own?
-2. **The same file twice:** should `open code` on a file already open in a code pane on that Desk go to its tab (and the line) instead of opening another?
-3. **Find (⌘F)** in the first version, or later?
+1. **The same file twice:** should `open code` on a file already open in a code pane on that Desk go to its tab (and the line) instead of opening another?
+2. **Find (⌘F)** in the first version, or later?
 
 ## 7. Glossary
 
