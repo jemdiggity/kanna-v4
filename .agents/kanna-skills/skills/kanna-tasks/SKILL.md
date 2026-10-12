@@ -7,6 +7,14 @@ description: Use when running in a Kanna terminal ($KANNA_PANE is set), as soon 
 
 In Kanna, each agent's work is a **task**: one agent in one repo, shown on a Desk. A task you start in is "New task" until you name it, and its name is what the user sees in the title bar, on the Shelf and in the backlog.
 
+## One project, one Desk
+
+A project (a repo) has **one Desk**: its window. The Desk shows one task at a time, its agent docked on the left and its tabs on the right; the project's other tasks wait on the **Shelf** along the bottom of the same window, still running. "The Desk" always means that window.
+
+- **New tasks go in the backlog** (`kanna task new`). `kanna task start` moves one to the Shelf: do that when the Shelf has room (three tasks per project, counting the Desk's) or when the user asks. When the user asks and the Shelf is full, make room by moving a Shelf task back to the backlog (`kanna task defer TASK`; it keeps running there). The user brings a Shelf task onto the Desk when they want it.
+- `kanna task pull TASK` swaps a task onto the Desk, parking the one there; `kanna task park` moves the Desk's task to the Shelf. Only when the user asks.
+- Never make another Desk for a project (`--window new`): there's one.
+
 If `$KANNA_PLANNER` is set, you're a window's **planning agent**, not a task: use the `kanna-planning` skill instead, and skip naming your task and branch.
 
 ## Name your task
@@ -42,7 +50,7 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 ```
 
 - **The first message stands alone.** The agent that gets it starts fresh in its own worktree and hasn't seen this conversation: say what to do, why, where (files, functions), and how to know it's done.
-- **Don't start tasks yourself.** The user moves them to the Shelf; start one (`kanna task start`) only when they ask.
+- **Start one only when there's room or the user asks.** `kanna task start` puts it on the Shelf if the project has fewer than three tasks out (the Desk's and the Shelf's); otherwise leave it in the backlog, unless the user asks, and then make room by deferring a Shelf task they're not using.
 
 ## Commands
 
@@ -51,7 +59,9 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog |
 | `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
-| `kanna task start TASK [--window WINDOW]` | Move a backlog task to the Shelf: worktree, branch, agent, first message |
+| `kanna task start TASK` | Move a backlog task to the Shelf: worktree, branch, agent, first message |
+| `kanna task pull TASK` | Bring a task onto the Desk, parking the one there (only when the user asks) |
+| `kanna task park [TASK]` | Move the Desk's task to the Shelf (only when the user asks) |
 | `kanna task defer [TASK]` | Move a running task back to the backlog, still running, until it's started again (only when the user asks) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
 
