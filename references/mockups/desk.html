@@ -167,6 +167,17 @@ body.picture .cmd input::placeholder { color: transparent; }
 .empty .note { color: var(--warn); font-size: 12px; margin: 6px 0 0; min-height: 16px; }
 .shelf .backlog { margin-left: auto; color: var(--muted); white-space: nowrap; padding: 3px 8px; }
 .where .unnamed { color: var(--muted); font-weight: 400; font-style: italic; }
+.group .gh { align-items: center; gap: 12px; }
+.find { flex: 1; max-width: 320px; margin-left: auto; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); }
+.find:focus-within { border-color: var(--accent); }
+.find input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: 12px var(--sans); }
+.find input::placeholder { color: var(--muted); }
+.find kbd { font: 11px var(--mono); color: var(--muted); }
+.find:focus-within kbd { visibility: hidden; }
+.row mark { background: var(--tint); color: inherit; border-radius: 2px; }
+.row.sel { background: var(--panel); }
+.row.waiting.sel .go:not(.off) { color: var(--accent); }
+.nohit { color: var(--muted); padding: 8px 0; }
 </style>
 </head>
 <body>
@@ -178,6 +189,7 @@ body.picture .cmd input::placeholder { color: transparent; }
       <button id="theme">Light / dark</button>
       <button id="newwin">File › New Desk ⌘N</button>
       <button id="ring" title="A parked task's agent stops to ask you something: it moves to the front of the Shelf, needs you">Simulate: a parked agent needs you</button>
+      <button id="long" title="An empty Desk with a dozen tasks in the backlog: search it">Simulate: a long backlog</button>
       <button id="fresh" title="A window with nothing in it: the planning terminal prints how to start, then it's a shell">Simulate: no tasks</button>
       <button id="reset">Reset</button>
     </div>
@@ -186,6 +198,7 @@ body.picture .cmd input::placeholder { color: transparent; }
       <span><kbd>⌘1</kbd> <kbd>⌘2</kbd> <kbd>⌘3</kbd> pull the Shelf's 1st, 2nd, 3rd</span>
       <span><kbd>⌘.</kbd> Park</span>
       <span><kbd>⇧⌘A</kbd> the task waiting longest for you</span>
+      <span><kbd>⌘F</kbd> search the backlog (empty Desk): <kbd>↑</kbd> <kbd>↓</kbd> pick, <kbd>↩</kbd> Move to Shelf, <kbd>esc</kbd> clear</span>
     </div>
   </div>
   <div class="stage" id="stage"></div>
@@ -233,6 +246,17 @@ const folderOf = t => t.worktree ? `${t.repo}/.kanna-worktrees/${t.id}` : t.repo
 const titleOf = t => t.title ? esc(t.title) : `<span class="unnamed">New task</span>`;
 const inRepo = repo => s.tasks.filter(t => t.repo === repo && !t.backlog);
 const backlog = repo => s.tasks.filter(t => t.repo === repo && t.backlog);
+const makerOf = t => plannerOf(t.by) ? "the planning agent" : task(t.by) && task(t.by).title ? task(t.by).title : t.by;
+const words = q => q.toLowerCase().split(/\s+/).filter(Boolean);
+const matches = (t, q) => { const hay = [t.title || "", t.prompt || ""].join("\n").toLowerCase(); return words(q).every(x => hay.includes(x)); };
+function marked(text, q) {
+  const low = String(text).toLowerCase(), on = new Array(low.length).fill(false);
+  for (const x of words(q)) for (let i = low.indexOf(x); i >= 0; i = low.indexOf(x, i + 1)) on.fill(true, i, i + x.length);
+  let out = "", i = 0;
+  while (i < low.length) { let j = i; while (j < low.length && on[j] === on[i]) j++; const part = esc(String(text).slice(i, j)); out += on[i] ? `<mark>${part}</mark>` : part; i = j; }
+  return out;
+}
+const hits = w => backlog(repoOf(w)).filter(t => matches(t, w.query || ""));
 
 function shelf(w = keyWin()) {
   const repo = repoOf(w);
@@ -254,6 +278,8 @@ function render() {
   const tops = new Map([...stage.querySelectorAll(".window")].map(el => [el.id, el.querySelector(".empty")?.scrollTop || 0]));
   stage.innerHTML = s.windows.length ? s.windows.map(windowHTML).join("") : `<div class="nowin">No Desk windows. <button id="again">New Desk</button></div>`;
   stage.querySelectorAll(".window").forEach(el => { const page = el.querySelector(".empty"); if (page) page.scrollTop = tops.get(el.id) || 0; });
+  const find = s.finding && document.querySelector(`[data-find="${s.finding}"]`);
+  if (find) { find.focus(); find.setSelectionRange(find.value.length, find.value.length); }
   const again = document.getElementById("again");
   if (again) again.onclick = newWindow;
 }
@@ -390,11 +416,12 @@ function emptyHTML(w) {
 
 function shelfPageHTML(w) {
   const list = shelf(w), repo = repoOf(w), count = inRepo(repo).length, waiting = backlog(repo), full = count >= LIMIT;
+  const q = w.query || "", found = hits(w), sel = Math.min(w.sel || 0, Math.max(0, found.length - 1));
   return `<div class="empty"><p class="sub">${cheers[cheerAt]}</p>
     <div class="group"><div class="gh"><span><b>Shelf</b> · ${esc(repo)}</span><span>${count} of ${LIMIT} tasks</span></div>
       ${list.map((t, i) => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${titleOf(t)}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${ago(t)} · ${esc(t.branch)}</div></div><span class="go">⌘${i + 1} · Pull →</span></div>`).join("") || `<div class="s" style="color:var(--muted)">Nothing on the Shelf.</div>`}</div>
-    <div class="group"><div class="gh"><span><b>Backlog</b></span><span>${waiting.length} waiting</span></div>
-      ${waiting.map(t => `<div class="row waiting" data-promote="${t.id}"><span class="dot"></span><div class="t"><div class="n">${titleOf(t)}</div><div class="s">${esc(t.prompt)} · from ${plannerOf(t.by) ? "the planning agent" : task(t.by) && task(t.by).title ? esc(task(t.by).title) : esc(t.by)}, ${ago({ parkedAt: t.madeAt })} ago</div></div><span class="go ${full ? "off" : ""}">${full ? "Shelf full" : "Move to Shelf →"}</span></div>`).join("") || `<div class="s" style="color:var(--muted)">Empty. Ask the planning agent for tasks.</div>`}
+    <div class="group"><div class="gh"><span><b>Backlog</b></span>${waiting.length ? `<label class="find"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><input data-find="${w.id}" value="${esc(q)}" placeholder="Search the backlog" spellcheck="false" autocomplete="off"><kbd>⌘F</kbd></label>` : ""}<span>${q ? `${found.length} of ${waiting.length}` : `${waiting.length} waiting`}</span></div>
+      ${found.map((t, i) => `<div class="row waiting ${q && i === sel ? "sel" : ""}" data-promote="${t.id}"><span class="dot"></span><div class="t"><div class="n">${t.title ? marked(t.title, q) : titleOf(t)}</div><div class="s">${marked(t.prompt, q)} · from ${esc(makerOf(t))}, ${ago({ parkedAt: t.madeAt })} ago</div></div><span class="go ${full ? "off" : ""}">${full ? "Shelf full" : q && i === sel ? "↩ Move to Shelf" : "Move to Shelf →"}</span></div>`).join("") || (q ? `<div class="nohit">No backlog task matches “${esc(q)}”.</div>` : `<div class="s" style="color:var(--muted)">Empty. Ask the planning agent for tasks.</div>`)}
       <p class="note">${esc(s.note)}</p></div></div>`;
 }
 
@@ -422,6 +449,7 @@ function promote(id) {
   start(t, t.worktree !== false);
   s.order.unshift(t.id);
   s.note = "";
+  s.windows.forEach(w => { if (repoOf(w) === t.repo) { w.query = ""; w.sel = 0; } });
   render();
 }
 
@@ -453,6 +481,9 @@ function pull(id, into) {
   if (t.status === "needs") t.status = "idle";
   w.desk = id;
   w.repo = t.repo;
+  w.query = "";
+  w.sel = 0;
+  if (s.finding === w.id) s.finding = null;
   s.key = w.id;
   render();
 }
@@ -560,7 +591,7 @@ function run(t, line) {
     return render();
   }
   if (cmd === "task" && sub === "list") {
-    say(["ID   WHERE   STATUS     REPO              NAME"].concat(s.tasks.map(x => `${x.id.padEnd(4)} ${(x.backlog ? "Backlog" : deskOf(x.id) ? deskOf(x.id).id : "Shelf").padEnd(7)} ${(x.backlog ? "waiting" : statusText[x.status]).padEnd(10)} ${x.repo.replace("~/work/", "").padEnd(17)} ${x.title || "(unnamed)"}`)).join("\n"));
+    say(["ID   WHERE   STATUS     REPO              NAME"].concat(s.tasks.filter(x => matches(x, words.slice(3).join(" "))).map(x => `${x.id.padEnd(4)} ${(x.backlog ? "Backlog" : deskOf(x.id) ? deskOf(x.id).id : "Shelf").padEnd(7)} ${(x.backlog ? "waiting" : statusText[x.status]).padEnd(10)} ${x.repo.replace("~/work/", "").padEnd(17)} ${x.title || "(unnamed)"}`)).join("\n"));
     return render();
   }
   if (cmd === "task" && sub === "pull") {
@@ -586,7 +617,7 @@ function run(t, line) {
     say(`opened ${arg} in a tab`);
     return openTab(t, arg);
   }
-  say("kanna: try task new \"PROMPT\" [--no-worktree] [--repo PATH]|name \"TITLE\"|list|pull ID|park [ID]|done [ID], open md|web FILE");
+  say("kanna: try task new \"PROMPT\" [--no-worktree] [--repo PATH]|name \"TITLE\"|list [QUERY]|pull ID|park [ID]|done [ID], open md|web FILE");
   render();
 }
 
@@ -605,7 +636,37 @@ document.addEventListener("click", e => {
   if (w) render();
 });
 
+document.addEventListener("input", e => {
+  const find = e.target.closest && e.target.closest("[data-find]");
+  if (!find) return;
+  const w = win(find.dataset.find);
+  w.query = find.value;
+  w.sel = 0;
+  s.finding = w.id;
+  render();
+});
+document.addEventListener("focusin", e => { const find = e.target.closest && e.target.closest("[data-find]"); s.finding = find ? find.dataset.find : null; });
+
+function findKey(e, find) {
+  const w = win(find.dataset.find), found = hits(w);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    w.sel = Math.max(0, Math.min(found.length - 1, (w.sel || 0) + (e.key === "ArrowDown" ? 1 : -1)));
+    render();
+    document.querySelector(`#${w.id} .row.sel`)?.scrollIntoView({ block: "nearest" });
+  } else if (e.key === "Enter" && w.query && found.length) {
+    e.preventDefault();
+    promote(found[Math.min(w.sel || 0, found.length - 1)].id);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    if (w.query) { w.query = ""; w.sel = 0; render(); }
+    else { s.finding = null; document.querySelector(`#${w.id} [data-cmd]`)?.focus(); }
+  }
+}
+
 document.addEventListener("keydown", e => {
+  const find = e.target.closest && e.target.closest("[data-find]");
+  if (find && !e.metaKey) return findKey(e, find);
   const input = e.target.closest && e.target.closest("[data-cmd]");
   if (input && e.key === "Enter" && input.value.trim()) {
     const t = task(input.dataset.cmd) || plannerOf(input.dataset.cmd), line = input.value;
@@ -617,6 +678,11 @@ document.addEventListener("keydown", e => {
   }
   if (!e.metaKey) return;
   if (!e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); return newWindow(); }
+  if (!e.shiftKey && e.key.toLowerCase() === "f") {
+    const w = keyWin(), find = w && !w.desk && document.querySelector(`[data-find="${w.id}"]`);
+    if (find) { e.preventDefault(); s.finding = w.id; find.focus(); find.select(); }
+    return;
+  }
   if (!e.shiftKey && /^[1-9]$/.test(e.key)) {
     const t = shelf()[Number(e.key) - 1];
     if (t) { e.preventDefault(); pull(t.id); }
@@ -646,17 +712,41 @@ document.getElementById("ring").onclick = () => {
 };
 document.getElementById("theme").onclick = () => { const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "" : "light"; };
 document.getElementById("reset").onclick = () => { s = initial(); render(); };
+const long = () => {
+  parkTask(task("p1"));
+  s.windows[0].desk = null;
+  s.tasks = s.tasks.filter(t => !t.backlog);
+  const now = Date.now(), by = ["p1", "p4", "p1", "p4"];
+  [
+    ["Fix flaky S40 status e2e", "S40 waits 5s for 'working' after answering the mock agent, but work(1) lasts a second; make the wait follow the status"],
+    ["Swap keeps the task", "Swapping two Desks' tasks with ⌘1 loses the parked one's width; keep it with the task"],
+    ["Resume every agent's session", "Only claude comes back to its conversation; give codex its own session ID and resume it"],
+    ["Upgrade the keeper in place", "Installing a new build restarts the keeper and drops every terminal; hand its sockets over instead"],
+    ["Refine the markup thread UI", "Threads in the doc pane's margin overlap on short blocks; stack them and keep the selected one in view"],
+    ["Native diff viewer", "Show a task's branch diff in a tab, side by side, with comments like doc markup"],
+    ["Ink markup with arrows", "Draw an arrow on a screenshot or mockup tab and send it to the agent as a comment"],
+    ["Start tasks past the Shelf", "Let a fourth task wait to start until a slot frees, instead of refusing it"],
+    ["Task dependencies and base branch", "A backlog task can wait on another and start from its branch"],
+    ["Shelf strip shows parked time", "Show how long ago each Shelf item was parked without hovering"],
+    ["Speed up the build", "The app build takes 90s; cache the Rust crates and build Swift incrementally"],
+    ["kanna send presses Enter", "kanna send types text into a pane but leaves it unsent; add --enter"],
+  ].forEach(([title, prompt], i) => s.tasks.push({ id: "t" + (2 + i * 4), repo: "~/work/kanna-v4", backlog: true, title, prompt, by: by[i % 4], madeAt: now - (12 - i) * 37 * MIN }));
+};
+document.getElementById("long").onclick = () => { s = initial(); long(); render(); };
 const fresh = () => { s.tasks = []; s.order = []; s.windows.forEach(w => { w.desk = null; w.planner = null; w.repo = "~/work/kanna-v4"; }); };
 document.getElementById("fresh").onclick = () => { fresh(); render(); };
 if (location.hash.includes("picture")) document.body.classList.add("picture");
 if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
+if (location.hash.includes("long")) long();
 if (location.hash.includes("empty")) {
   parkTask(task("p1"));
   s.windows[0].desk = null;
   planners();
-  Object.assign(s.windows[0].planner, { agent: "claude", log: [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``, `<span class="p">&gt;</span> what's waiting?`, `<span class="m">●</span> Two tasks run (Doc markup reference model, working; Tab bar follows light mode, idle), and 3 wait in the backlog. Want me to start one?`] });
+  Object.assign(s.windows[0].planner, { agent: "claude", log: [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``, `<span class="p">&gt;</span> what's waiting?`, `<span class="m">●</span> Two tasks run (Doc markup reference model, working; Tab bar follows light mode, idle), and ${backlog("~/work/kanna-v4").length} wait in the backlog. Want me to start one?`] });
 }
 if (location.hash.includes("fresh")) fresh();
+const asked = location.hash.match(/q=([^&]*)/);
+if (asked) { s.windows[0].query = decodeURIComponent(asked[1]); s.finding = "w1"; }
 if (location.hash.includes("new")) { fresh(); s.windows[0].repo = "~"; }
 if (location.hash.includes("needs")) { task("p4").status = "needs"; task("p4").needsAt = Date.now(); }
 setInterval(() => { if (!drag && !document.activeElement?.closest?.("[data-cmd]")) render(); }, 30000);
