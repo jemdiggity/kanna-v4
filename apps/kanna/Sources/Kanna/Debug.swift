@@ -196,11 +196,19 @@ extension AppController {
             guard let self, let id = args["pane"]?.string, let code = contents.code(id) else { throw KannaError("wrong_type", "not a running code pane") }
             if let line = args["reveal"]?.number { code.reveal(line: Int(line)) }
             if let line = args["pick"]?.number { code.reveal(line: Int(line), toTop: true) }
+            if case .array(let pick)? = args["select"], pick.count == 3, let line = pick[0].number, let column = pick[1].number, let length = pick[2].number {
+                code.select(line: Int(line), column: Int(column), length: Int(length))
+            }
             var out: [String: JSON] = code.debugNumbers.mapValues { .number($0) }
             out["text"] = .string(code.file.text)
             out["path"] = .string(code.path)
             out["language"] = code.language.map { .string($0) } ?? .null
             out["comment_text"] = code.commentText.map { .string($0) } ?? .null
+            out["pinned_rows"] = .array(code.pinnedMarks.map { line, marks in
+                let ranges: ([NSRange]) -> JSON = { .array($0.map { .array([.number(Double($0.location)), .number(Double($0.length))]) }) }
+                return ["line": .number(Double(line)), "selection": ranges(marks.selection), "matches": ranges(marks.matches), "current": .bool(marks.current),
+                        "comment": .bool(marks.commented), "dimmed": .bool(marks.dimmed), "changed": .bool(marks.changed), "flashing": .bool(marks.flashing)]
+            })
             out["captures"] = .array(code.highlights.spans.prefix(200).map { .array([.number(Double($0.range.location)), .number(Double($0.range.length)), .string($0.capture)]) })
             return out
         }

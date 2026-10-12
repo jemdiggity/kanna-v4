@@ -5,6 +5,9 @@ final class CodeStickyView: NSView {
     struct Row {
         let line: Int
         let text: NSAttributedString
+        let marks: CodeMarks
+        let selection: [NSRect]
+        let matches: [NSRect]
     }
 
     var rows: [Row] = [] { didSet { needsDisplay = true } }
@@ -12,6 +15,7 @@ final class CodeStickyView: NSView {
     var textX: CGFloat = 0
     var lineHeight: CGFloat = 16
     var font = CodeTheme.font(size: CodeTheme.fontSize)
+    var selectionColor = NSColor.selectedTextBackgroundColor
     var onPick: ((Int) -> Void)?
 
     override var isFlipped: Bool { true }
@@ -22,17 +26,24 @@ final class CodeStickyView: NSView {
         bounds.fill()
         for (index, row) in rows.enumerated() {
             let y = CGFloat(index) * lineHeight
-            let label = String(row.line) as NSString
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: CodeTheme.number]
-            let size = label.size(withAttributes: attributes)
-            label.draw(at: NSPoint(x: gutterWidth - CodeTheme.gutterPadding - size.width, y: y + (lineHeight - size.height) / 2), withAttributes: attributes)
+            row.marks.drawGutter(line: row.line, in: NSRect(x: 0, y: y, width: gutterWidth, height: lineHeight), font: font)
+            let text = NSRect(x: gutterWidth, y: y, width: bounds.width - gutterWidth, height: lineHeight)
             NSGraphicsContext.saveGraphicsState()
-            NSRect(x: gutterWidth, y: y, width: bounds.width - gutterWidth, height: lineHeight).clip()
+            text.clip()
+            row.marks.fillLine(text)
+            row.marks.drawMatches(row.matches.map { place($0, y: y) })
+            selectionColor.setFill()
+            row.selection.forEach { place($0, y: y).fill() }
             row.text.draw(at: NSPoint(x: textX, y: y))
+            row.marks.drawDim(text)
             NSGraphicsContext.restoreGraphicsState()
         }
         CodeTheme.line.setFill()
         NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
+    }
+
+    private func place(_ span: NSRect, y: CGFloat) -> NSRect {
+        NSRect(x: textX + span.minX, y: y, width: span.width, height: lineHeight)
     }
 
     override func mouseDown(with event: NSEvent) {
