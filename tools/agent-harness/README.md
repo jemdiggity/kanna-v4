@@ -33,7 +33,7 @@ Needs `claude` and `codex` on `PATH`, Python 3.9+, and permission to open a pty 
 ## What it records
 
 - `out/<dir>/<agent>-<terminal>-<setting>-<focus>.jsonl`: one line per event: `o` (output bytes, base64), `i` (keys sent), `answer` (replies to terminal queries: DA1, cursor position, XTVERSION as Ghostty, kitty keyboard, DECRQM, OSC 10/11 colours, window size), `mark` (the phases above), `matched` / `timeout`, `exit`. `t` is seconds since start.
-- `out/<dir>/mock-requests.jsonl`: every request the agents made to the mock.
+- `out/<dir>/mock-requests.jsonl`: every request the agents made to the mock, with its last user message (`prompt`) and every user message in it (`history`).
 - `out/<dir>/runs/<name>/`: the run's HOME, working folder and script.
 
 Codex starts a detached `codex app-server --managed-daemon` from its CODEX_HOME that outlives the TUI; `run.py` stops any process running from the run's HOME when the run ends.
@@ -46,5 +46,16 @@ Codex starts a detached `codex app-server --managed-daemon` from its CODEX_HOME 
 |---|---|
 | `mock_server.py` | Anthropic Messages, OpenAI Responses and Chat Completions, answering from `scenarios/status.json` |
 | `record.py` | Runs one argv in a pty from a JSON script of steps (`wait`, `expect`, `type`, `key`, `focus_in`, `focus_out`, `mark`) |
+| `isolate.py` | An agent's isolated HOME and config pointed at the mock; as a command, writes an executable that runs the agent that way (Kanna's e2e S57 runs real claude and codex tasks with it) |
 | `run.py` | Prepares each run's isolated config and runs the matrix |
 | `signals.py` | Lists the status signals in recordings |
+
+## Agents as Kanna tasks
+
+`isolate.py` writes an executable that runs an agent against the mock in a HOME of its own, with the parent's `CLAUDE*`, `CODEX*`, `ANTHROPIC*` and `OPENAI*` variables cleared, so Kanna can start it as a task's agent:
+
+```sh
+python3 tools/agent-harness/isolate.py --agent codex --home /tmp/h --port 8123 --trust ~/repo --out /tmp/bin/codex
+```
+
+The executable is named after the agent, so Kanna treats it as one. `scripts/e2e-kanna.sh S57` uses it to check that claude and codex tasks come back to their conversation after Move to Backlog, Stop and Start: the mock's log shows the next message carrying the first.

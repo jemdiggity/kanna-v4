@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S56) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S57) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -20,6 +20,8 @@ Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app (or $
   KANNA_STATE_DIR  where the daemon, keeper and app keep their files
                    (the keeper writes keeper.pid there)
   KANNA_KEEPER     the keeper binary the daemon starts (once it uses one)
+S57 runs the real claude and codex (on PATH, or $KANNA_E2E_CLAUDE / $KANNA_E2E_CODEX)
+against tools/agent-harness's mock model, each in a HOME of its own.
 USAGE
 }
 
@@ -33,7 +35,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-6]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-7]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -94,7 +96,14 @@ cleanup() {
   stop_app; stop_daemon
   stop_started_daemon
   stop_keeper
+  stop_agents
   rm -rf "$KANNA_STATE_DIR"
+}
+stop_agents() {
+  [[ -d "$KANNA_STATE_DIR/agents" ]] || return 0
+  pkill -f "$KANNA_STATE_DIR/agents/" 2>/dev/null
+  wait_for 10 eval "! pgrep -f '$KANNA_STATE_DIR/agents/' >/dev/null" || pkill -9 -f "$KANNA_STATE_DIR/agents/" 2>/dev/null
+  return 0
 }
 stop_started_daemon() {
   local pid
@@ -1905,10 +1914,53 @@ S56() {
   [[ "$(kanna send-key agent cmd+c 2>&1)" == *"cmd+c only means something to Kanna.app"* ]] || { echo "cmd+c wasn't refused"; return 1; }
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-6]) echo M4 ;; esac
+S57() {
+  local claude="${KANNA_E2E_CLAUDE:-$(command -v claude)}" codex="${KANNA_E2E_CODEX:-$(command -v codex)}"
+  [[ -x "$claude" ]] || { echo "S57: claude isn't installed (or set KANNA_E2E_CLAUDE)"; return 1; }
+  [[ -x "$codex" ]] || { echo "S57: codex isn't installed (or set KANNA_E2E_CODEX)"; return 1; }
+  start_daemon && start_app || { echo "S57 line $LINENO"; return 1; }
+  local agents="$KANNA_STATE_DIR/agents" repo="$KANNA_STATE_DIR/repo" harness="$repo_root/tools/agent-harness"
+  mkdir -p "$agents" "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S57 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  python3 -I "$harness/mock_server.py" --log "$agents/mock.jsonl" >"$agents/port" 2>"$agents/mock.log" &
+  check wait_for 10 eval '[[ -s "$agents/port" ]]' || { echo "S57: the mock model didn't start"; return 1; }
+  local port; port="$(cat "$agents/port")"
+  local agent real
+  for agent in claude codex; do
+    [[ $agent == claude ]] && real="$claude" || real="$codex"
+    python3 -I "$harness/isolate.py" --agent $agent --real "$real" --home "$agents/$agent-home" --port "$port" --trust "$repo" --out "$agents/bin/$agent" || { echo "S57 line $LINENO"; return 1; }
+  done
+  asked() { python3 -c 'import json, sys
+lines = [json.loads(l) for l in open(sys.argv[1])]
+print(sum(1 for l in lines if l.get("turn") and sys.argv[2] in l["prompt"] and (len(sys.argv) < 4 or any(sys.argv[3] in h for h in l["history"]))))' "$agents/mock.jsonl" "$@"; }
+  local id task first second
+  for agent in claude codex; do
+    first="RESUME_FIRST $agent" second="RESUME_SECOND $agent"
+    id="$(cd "$repo" && kanna task new "$agent task" "$first" --agent "$agents/bin/$agent" | sed -n 's/^added \(t[0-9]*\).*/\1/p')"
+    [[ "$id" =~ ^t[0-9]+$ ]] || { echo "S57: $agent's task wasn't added"; return 1; }
+    kanna task start "$id" >/dev/null || { echo "S57: $agent's task didn't start"; return 1; }
+    check wait_for 60 eval '[[ "$(asked "$first")" == 1 ]]' || { echo "S57: $agent's first message didn't reach the mock model"; kanna read "$agent task"; return 1; }
+    check wait_for 30 shows "$agent task" "Agent status probe" || { echo "S57: $agent didn't show the mock's answer"; kanna read "$agent task"; return 1; }
+    kanna task shelve "$id" >/dev/null || { echo "S57: $agent's task didn't move to the Shelf"; return 1; }
+    task="$(pane "$agent task" id)"
+    [[ "$(kanna task defer "$task")" == *"to the backlog as $id"* ]] || { echo "S57: $agent's task didn't move back to the backlog as $id"; return 1; }
+    [[ "$(kanna task stop "$id")" == "stopped $id in the backlog; "* ]] || { echo "S57: $agent's task didn't stop"; return 1; }
+    check is "$agent task" state exited || { echo "S57: $agent is still running"; return 1; }
+    [[ "$(kanna task start "$id")" == "started $id again in the backlog: "* ]] || { echo "S57: $agent's task didn't start again"; return 1; }
+    check wait_for 60 eval 'shows "$agent task" "$first" && shows "$agent task" "Agent status probe"' || { echo "S57: $agent didn't come back to its conversation"; kanna read "$agent task"; return 1; }
+    sleep 3
+    [[ "$(asked "$first")" == 1 ]] || { echo "S57: $agent started again with its first message instead of resuming"; return 1; }
+    kanna send "$agent task" "$second" || { echo "S57 line $LINENO"; return 1; }
+    kanna send-key "$agent task" return || { echo "S57 line $LINENO"; return 1; }
+    check wait_for 60 eval '[[ "$(asked "$second" "$first")" -ge 1 ]]' || { echo "S57: $agent's next message didn't carry its conversation"; kanna read "$agent task"; tail -3 "$agents/mock.jsonl" | cut -c1-300; return 1; }
+  done
+  stop_agents
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-7]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

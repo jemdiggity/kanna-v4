@@ -12,6 +12,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from isolate import configure
+
 ROOT = Path(__file__).resolve().parent
 GHOSTTY_VERSION = "1.3.2-dev+4ec3122"
 
@@ -40,39 +42,13 @@ READY = {"claude": r"shift\+tab|for shortcuts", "codex": r"context left|send|›
 APPROVAL = {"claude": r"Do you want|proceed\?", "codex": r"Would you like|approve|Yes, proceed|Allow"}
 
 
-def toml_value(v):
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, list):
-        return "[" + ", ".join(toml_value(x) for x in v) + "]"
-    return json.dumps(v)
-
-
 def prepare(agent, base, port, settings):
     home, work = base / "home", base / "work"
     shutil.rmtree(base, ignore_errors=True)
-    home.mkdir(parents=True)
     work.mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(work)], check=True)
-    env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"), "XDG_DATA_HOME": str(home / ".local/share"), "XDG_STATE_HOME": str(home / ".local/state"), "XDG_CACHE_HOME": str(home / ".cache"), "LANG": "en_US.UTF-8"}
-    if agent == "claude":
-        config = {"hasCompletedOnboarding": True, "lastOnboardingVersion": "2.1.296", "theme": "dark", "numStartups": 5, "customApiKeyResponses": {"approved": ["mock"], "rejected": []}, "projects": {str(work): {"hasTrustDialogAccepted": True, "hasCompletedProjectOnboarding": True, "allowedTools": []}}}
-        (home / ".claude").mkdir()
-        (home / ".claude.json").write_text(json.dumps(config, indent=2))
-        (home / ".claude/.claude.json").write_text(json.dumps(config, indent=2))
-        (home / ".claude/settings.json").write_text(json.dumps({"theme": "dark", **settings}, indent=2))
-        env.update({"ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}", "ANTHROPIC_API_KEY": "mock", "CLAUDE_CONFIG_DIR": str(home / ".claude"), "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"})
-        argv = [shutil.which("claude") or "claude", "--model", "mock-model", "--permission-mode", "default"]
-    else:
-        codex_home = home / ".codex"
-        codex_home.mkdir()
-        lines = ['model = "mock-model"', 'model_provider = "mock"', 'approval_policy = "on-request"', 'sandbox_mode = "workspace-write"', "check_for_update_on_startup = false", "", "[model_providers.mock]", 'name = "mock"', f'base_url = "http://127.0.0.1:{port}/v1"', 'wire_api = "responses"', 'env_key = "MOCK_API_KEY"', "", f'[projects."{work}"]', 'trust_level = "trusted"', ""]
-        if settings:
-            lines += ["[tui]"] + [f"{k} = {toml_value(v)}" for k, v in settings.items()] + [""]
-        (codex_home / "config.toml").write_text("\n".join(lines))
-        env.update({"CODEX_HOME": str(codex_home), "MOCK_API_KEY": "mock"})
-        argv = [shutil.which("codex") or "codex"]
-    return argv, work, env
+    env, args = configure(agent, home, port, [work], settings, ask=True)
+    return [shutil.which(agent) or agent, *args], work, env
 
 
 def script(agent, focus):
