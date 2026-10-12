@@ -52,7 +52,7 @@ flowchart LR
   - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, a markdown link, or **+**.
   - Opening a file that's already open shows its tab.
 - **The title bar** (top) shows only the task's title (or Shelf, with no task on the Desk).
-- **With no task on it, the Desk shows the planning agent and the Shelf in full** (pictured above) in place of the strip: the agent docked on the left, and on the right the project's tasks (click one to pull it) and backlog, live, under a short encouraging line that changes each time the Shelf comes up. It holds no tabs: New Tab and the splits are off, and a pane opened onto it gets a plain window of its own ([planning agent](planning-agent.md#1-when-it-shows)).
+- **With no task on it, the Desk shows the planning agent and the Shelf in full** (pictured above) in place of the strip: the agent docked on the left, and on the right the project's tasks (click one to pull it) and backlog, live, under a short encouraging line that changes each time the Shelf comes up. ⌘F searches the backlog ([backlog search](backlog-search.md)). It holds no tabs: New Tab and the splits are off, and a pane opened onto it gets a plain window of its own ([planning agent](planning-agent.md#1-when-it-shows)).
 - **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
 
 ## 3. The Shelf
@@ -70,7 +70,7 @@ With no task on the Desk, the window's planning terminal, where you run your pla
 
 | Command | Does |
 |---|---|
-| `kanna task list` | Every task: ID, name, where it is (a Desk or the Shelf), status |
+| `kanna task list [QUERY]` | Every task: ID, name, where it is (a Desk or the Shelf), status; QUERY filters by name and first message |
 | `kanna task pull ID` | Put a task on the key window's Desk |
 | `kanna task park [ID]` | Move a task (default: the one on the key Desk) to the Shelf |
 | `kanna task done ID` | End a task: close its panes |

@@ -61,6 +61,7 @@ stateDiagram-v2
 - **The empty Desk lists it** under the Shelf: each task's name, its first message, and the task that made it.
 - **Move to Shelf** starts a task: it makes the worktree, starts the agent with the first message, and puts it on the Shelf. When three already run, it's refused until one is Done.
 - **Oldest first.** A Desk's Shelf strip shows how many wait.
+- **Search it** with ⌘F on an empty Desk, by name or first message: [backlog search](backlog-search.md).
 
 ## 4. Naming
 
@@ -86,7 +87,7 @@ stateDiagram-v2
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog (the agent defaults to `$KANNA_AGENT`, else `claude`, and starts without asking permission) |
 | `kanna task start TASK [--window WINDOW]` | Move a backlog task to the Shelf (or onto that Desk): worktree, agent, first message |
 | `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
-| `kanna task list` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name |
+| `kanna task list [QUERY]` | Every task: ID, where (a Desk, the Shelf, the backlog), status, repo, name; with QUERY, only those whose name or first message has every word ([backlog search](backlog-search.md#cli)) |
 | `kanna task defer [TASK]` | Move a running task back to the backlog, still running, until it's started again (default: the one you're in) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
 
