@@ -143,6 +143,23 @@
     ]
   },
   {
+    "name": "zoom on the docked pane of a window with no tabs fills the window; a new tab pane or switching tabs cancels it",
+    "steps": [
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "agent", "dock": "left" } } },
+      { "send": { "cmd": "zoom", "args": { "pane": "agent" } }, "expect": { "zoomed": true } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "zoomed": "agent", "tabs": [] } ] } },
+      { "send": { "cmd": "zoom", "args": { "pane": "agent" } }, "expect": { "zoomed": false } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "agent", "zoomed": null } ] } },
+      { "send": { "cmd": "zoom", "args": { "pane": "agent" } }, "expect": { "zoomed": true } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": null } ] } },
+      { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "tab": true } } },
+      { "send": { "cmd": "zoom", "args": { "pane": "agent" } }, "expect": { "zoomed": true } },
+      { "send": { "cmd": "focus", "args": { "tab": "t1" } } },
+      { "send": { "cmd": "list" }, "expect": { "windows": [ { "focused": "a", "zoomed": null, "tabs": [ { "active": true }, { "active": false } ] } ] } }
+    ]
+  },
+  {
     "name": "arrange arranges the shown tab; the docked pane is not part of a layout",
     "steps": [
       { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
