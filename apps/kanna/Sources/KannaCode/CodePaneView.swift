@@ -90,6 +90,7 @@ public final class CodePaneView: NSView {
         addSubview(scrollView)
         sticky.onPick = { [weak self] line in self?.reveal(line: line, toTop: true) }
         scrollView.onTile = { [weak self] in self?.updateSticky() }
+        textView.onMove = { [weak self] move in self?.perform(move) }
         addSubview(sticky)
     }
 
@@ -268,6 +269,54 @@ public final class CodePaneView: NSView {
         textView.flash(line: textView.currentLine)
     }
 
+    public func perform(_ move: CodeMove) {
+        let clip = scrollView.contentView
+        let visible = clip.bounds.height - clip.contentInsets.top
+        switch move {
+        case .lines(let count): scroll(by: CGFloat(count) * lineHeight)
+        case .pages(let pages): scroll(by: CGFloat(pages) * visible)
+        case .top: scroll(to: -clip.contentInsets.top)
+        case .bottom: scroll(to: .greatestFiniteMagnitude)
+        case .blank(let count):
+            let lines = file.lines
+            var line = anchor
+            for _ in 0..<abs(count) {
+                repeat { line += count > 0 ? 1 : -1 } while line > 1 && line < lines.count && !lines[line - 1].allSatisfy(\.isWhitespace)
+            }
+            reveal(line: min(max(line, 1), file.lineCount), toTop: true)
+        case .scope(let count):
+            let anchor = anchor
+            let starts = Array(Set(highlights.scopes.map(\.first))).sorted()
+            let after = starts.filter { $0 > anchor }, before = starts.filter { $0 < anchor }
+            let target = count > 0 ? after.dropFirst(count - 1).first : before.dropLast(-count - 1).last
+            if let target { reveal(line: target, toTop: true) }
+        case .find(let forward):
+            textView.finderAction(.showFindInterface)
+            if !forward { textView.finderAction(.previousMatch) }
+        case .match(let forward): textView.finderAction(forward ? .nextMatch : .previousMatch)
+        case .stopFinding: textView.finderAction(.hideFindInterface)
+        }
+    }
+
+    private var anchor: Int {
+        let under = topLine + pinned.count
+        let clip = scrollView.contentView
+        guard let rect = textView.rect(forLine: textView.currentLine), textView.currentLine >= under, rect.maxY <= clip.bounds.maxY else { return under }
+        return textView.currentLine
+    }
+
+    private func scroll(by delta: CGFloat) { scroll(to: scrollView.contentView.bounds.minY + delta) }
+
+    private func scroll(to y: CGFloat) {
+        let clip = scrollView.contentView
+        textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+        let used = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0
+        let end = max(-clip.contentInsets.top, used + textView.textContainerInset.height * 2 - clip.bounds.height)
+        let highest = max(end, clip.bounds.minY)
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: min(max(y, -clip.contentInsets.top), highest)))
+        scrollView.reflectScrolledClipView(clip)
+    }
+
     public var debugNumbers: [String: Double] {
         let clip = scrollView.contentView
         return ["clip_top": Double(convert(clip.frame, from: scrollView).maxY), "height": Double(bounds.height), "sticky_top": Double(sticky.frame.maxY), "find_bar_height": Double(scrollView.findBarView?.frame.height ?? -1), "find_bar_y": Double(scrollView.findBarView.map { convert($0.frame, from: $0.superview).minY } ?? -1), "find_bar": scrollView.isFindBarVisible ? 1 : 0, "selection_line": Double(file.line(at: textView.selectedRange().location)), "selection_length": Double(textView.selectedRange().length), "zoom": Double(zoom), "font_size": Double(fontSize), "spans": Double(highlights.spans.count), "scopes": Double(highlights.scopes.count), "lines": Double(file.lineCount), "top": Double(topLine), "current": Double(currentLine), "gutter": Double(gutter.ruleThickness),
@@ -297,6 +346,8 @@ final class CodeScrollView: NSScrollView {
 final class CodeTextView: NSTextView {
     var onFocus: (() -> Void)?
     var onCurrentLine: (() -> Void)?
+    var onMove: ((CodeMove) -> Void)?
+    private var keys = CodeKeys()
     var contextMenu: (() -> NSMenu?)?
     var file = CodeFile(text: "")
     var indents: [Int] = []
@@ -370,6 +421,23 @@ final class CodeTextView: NSTextView {
         let result = super.becomeFirstResponder()
         if result { onFocus?() }
         return result
+    }
+
+    func finderAction(_ action: NSTextFinder.Action) {
+        let item = NSMenuItem()
+        item.tag = action.rawValue
+        performTextFinderAction(item)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        guard !modifiers.contains(.command), !modifiers.contains(.option) else { return super.keyDown(with: event) }
+        if event.keyCode == 49, modifiers.contains(.shift) { return onMove?(.pages(-1)) ?? () }
+        let control = modifiers.contains(.control)
+        let characters = (control ? event.charactersIgnoringModifiers : event.characters) ?? ""
+        if let move = keys.press(characters, control: control) { return onMove?(move) ?? () }
+        if characters.count == 1, let key = characters.first, key.isLetter || key.isNumber || "[]{}/?".contains(key) { return }
+        super.keyDown(with: event)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
