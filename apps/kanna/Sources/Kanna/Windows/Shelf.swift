@@ -353,7 +353,6 @@ private final class BacklogRow: NSView {
         go.sizeToFit()
         go.frame.origin = NSPoint(x: width - go.frame.width - 10, y: (52 - go.frame.height) / 2)
         [name, sub, go].forEach(addSubview)
-        toolTip = task.message
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
