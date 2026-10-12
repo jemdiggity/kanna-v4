@@ -105,7 +105,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .stop .h { display: flex; gap: 8px; font: 11px var(--mono); color: var(--muted); margin-bottom: 4px; }
 .stop .h .k { color: var(--tour-edge); flex: none; }
 .stop .h .s { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
-.stop .where { font: 11px var(--mono); color: var(--muted); margin: -2px 0 4px 15px; }
+.stop .where { font: 11px var(--mono); color: var(--muted); margin: -2px 0 4px; }
 .stop .b { color: var(--fg); line-height: 1.5; }
 .stop:not(.on) .b { display: none; }
 .stop:not(.on) .where { margin-bottom: 0; }
@@ -117,11 +117,11 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 <body>
 <main>
   <div class="intro">
-    <h1>Code tour: the agent shows you code, one part at a time</h1>
-    <p>You ask how something works. The agent answers in the chat and, as it goes, shows you the code it's talking about with <code>kanna tour FILE:LINE "comment"</code>: the file opens in a code tab (or its tab is selected), the part is tinted and the rest dimmed, and the comment joins the tour beside the code. A line snaps to the syntax scope it opens or sits in, so <code>client.rs:244</code> shows the whole loop. Ask a question and the agent shows whatever answers it, or takes you back to an earlier stop with <code>kanna tour N</code>; click any stop to go back to it yourself. The tabs stay until you close them, or ask the agent to. How to run a tour is a skill, not a feature.</p>
+    <h1>Code tour: the agent comments on code as it explains it</h1>
+    <p>You ask how something works. The agent answers in the chat and, as it goes, comments on the code it's talking about with <code>kanna comment FILE:LINE "comment"</code>: the file opens in a code tab (or its tab is selected), the lines are tinted and the rest dimmed, and the comment is listed beside the code, folding the file's earlier comments. A line snaps to the syntax scope it opens or sits in, so <code>client.rs:244</code> shows the whole loop. Click an earlier comment to see it again. The tabs stay until you close them, or ask the agent to. How to give a tour is a skill; Kanna only gives the agent a way to comment on code.</p>
     <div class="controls">
       <button id="bNext">1 · You ask, the agent shows</button>
-      <button id="bClick">You click stop 2</button>
+      <button id="bClick">You click the first comment</button>
       <button id="bClear">You ask the agent to close the tabs</button>
       <span class="sep"></span>
       <button id="bTheme">Light / dark</button>
@@ -224,7 +224,6 @@ const STEPS = [
   { mark: ["server.rs:105", "Whenever the connection can take more, `flush` sends what's queued. A long message can go out in pieces; the terminals ride along with the first piece."], after: `The queue goes out as fast as the daemon reads it.` },
   { mark: ["fdpass.rs:20", "This is where an open terminal crosses from one program to another: the message gets an extra envelope (`SCM_RIGHTS`) holding the terminals, and macOS copies them into the daemon."], after: `Make sense so far? Next is the daemon's side.` },
   { mark: ["fdpass.rs:50", "The other side: the daemon waits for a message and takes whatever terminals came with it."], after: `That's the whole trip. Ask about anything that's unclear.` },
-  { you: "wait, where did the terminals go in again?", go: 3, say: `Back at stop 3: they ride in the message's envelope.` },
   { you: "how does it know which terminal goes with which message?", say: `Each message says how many terminals it carries.`, mark: ["client.rs:244", "Each line says how many terminals belong to it (`fds`) and takes that many from the queue, in order. That's how a terminal finds its message."], after: `The terminals arrive in the same order as the messages, so
   counting is enough.` },
 ];
@@ -234,7 +233,7 @@ const linesEl = document.getElementById("lines");
 const scroller = document.getElementById("scroller");
 const stickyEl = document.getElementById("sticky");
 const LH = 19, PAD = 8, MAX_STICKY = 5;
-let path = KEEPER + "fdpass.rs", tabsOpen = [], trail = [], cur = -1, step = 0;
+let path = KEEPER + "fdpass.rs", tabsOpen = [], trail = [], curBy = {}, step = 0;
 
 function rowHtml(l, n) { return `<div class="ln" data-n="${n}"><span class="n">${n}</span><span class="t">${highlight(l) || " "}</span></div>`; }
 function render() {
@@ -253,7 +252,7 @@ function render() {
 function tabs() {
   const open = tabsOpen.length ? tabsOpen : [path];
   document.getElementById("dtabs").innerHTML =
-    open.map(p => `<div class="dtab ${p === path ? "on" : ""}" data-p="${p}"><span>${p.split("/").pop()}</span>${trail.some(t => t.path === p) ? `<span class="tag">tour</span>` : ""}<span class="x">✕</span></div>`).join("") +
+    open.map(p => `<div class="dtab ${p === path ? "on" : ""}" data-p="${p}"><span>${p.split("/").pop()}</span><span class="x">✕</span></div>`).join("") +
     `<span class="add">+</span>`;
 }
 document.getElementById("dtabs").addEventListener("click", e => {
@@ -282,40 +281,46 @@ function scrollTo(n) {
 }
 
 const notes = document.getElementById("notes");
+function here() { return trail.map((t, i) => ({ ...t, i })).filter(t => t.path === path); }
 function applyTour() {
-  const touring = trail.length > 0;
+  const list = here();
+  const touring = list.length > 0;
   code.classList.toggle("touring", touring);
-  const s = trail[cur];
+  const s = trail[curBy[path]];
   linesEl.querySelectorAll(".ln").forEach(el => {
     const n = +el.dataset.n;
-    const inside = touring && s.path === path && n >= s.from && n <= s.to;
+    const inside = touring && n >= s.from && n <= s.to;
     el.classList.toggle("in-tour", inside);
-    el.classList.toggle("dimmed", touring && s.path === path && !inside);
+    el.classList.toggle("dimmed", touring && !inside);
   });
   if (!touring) return;
-  let html = `<div class="head"><div class="title">Tour</div><div class="nav"><span></span><button data-d="-1">‹</button><button data-d="1">›</button></div></div><div class="list">`;
-  trail.forEach((t, i) => {
-    html += `<div class="stop ${i === cur ? "on" : ""}" data-i="${i}"><div class="h"><span class="k">${i + 1}</span><span class="s">${esc(t.head)}</span></div><div class="where">${t.path.split("/").pop()}:${t.from}–${t.to}</div><div class="b">${esc(t.note).replace(/`([^`]+)`/g, "<code>$1</code>")}</div></div>`;
+  let html = `<div class="head"><div class="title">Comments</div><div class="nav"><span></span><button data-d="-1">‹</button><button data-d="1">›</button></div></div><div class="list">`;
+  list.forEach(t => {
+    html += `<div class="stop ${t.i === curBy[path] ? "on" : ""}" data-i="${t.i}"><div class="h"><span class="s">${esc(t.head)}</span></div><div class="where">lines ${t.from}–${t.to}</div><div class="b">${esc(t.note).replace(/`([^`]+)`/g, "<code>$1</code>")}</div></div>`;
   });
-  html += `</div><div class="keys">⌥↓ ⌥↑ next and previous stop</div>`;
+  html += `</div><div class="keys">⌥↓ ⌥↑ next and previous comment</div>`;
   notes.innerHTML = html;
   const on = notes.querySelector(".stop.on");
   if (on) on.scrollIntoView({ block: "nearest" });
 }
 function goStop(i) {
-  cur = Math.max(0, Math.min(trail.length - 1, i));
-  const s = trail[cur];
+  const s = trail[i];
+  curBy[s.path] = i;
   if (s.path !== path) { path = s.path; render(); } else applyTour();
   scrollTo(s.from);
 }
+function step1(d) {
+  const list = here(), k = list.findIndex(t => t.i === curBy[path]);
+  const t = list[Math.max(0, Math.min(list.length - 1, k + d))]; if (t) goStop(t.i);
+}
 notes.addEventListener("click", e => {
-  const d = e.target.closest("[data-d]"); if (d) { goStop(cur + +d.dataset.d); return; }
+  const d = e.target.closest("[data-d]"); if (d) { step1(+d.dataset.d); return; }
   const s = e.target.closest(".stop"); if (s) goStop(+s.dataset.i);
 });
 code.addEventListener("keydown", e => {
-  if (!trail.length) return;
-  if (e.altKey && e.key === "ArrowDown") { goStop(cur + 1); e.preventDefault(); }
-  if (e.altKey && e.key === "ArrowUp") { goStop(cur - 1); e.preventDefault(); }
+  if (!here().length) return;
+  if (e.altKey && e.key === "ArrowDown") { step1(1); e.preventDefault(); }
+  if (e.altKey && e.key === "ArrowUp") { step1(-1); e.preventDefault(); }
 });
 
 function mark(spec, note) {
@@ -341,36 +346,25 @@ function next() {
   const s = STEPS[step]; if (!s) return;
   step++;
   if (s.you) log += `\n<span class="g">&gt;</span> ${esc(s.you)}\n`;
-  if (s.go) {
-    goStop(s.go - 1);
-    log += `
-<span class="g">  Bash(</span><span class="c">kanna tour ${s.go}</span><span class="g">)</span>
-<span class="ok">  ⎿ stop ${s.go} · ${trail[s.go - 1].path.split("/").pop()}:${trail[s.go - 1].from}–${trail[s.go - 1].to}</span>
-`;
-    log += `\n<span class="a">●</span> ${s.say}\n`;
-    show();
-    document.getElementById("bNext").textContent = `${step + 1} · ${STEPS[step].you ? "You ask, the agent shows" : "Agent shows the next part"}`;
-    return;
-  }
   if (s.say) log += `\n<span class="a">●</span> ${s.say}\n`;
   const r = mark(s.mark[0], s.mark[1]);
   const opened = trail.filter(t => t.path === KEEPER + s.mark[0].split(":")[0]).length === 1;
   log += `
-<span class="g">  Bash(</span><span class="c">kanna tour ${s.mark[0]} "${esc(shortNote(s.mark[1]))}"</span><span class="g">)</span>
-<span class="ok">  ⎿ stop ${trail.length} · ${s.mark[0].split(":")[0]}:${r.from}–${r.to}${opened ? " · opened p" + (85 + tabsOpen.length) : ""}</span>
+<span class="g">  Bash(</span><span class="c">kanna comment ${s.mark[0]} "${esc(shortNote(s.mark[1]))}"</span><span class="g">)</span>
+<span class="ok">  ⎿ ${opened ? "opened " : ""}p${85 + tabsOpen.indexOf(KEEPER + s.mark[0].split(":")[0]) + 1} · ${s.mark[0].split(":")[0]}:${r.from}–${r.to}</span>
 `;
-  log += `\n<span class="a">●</span> ${s.after || "Stop " + trail.length + ": " + esc(s.mark[1].split(/[.:]/)[0].replace(/`/g, "")) + "."}\n`;
+  log += `\n<span class="a">●</span> ${s.after || esc(s.mark[1].split(/[.:]/)[0].replace(/`/g, "")) + "."}\n`;
   show();
   document.getElementById("bNext").textContent = STEPS[step] ? `${step + 1} · ${STEPS[step].you ? "You ask, the agent shows" : "Agent shows the next part"}` : "Done";
 }
 document.getElementById("bNext").onclick = next;
-document.getElementById("bClick").onclick = () => { while (trail.length < 3) next(); goStop(1); };
+document.getElementById("bClick").onclick = () => { while (trail.length < 2) next(); goStop(0); };
 document.getElementById("bClear").onclick = () => {
   log += `\n<span class="g">&gt;</span> thanks, close those\n`;
   for (let i = 0; i < tabsOpen.length; i++) log += `
 <span class="g">  Bash(</span><span class="c">kanna close p${86 + i}</span><span class="g">)</span>`;
   log += `\n\n<span class="a">●</span> Closed.\n`;
-  trail = []; cur = -1; tabsOpen = []; path = KEEPER + "fdpass.rs"; show(); render();
+  trail = []; curBy = {}; tabsOpen = []; path = KEEPER + "fdpass.rs"; show(); render();
   document.querySelector(".docs").style.visibility = "hidden";
 };
 const win = document.getElementById("window");
@@ -382,7 +376,7 @@ const params = new URLSearchParams(location.search);
 if (params.has("picture")) document.body.classList.add("picture");
 if (params.has("light")) document.getElementById("bTheme").click();
 for (let i = 0; i < +(params.get("step") || 0); i++) next();
-if (params.has("stop")) goStop(+params.get("stop") - 1);
+if (params.has("pick")) goStop(+params.get("pick") - 1);
 if (params.has("clear")) document.getElementById("bClear").click();
 </script>
 </body>
