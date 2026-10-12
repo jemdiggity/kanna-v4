@@ -13,4 +13,5 @@ kanna-vt = { path = "../kanna-vt" }
 kanna-detect = { path = "../kanna-detect" }
 base64 = "0.22"
 libc = "0.2"
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"

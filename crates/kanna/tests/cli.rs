@@ -119,7 +119,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["markup", "doc", "--off"]).ok(), "comments off in p6 (doc)");
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();
-    assert!(capabilities.starts_with("pane types: term, web, ios, md, code\ncommands: arrange, capabilities, close, comment, focus, list, markup, move, move-tab, navigate, open, read, rename-pane, rename-tab, resize, restart, send, status, task, zoom"), "{capabilities}");
+    assert!(capabilities.starts_with("pane types: term, web, ios, md, code\ncommands: agents, arrange, capabilities, close, comment, focus, list, markup, move, move-tab, navigate, open, read, rename-pane, rename-tab, resize, restart, send, status, task, zoom"), "{capabilities}");
     assert!(capabilities.ends_with("Kanna.app: attached"), "{capabilities}");
     let raw = daemon.kanna(&["raw", r#"{"cmd":"debug.anything","args":{"pane":"a"}}"#]).json();
     assert_eq!(raw, json!({ "cmd": "debug.anything", "args": { "pane": "p1" } }));

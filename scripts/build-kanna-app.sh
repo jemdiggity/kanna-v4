@@ -55,6 +55,8 @@ cp "$repo_root/target/release/kanna-daemon" "$repo_root/target/release/kanna-kee
 cp "$repo_root/assets/Kanna.icns" "$app/Contents/Resources/Kanna.icns"
 cp "$repo_root/LICENSE" "$app/Contents/Resources/"
 cp "$repo_root/apps/kanna/Resources/getting-started.md" "$app/Contents/Resources/"
+mkdir -p "$app/Contents/Resources/kanna-skills"
+for skill in kanna-tasks kanna-planning kanna-new-project kanna-markup kanna-explain; do cp -RL "$repo_root/.agents/kanna-skills/skills/$skill" "$app/Contents/Resources/kanna-skills/"; done
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

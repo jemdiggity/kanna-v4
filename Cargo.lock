@@ -546,6 +546,7 @@ dependencies = [
  "kanna-vt",
  "libc",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
