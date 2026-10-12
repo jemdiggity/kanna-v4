@@ -55,6 +55,7 @@ sequenceDiagram
 ![The same file in light mode](code-viewer-light.png)
 
 - **Languages**, by file extension (and a `#!` line for scripts): Rust, Swift, TypeScript and JavaScript (React's `.tsx` and `.jsx` too), Python, Go, C, C++, Shell, JSON, TOML, YAML, HTML, CSS, and Vue and Svelte components (their markup, script and style each highlighted as its own language). Any other text file shows plain, with line numbers and indent guides but no sticky scope.
+- **Find** (⌘F) opens a find bar over the code: every match is highlighted, the current one scrolled into view; ⌘G and ⇧⌘G go to the next and previous match, Esc closes it. It searches the text as written, case-insensitive unless the search has a capital.
 - **Zoom** (⌘= ⌘− ⌘0) changes the font size, as in a terminal, from 9 to 32 pt, kept with the pane.
 - **Files it won't show:** a missing file fails with "No such file: …", a folder with "… is a folder, not a file", a binary file (a NUL byte in its first 8 KB) with "… isn't a text file". **[Assumption]** A file over 5 MB shows plain, without highlighting or scopes.
 
@@ -66,6 +67,7 @@ sequenceDiagram
 | Click a line | marks it as the current line |
 | Click a pinned scope | scrolls to that line |
 | Drag, ⌘A, ⌘C | selects and copies text |
+| ⌘F, ⌘G, ⇧⌘G, Esc | find, next match, previous match, close the find bar |
 | ⌘= ⌘− ⌘0 | font size bigger, smaller, back |
 | Back / Forward (Pane menu, mouse buttons 4 and 5) | the file and line shown before / after |
 
@@ -105,13 +107,14 @@ flowchart TB
 - **Highlighting is tree-sitter, in a new Rust crate, `kanna-syntax`**, linked into the app as a static library with a C header, as `kanna-layout` is. One call takes a language and the text and returns the spans (byte range and capture name, such as `keyword`, `function`, `type`, `string`) and the scopes (start and end lines). Why tree-sitter rather than TextMate grammars (syntect): it parses the code into a tree, which sticky scope needs now and the code tour needs next (stops that are whole functions and blocks); the same grammars and queries are used by Zed, Neovim and Helix.
 - **Grammars** come from each language's tree-sitter crate with its own highlight query. **Scopes** come from a small query per language naming the nodes that open one (functions, types, `impl`, loops, conditionals, blocks), after Neovim's treesitter-context.
 - **Languages inside languages** (a Vue or Svelte component's `<script>` and `<style>`, an HTML page's) are tree-sitter's injections: the outer grammar's injection query names the parts and the language of each, and `kanna-syntax` highlights them with that grammar. Vue's grammar crates on crates.io are young forks, so its grammar source is vendored into the crate at a pinned commit, as Helix and Zed do.
+- **Find is AppKit's** find bar (`NSTextFinder`) on the pane's text view, with its incremental match highlighting.
 - **The theme is Swift's**, a table from capture name to colour for light and dark beside `MarkdownTheme`; the Rust side never knows colours.
 - **A reload reparses the whole file** off the main thread, then swaps in the new text and spans at the same scroll position. Changed lines come from a line diff with the previous text.
 - **Checks:** `kanna-syntax` tests per language (a fixture file, its expected captures and scopes); `crates/kanna-daemon/tests/panes.rs` for the record, `open code` and `navigate`; an e2e scenario that opens a file at a line, reads `debug.code`, changes the file and sees it reload with the line marked, and relaunches.
 
 ## 6. Open questions
 
-1. **Find (⌘F)** in the first version, or later?
+1. **Vim keys:** should the markdown pane's proposed keys ([markdown-keys.md](markdown-keys.md): `j` `k`, `⌃d` `⌃u`, `gg` `G`, `/` `n`) work in a code pane too? Both are read-only, so the keys are free.
 
 ## 7. Glossary
 
