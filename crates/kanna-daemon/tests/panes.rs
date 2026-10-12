@@ -20,6 +20,7 @@ fn with_no_app_only_terminals_are_known_and_other_panes_need_the_app() {
         ("close", json!({"pane": "site"})),
         ("restart", json!({"pane": "doc"})),
         ("debug.web", json!({"pane": "site"})),
+        ("comment", json!({"path": "/tmp/a.rs", "line": 3, "text": "why"})),
     ] {
         let reply = instance.call(cmd, args.clone());
         assert_eq!(reply["error"]["code"], "no_app", "{cmd} {args}: {reply}");
@@ -112,4 +113,41 @@ fn when_the_app_goes_away_its_panes_go_and_a_waiting_open_fails() {
     let list = instance.call("list", json!({}));
     assert_eq!(names(&list), vec!["sh"], "{list}");
     assert_eq!(list["windows"], json!([]), "{list}");
+}
+
+#[test]
+fn a_comment_opens_its_file_once_and_stays_on_the_pane() {
+    let instance = Instance::start();
+    let app = App::connect(&instance.socket());
+    let _answering = app.answering();
+    let first = instance.call("comment", json!({"path": "/tmp/tour.rs", "line": 5, "text": "Queues the message."}));
+    assert_eq!((first["opened"].clone(), first["first"].clone(), first["last"].clone()), (json!(true), json!(5), json!(7)), "{first}");
+    let id = first["pane"]["id"].as_str().unwrap().to_string();
+    assert_eq!(first["pane"]["type"], "code", "{first}");
+    assert_eq!(first["pane"]["line"], 5, "{first}");
+    assert_eq!(first["pane"]["comment"], json!({"path": "/tmp/tour.rs", "first": 5, "last": 7, "text": "Queues the message."}), "{first}");
+
+    let again = instance.call("comment", json!({"path": "/tmp/tour.rs", "line": 20, "last": 24, "text": "Sends it."}));
+    assert_eq!((again["opened"].clone(), again["pane"]["id"].clone()), (json!(false), json!(id)), "{again}");
+    assert_eq!((again["first"].clone(), again["last"].clone(), again["pane"]["line"].clone()), (json!(20), json!(24), json!(20)), "{again}");
+    assert_eq!(again["pane"]["comment"]["text"], "Sends it.", "{again}");
+
+    let other = instance.call("comment", json!({"path": "/tmp/other.rs", "line": 1, "text": "The other side."}));
+    assert_eq!(other["opened"], true, "{other}");
+    assert_ne!(other["pane"]["id"], json!(id), "{other}");
+    let placed = instance.call("comment", json!({"path": "/tmp/tour.rs", "line": 1, "text": "Again.", "tab": true}));
+    assert_eq!(placed["opened"], true, "{placed}");
+
+    let list = instance.call("list", json!({}));
+    let tour = list["panes"].as_array().unwrap().iter().find(|p| p["id"] == json!(id)).unwrap().clone();
+    assert_eq!(tour["comment"]["first"], 20, "{list}");
+    for (args, code) in [
+        (json!({"path": "/tmp/tour.rs", "line": 5}), "bad_request"),
+        (json!({"path": "/tmp/tour.rs", "line": 5, "text": "  "}), "bad_request"),
+        (json!({"path": "/tmp/tour.rs", "line": 9, "last": 3, "text": "x"}), "bad_request"),
+        (json!({"line": 5, "text": "x"}), "bad_request"),
+    ] {
+        let reply = instance.call("comment", args.clone());
+        assert_eq!(reply["error"]["code"], code, "{args}: {reply}");
+    }
 }

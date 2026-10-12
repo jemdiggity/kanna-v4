@@ -11,7 +11,7 @@ mod status_command;
 mod store;
 mod terminals;
 
-use app_link::{AppLayout, AppLink, Outbox, APP_PREFIX, HELLO};
+use app_link::{AppLayout, AppLink, Outbox, APP_ASK, APP_PREFIX, HELLO};
 use kanna_mux::json::Value;
 use host::Host;
 use kanna_build::Build;
@@ -208,15 +208,17 @@ fn run() -> Result<(), String> {
             app.started(pane);
         }
     }));
-    let link = Rc::downgrade(&app);
-    core.add_prefix(
-        APP_PREFIX,
-        Rc::new(move |cmd, args, responder| {
-            if let Some(link) = link.upgrade() {
-                link.forward(cmd, args, responder);
-            }
-        }),
-    );
+    for prefix in [APP_PREFIX, APP_ASK] {
+        let link = Rc::downgrade(&app);
+        core.add_prefix(
+            prefix,
+            Rc::new(move |cmd, args, responder| {
+                if let Some(link) = link.upgrade() {
+                    link.forward(cmd, args, responder);
+                }
+            }),
+        );
+    }
 
     let pid_file = state_dir.join("daemon.pid");
     let _ = std::fs::write(&pid_file, format!("{}\n", std::process::id()));

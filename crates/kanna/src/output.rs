@@ -37,6 +37,17 @@ pub fn opened(_: &Value, reply: &Value) -> String {
     format!("opened {} in window {window}, tab {}: {}", label(&reply["pane"]), reply["tab"].as_str().unwrap_or("?"), state(&reply["pane"]))
 }
 
+pub fn commented(args: &Value, reply: &Value) -> String {
+    let file = args["path"].as_str().and_then(|p| p.rsplit('/').next()).unwrap_or("?");
+    let lines = match (reply["first"].as_u64(), reply["last"].as_u64()) {
+        (Some(first), Some(last)) if last > first => format!("{first}–{last}"),
+        (Some(first), _) => first.to_string(),
+        _ => "?".into(),
+    };
+    let opened = if reply["opened"] == true { "opened " } else { "" };
+    format!("{opened}{} · {file}:{lines}", label(&reply["pane"]))
+}
+
 pub fn marked(args: &Value, reply: &Value) -> String {
     if args.get("type").is_some() {
         return opened(args, reply);

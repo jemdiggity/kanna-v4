@@ -1,6 +1,6 @@
 use crate::error::KmuxError;
 use crate::json::{encode, is_true, num, opt, string, Map, Value};
-use crate::pane::{History, Pane, PaneType, Panes};
+use crate::pane::{Comment, History, Pane, PaneType, Panes};
 use std::collections::HashSet;
 
 pub const STATE_VERSION: u32 = 1;
@@ -60,6 +60,9 @@ pub fn pane_record(pane: &Pane) -> Map {
                 out.insert("line".into(), num(line as f64));
             }
             out.insert("zoom".into(), num(pane.zoom.unwrap_or(1.0)));
+            if let Some(comment) = &pane.comment {
+                out.insert("comment".into(), comment.to_json());
+            }
         }
         PaneType::Ios => {
             out.insert("app".into(), opt(pane.app.as_deref()));
@@ -100,6 +103,7 @@ pub fn read_record(item: &Value, id: &str, kind: PaneType) -> Pane {
         PaneType::Code => {
             pane.path = field("path");
             pane.line = item.get("line").and_then(Value::as_u64).filter(|l| *l > 0);
+            pane.comment = item.get("comment").and_then(Comment::from_json);
             pane.zoom = item.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0);
             pane.history = Some(History::default());
         }

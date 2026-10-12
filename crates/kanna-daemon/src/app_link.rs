@@ -51,6 +51,8 @@ const SNAPSHOT_RETRY: Duration = Duration::from_millis(100);
 
 pub const APP_PREFIX: &str = "debug.";
 
+pub const APP_ASK: &str = "app.";
+
 const TERMINAL_ONLY: [&str; 4] = ["send", "read", "list", "capabilities"];
 
 pub fn takeover(events: Sender<Event>) -> Takeover {

@@ -4,7 +4,7 @@ use crate::instance::{Instance, DEFAULT_NAME};
 use crate::json::{is_true, json, num, string, Map, Value};
 use crate::layout::{place_request, scope_request, Edge, LayoutHost, LayoutLink, LocalLayout, Scope, SplitSide};
 use crate::model::{fraction, Model};
-use crate::pane::{Pane, PaneState, PaneType, Panes};
+use crate::pane::{Comment, Pane, PaneState, PaneType, Panes};
 use crate::state;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
@@ -50,7 +50,7 @@ pub fn project(cwd: Option<&str>) -> Option<std::path::PathBuf> {
     Some(main.unwrap_or_else(|| root.to_path_buf()))
 }
 
-pub const CORE_COMMANDS: [&str; 10] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read", "markup", "rename-pane"];
+pub const CORE_COMMANDS: [&str; 11] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read", "markup", "comment", "rename-pane"];
 
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
 
@@ -393,6 +393,7 @@ impl CoreHandle {
             "read" => self.read(&args),
             "navigate" => self.navigate(&args).await,
             "markup" => self.markup(&args).await,
+            "comment" => self.comment(&args).await,
             "rename-pane" => self.rename_pane(&args).await,
             "debug.saveState" => {
                 let state = self.export_state().await?;
@@ -581,6 +582,9 @@ impl CoreHandle {
             pane.line = line;
             pane.agent = agent.clone();
             pane.markup = is_true(args, "markup");
+            if kind == PaneType::Code {
+                pane.comment = args.get("comment").and_then(Comment::from_json);
+            }
             if (kind == PaneType::Web && is_true(args, "history")) || matches!(kind, PaneType::Md | PaneType::Code) {
                 pane.history = Some(Default::default());
             }
@@ -600,7 +604,7 @@ impl CoreHandle {
         Ok(opened(summary, &location, &placed))
     }
 
-    async fn open_again(&self, path: &str, line: Option<u64>, from: Option<&str>) -> Result<Option<Map>, KmuxError> {
+    async fn showing(&self, path: &str, from: Option<&str>) -> Result<Option<(String, Map)>, KmuxError> {
         let from = from.and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
         let window = match from {
             Some(from) => self.layout(json!({ "op": "location", "pane": from })).await?.remove("window"),
@@ -616,26 +620,98 @@ impl CoreHandle {
         };
         for id in showing {
             let location = self.layout(json!({ "op": "location", "pane": id })).await?;
-            if location.get("window") != Some(&window) {
-                continue;
+            if location.get("window") == Some(&window) {
+                return Ok(Some((id, location)));
             }
-            {
-                let _turn = self.0.turns.take().await;
-                self.layout(json!({ "op": "command", "cmd": "focus", "args": { "pane": id } })).await?;
-            }
-            self.changed();
-            let current = self.state().panes.get(&id).and_then(|p| p.line);
-            let summary = match line.filter(|line| Some(*line) != current) {
-                Some(line) => self.navigate(&json!({ "pane": id, "path": path, "line": line })).await?.remove("pane").unwrap_or_default(),
-                None => {
-                    let snapshot = self.state().panes.get(&id).cloned().unwrap();
-                    self.summary(&id, &snapshot)
-                }
-            };
-            let location = Value::Object(location);
-            return Ok(Some(opened(summary, &location, &location)));
         }
         Ok(None)
+    }
+
+    async fn open_again(&self, path: &str, line: Option<u64>, from: Option<&str>) -> Result<Option<Map>, KmuxError> {
+        let Some((id, location)) = self.showing(path, from).await? else { return Ok(None) };
+        {
+            let _turn = self.0.turns.take().await;
+            self.layout(json!({ "op": "command", "cmd": "focus", "args": { "pane": id } })).await?;
+        }
+        self.changed();
+        let current = self.state().panes.get(&id).and_then(|p| p.line);
+        let summary = match line.filter(|line| Some(*line) != current) {
+            Some(line) => self.navigate(&json!({ "pane": id, "path": path, "line": line })).await?.remove("pane").unwrap_or_default(),
+            None => {
+                let snapshot = self.state().panes.get(&id).cloned().unwrap();
+                self.summary(&id, &snapshot)
+            }
+        };
+        let location = Value::Object(location);
+        Ok(Some(opened(summary, &location, &location)))
+    }
+
+    async fn comment(&self, args: &Value) -> Result<Map, KmuxError> {
+        if !self.state().pane_types.contains(&PaneType::Code) {
+            return Err(bad_request("this mux has no code panes"));
+        }
+        let path = string(args, "path").filter(|p| !p.is_empty()).ok_or_else(|| bad_request("missing path"))?.to_string();
+        let text = string(args, "text").map(str::trim).filter(|t| !t.is_empty()).ok_or_else(|| bad_request("missing text"))?.to_string();
+        let line = args.get("line").and_then(Value::as_u64).filter(|l| *l > 0).ok_or_else(|| bad_request("missing line"))?;
+        let mut asked = json!({ "path": path, "line": line });
+        if let Some(last) = args.get("last").and_then(Value::as_u64) {
+            if last < line {
+                return Err(bad_request(format!("lines {line}-{last} run backwards")));
+            }
+            asked["last"] = json!(last);
+        }
+        let snapped = self.ask_app("app.snap", asked).await.map_err(|error| match error.code.as_str() {
+            "no_app" => KmuxError::new("no_app", "a comment needs Kanna.app, and none is attached to this daemon"),
+            _ => error,
+        })?;
+        let first = snapped.get("first").and_then(Value::as_u64).unwrap_or(line);
+        let last = snapped.get("last").and_then(Value::as_u64).unwrap_or(first).max(first);
+        let comment = Comment { path: path.clone(), first, last, text };
+        let placeless = ["name", "tab", "dock", "split", "size", "window"].iter().all(|key| args.get(*key).is_none());
+        let from = string(args, "from");
+        let found = if placeless { self.showing(&path, from).await? } else { None };
+        let (id, location, was_open) = match found {
+            Some((id, location)) => {
+                {
+                    let _turn = self.0.turns.take().await;
+                    self.layout(json!({ "op": "command", "cmd": "focus", "args": { "pane": id } })).await?;
+                }
+                if let Some(pane) = self.state().panes.get_mut(&id) {
+                    pane.line = Some(first);
+                    pane.comment = Some(comment.clone());
+                }
+                let snapshot = self.reload(&id, false).await;
+                self.check_started(&id, &snapshot)?;
+                (id, Value::Object(location), true)
+            }
+            None => {
+                let mut open = args.clone();
+                for key in ["text", "last"] {
+                    open.as_object_mut().map(|o| o.remove(key));
+                }
+                open["type"] = json!("code");
+                open["line"] = json!(first);
+                open["comment"] = comment.to_json();
+                let mut reply = self.open(&open).await?;
+                let id = reply.get("pane").and_then(|p| string(p, "id")).unwrap_or_default().to_string();
+                let location = json!({ "window": reply.remove("window").unwrap_or(Value::Null), "tab": reply.remove("tab").unwrap_or(Value::Null) });
+                (id, location, false)
+            }
+        };
+        let snapshot = self.state().panes.get(&id).cloned().ok_or_else(|| KmuxError::new("not_found", "the pane closed"))?;
+        let mut out = reply([("pane", self.summary(&id, &snapshot)), ("first", num(first as f64)), ("last", num(last as f64)), ("opened", Value::Bool(!was_open))]);
+        for key in ["window", "tab"] {
+            out.insert(key.into(), location.get(key).cloned().unwrap_or(Value::Null));
+        }
+        Ok(out)
+    }
+
+    async fn ask_app(&self, cmd: &str, args: Value) -> Result<Map, KmuxError> {
+        let prefixed = self.0.prefixes.borrow().iter().find(|(prefix, _)| cmd.starts_with(prefix.as_str())).map(|(_, h)| h.clone());
+        let Some(handler) = prefixed else { return Err(KmuxError::new("no_app", format!("{cmd} needs Kanna.app"))) };
+        let (responder, answer) = responder();
+        handler(cmd, args, responder);
+        answer.await
     }
 
     async fn task_folder(&self, from: Option<&str>, window: Option<&str>) -> Option<String> {

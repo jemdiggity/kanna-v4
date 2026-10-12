@@ -59,6 +59,36 @@ pub struct History {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct Comment {
+    pub path: String,
+    pub first: u64,
+    pub last: u64,
+    pub text: String,
+}
+
+impl Comment {
+    pub fn to_json(&self) -> Value {
+        let mut out = Map::new();
+        out.insert("path".into(), Value::String(self.path.clone()));
+        out.insert("first".into(), num(self.first as f64));
+        out.insert("last".into(), num(self.last as f64));
+        out.insert("text".into(), Value::String(self.text.clone()));
+        Value::Object(out)
+    }
+
+    pub fn from_json(value: &Value) -> Option<Comment> {
+        let line = |key: &str| value.get(key).and_then(Value::as_u64).filter(|l| *l > 0);
+        let (first, last) = (line("first")?, line("last")?);
+        Some(Comment {
+            path: value.get("path")?.as_str()?.to_string(),
+            first,
+            last: last.max(first),
+            text: value.get("text")?.as_str()?.to_string(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Pane {
     pub id: String,
     pub name: Option<String>,
@@ -74,6 +104,7 @@ pub struct Pane {
     pub device: Option<String>,
     pub path: Option<String>,
     pub line: Option<u64>,
+    pub comment: Option<Comment>,
     pub agent: Option<String>,
     pub markup: bool,
     pub history: Option<History>,
@@ -100,6 +131,7 @@ impl Pane {
             device: None,
             path: None,
             line: None,
+            comment: None,
             agent: None,
             markup: false,
             history: None,
@@ -164,6 +196,9 @@ impl Pane {
                 out.insert("path".into(), opt(self.path.as_deref()));
                 if let Some(line) = self.line {
                     out.insert("line".into(), num(line as f64));
+                }
+                if let Some(comment) = &self.comment {
+                    out.insert("comment".into(), comment.to_json());
                 }
             }
         }

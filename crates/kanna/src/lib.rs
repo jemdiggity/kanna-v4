@@ -513,6 +513,19 @@ mod tests {
     }
 
     #[test]
+    fn a_comment_takes_a_file_a_line_or_lines_and_the_rest_as_its_text() {
+        let (name, request) = parse("kanna comment /tmp/a.rs:50 Waits for a message.").unwrap();
+        assert_eq!(name, "comment");
+        assert_eq!(request, json!({ "path": "/tmp/a.rs", "line": 50, "text": "Waits for a message." }));
+        let (_, request) = parse("kanna comment /tmp/a.rs:20-48 'Sends it.' --tab").unwrap();
+        assert_eq!((request["line"].clone(), request["last"].clone(), request["tab"].clone()), (json!(20), json!(48), json!(true)));
+        assert!(parse("kanna comment /tmp/a.rs Sends it.").is_err());
+        assert!(parse("kanna comment /tmp/a.rs:5").is_err());
+        assert!(parse("kanna comment /tmp/a.rs:9-3 Backwards.").is_err());
+        assert!(parse("kanna comment /tmp/a.rs:0 Nothing.").is_err());
+    }
+
+    #[test]
     fn a_local_page_opens_as_a_file_url_and_markup_opens_or_switches_comments() {
         let dir = std::env::temp_dir().join(format!("kanna-page-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

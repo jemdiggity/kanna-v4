@@ -455,6 +455,26 @@ pub static COMMANDS: &[Command] = &[
         parse: parse_markup,
         show: output::marked,
     },
+    Command {
+        name: "comment",
+        group: "Panes",
+        summary: "Comment on some lines of a file, shown beside them, to explain the code.",
+        usage: "kanna comment FILE:LINE[-LAST] TEXT... [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--no-wait]",
+        options: &[
+            ("--name NAME", "A name for the code pane, if it opens one."),
+            ("--split right|down|auto", "Open the file in a new pane split from the focused one."),
+            ("--size FRACTION", "Share of the focused pane's space the new pane takes."),
+            ("--tab", "Open the file in a new tab, even if it's already open."),
+            ("--window ID|new", "Open the file in that window, or a new one."),
+        ],
+        notes: "Opens FILE in a code pane at LINE, or uses the code pane in this window that already shows it, tints the lines and dims the rest, with the comment in a box above them; it replaces the pane's last comment. LINE takes the whole scope it opens or sits in (a function, a loop, a block); LINE-LAST takes those lines as they are. The pane keeps the comment until it closes. Prints the pane and the lines commented on.",
+        examples: &[
+            ("kanna comment src/fdpass.rs:50 \"Waits for a message and takes the terminals that came with it.\"", "Comment on the function that starts at line 50."),
+            ("kanna comment src/client.rs:244-246 \"Takes as many terminals as the message says.\"", "Comment on lines 244 to 246 exactly."),
+        ],
+        parse: parse_comment,
+        show: output::commented,
+    },
 ];
 
 fn parse_markup(args: &mut Argv) -> Result<Value, Failure> {
@@ -566,6 +586,44 @@ fn parse_thread_action(args: &mut Argv, action: &str) -> Result<Value, Failure> 
         out["text"] = json!(text);
     }
     Ok(out)
+}
+
+fn parse_comment(args: &mut Argv) -> Result<Value, Failure> {
+    let mut out = Map::new();
+    for (flag, key) in [("--name", "name"), ("--split", "split"), ("--size", "size"), ("--window", "window")] {
+        if let Some(value) = args.option(flag)? {
+            out.insert(key.into(), json!(value));
+        }
+    }
+    if args.flag("--tab") {
+        out.insert("tab".into(), json!(true));
+    }
+    if args.flag("--no-wait") {
+        out.insert("wait".into(), json!(false));
+    }
+    let spot = args.positional().ok_or_else(|| usage("comment", "say where: kanna comment FILE:LINE \"text\""))?;
+    let (file, line, last) = file_lines(&spot).ok_or_else(|| usage("comment", &format!("{spot} needs a line: FILE:LINE or FILE:LINE-LAST")))?;
+    let text = args.rest().filter(|t| !t.trim().is_empty()).ok_or_else(|| usage("comment", "say what: kanna comment FILE:LINE \"text\""))?;
+    out.insert("path".into(), json!(absolute(&file)));
+    out.insert("line".into(), json!(line));
+    if let Some(last) = last {
+        if last < line {
+            return Err(usage("comment", &format!("lines {line}-{last} run backwards")));
+        }
+        out.insert("last".into(), json!(last));
+    }
+    out.insert("text".into(), json!(text));
+    from_caller(&mut out);
+    Ok(Value::Object(out))
+}
+
+pub fn file_lines(target: &str) -> Option<(String, u64, Option<u64>)> {
+    let (file, spot) = target.rsplit_once(':')?;
+    let (line, last) = match spot.split_once('-') {
+        Some((line, last)) => (line.parse::<u64>().ok()?, Some(last.parse::<u64>().ok()?)),
+        None => (spot.parse::<u64>().ok()?, None),
+    };
+    (line > 0 && !file.is_empty()).then(|| (file.to_string(), line, last))
 }
 
 fn parse_status(args: &mut Argv) -> Result<Value, Failure> {

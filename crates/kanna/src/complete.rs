@@ -204,7 +204,7 @@ fn placeholder(name: &str) -> Vec<Want> {
         "WINDOW" | "ID" => vec![Want::Windows],
         "INSTANCE" => vec![Want::Instances],
         "DIR" => vec![Want::Dirs],
-        "FILE" | "SCREEN" => vec![Want::Files(&[])],
+        "FILE" | "SCREEN" | "FILE:LINE" | "FILE:LINE[-LAST]" => vec![Want::Files(&[])],
         "FILE.md" => vec![Want::Files(MARKDOWN)],
         "FILE.html" => vec![Want::Files(HTML)],
         "APP" => vec![Want::Files(&["app"])],

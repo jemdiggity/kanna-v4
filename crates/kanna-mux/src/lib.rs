@@ -22,7 +22,7 @@ pub use instance::{Instance, DEFAULT_NAME};
 pub use layout::{pane_entry, pane_table, placement, read_pane_table, serve, Edge, LayoutCall, LayoutHost, LayoutLink, LocalLayout, Placement, SavedLayout, Scope, SplitSide, Spot};
 pub use model::Model;
 pub use owner::{prune_state, LayoutOwner};
-pub use pane::{History, Pane, PaneState, PaneType, Panes};
+pub use pane::{Comment, History, Pane, PaneState, PaneType, Panes};
 pub use socket_server::{write_all, Handler, SocketServer, Takeover};
 pub use state::{pane_record, STATE_VERSION};
 pub use state_file::{Contents, StateFile};
