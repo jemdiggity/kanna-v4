@@ -91,6 +91,7 @@ mark.flash { animation: flash .9s; }
     <h1>Doc markup: comment on a markdown file, and the agent beside it answers</h1>
     <p>The markdown pane is a preview. Select text and press ⌘↵, or ⌘-click a word, to comment. Posting types the comment into the agent that opened the doc, then Enter, the same for every agent.</p>
     <div class="controls">
+      <button id="agentComment">Agent comments with kanna comment</button>
             <button id="agentReply">Agent replies and resolves c2</button>
       <button id="toggle">Hide / show threads</button>
       <button id="reset">Reset</button>
@@ -135,7 +136,7 @@ const doc = [
   ["h2", "Tab Container"],
   ["p", "A tab container is a slot in a split that holds several panes as tabs and shows one at a time."],
   ["h3", "1. The idea"],
-  ["p", "Today a window tab holds a tree of splits, and every leaf is a pane. A container is a new kind of leaf: it holds a list of panes and shows the active one."],
+  ["p", "<span data-q=\"Today a window tab holds a tree of splits, and every leaf is a pane. A container is a new kind of leaf: it holds a list of panes and shows the active one.\">Today a window tab holds a tree of splits, and every leaf is a pane. A container is a new kind of leaf: it holds a list of panes and shows the active one.</span>"],
   ["p", "The panes inside stay ordinary panes, with their own IDs, names and processes, so every pane command still works on them. The container is only layout, like a split."],
   ["h3", "2. Rules"],
   ["ul", ["<span data-q=\"Panes only\">Panes only</span>: a container holds panes, not splits or other containers.", "One active: one pane is shown; the others keep running.", "Lifetime: it stays with one tab and goes away with its last."]],
@@ -191,7 +192,7 @@ function render() {
 }
 
 function chip(t) {
-  const label = { sent: "sent to p1", replied: "agent replied" }[t.status];
+  const label = { sent: "sent to p1", replied: "agent replied", agent: "from p1" }[t.status];
   return `<span class="state ${t.status}">${label}</span>`;
 }
 
@@ -225,6 +226,10 @@ function renderTerm() {
   ];
   const lines = [`<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> claude`, ``];
   s.threads.forEach(t => {
+    if (t.status === "agent") {
+      lines.push(`<span class="a">●</span> The key idea is in section 1; I've put a comment on it.`, `  kanna comment docs/specs/tab-container.md:${t.line} "${t.messages[0].text.slice(0, 38)}…"`, `  ⎿ c3 · tab-container.md:${t.line}`, ``, `<span class="a">●</span> Reply there or here; tell me when to go on.`, ``);
+      return;
+    }
     lines.push(...pasted(t), ``);
     if (t.status === "replied") lines.push(`<span class="a">●</span> Updated docs/specs/tab-container.md`, `  kanna doc reply ${t.id} "${t.messages[t.messages.length - 1].text}"`, ...(t.state === "resolved" ? [`  kanna doc resolve ${t.id}`] : []), ``);
   });
@@ -284,10 +289,20 @@ document.getElementById("agentReply").onclick = () => {
   render();
   setTimeout(() => { t.state = "resolved"; render(); }, 1400);
 };
+document.getElementById("agentComment").onclick = () => {
+  if (s.threads.some(t => t.id === "c3")) return;
+  s.threads.push({ id: "c3", line: 9, quote: "Today a window tab holds a tree of splits, and every leaf is a pane. A container is a new kind of leaf: it holds a list of panes and shows the active one.", state: "open", status: "agent", messages: [
+    { who: "agent", text: "This is the whole idea: a container is just another kind of leaf in the split tree, so splits, focus and every pane command keep working unchanged." }] });
+  s.active = "c3";
+  render();
+  const mk = document.querySelector('mark[data-t="c3"]');
+  if (mk) mk.scrollIntoView({ block: "center" });
+};
 document.getElementById("toggle").onclick = () => { s.showThreads = !s.showThreads; render(); };
 document.getElementById("reset").onclick = () => { s = initial(); render(); };
-if (location.hash === "#picture") document.body.classList.add("picture");
+if (location.hash.startsWith("#picture")) document.body.classList.add("picture");
 render();
+if (location.hash.includes("agent")) document.getElementById("agentComment").click();
 </script>
 </body>
 </html>

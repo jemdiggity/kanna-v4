@@ -50,6 +50,10 @@ sequenceDiagram
 
 ![Light mode: the second comment on server.rs replaced the first](code-tour-light.png)
 
+- **On a markdown file it's a thread.** `kanna comment DOC.md:LINE "text"` opens the doc with comments on, as `kanna markup DOC.md` does (or turns them on in the markdown tab that already shows it), and starts a [doc markup](doc-markup.md) thread there, written by the agent, on the block the line is in (a paragraph, a list item, a heading). The thread stays in the list beside the doc, like any other; your reply in it is sent to the agent, as a comment of yours would be. Good for explaining architecture from a doc with diagrams.
+
+![The agent started c3 on the paragraph with the key idea; you can reply beside it](code-tour-md.png)
+
 - **Problems:** a missing file fails with "No such file: …", as `open code` does; a line past the end fails with "… has N lines"; with no app attached it fails with "Kanna.app isn't running".
 
 ## 3. CLI
@@ -65,7 +69,7 @@ sequenceDiagram
 `kanna-explain` (in `.agents/kanna-skills`) tells the agent when and how to explain code so the user keeps a mental model of it:
 
 - **When:** the user asks how something works, wants to understand code the agent wrote or changed, or seems to be losing track of the code.
-- **Pick the way that fits.** Comments on the code (`kanna comment`) for how a part works, walked through while talking; a markdown doc with diagrams (`kanna open md`), such as a sequence or a layer diagram, for how the parts fit together; often both, the doc first and the comments after.
+- **Pick the way that fits.** Comments on the code (`kanna comment FILE:LINE`) for how a part works; a markdown doc with diagrams, such as a sequence or a layer diagram, for how the parts fit together, commented on the same way (`kanna comment DOC.md:LINE`); often both, the doc first and the code after.
 - **One comment at a time.** Comment on one part, explain it in the chat, keep the comment to the one thing to remember about it, and stop: ask the user to tell you when to go on. Never comment on several parts in one turn.
 - **Follow the questions.** Answer by commenting on the code that answers it.
 - **Small parts.** A function or a block; `FILE:FIRST-LAST` for a few lines inside a long one.
@@ -101,6 +105,7 @@ flowchart TB
 | Piece | Where | What's new |
 |---|---|---|
 | CLI | `crates/kanna` | `comment`, completing source files |
+| Markdown | `crates/kanna` (`threads.rs`) | `comment` on a `.md` file adds a thread, written by the agent, to the doc's thread file, quoting the block at that line, then opens the doc for comments as `markup` does; the pane picks the thread up as it does a reply |
 | Comment command | `crates/kanna-mux` (daemon) | `comment` finds or opens the file's code pane (the same-file rule), asks the app to snap, and puts the comment on the pane's record |
 | Comment in the pane | `apps/kanna/Sources/KannaCode` | the comment box above its lines, tint and dim |
 | Snap | `apps/kanna/Sources/Kanna` | answers the daemon's `code.snap` (path, line) with the snapped lines, from `kanna-syntax`'s scopes |
