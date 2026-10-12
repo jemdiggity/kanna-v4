@@ -50,7 +50,11 @@ extension AppController {
         commands["debug.key"] = { [weak self] args in try self?.pressKey(args) ?? [:] }
         commands["debug.click"] = { [weak self] args in try self?.click(args) ?? [:] }
         commands["debug.drag"] = { [weak self] args in try await self?.debugDrag(args) ?? [:] }
-        commands["debug.menu"] = { [weak self] _ in ["items": .array(self?.menuItems ?? [])] }
+        commands["debug.menu"] = { [weak self] args in
+            guard let self else { return [:] }
+            if let title = args["item"]?.string { try choose(menuItem: title) }
+            return ["items": .array(menuItems)]
+        }
         commands["debug.stats"] = { _ in
             ["pid": .number(Double(ProcessInfo.processInfo.processIdentifier)), "footprint": .number(Double(memoryFootprint()))]
         }

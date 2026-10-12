@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S47) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S48) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -33,7 +33,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-7]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-8]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -1514,6 +1514,43 @@ S47() {
   [[ "$(kanna task defer nothing 2>&1)" == *'no running task "nothing"'* ]] || { echo "S47 line $LINENO"; return 1; }
 }
 
+S48() {
+  start_daemon && start_app || { echo "S48 line $LINENO"; return 1; }
+  local repo="$KANNA_STATE_DIR/repo" agent="$repo_root/tools/mock-agent/mock-agent"
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S48 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  local w
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}" | field "$1"; }
+  (cd "$repo" && kanna task new "Later" "say hi" --agent "$agent") >/dev/null || { echo "S48 line $LINENO"; return 1; }
+  kanna task start t1 >/dev/null || { echo "S48 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(pane Later id)" == p* ]]' || { echo "S48 line $LINENO"; return 1; }
+  kanna task pull Later --window new >/dev/null || { echo "S48 line $LINENO"; return 1; }
+  w="$(kanna list --json | field windows.0.id)"
+  check wait_for 10 eval '[[ "$(desk window.dock.pane)" == "$(pane Later id)" ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"'"$w"'"}}'; return 1; }
+  check wait_for 5 shows Later "mock-agent" || { echo "S48 line $LINENO"; return 1; }
+  local task pid; task="$(pane Later id)" pid="$(pane Later pid)"
+  KANNA_PANE="$task" kanna open --name side --cmd 'echo SIDE-READY; exec cat' >/dev/null || { echo "S48 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(kanna list --json | field windows.0.tabs)" == *side* ]]' || { echo "S48: the side terminal isn't on the task's Desk"; kanna list --json; return 1; }
+  local tabs; tabs="$(kanna list --json | field windows.0.tabs)"
+  raw '{"id":1,"cmd":"debug.menu","args":{"item":"Move to Backlog"}}' | grep -q '"ok":true' || { echo "S48: Move to Backlog didn't run"; return 1; }
+  check wait_for 5 eval '[[ "$(desk empty)" == True && "$(desk backlog)" == "[\"t1\"]" && "$(desk shelf)" == "[]" && "$(desk running)" == 0 ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"'"$w"'"}}'; return 1; }
+  check test "$(desk window.dock)" == None || { echo "S48: the task is still on the Desk"; return 1; }
+  check test "$(pane Later pid)" == "$pid" || { echo "S48: Move to Backlog stopped the agent"; return 1; }
+  kanna send Later "work 1" >/dev/null || { echo "S48 line $LINENO"; return 1; }
+  check wait_for 10 shows Later "WORK_DONE" || { echo "S48: the agent didn't keep working in the backlog"; kanna read Later; return 1; }
+  is side state running || { echo "S48: the task's tab stopped in the backlog"; return 1; }
+  stop_app; stop_daemon; start_daemon && start_app || { echo "S48 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk backlog)" == "[\"t1\"]" && "$(desk shelf)" == "[]" ]]' || { echo "S48: the backlog task didn't survive a restart"; raw '{"id":1,"cmd":"debug.desk","args":{"window":"'"$w"'"}}'; return 1; }
+  check test "$(pane Later pid)" == "$pid" || { echo "S48: the restart stopped the agent"; return 1; }
+  raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t1","window":"'"$w"'"}}' >/dev/null
+  check wait_for 10 eval '[[ "$(desk backlog)" == "[]" && "$(desk shelf.0.task)" == "$task" ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"'"$w"'"}}'; return 1; }
+  check test "$(pane Later pid)" == "$pid" || { echo "S48: Move to Shelf started the agent again"; return 1; }
+  kanna task pull Later --window "$w" >/dev/null || { echo "S48 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(desk window.dock.pane)" == "$task" ]]' || { echo "S48 line $LINENO"; return 1; }
+  check test "$(kanna list --json | field windows.0.tabs)" == "$tabs" || { echo "S48: the task's tabs didn't come back as they were"; kanna list --json | field windows.0.tabs; return 1; }
+  check shows side "SIDE-READY" || { echo "S48: the side terminal lost its screen"; return 1; }
+}
+
 S42() {
   SHELL=/bin/bash PATH="$bin:$PATH" start_daemon && start_app || return 1
   kanna open --name s42 >/dev/null || return 1
@@ -1525,9 +1562,9 @@ S42() {
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-7]) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-8]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

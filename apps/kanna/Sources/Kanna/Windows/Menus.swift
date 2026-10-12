@@ -101,6 +101,17 @@ extension AppController {
         NSApp.windowsMenu = windowMenu
     }
 
+    func choose(menuItem title: String) throws {
+        for top in NSApp.mainMenu?.items ?? [] {
+            guard let menu = top.submenu, let at = menu.items.firstIndex(where: { $0.title == title }) else { continue }
+            menu.update()
+            guard menu.items[at].isEnabled else { throw KannaError("disabled", "\(title) is disabled") }
+            menu.performActionForItem(at: at)
+            return
+        }
+        throw KannaError("not_found", "no menu item \"\(title)\"")
+    }
+
     var menuItems: [JSON] {
         (NSApp.mainMenu?.items ?? []).flatMap { top in
             (top.submenu?.items ?? []).filter { !$0.isSeparatorItem }.map { item -> JSON in
