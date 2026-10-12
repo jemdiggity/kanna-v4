@@ -1570,6 +1570,13 @@ S49() {
   check wait_for 5 eval '[[ "$(code src current)" == 80 ]]' || return 1
   [[ "$(kanna open code "$KANNA_STATE_DIR/gone.rs" 2>&1)" == *"No such file: $KANNA_STATE_DIR/gone.rs"* ]] || { echo "S49: a missing file"; return 1; }
   [[ "$(kanna open code "$KANNA_STATE_DIR" 2>&1)" == *"is a folder, not a file"* ]] || { echo "S49: a folder"; return 1; }
+  local nested="$KANNA_STATE_DIR/s48-nested.rs"
+  { echo 'fn outer() {'; echo '    loop {'; echo '        if ready() {'; for i in $(seq 4 60); do echo "            step($i);"; done; echo '        }'; echo '    }'; echo '}'; } >"$nested"
+  kanna open code --name nested "$nested" --tab >/dev/null || return 1
+  check wait_for 5 eval '(( $(code nested scopes) == 3 ))' || { echo "scopes $(code nested scopes)"; return 1; }
+  raw '{"id":1,"cmd":"debug.code","args":{"pane":"nested","pick":40}}' >/dev/null
+  check wait_for 5 eval '[[ "$(code nested top)" == 37 && "$(code nested pinned)" == 3 ]]' || { echo "top $(code nested top), pinned $(code nested pinned)"; return 1; }
+  check test "$(code nested indent_unit)" == 4 || return 1
   stop_app; start_app || return 1
   check wait_for 5 eval '[[ "$(code src current)" == 80 ]]' || return 1
   check eval 'code src text | grep -q s48_edit' || return 1

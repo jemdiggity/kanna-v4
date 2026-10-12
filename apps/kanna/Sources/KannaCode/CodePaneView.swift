@@ -16,6 +16,7 @@ public final class CodePaneView: NSView {
     let scrollView = NSScrollView()
     let textView: CodeTextView
     let gutter: CodeGutter
+    let sticky = CodeStickyView()
     private let layoutManager = NSLayoutManager()
     private var stamp: (Date, Int)?
     private var poll: Timer?
@@ -39,6 +40,7 @@ public final class CodePaneView: NSView {
         gutter.textView = textView
         load()
         pendingLine = line
+        if let line { textView.currentLine = min(max(line, 1), file.lineCount) }
         poll = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadIfChanged() }
         }
@@ -76,9 +78,14 @@ public final class CodePaneView: NSView {
         scrollView.rulersVisible = true
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.gutter.needsDisplay = true }
+            MainActor.assumeIsolated {
+                self?.gutter.needsDisplay = true
+                self?.updateSticky()
+            }
         }
         addSubview(scrollView)
+        sticky.onPick = { [weak self] line in self?.reveal(line: line, toTop: true) }
+        addSubview(sticky)
     }
 
     public func stop() {
@@ -92,6 +99,7 @@ public final class CodePaneView: NSView {
         super.layout()
         scrollView.frame = bounds
         sizeText()
+        updateSticky()
         if let line = pendingLine, bounds.height > 0 {
             pendingLine = nil
             reveal(line: line)
@@ -123,6 +131,8 @@ public final class CodePaneView: NSView {
             file = CodeFile(text: "")
         }
         textView.file = file
+        textView.indents = CodeScopes.indents(file)
+        textView.indentUnit = CodeScopes.unit(textView.indents)
         let attributes: [NSAttributedString.Key: Any] = [.font: CodeTheme.font(size: fontSize), .foregroundColor: CodeTheme.text]
         textView.textStorage?.setAttributedString(NSAttributedString(string: file.text, attributes: attributes))
         gutter.file = file
@@ -157,6 +167,7 @@ public final class CodePaneView: NSView {
             if span.capture.hasPrefix("comment") { storage.addAttribute(.font, value: italic, range: span.range) }
         }
         storage.endEditing()
+        updateSticky()
         onHighlighted?()
     }
 
@@ -175,6 +186,38 @@ public final class CodePaneView: NSView {
         }
     }
 
+    var lineHeight: CGFloat { layoutManager.defaultLineHeight(for: CodeTheme.font(size: fontSize)) }
+
+    public var pinned: [Int] { sticky.rows.map(\.line) }
+
+    func updateSticky() {
+        let rows = CodeScopes.pinned(top: topLine, in: highlights.scopes)
+        let clip = scrollView.contentView
+        let height = CGFloat(rows.count) * lineHeight
+        sticky.frame = NSRect(x: 0, y: bounds.height - height, width: max(0, bounds.width - (scrollView.verticalScroller?.frame.width ?? 0)), height: height)
+        sticky.isHidden = rows.isEmpty
+        sticky.gutterWidth = gutter.ruleThickness
+        sticky.textX = clip.frame.minX - clip.bounds.minX + textView.textContainerInset.width
+        sticky.lineHeight = lineHeight
+        sticky.font = CodeTheme.font(size: fontSize)
+        guard let storage = textView.textStorage else { return }
+        sticky.rows = rows.compactMap { line in
+            let start = file.start(ofLine: line)
+            let end = line < file.lineCount ? file.start(ofLine: line + 1) : storage.length
+            guard start <= end, end <= storage.length else { return nil }
+            var range = NSRange(location: start, length: end - start)
+            if range.length > 0, (storage.string as NSString).character(at: NSMaxRange(range) - 1) == 0x0a { range.length -= 1 }
+            return CodeStickyView.Row(line: line, text: storage.attributedSubstring(from: range))
+        }
+    }
+
+    public func reveal(line: Int, toTop: Bool) {
+        guard let rect = textView.rect(forLine: CodeScopes.top(showing: line, in: highlights.scopes)) else { return }
+        scrollView.contentView.scroll(to: NSPoint(x: -scrollView.contentView.contentInsets.left, y: max(0, rect.minY - textView.textContainerInset.height)))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        textView.currentLine = min(max(line, 1), file.lineCount)
+    }
+
     public func reveal(line: Int) {
         guard let rect = textView.rect(forLine: line) else { return }
         let target = max(0, rect.minY - scrollView.contentSize.height / 3)
@@ -188,7 +231,7 @@ public final class CodePaneView: NSView {
         let clip = scrollView.contentView
         return ["spans": Double(highlights.spans.count), "scopes": Double(highlights.scopes.count), "lines": Double(file.lineCount), "top": Double(topLine), "current": Double(currentLine), "gutter": Double(gutter.ruleThickness),
                 "clip_x": Double(clip.frame.minX), "clip_width": Double(clip.frame.width), "scroll_x": Double(clip.bounds.minX),
-                "scroll_y": Double(clip.bounds.minY), "text_x": Double(textView.frame.minX), "text_width": Double(textView.frame.width)]
+                "scroll_y": Double(clip.bounds.minY), "pinned": Double(pinned.count), "indent_unit": Double(textView.indentUnit), "text_x": Double(textView.frame.minX), "text_width": Double(textView.frame.width)]
     }
 
     public var topLine: Int {
@@ -205,6 +248,8 @@ final class CodeTextView: NSTextView {
     var onCurrentLine: (() -> Void)?
     var contextMenu: (() -> NSMenu?)?
     var file = CodeFile(text: "")
+    var indents: [Int] = []
+    var indentUnit = 4
     var currentLine = 1 { didSet { if currentLine != oldValue { needsDisplay = true; onCurrentLine?() } } }
     private var flashing: Int?
     private var flashTask: DispatchWorkItem?
@@ -243,6 +288,25 @@ final class CodeTextView: NSTextView {
         if let flashing, let line = self.rect(forLine: flashing), line.intersects(rect) {
             CodeTheme.flash.setFill()
             line.fill()
+        }
+        drawGuides(in: rect)
+    }
+
+    private func drawGuides(in rect: NSRect) {
+        guard let manager = layoutManager, let container = textContainer, !indents.isEmpty, (textStorage?.length ?? 0) > 0 else { return }
+        let width = ("0" as NSString).size(withAttributes: [.font: font ?? CodeTheme.font(size: CodeTheme.fontSize)]).width
+        let glyphs = manager.glyphRange(forBoundingRect: rect, in: container)
+        let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        let first = file.line(at: characters.location)
+        let last = file.line(at: max(characters.location, NSMaxRange(characters) - 1))
+        CodeTheme.guide.setFill()
+        for line in first...max(first, last) where line <= indents.count {
+            guard let fragment = self.rect(forLine: line) else { continue }
+            var column = 0
+            while column < indents[line - 1] {
+                NSRect(x: textContainerInset.width + CGFloat(column) * width, y: fragment.minY, width: 1, height: fragment.height).fill()
+                column += indentUnit
+            }
         }
     }
 

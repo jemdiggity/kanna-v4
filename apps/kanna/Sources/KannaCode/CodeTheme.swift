@@ -7,6 +7,8 @@ enum CodeTheme {
     static let currentNumber = color(dark: 0xc9ccd3, light: 0x1d2026)
     static let currentLine = color(dark: 0x1b1e24, light: 0xf4f5f7)
     static let flash = color(dark: 0x2a3a5c, light: 0xd6e2fa)
+    static let guide = color(dark: 0x2a2f37, light: 0xe4e7eb)
+    static let line = color(dark: 0x2c313a, light: 0xd8dce2)
 
     static let keyword = color(dark: 0xc792ea, light: 0x8839c4)
     static let function = color(dark: 0x7aa2ff, light: 0x2f63d8)

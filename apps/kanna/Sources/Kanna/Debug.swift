@@ -184,6 +184,7 @@ extension AppController {
         commands["debug.code"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let code = contents.code(id) else { throw KannaError("wrong_type", "not a running code pane") }
             if let line = args["reveal"]?.number { code.reveal(line: Int(line)) }
+            if let line = args["pick"]?.number { code.reveal(line: Int(line), toTop: true) }
             var out: [String: JSON] = code.debugNumbers.mapValues { .number($0) }
             out["text"] = .string(code.file.text)
             out["path"] = .string(code.path)
