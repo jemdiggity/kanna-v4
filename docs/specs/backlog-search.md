@@ -1,6 +1,6 @@
 # Backlog search
 
-**Status:** planned · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: a long backlog, then ⌘F; or `#empty&long&q=shelf`) · **Builds on:** [tasks](tasks.md#3-the-backlog), [Desk](desk.md)
+**Status:** built · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: a long backlog, then ⌘F; or `#empty&long&q=shelf`) · **Builds on:** [tasks](tasks.md#3-the-backlog), [Desk](desk.md)
 
 Find a backlog task by typing part of its name or first message, and start it from the keyboard.
 
@@ -30,3 +30,7 @@ kanna task list resume agent
 
 - **Matching the maker or the repo:** the Desk's backlog is already one repo's, and the maker is rarely what you remember.
 - **Typing anywhere on the page to search:** the planning terminal has the keyboard on an empty Desk; ⌘F is the one way in.
+
+## Checked by
+
+e2e S53: ⌘F from the planning terminal, filtering by name and by a first message's words in any case, no match, esc twice, ↑↓ at the ends, ↩ starting the selected task and clearing the search, `kanna task list QUERY`, and snapshots in light and dark; the CLI's own test for QUERY and `--json`.
