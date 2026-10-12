@@ -1,6 +1,6 @@
 # Code Viewer
 
-**Status:** proposed · **Mockup:** [`references/mockups/code-viewer.html`](../../references/mockups/code-viewer.html) · **Next:** the code tour (backlog t28, mockup [`references/mockups/code-tour.html`](../../references/mockups/code-tour.html)) builds on it
+**Status:** built · **Mockup:** [`references/mockups/code-viewer.html`](../../references/mockups/code-viewer.html) · **Next:** the code tour (backlog t28, mockup [`references/mockups/code-tour.html`](../../references/mockups/code-tour.html)) builds on it
 
 A **code pane** shows a source file, highlighted, beside the agent. The agent opens one to show you the code it's talking about; you read, select and copy. It's read-only: the agent edits, the pane follows the file. It's the first step towards the code tour, where the agent walks you through code to keep your mental model of it.
 
@@ -35,7 +35,7 @@ sequenceDiagram
 
 - `kanna open code FILE[:LINE]` takes `open`'s placement options. With none, from a task's terminal it opens a tab on the task's Desk, as `open md` does.
 - `LINE` puts that line a third of the way down and flashes it. Without it the file opens at the top; past the end, at the last line.
-- **A file that's already open isn't opened twice.** Without a placement, `open code` on a file a code pane in that window (the task's Desk) already shows selects that pane's tab and goes to the line instead, answering with its ID. The daemon's core decides, since it has every pane's record. With a placement, it always opens a new pane.
+- **A file that's already open isn't opened twice.** Without a placement or a name, `open code` on a file a code pane in that window (the task's Desk) already shows selects that pane's tab and goes to the line instead, answering with its ID. The daemon's core decides, since it has every pane's record. With a placement, it always opens a new pane.
 - `kanna navigate PANE FILE[:LINE]` shows another file, or another line, in the same pane, with back and forward history as a markdown pane's.
 
 ## 2. Rules
@@ -66,7 +66,7 @@ sequenceDiagram
 | Click a line | marks it as the current line |
 | Click a pinned scope | scrolls to that line |
 | Drag, ⌘A, ⌘C | selects and copies text |
-| The markdown pane's reading keys ([markdown-keys.md](markdown-keys.md)): `less`'s `j` `k`, `d` `u`, `f` `b`, `space`, `g` `G`, `/` `n`, with Vim's ⌃ forms too | the same, with a line of code as "a line", `}` `{` to the next or previous blank line, and `]]` `[[` to the next or previous scope's first line (a function, a type); `/` `?` `n` `N` use the find bar's matches |
+| The markdown pane's reading keys ([markdown-keys.md](markdown-keys.md)): `less`'s `j` `k`, `d` `u`, `f` `b`, `space`, `g` `G`, `/` `n`, with Vim's ⌃ forms too | the same, with a line of code as "a line", `}` `{` to the next or previous blank line, and `]]` `[[` to the next or previous scope's first line (a function, a type), counted from the current line while it's on screen; `/` `?` `n` `N` use the find bar's matches |
 | ⌘F, ⌘G, ⇧⌘G, Esc | find, next match, previous match, close the find bar |
 | ⌘= ⌘− ⌘0 | font size bigger, smaller, back |
 | Back / Forward (Pane menu, mouse buttons 4 and 5) | the file and line shown before / after |
@@ -80,7 +80,7 @@ sequenceDiagram
 | `kanna list` | shows a code pane's file and line |
 | `kanna raw '{"cmd":"debug.code","args":{"pane":"p86"}}'` | for tests: the text, the top line, the pinned scopes and each line's highlight spans by capture name |
 
-The pane's record in `layout.json` is `{type: "code", path, line, zoom, agent}`, so it comes back after a relaunch where it was.
+The pane's record in `layout.json` is `{type: "code", path, line, zoom}`, so it comes back after a relaunch where it was.
 
 ## 5. How it's built
 
@@ -128,7 +128,7 @@ flowchart TB
 | Piece | Where | What's new |
 |---|---|---|
 | CLI | `crates/kanna` | the `code` kind of `open`, `FILE:LINE`, completion of source files |
-| Pane records | `crates/kanna-mux` (daemon) | `PaneType::Code` with `path`, `line`, `zoom`, `agent`; the same-file rule; `debug.code` passed to the app |
+| Pane records | `crates/kanna-mux` (daemon) | `PaneType::Code` with `path`, `line`, `zoom`; the same-file rule; `debug.code` passed to the app |
 | Code pane | `apps/kanna/Sources/KannaCode` (new target) | the view, gutter, sticky scope, find, keys and theme |
 | Highlighter | `crates/kanna-syntax` (new crate, static lib, `include/kanna_syntax.h`) | grammars, queries, injections; one call: language and text in, spans and scopes out |
 | Grammars | tree-sitter and each language's grammar crate; Vue's source vendored | — |
@@ -147,7 +147,7 @@ flowchart TB
 | Broken code mid-edit | still parses the rest | can colour the rest of the file wrong | the same |
 | Native | C, compiled into the app | Rust | needs a JavaScript engine |
 | Used by | Zed, Neovim, Helix, GitHub's code view | Sublime Text, bat | websites |
-| Cost | each grammar is compiled in: **[Assumption]** 10–20 MB for these languages | grammars are data files | — |
+| Cost | each grammar is compiled in: about 18 MB for these languages (Kanna.app's binary went from 30.5 to 48.2 MB) | grammars are data files | — |
 
 - **Grammars** come from each language's tree-sitter crate with its own highlight query. **Scopes** come from a small query per language naming the nodes that open one (functions, types, `impl`, loops, conditionals, blocks), after Neovim's treesitter-context.
 - **Languages inside languages** (a Vue or Svelte component's `<script>` and `<style>`, an HTML page's) are tree-sitter's injections: the outer grammar's injection query names the parts and the language of each, and `kanna-syntax` highlights them with that grammar. Vue's grammar crates on crates.io are young forks, so its grammar source is vendored into the crate at a pinned commit, as Helix and Zed do.

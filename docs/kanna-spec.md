@@ -858,7 +858,7 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 ### 4.19 Code Viewer
 
-**[Proposed]** A read-only code pane, `kanna open code FILE[:LINE]`: the file highlighted with tree-sitter (Rust, Swift, TypeScript and JavaScript with React's JSX, Python, Go, C, C++, Shell, JSON, TOML, YAML, HTML, CSS, Vue, Svelte), opened at a line, following the file on disk, with sticky scope and indent guides. The first step towards the code tour, where the agent walks the user through code. Its own spec: [specs/code-viewer.md](specs/code-viewer.md); mockup `references/mockups/code-viewer.html`.
+**[Built]** A read-only code pane, `kanna open code FILE[:LINE]`: the file highlighted with tree-sitter (Rust, Swift, TypeScript and JavaScript with React's JSX, Python, Go, C, C++, Shell, JSON, TOML, YAML, HTML, CSS, Vue, Svelte), opened at a line, following the file on disk, with sticky scope and indent guides. The first step towards the code tour, where the agent walks the user through code. Its own spec: [specs/code-viewer.md](specs/code-viewer.md); mockup `references/mockups/code-viewer.html`.
 
 ---
 
