@@ -32,7 +32,7 @@ if [[ -z "${KANNA_GHOSTTY_VT_DIR:-}" ]]; then
   fi
 fi
 
-(cd "$repo_root" && cargo build --release -p kanna-layout -p kanna-daemon -p kanna-keeper)
+(cd "$repo_root" && cargo build --release -p kanna-layout -p kanna-syntax -p kanna-daemon -p kanna-keeper)
 "$repo_root/scripts/build-merman.sh"
 
 configuration="${KANNA_CONFIGURATION:-release}"

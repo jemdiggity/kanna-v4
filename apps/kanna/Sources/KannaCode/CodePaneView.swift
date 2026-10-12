@@ -8,6 +8,9 @@ public final class CodePaneView: NSView {
     public var keyView: NSView { textView }
     public private(set) var file = CodeFile(text: "")
     public private(set) var failure: CodeFile.Failure?
+    public private(set) var language: String?
+    public private(set) var highlights = CodeHighlights()
+    public var onHighlighted: (() -> Void)?
     public var currentLine: Int { textView.currentLine }
 
     let scrollView = NSScrollView()
@@ -124,6 +127,37 @@ public final class CodePaneView: NSView {
         textView.textStorage?.setAttributedString(NSAttributedString(string: file.text, attributes: attributes))
         gutter.file = file
         sizeText()
+        highlight()
+    }
+
+    private func highlight() {
+        let text = file.text
+        let firstLine = String(text.prefix { $0 != "\n" })
+        language = CodeSyntax.language(for: path, firstLine: firstLine)
+        highlights = CodeHighlights()
+        guard let language else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let found = CodeSyntax.highlight(text, language: language)
+            DispatchQueue.main.async {
+                guard let self, self.file.text == text else { return }
+                self.apply(found)
+            }
+        }
+    }
+
+    private func apply(_ found: CodeHighlights) {
+        highlights = found
+        guard let storage = textView.textStorage else { return }
+        let length = storage.length
+        let italic = CodeTheme.italic(size: fontSize)
+        storage.beginEditing()
+        for span in found.spans where NSMaxRange(span.range) <= length {
+            guard let color = CodeTheme.color(capture: span.capture) else { continue }
+            storage.addAttribute(.foregroundColor, value: color, range: span.range)
+            if span.capture == "comment" { storage.addAttribute(.font, value: italic, range: span.range) }
+        }
+        storage.endEditing()
+        onHighlighted?()
     }
 
     private func sizeText() {
@@ -152,7 +186,7 @@ public final class CodePaneView: NSView {
 
     public var debugNumbers: [String: Double] {
         let clip = scrollView.contentView
-        return ["lines": Double(file.lineCount), "top": Double(topLine), "current": Double(currentLine), "gutter": Double(gutter.ruleThickness),
+        return ["spans": Double(highlights.spans.count), "scopes": Double(highlights.scopes.count), "lines": Double(file.lineCount), "top": Double(topLine), "current": Double(currentLine), "gutter": Double(gutter.ruleThickness),
                 "clip_x": Double(clip.frame.minX), "clip_width": Double(clip.frame.width), "scroll_x": Double(clip.bounds.minX),
                 "scroll_y": Double(clip.bounds.minY), "text_x": Double(textView.frame.minX), "text_width": Double(textView.frame.width)]
     }

@@ -1560,6 +1560,8 @@ S49() {
   check wait_for 5 eval '[[ "$(code src current)" == 80 ]]' || return 1
   check eval '(( $(code src top) > 50 && $(code src top) < 80 ))' || { echo "top $(code src top)"; return 1; }
   check is src line 80 || return 1
+  check test "$(code src language)" == rust || return 1
+  check wait_for 5 eval '(( $(code src spans) > 300 ))' || { echo "spans $(code src spans)"; return 1; }
   echo 'let s48_edit = 1;' >>"$file"
   check wait_for 5 eval 'code src text | grep -q s48_edit' || return 1
   kanna navigate src "$file:10" >/dev/null || return 1

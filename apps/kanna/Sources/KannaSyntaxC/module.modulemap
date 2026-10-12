@@ -1,0 +1,5 @@
+module KannaSyntaxC {
+    header "../../../../crates/kanna-syntax/include/kanna_syntax.h"
+    link "kanna_syntax"
+    export *
+}

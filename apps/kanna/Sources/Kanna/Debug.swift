@@ -187,6 +187,8 @@ extension AppController {
             var out: [String: JSON] = code.debugNumbers.mapValues { .number($0) }
             out["text"] = .string(code.file.text)
             out["path"] = .string(code.path)
+            out["language"] = code.language.map { .string($0) } ?? .null
+            out["captures"] = .array(code.highlights.spans.prefix(200).map { .array([.number(Double($0.range.location)), .number(Double($0.range.length)), .string($0.capture)]) })
             return out
         }
         commands["debug.ios"] = { [weak self] args in
