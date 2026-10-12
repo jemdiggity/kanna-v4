@@ -44,8 +44,10 @@ unset KANNA_PANE KANNA_INSTANCE
 new_state_dir() {
   KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)" || exit 1
   export KANNA_AGENT_RULES_DIR="$KANNA_STATE_DIR/agent-rules-override"
+  export KANNA_AGENTS_HOME="$KANNA_STATE_DIR/home"
   [[ -n "$KANNA_STATE_DIR" && -d "$KANNA_STATE_DIR" ]] || { echo "e2e-kanna: mktemp gave no folder" >&2; exit 1; }
   export KANNA_STATE_DIR KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
+  mkdir -p "$KANNA_AGENTS_HOME/.kanna-v4" && echo '{"version": 2, "setup": false}' >"$KANNA_AGENTS_HOME/.kanna-v4/agents.json"
 }
 new_state_dir
 export KANNA_IGNORE_OCCLUSION=1
@@ -53,6 +55,7 @@ export KANNA_DEBUG=1
 export KANNA_NO_INITIAL_WINDOW=1
 export KANNA_AGENT_RULES_URL=none
 export KANNA_AGENT="$repo_root/tools/mock-agent/mock-agent"
+export KANNA_AGENT_SKILLS="${app%/MacOS/Kanna}/Resources/kanna-skills"
 daemon_pid="" app_pid=""
 
 need() { [[ -x "$1" ]] || { echo "not built: ${1#$repo_root/}"; return 1; }; }
@@ -304,6 +307,22 @@ S10() {
   kanna open --name live --split right --cmd 'echo LIVE-READY; exec cat' >/dev/null || return 1
   app_shows_live() { raw '{"id":1,"cmd":"debug.text","args":{"pane":"live"}}' | field text | grep -q LIVE-READY; }
   check wait_for 5 app_shows_live || return 1
+  local home="$KANNA_AGENTS_HOME"
+  mkdir -p "$home/.claude" "$home/.codex" && echo '{"model":"opus"}' >"$home/.claude/settings.json" && echo '{"hooks":{}}' >"$home/.codex/hooks.json"
+  check grep -q "you said no" <(kanna agents) || return 1
+  check test -z "$(echo y | kanna agents setup --ask)" || { echo "S10: setup --ask asked after you said no"; return 1; }
+  check grep -q "Kanna's skills are installed" <(kanna agents setup) || return 1
+  check grep -q "kanna task name" "$home/.claude/skills/kanna-tasks/SKILL.md" || return 1
+  check test -f "$home/.agents/skills/kanna-planning/SKILL.md" || return 1
+  check grep -qF "$KANNA_SOCKET" "$home/.claude/settings.json" || return 1
+  check grep -q "kanna-tasks skill" "$home/.claude/settings.json" || return 1
+  check grep -q "kanna-tasks skill" "$home/.codex/hooks.json" || return 1
+  check grep -q "up to date" <(kanna agents) || return 1
+  check test -z "$(echo y | kanna agents update --ask)" || { echo "S10: update --ask asked with nothing new"; return 1; }
+  kanna agents remove >/dev/null || return 1
+  check test ! -e "$home/.agents/skills/kanna-tasks" || return 1
+  check test "$(tr -d ' \n' <"$home/.claude/settings.json")" == '{"model":"opus"}' || return 1
+  check test "$(tr -d ' \n' <"$home/.codex/hooks.json")" == '{"hooks":{}}' || return 1
   kill "$first"
   wait_for 15 eval '[[ "$(cat "$KANNA_STATE_DIR/daemon.pid" 2>/dev/null)" != "$first" ]] && app_attached' || { echo "the app did not start a new daemon"; return 1; }
   check test "$(kanna list --json | field panes.0.type)" == term || return 1
@@ -1406,6 +1425,7 @@ S45() {
   mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S45 line $LINENO"; return 1; }
   repo="$(cd "$repo" && pwd -P)"
   mkdir -p "$repo/.kanna" && printf '{"planning": {"context": 400000}}\n' >"$repo/.kanna/config.json"
+  rm "$KANNA_AGENTS_HOME/.kanna-v4/agents.json"
   start_daemon || { echo "S45 line $LINENO"; return 1; }
   env -u KANNA_NO_INITIAL_WINDOW "$app" --bg >>"$out/app.log" 2>&1 &
   app_pid=$!
@@ -1415,7 +1435,13 @@ S45() {
   planner="$(desk planner)"
   check test "$(desk page)" == True || { echo "S45 line $LINENO"; return 1; }
   check test "$(desk strip)" == False || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 10 shows "$planner" "Install Kanna's skills? \[Y/n\]" || { echo "S45: the planning terminal didn't ask to install Kanna's skills"; kanna read "$planner"; return 1; }
+  check shows "$planner" "Kanna needs its skills installed" || { kanna read "$planner"; return 1; }
+  kanna send "$planner" "y" >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 10 shows "$planner" "This terminal is for planning" || { kanna read "$planner"; return 1; }
+  check shows "$planner" "Kanna's skills are installed" || { kanna read "$planner"; return 1; }
+  check test -f "$KANNA_AGENTS_HOME/.agents/skills/kanna-tasks/SKILL.md" || { echo "S45: answering yes didn't install the skills"; return 1; }
+  check grep -q "kanna-planning skill" "$KANNA_AGENTS_HOME/.claude/settings.json" || return 1
   check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "S45: Kanna started from no folder should plan in ~"; return 1; }
   check test "$(kanna task list | grep -c "$planner")" == 0 || { echo "S45: the planning terminal is listed as a task"; kanna task list; return 1; }
   kanna send "$planner" "cd '$repo'" >/dev/null || { echo "S45 line $LINENO"; return 1; }

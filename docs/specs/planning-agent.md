@@ -47,7 +47,8 @@ stateDiagram-v2
 ## 3. Getting started
 
 - **A window with nothing in it starts here:** when Kanna opens with nothing, in every new Desk window (File → New Desk, ⌘N), and on `kanna PATH`.
-- **The terminal first prints** [`getting-started.md`](../../apps/kanna/Resources/getting-started.md), through `glow` if it's installed, else `cat`, wrapped by the terminal so it reflows: start your agent here, tell it what you want, Move to Shelf starts a task.
+- **It first asks about Kanna's skills** if you haven't set them up, or this Kanna has newer ones ([agent setup](agent-setup.md#3-asking)), once per launch.
+- **The terminal then prints** [`getting-started.md`](../../apps/kanna/Resources/getting-started.md), through `glow` if it's installed, else `cat`, wrapped by the terminal so it reflows: start your agent here, tell it what you want, Move to Shelf starts a task.
 
 ## 4. The window's folder
 
@@ -59,7 +60,7 @@ stateDiagram-v2
 - **The layout keeps it as the window's `planner`**: a pane beside the window's dock (with its width), shown on the left only while the dock is empty, saved with the window. Parking and pulling move the dock and tabs and leave it in place. `move` refuses it (`planner`).
 - **The layout keeps the Shelf free of tabs:** placing a pane in a Desk with no task puts it in a new window instead, and tidying moves any tabs left on one to a window of their own (or makes a Desk with no planning terminal a plain window).
 - **The app asks for one** (`backlog` `plan`) when a Desk shows no task and has none, passing the window's folder and the getting-started file; it follows the terminal's folder as it reports it, as for a task's agent.
-- **The daemon builds the command:** `KANNA_PLANNER` and the [settings](settings.md), the getting-started text, then `exec` of your login shell, with Kanna's zsh integration put back for it. It opens it with the `planner` placement, outside the task limit.
+- **The daemon builds the command:** `KANNA_PLANNER` and the [settings](settings.md), `kanna agents setup --ask` and `update --ask`, the getting-started text, then `exec` of your login shell, with Kanna's zsh integration put back for it. It opens it with the `planner` placement, outside the task limit.
 - **`task desk`** makes a Desk with a folder (`kanna PATH`, Kanna started in one, or `~` for File → New Desk) or with none (started from Finder).
 
 ## 6. Rejected

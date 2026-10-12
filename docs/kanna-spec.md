@@ -269,7 +269,7 @@ The app is a client of the daemon, like the CLI, but it stays connected: it show
 
 **Saying it's the app.** The app's first line is `{"id": 0, "cmd": "app.hello", "args": {"pid": …}}`. The daemon answers `{"id": 0, "ok": true, "daemon": {"pid": …}, "panes": [{"id", "name", "type"}, …]}`, listing every terminal it has, and the connection is the app link from then on. One app at a time: a second gets `ok: false` (`app_attached`) and is closed. If the daemon goes away, the app keeps trying to connect, and on reconnecting says hello and attaches its terminals again.
 
-**The app starts the daemon.** Kanna.app carries the daemon and the keeper in `Contents/Helpers`, and nothing else has to be run first:
+**The app starts the daemon.** Kanna.app carries the daemon, the keeper and the `kanna` CLI in `Contents/Helpers`, and nothing else has to be run first:
 
 - **When:** at launch, as soon as nothing answers on the daemon socket; after losing a daemon it has been attached to, once nothing has answered for 2 s (so a daemon being restarted on purpose gets there first). At most one start every 10 s. The daemon's lock ([4.8](#48-restarting-the-daemon)) makes a race harmless: a second daemon on the folder exits.
 - **How:** in its own session (`setsid`), so it outlives the app; signals back to their defaults; no descriptors of the app's; stdin from `/dev/null`, stdout and stderr appended to `daemon.log` in the state folder. It gets the app's environment without `KANNA_*` and `KMUX_*` (only `KANNA_STATE_DIR` and `KANNA_DEBUG` pass), plus `KANNA_SOCKET` (the app's daemon socket) and `KANNA_KEEPER` (the bundled keeper). The daemon then starts the keeper as before.

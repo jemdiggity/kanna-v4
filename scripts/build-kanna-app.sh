@@ -34,7 +34,7 @@ if [[ -z "${KANNA_GHOSTTY_VT_DIR:-}" ]]; then
 fi
 
 kanna_cargo_release_for "$repo_root" "$macos_target"
-(cd "$repo_root" && cargo build --release -p kanna-ffi -p kanna-daemon -p kanna-keeper)
+(cd "$repo_root" && cargo build --release -p kanna-ffi -p kanna-daemon -p kanna-keeper -p kanna)
 
 configuration="${KANNA_CONFIGURATION:-release}"
 while IFS='=' read -r key value; do
@@ -51,7 +51,7 @@ app="$repo_root/target/Kanna.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
 cp "$product_dir/Kanna" "$app/Contents/MacOS/Kanna"
-cp "$repo_root/target/release/kanna-daemon" "$repo_root/target/release/kanna-keeper" "$app/Contents/Helpers/"
+cp "$repo_root/target/release/kanna-daemon" "$repo_root/target/release/kanna-keeper" "$repo_root/target/release/kanna" "$app/Contents/Helpers/"
 cp "$repo_root/assets/Kanna.icns" "$app/Contents/Resources/Kanna.icns"
 cp "$repo_root/LICENSE" "$app/Contents/Resources/"
 cp "$repo_root/apps/kanna/Resources/getting-started.md" "$app/Contents/Resources/"
