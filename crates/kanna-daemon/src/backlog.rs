@@ -68,7 +68,7 @@ impl Entry {
     /// The agent's command line. A new claude task gets `session` as its ID, so Move to Backlog can resume it;
     /// a claude task back from the backlog resumes its session, or the folder's latest one if Kanna didn't start it.
     fn command(&self, session: Option<&str>) -> String {
-        let agent = unprompted(&self.agent);
+        let agent = in_its_terminal(&unprompted(&self.agent));
         let first = |agent: String| match &self.message {
             Some(message) => format!("{agent} {}", quote(message)),
             None => agent,
@@ -154,6 +154,13 @@ fn unprompted(agent: &str) -> String {
     match UNPROMPTED.iter().find(|(name, _)| *name == program) {
         Some((_, flag)) if !chooses => format!("{agent} {flag}"),
         _ => agent.to_string(),
+    }
+}
+
+fn in_its_terminal(agent: &str) -> String {
+    match program(agent) == "codex" && !agent.split_whitespace().any(|w| w == "--no-daemon") {
+        true => format!("{agent} --no-daemon"),
+        false => agent.to_string(),
     }
 }
 
@@ -724,9 +731,9 @@ mod tests {
     #[test]
     fn a_first_message_is_quoted_for_the_shell() {
         let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "codex".into(), folder: None, session: None, held: None };
-        assert_eq!(entry.command(None), "codex --yolo 'don'\\''t stop'");
+        assert_eq!(entry.command(None), "codex --yolo --no-daemon 'don'\\''t stop'");
         entry.message = None;
-        assert_eq!(entry.command(None), "codex --yolo");
+        assert_eq!(entry.command(None), "codex --yolo --no-daemon");
     }
 
     #[test]
@@ -740,7 +747,7 @@ mod tests {
         entry.session = Some(id.clone());
         assert_eq!(entry.command(None), format!("/bin/claude --dangerously-skip-permissions --resume '{id}'"));
         entry.agent = "codex".into();
-        assert_eq!(entry.command(None), "codex --yolo 'go'", "only claude resumes for now");
+        assert_eq!(entry.command(None), "codex --yolo --no-daemon 'go'", "only claude resumes for now");
     }
 
     #[test]
@@ -813,6 +820,13 @@ mod tests {
         assert_eq!(unprompted("codex --ask-for-approval=untrusted"), "codex --ask-for-approval=untrusted");
         assert_eq!(unprompted("codex -a untrusted"), "codex -a untrusted");
         assert_eq!(unprompted("opencode"), "opencode");
+    }
+
+    #[test]
+    fn codex_runs_in_its_terminal_not_the_shared_server() {
+        assert_eq!(in_its_terminal("/opt/bin/codex --yolo"), "/opt/bin/codex --yolo --no-daemon");
+        assert_eq!(in_its_terminal("codex --no-daemon --yolo"), "codex --no-daemon --yolo");
+        assert_eq!(in_its_terminal("claude"), "claude");
     }
 
     #[test]

@@ -124,6 +124,7 @@ flowchart TB
 - **Stopping** closes the task's tabs and hangs up its agent's terminal (SIGHUP to its process group), keeping the pane exited, saved with the rest. **Starting a stopped task** restarts that pane with the command that resumes it (`claude --resume UUID` for a task Kanna started), so it keeps its ID and place.
 - **An ID is never handed out twice.** A new task's ID is saved as it's made, so a restart can't reuse one. IDs name backlog entries only; worktrees and branches get their own random names, so a lost `backlog.json` or another Kanna on the same repo can't collide with them.
 - **A task's agent doesn't ask permission.** Starting one adds the agent's own flag for that (`claude --dangerously-skip-permissions`, `codex --yolo`) unless its command already says how to ask (`--permission-mode`, `--ask-for-approval`/`-a`). The task works in its own worktree, and you watch it on the Desk. The backlog keeps the command as written.
+- **A Codex task runs in its own terminal:** starting one adds `--no-daemon`, so Codex runs its session itself rather than in its shared background server, which runs every session's commands and hooks with the environment of whichever terminal started it. With the flag, Codex's commands and hooks get the task's `$KANNA_PANE` and `$KANNA_SOCKET`, as Claude's do.
 
 ## 8. Open questions
 
