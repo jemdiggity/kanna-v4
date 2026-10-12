@@ -873,7 +873,7 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 ### 4.20 Code Tour
 
-**[Proposed]** The agent comments on code as it explains it: `kanna comment FILE:LINE "text"` opens the file in a code tab, tints those lines (snapped to their tree-sitter scope), dims the rest and lists the comment beside the code, folding the earlier ones. Comments live on the code pane\'s record; the daemon asks the app to snap. How to give a tour is the `kanna-tour` skill. Its own spec: [specs/code-tour.md](specs/code-tour.md); mockup `references/mockups/code-tour.html`.
+**[Built]** The agent comments on code as it explains it: `kanna comment FILE:LINE "text"` opens the file in a code tab, tints those lines (snapped to their tree-sitter scope), dims the rest and lists the comment beside the code, folding the earlier ones. Comments live on the code pane\'s record; the daemon asks the app to snap. How to give a tour is the `kanna-tour` skill. Its own spec: [specs/code-tour.md](specs/code-tour.md); mockup `references/mockups/code-tour.html`. In `crates/kanna-mux` (`comment`, the record), `crates/kanna` (the command, threads on docs), `apps/kanna/Sources/KannaCode` (the box, tint and dim) and `AppCommands.swift` (`app.snap`); checked by `crates/kanna-daemon/tests/panes.rs` and S50.
 
 ---
 

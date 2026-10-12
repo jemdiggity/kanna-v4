@@ -1,6 +1,6 @@
 # Code Tour
 
-**Status:** proposed · **Mockup:** [`references/mockups/code-tour.html`](../../references/mockups/code-tour.html) · **Builds on:** the [code viewer](code-viewer.md)
+**Status:** built · **Mockup:** [`references/mockups/code-tour.html`](../../references/mockups/code-tour.html) · **Builds on:** the [code viewer](code-viewer.md)
 
 A **code tour** is the agent commenting on code while it explains it, so you keep a mental model of how it works, whether you're a vibe coder, an engineer or not technical at all. As it talks, the agent comments on the part it's talking about: the file opens in a code tab, those lines are tinted and the rest dimmed, and the comment shows just above them. You ask questions as it goes; it comments on whatever answers them.
 
@@ -50,18 +50,18 @@ sequenceDiagram
 
 ![Light mode: the second comment on server.rs replaced the first](code-tour-light.png)
 
-- **On a markdown file it's a thread.** `kanna comment DOC.md:LINE "text"` opens the doc with comments on, as `kanna markup DOC.md` does (or turns them on in the markdown tab that already shows it), and starts a [doc markup](doc-markup.md) thread there, written by the agent, on the block the line is in (a paragraph, a list item, a heading). The thread stays in the list beside the doc, like any other; your reply in it is sent to the agent, as a comment of yours would be. Good for explaining architecture from a doc with diagrams.
+- **On a markdown file it's a thread.** `kanna comment DOC.md:LINE "text"` opens the doc with comments on, as `kanna markup DOC.md` does (or turns them on in the markdown tab that already shows it), and starts a [doc markup](doc-markup.md) thread there, written by the agent, on the block the line is in (a paragraph, a list item, a heading), and selects it. **[For now]** The markdown pane can't mark an image or a diagram, so a line on one puts the thread on the text just above it. The thread stays in the list beside the doc, like any other; your reply in it is sent to the agent, as a comment of yours would be. Good for explaining architecture from a doc with diagrams.
 
 ![The agent started c3 on the paragraph with the key idea; you can reply beside it](code-tour-md.png)
 
-- **Problems:** a missing file fails with "No such file: …", as `open code` does; a line past the end fails with "… has N lines"; with no app attached it fails with "Kanna.app isn't running".
+- **Problems:** a missing file fails with "No such file: …", as `open code` does; a line past the end fails with "… has N lines"; `FILE.md:FIRST-LAST` fails, since a doc's comment is on one block. Without Kanna.app the CLI starts it, as for any pane but a terminal.
 
 ## 3. CLI
 
 | Command | Does |
 |---|---|
-| `kanna comment FILE:LINE[-LAST] TEXT... [placement]` | comments on those lines; placement options as `open`, for a file that isn't open yet. Answers `p87 · fdpass.rs:20–48`, with `opened` when it opened a tab |
-| `kanna list` | shows a code pane's comment |
+| `kanna comment FILE:LINE[-LAST] TEXT... [placement]` | comments on those lines; placement options as `open`, for a file that isn't open yet. Answers `opened p87 · fdpass.rs:20–48`, without `opened` when it used a tab already open; on a markdown file, `c3 · how-it-works.md:12 in p6` |
+| `kanna list` | shows a code pane's comment (`path`, `first`, `last`, `text`) |
 | `kanna raw '{"cmd":"debug.code","args":{"pane":"p86"}}'` | for tests: also the comment, and which lines are tinted and dimmed |
 
 ## 4. The skill
@@ -105,10 +105,10 @@ flowchart TB
 | Piece | Where | What's new |
 |---|---|---|
 | CLI | `crates/kanna` | `comment`, completing source files |
-| Markdown | `crates/kanna` (`threads.rs`) | `comment` on a `.md` file adds a thread, written by the agent, to the doc's thread file, quoting the block at that line, then opens the doc for comments as `markup` does; the pane picks the thread up as it does a reply |
+| Markdown | `crates/kanna` (`threads.rs`) | `comment` on a `.md` file adds a thread, written by the agent, to the doc's thread file, quoting the block at that line, after opening the doc for comments as `markup` does (or turning them on in the tab that shows it); the pane picks the thread up as it does a reply, and selects a new one the agent started |
 | Comment command | `crates/kanna-mux` (daemon) | `comment` finds or opens the file's code pane (the same-file rule), asks the app to snap, and puts the comment on the pane's record |
 | Comment in the pane | `apps/kanna/Sources/KannaCode` | the comment box above its lines, tint and dim |
-| Snap | `apps/kanna/Sources/Kanna` | answers the daemon's `code.snap` (path, line) with the snapped lines, from `kanna-syntax`'s scopes |
+| Snap | `apps/kanna/Sources/Kanna` | `AppCommands.swift`: answers the daemon's `app.snap` (path, line, last) with the snapped lines, from `kanna-syntax`'s scopes; the daemon sends any `app.` command to the app, as it does `debug.` ones |
 | Contents | `apps/kanna/Sources/Kanna/Panes` | passes a code pane its comment |
 
 - **The comment lives on the code pane's record**, `comment: {path, first, last, text}`, so `layout.json` keeps it and it goes when the pane closes. A pane shows it while it shows that file.
@@ -116,7 +116,7 @@ flowchart TB
 - **A new comment restarts the pane**, as `navigate` does, at the comment's first line.
 - **The box** is a view laid into the text view's space above the comment's first line (as a gap in the line layout), so the code below it moves down and the line numbers stay with their lines.
 - **Dimming** is drawn over the text view (the background colour, partly transparent, over the lines outside the comment), so the highlighting keeps its colours.
-- **Checks:** `crates/kanna-daemon/tests/panes.rs` for `comment` (opening, reusing a tab, a range, a new comment replacing the last, the records); KannaCode's snapping against fixture scopes; an e2e scenario that comments on three files, reads `debug.code`, comments again in one, closes a tab and relaunches.
+- **Checks:** `crates/kanna-daemon/tests/panes.rs` for `comment` (opening, reusing a tab, another file, a placement, the records, bad requests), with the test app answering `app.snap`; the CLI's parsing and `block_at` unit tests in `crates/kanna`; `CodeScopesTests` for snapping; e2e S50: comments on a scope, a range and another file, read back through `debug.code` (lines, text, the box in view), a missing file and a line past the end, two comments on a doc through `debug.md` (the thread, its mark, the agent, which is selected), and a relaunch.
 
 ## 6. Glossary
 
