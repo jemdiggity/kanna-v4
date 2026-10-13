@@ -560,10 +560,8 @@ struct Presses {
 
 impl Presses {
     fn press(self, done: Responder) {
-        for (i, key) in self.keys.iter().enumerate() {
-            if i > 0 {
-                std::thread::sleep(KEY_GAP);
-            }
+        for key in &self.keys {
+            std::thread::sleep(KEY_GAP);
             let bytes = Feed::lock(&self.feed).encode_key(key).unwrap_or_default();
             if !bytes.is_empty() && self.input.send(bytes).is_err() {
                 return done.reply(Err(KmuxError::new("bad_request", format!("{} ended before {key} was sent", self.label))));

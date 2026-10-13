@@ -1952,7 +1952,7 @@ print(sum(1 for l in lines if l.get("turn") and sys.argv[2] in l["prompt"] and (
     sleep 3
     [[ "$(asked "$first")" == 1 ]] || { echo "S57: $agent started again with its first message instead of resuming"; return 1; }
     kanna send "$agent task" "$second" || { echo "S57 line $LINENO"; return 1; }
-    sleep 0.05; kanna send-key "$agent task" return || { echo "S57 line $LINENO"; return 1; }
+    kanna send-key "$agent task" return || { echo "S57 line $LINENO"; return 1; }
     check wait_for 60 eval '[[ "$(asked "$second" "$first")" -ge 1 ]]' || { echo "S57: $agent's next message didn't carry its conversation"; kanna read "$agent task"; tail -3 "$agents/mock.jsonl" | cut -c1-300; return 1; }
   done
   stop_agents
