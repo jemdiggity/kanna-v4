@@ -367,6 +367,16 @@ impl Db {
         rows.collect()
     }
 
+    pub fn task(&self, id: &str) -> rusqlite::Result<Option<Row>> {
+        self.conn
+            .query_row("select id, repo, place, pane, made_at, doc from tasks where id = ?1", [id], |r| {
+                let place: String = r.get(2)?;
+                let doc: String = r.get(5)?;
+                Ok(Row { id: r.get(0)?, repo: r.get(1)?, place: Place::parse(&place).unwrap_or(Place::Backlog), pane: r.get(3)?, made_at: r.get(4)?, doc: serde_json::from_str(&doc).unwrap_or(Value::Null) })
+            })
+            .optional()
+    }
+
     #[cfg(test)]
     pub fn counter(&self) -> rusqlite::Result<u64> {
         let value: Option<String> = self.conn.query_row("select value from meta where key = 'next_task'", [], |r| r.get(0)).optional()?;
