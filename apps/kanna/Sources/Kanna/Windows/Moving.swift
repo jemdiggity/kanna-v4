@@ -41,6 +41,10 @@ extension AppController {
         for view in panes.all where view.window === window && view.superview != nil && view.id != id {
             let p = view.convert(inWindow, from: nil), b = view.bounds
             guard b.contains(p) else { continue }
+            if frozen(view.id) {
+                hint.hide()
+                return nil
+            }
             let fx = p.x / b.width, fy = 1 - p.y / b.height
             var side = "swap"
             if !docked(view.id), !(fx > 0.3 && fx < 0.7 && fy > 0.3 && fy < 0.7) {
@@ -77,7 +81,7 @@ extension AppController {
 
     @discardableResult
     func dragPane(_ id: String) -> Bool {
-        guard let size = panes[id]?.window?.frame.size else { return false }
+        guard let size = panes[id]?.window?.frame.size, !frozen(id) else { return false }
         let hint = DropHint()
         let end = trackMouse { _ = paneDrop(id, at: $0, hint: hint, size: size) }
         let drop = paneDrop(id, at: end, hint: hint, size: size)

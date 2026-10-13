@@ -110,6 +110,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             guard let view = panes[id] else { continue }
             panes.started(id)
             view.focused = many && id == focusedID && window.isKeyWindow
+            view.grip.isHidden = id == docked && dock?["frozen"]?.bool == true
         }
         let responder = window.firstResponder
         if let focusedID, let target = panes.keyView(focusedID), responder !== target,

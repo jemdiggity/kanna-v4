@@ -207,6 +207,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         windows.contains { $0["dock"]?["pane"]?.string == pane }
     }
 
+    func frozen(_ pane: String) -> Bool {
+        windows.contains { $0["dock"]?["pane"]?.string == pane && $0["dock"]?["frozen"]?.bool == true }
+    }
+
     func windowOf(pane: String) -> JSON? {
         windows.first { window in
             if window["dock"]?["pane"]?.string == pane { return true }

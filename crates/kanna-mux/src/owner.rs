@@ -169,7 +169,7 @@ impl LayoutOwner {
         let placed: HashSet<String> = self.placed().into_iter().collect();
         let mut added = vec![];
         for pane in live.iter().filter(|p| !placed.contains(&p.id)) {
-            self.model.place(&pane.id, &Placement { window: None, split: SplitSide::Auto, size: 0.5, new_tab: false, dock: None, from: None, shelf: false, backlog: false, planner: false })?;
+            self.model.place(&pane.id, &Placement { window: None, split: SplitSide::Auto, size: 0.5, new_tab: false, dock: None, frozen: false, from: None, shelf: false, backlog: false, planner: false }, &self.panes)?;
             added.push(pane.id.clone());
         }
         let mut reply = Map::new();
@@ -208,6 +208,9 @@ impl LayoutOwner {
                     let mut node = self.node(&Node::Pane(d.pane.clone()));
                     node["edge"] = d.edge.as_str().into();
                     node["width"] = num(d.width);
+                    if d.frozen {
+                        node["frozen"] = Value::Bool(true);
+                    }
                     node["name"] = self.panes.get(&d.pane).and_then(|p| p.name.clone()).map_or(Value::Null, Value::String);
                     node
                 });
