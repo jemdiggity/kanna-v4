@@ -6,9 +6,9 @@ A relaunched app whose bundled daemon differs from the one running replaces it. 
 
 ## 1. The build ID
 
-The **build ID** is the SHA-256 of the `kanna-daemon` binary, in hex.
+The **build ID** is the SHA-256 of the `kanna-daemon` binary, in hex. Three processes work out a build ID, each from a different file, and compare theirs with the daemon's:
 
-| Who | Hashes | When |
+| Process | Hashes, for its build ID | When |
 |---|---|---|
 | the daemon | its own executable | at start, before a rebuild can replace the file |
 | the app | `Contents/Helpers/kanna-daemon`, the daemon it would start | once, at its first hello |
