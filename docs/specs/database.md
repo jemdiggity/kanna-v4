@@ -26,30 +26,13 @@ flowchart LR
 ```
 
 ```mermaid
-erDiagram
-    tasks ||--o{ task_events : "has"
-    tasks {
-        text id PK "t76"
-        text repo
-        text place "backlog · shelf · desk · done"
-        text pane "its agent's pane, while it has one"
-        real made_at
-        json doc "name · message · by · agent · folder · session · …"
-    }
-    task_events {
-        integer id PK
-        text task FK
-        real at
-        text what "made · started · stopped · exited · shelved · parked · pulled · deferred · renamed · done · imported"
-        text from_place
-        text to_place
-        text by "a pane, user, or daemon"
-        json doc "window · code · from (old name) · …"
-    }
-    meta {
-        text key PK "next_task"
-        text value
-    }
+flowchart LR
+    T["<b>tasks</b><br/>id PK · t76<br/>repo<br/>place · backlog, shelf, desk, done<br/>pane · its agent's pane<br/>made_at<br/><i>doc · name, message, by, agent, folder, session</i>"]
+    E["<b>task_events</b><br/>id PK<br/>task FK<br/>at<br/>what · made, started, stopped, exited, shelved,<br/>parked, pulled, deferred, renamed, done, imported<br/>from_place · to_place<br/>by · a pane, user, or daemon<br/><i>doc · window, code, old name</i>"]
+    M["<b>meta</b><br/>key PK · next_task<br/>value"]
+    T -->|"has many"| E
+    classDef table fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    class T,E,M table
 ```
 
 - **SQLite through `rusqlite` with its bundled SQLite** (`features = ["bundled"]`): one C file compiled by `cc` like the tree-sitter grammars, built for the app's macOS ([kanna spec 4.21](../kanna-spec.md#421-the-build)), no server and no system library. WAL mode, `synchronous = NORMAL`, a busy timeout, foreign keys on; file mode 0600 as the rest of the state folder.
