@@ -24,7 +24,10 @@ Both pictures were taken by the command, of a window in the background (`--bg`).
 - **`--out FILE`** (`-o`) is made absolute against the folder kanna runs in. An existing file is refused (`exists`) unless `--force`.
 - **No `--out`:** a new file in the caller's `$TMPDIR`, named for the pane or window and the time, `kanna-w1-20261012-142301.png`, with `-2`, `-3` … if taken.
 - **Readable only by you** (mode 0600), since a terminal can show anything.
-- **Every pane type:** terminal, web, markdown and iOS panes are all layers of the window, so one capture has them all.
+- **Every pane type:** terminal, web, markdown and iOS panes are all layers of the window, so one capture has them all. An iOS pane's shot is the simulator's screen in its frame, as the pane shows it:
+
+  ![An iOS pane: the Settings app on an iPhone 17 simulator](screenshot-ios.png)
+
 - **A window behind others comes out legible**, terminals included (below).
 
 ## 2. CLI
