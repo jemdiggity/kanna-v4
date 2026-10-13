@@ -110,6 +110,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             guard let view = panes[id] else { continue }
             panes.started(id)
             view.focused = many && id == focusedID && window.isKeyWindow
+            view.grip.isHidden = id == docked && dock?["frozen"]?.bool == true
         }
         let responder = window.firstResponder
         if let focusedID, let target = panes.keyView(focusedID), responder !== target,
@@ -124,7 +125,10 @@ final class WindowController: NSObject, NSWindowDelegate {
     private func arrange(_ dock: JSON?, zoomed: Zoom?) {
         var bounds = content.bounds
         let taskless = desk && plannerShown != nil || emptyDesk
-        if shelfPage.isHidden == emptyDesk { shelfPage.isHidden = !emptyDesk }
+        if shelfPage.isHidden == emptyDesk {
+            shelfPage.isHidden = !emptyDesk
+            if !emptyDesk { shelfPage.clearSearch() }
+        }
         if shelfStrip.isHidden == (desk && !taskless) { shelfStrip.isHidden = !desk || taskless }
         if taskless {
         } else if desk {
@@ -167,6 +171,16 @@ final class WindowController: NSObject, NSWindowDelegate {
     }
 
     private(set) var dividers: [DividerView] = []
+
+    @objc func performTextFinderAction(_ sender: Any?) {
+        guard emptyDesk, (sender as? NSMenuItem)?.tag == NSTextFinder.Action.showFindInterface.rawValue else { return }
+        shelfPage.focusSearch()
+    }
+
+    @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard item.action == #selector(performTextFinderAction(_:)) else { return true }
+        return emptyDesk && shelfPage.searchShown && item.tag == NSTextFinder.Action.showFindInterface.rawValue
+    }
 
     static func shownPanes(_ window: JSON) -> [String] {
         let tab = window["tab"]?.string

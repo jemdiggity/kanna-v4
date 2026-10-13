@@ -10,7 +10,7 @@ final class DaemonStarter: @unchecked Sendable {
 
     private static let graceAfterLoss: TimeInterval = 2
     private static let startInterval: TimeInterval = 10
-    private static let passedThrough: Set<String> = ["KANNA_STATE_DIR", "KANNA_DEBUG"]
+    private static let passedThrough: Set<String> = ["KANNA_STATE_DIR", "KANNA_DEBUG", "KANNA_AGENTS_HOME"]
 
     init(socketPath: String) {
         self.socketPath = socketPath

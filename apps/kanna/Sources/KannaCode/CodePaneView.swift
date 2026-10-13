@@ -72,10 +72,11 @@ public final class CodePaneView: NSView {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = []
         textView.textContainerInset = NSSize(width: 0, height: 8)
-        textView.usesFindBar = true
-        textView.isIncrementalSearchingEnabled = true
         textView.selectedTextAttributes = [.backgroundColor: NSColor.selectedTextBackgroundColor]
-        textView.onCurrentLine = { [weak self] in self?.gutter.needsDisplay = true }
+        textView.onMarks = { [weak self] in
+            self?.gutter.needsDisplay = true
+            self?.updateSticky()
+        }
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -92,6 +93,7 @@ public final class CodePaneView: NSView {
                 self?.updateSticky()
             }
         }
+        textView.startFinder(in: scrollView)
         addSubview(scrollView)
         sticky.onPick = { [weak self] line in self?.reveal(line: line, toTop: true) }
         scrollView.onTile = { [weak self] in self?.updateSticky() }
@@ -130,6 +132,7 @@ public final class CodePaneView: NSView {
         fontSize = target
         textView.font = CodeTheme.font(size: fontSize)
         let attributes: [NSAttributedString.Key: Any] = [.font: CodeTheme.font(size: fontSize), .foregroundColor: CodeTheme.text]
+        textView.finder.noteClientStringWillChange()
         textView.textStorage?.setAttributedString(NSAttributedString(string: file.text, attributes: attributes))
         apply(highlights)
         textView.gap = 0
@@ -162,7 +165,7 @@ public final class CodePaneView: NSView {
         let top = scrollView.contentView.bounds.origin
         let old = file
         load()
-        gutter.changed = file.changedLines(from: old)
+        textView.changed = file.changedLines(from: old)
         scrollView.contentView.scroll(to: top)
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
@@ -181,6 +184,7 @@ public final class CodePaneView: NSView {
         textView.indents = CodeScopes.indents(file)
         textView.indentUnit = CodeScopes.unit(textView.indents)
         let attributes: [NSAttributedString.Key: Any] = [.font: CodeTheme.font(size: fontSize), .foregroundColor: CodeTheme.text]
+        textView.finder.noteClientStringWillChange()
         textView.textStorage?.setAttributedString(NSAttributedString(string: file.text, attributes: attributes))
         gutter.file = file
         applyComment()
@@ -194,7 +198,6 @@ public final class CodePaneView: NSView {
         textView.gap = 0
         let shown = comment.flatMap { failure == nil && $0.first <= file.lineCount ? $0 : nil }
         textView.comment = shown
-        gutter.comment = shown
         guard let shown else { return }
         let made = CodeCommentBox(comment: shown)
         box = made
@@ -288,6 +291,13 @@ public final class CodePaneView: NSView {
     var lineHeight: CGFloat { layoutManager.defaultLineHeight(for: CodeTheme.font(size: fontSize)) }
 
     public var pinned: [Int] { sticky.rows.map(\.line) }
+    public var pinnedMarks: [(line: Int, marks: CodeMarks)] { sticky.rows.map { ($0.line, $0.marks) } }
+
+    public func select(line: Int, column: Int, length: Int) {
+        let span = textView.range(ofLine: min(max(line, 1), file.lineCount))
+        let start = span.location + min(max(column, 0), span.length)
+        textView.setSelectedRange(NSRange(location: start, length: min(max(length, 0), (textView.textStorage?.length ?? 0) - start)))
+    }
 
     func updateSticky() {
         let top = topLine
@@ -302,17 +312,18 @@ public final class CodePaneView: NSView {
         sticky.textX = clip.frame.minX - clip.bounds.minX + textView.textContainerInset.width
         sticky.lineHeight = lineHeight
         sticky.font = CodeTheme.font(size: fontSize)
+        sticky.selectionColor = textView.selectionColor
         guard let storage = textView.textStorage else { return }
         sticky.rows = rows.compactMap { line in
-            let start = file.start(ofLine: line)
-            let end = line < file.lineCount ? file.start(ofLine: line + 1) : storage.length
-            guard start <= end, end <= storage.length else { return nil }
-            var range = NSRange(location: start, length: end - start)
+            var range = textView.range(ofLine: line)
+            guard range.location < storage.length || range.length == 0 else { return nil }
             if range.length > 0, (storage.string as NSString).character(at: NSMaxRange(range) - 1) == 0x0a { range.length -= 1 }
             let text = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
             text.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: text.length))
-            return CodeStickyView.Row(line: line, text: text)
+            let marks = textView.marks(forLine: line)
+            return CodeStickyView.Row(line: line, text: text, marks: marks, selection: textView.spans(marks.selection, inLine: line), matches: textView.spans(marks.matches, inLine: line))
         }
+        sticky.needsDisplay = true
     }
 
     public func reveal(line: Int, toTop: Bool) {
@@ -385,7 +396,7 @@ public final class CodePaneView: NSView {
         let clip = scrollView.contentView
         return ["clip_top": Double(convert(clip.frame, from: scrollView).maxY), "height": Double(bounds.height), "sticky_top": Double(sticky.frame.maxY), "find_bar_height": Double(scrollView.findBarView?.frame.height ?? -1), "find_bar_y": Double(scrollView.findBarView.map { convert($0.frame, from: $0.superview).minY } ?? -1), "find_bar": scrollView.isFindBarVisible ? 1 : 0, "selection_line": Double(file.line(at: textView.selectedRange().location)), "selection_length": Double(textView.selectedRange().length), "zoom": Double(zoom), "font_size": Double(fontSize), "spans": Double(highlights.spans.count), "scopes": Double(highlights.scopes.count), "lines": Double(file.lineCount), "top": Double(topLine), "current": Double(currentLine), "gutter": Double(gutter.ruleThickness),
                 "clip_x": Double(clip.frame.minX), "clip_width": Double(clip.frame.width), "scroll_x": Double(clip.bounds.minX),
-                "scroll_y": Double(clip.bounds.minY), "changed": Double(gutter.changed.min() ?? 0), "pinned": Double(pinned.count), "indent_unit": Double(textView.indentUnit), "text_x": Double(textView.frame.minX), "text_width": Double(textView.frame.width),
+                "scroll_y": Double(clip.bounds.minY), "changed": Double(textView.changed.min() ?? 0), "pinned": Double(pinned.count), "indent_unit": Double(textView.indentUnit), "text_x": Double(textView.frame.minX), "text_width": Double(textView.frame.width),
                 "comment_first": Double(textView.comment?.first ?? 0), "comment_last": Double(textView.comment?.last ?? 0), "comment_gap": Double(textView.gap),
                 "comment_box_height": Double(box?.frame.height ?? 0), "comment_box_visible": box.map { clip.bounds.intersects($0.frame) && $0.frame.minY >= clip.bounds.minY ? 1 : 0 } ?? 0]
     }
@@ -415,18 +426,83 @@ final class CodeScrollView: NSScrollView {
 @MainActor
 final class CodeTextView: NSTextView {
     var onFocus: (() -> Void)?
-    var onCurrentLine: (() -> Void)?
+    var onMarks: (() -> Void)?
     var onMove: ((CodeMove) -> Void)?
     private var keys = CodeKeys()
     var contextMenu: (() -> NSMenu?)?
     var file = CodeFile(text: "")
     var indents: [Int] = []
     var indentUnit = 4
-    var currentLine = 1 { didSet { if currentLine != oldValue { needsDisplay = true; onCurrentLine?() } } }
-    var comment: CodeComment? { didSet { needsDisplay = true } }
+    var currentLine = 1 { didSet { if currentLine != oldValue { needsDisplay = true; onMarks?() } } }
+    var comment: CodeComment? { didSet { needsDisplay = true; onMarks?() } }
+    var changed: Set<Int> = [] { didSet { needsDisplay = true; onMarks?() } }
     var gap: CGFloat = 0
-    private var flashing: Int?
+    let finder = NSTextFinder()
+    private lazy var finderClient = CodeFinderClient(textView: self)
+    private var matchObserver: NSKeyValueObservation?
+    private var keyObservers: [NSObjectProtocol] = []
+    private var flashing: Int? { didSet { needsDisplay = true; onMarks?() } }
     private var flashTask: DispatchWorkItem?
+
+    func startFinder(in container: NSScrollView) {
+        finder.client = finderClient
+        finder.findBarContainer = container
+        finder.isIncrementalSearchingEnabled = true
+        finder.incrementalSearchingShouldDimContentView = false
+        matchObserver = finder.observe(\.incrementalMatchRanges) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.needsDisplay = true
+                self?.onMarks?()
+            }
+        }
+    }
+
+    var matches: [NSRange] { finder.incrementalMatchRanges.map(\.rangeValue) }
+
+    var selectionColor: NSColor {
+        guard let window, window.isKeyWindow, window.firstResponder === self else { return .unemphasizedSelectedTextBackgroundColor }
+        return selectedTextAttributes[.backgroundColor] as? NSColor ?? .selectedTextBackgroundColor
+    }
+
+    func range(ofLine line: Int) -> NSRange {
+        let length = textStorage?.length ?? 0
+        let start = min(file.start(ofLine: line), length)
+        let end = line < file.lineCount ? min(file.start(ofLine: line + 1), length) : length
+        return NSRange(location: start, length: max(0, end - start))
+    }
+
+    func marks(forLine line: Int) -> CodeMarks {
+        let span = range(ofLine: line)
+        func local(_ ranges: [NSRange]) -> [NSRange] {
+            ranges.compactMap { range in
+                guard range.length > 0, let overlap = range.intersection(span), overlap.length > 0 else { return nil }
+                return NSRange(location: overlap.location - span.location, length: overlap.length)
+            }
+        }
+        return CodeMarks(selection: local(selectedRanges.map(\.rangeValue)), matches: local(matches), current: line == currentLine,
+                         commented: comment?.contains(line) == true, dimmed: comment.map { !$0.contains(line) } ?? false,
+                         changed: changed.contains(line), flashing: line == flashing)
+    }
+
+    func spans(_ ranges: [NSRange], inLine line: Int) -> [NSRect] {
+        guard let manager = layoutManager, let container = textContainer, let storage = textStorage else { return [] }
+        let span = range(ofLine: line)
+        let newline = span.length > 0 && (storage.string as NSString).character(at: NSMaxRange(span) - 1) == 0x0a
+        return ranges.map { local in
+            let range = NSRange(location: span.location + local.location, length: local.length)
+            var rect = manager.boundingRect(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: container)
+            if newline, NSMaxRange(range) == NSMaxRange(span) { rect.size.width = max(bounds.width, visibleRect.maxX) - rect.minX }
+            return rect
+        }
+    }
+
+    private func lines(in rect: NSRect) -> ClosedRange<Int> {
+        guard let manager = layoutManager, let container = textContainer, (textStorage?.length ?? 0) > 0 else { return 1...1 }
+        let glyphs = manager.glyphRange(forBoundingRect: rect.offsetBy(dx: -textContainerOrigin.x, dy: -textContainerOrigin.y), in: container)
+        let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        let first = file.line(at: characters.location)
+        return first...max(first, file.line(at: max(characters.location, NSMaxRange(characters) - 1)))
+    }
 
     func rect(forLine line: Int) -> NSRect? {
         guard var rect = rawRect(forLine: line) else { return nil }
@@ -454,27 +530,18 @@ final class CodeTextView: NSTextView {
         flashing = line
         needsDisplay = true
         flashTask?.cancel()
-        let task = DispatchWorkItem { [weak self] in
-            self?.flashing = nil
-            self?.needsDisplay = true
-        }
+        let task = DispatchWorkItem { [weak self] in self?.flashing = nil }
         flashTask = task
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: task)
     }
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        if let comment, let top = self.rect(forLine: comment.first), let bottom = self.rect(forLine: comment.last) {
-            CodeTheme.tint.setFill()
-            NSRect(x: 0, y: top.minY, width: max(bounds.width, visibleRect.maxX), height: bottom.maxY - top.minY).intersection(rect).fill()
-        }
-        if let line = self.rect(forLine: currentLine), line.intersects(rect) {
-            CodeTheme.currentLine.setFill()
-            line.fill()
-        }
-        if let flashing, let line = self.rect(forLine: flashing), line.intersects(rect) {
-            CodeTheme.flash.setFill()
-            line.fill()
+        for line in lines(in: rect) {
+            guard let fragment = self.rect(forLine: line), fragment.intersects(rect) else { continue }
+            let marks = marks(forLine: line)
+            marks.fillLine(fragment)
+            marks.drawMatches(spans(marks.matches, inLine: line).map { NSRect(x: textContainerOrigin.x + $0.minX, y: fragment.minY, width: $0.width, height: fragment.height) })
         }
         drawGuides(in: rect)
     }
@@ -488,14 +555,10 @@ final class CodeTextView: NSTextView {
     }
 
     private func drawGuides(in rect: NSRect) {
-        guard let manager = layoutManager, let container = textContainer, !indents.isEmpty, (textStorage?.length ?? 0) > 0 else { return }
+        guard !indents.isEmpty, (textStorage?.length ?? 0) > 0 else { return }
         let width = ("0" as NSString).size(withAttributes: [.font: font ?? CodeTheme.font(size: CodeTheme.fontSize)]).width
-        let glyphs = manager.glyphRange(forBoundingRect: rect, in: container)
-        let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        let first = file.line(at: characters.location)
-        let last = file.line(at: max(characters.location, NSMaxRange(characters) - 1))
         CodeTheme.guide.setFill()
-        for line in first...max(first, last) where line <= indents.count {
+        for line in lines(in: rect) where line <= indents.count {
             guard let fragment = self.rect(forLine: line) else { continue }
             var column = 0
             while column < indents[line - 1] {
@@ -512,14 +575,53 @@ final class CodeTextView: NSTextView {
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
-        if result { onFocus?() }
+        if result {
+            onFocus?()
+            onMarks?()
+        }
         return result
     }
 
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        if result { onMarks?() }
+        return result
+    }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        onMarks?()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        keyObservers.forEach(NotificationCenter.default.removeObserver)
+        keyObservers = []
+        guard let window else { return }
+        keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onMarks?() }
+            }
+        }
+    }
+
     func finderAction(_ action: NSTextFinder.Action) {
-        let item = NSMenuItem()
-        item.tag = action.rawValue
-        performTextFinderAction(item)
+        finder.performAction(action)
+    }
+
+    override func performTextFinderAction(_ sender: Any?) {
+        guard let tag = (sender as? NSValidatedUserInterfaceItem)?.tag, let action = NSTextFinder.Action(rawValue: tag) else { return }
+        finder.performAction(action)
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(performTextFinderAction(_:)) { return NSTextFinder.Action(rawValue: item.tag).map(finder.validateAction) ?? false }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(performTextFinderAction(_:)) { return validateUserInterfaceItem(item) }
+        return super.validateMenuItem(item)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -551,8 +653,6 @@ final class CodeTextView: NSTextView {
 final class CodeGutter: NSRulerView {
     weak var textView: CodeTextView?
     var file = CodeFile(text: "") { didSet { needsDisplay = true } }
-    var changed: Set<Int> = [] { didSet { needsDisplay = true } }
-    var comment: CodeComment? { didSet { needsDisplay = true } }
 
     override init(scrollView: NSScrollView?, orientation: NSRulerView.Orientation) {
         super.init(scrollView: scrollView, orientation: orientation)
@@ -587,28 +687,7 @@ final class CodeGutter: NSRulerView {
         for line in first...max(first, last) {
             guard let fragment = textView.rect(forLine: line) else { continue }
             let y = convert(NSPoint(x: 0, y: fragment.minY), from: textView).y
-            let current = line == textView.currentLine
-            let commented = comment?.contains(line) == true
-            if commented {
-                CodeTheme.tint.setFill()
-                NSRect(x: 0, y: y, width: bounds.width, height: fragment.height).fill()
-            }
-            if current {
-                CodeTheme.currentLine.setFill()
-                NSRect(x: 0, y: y, width: bounds.width, height: fragment.height).fill()
-            }
-            if commented {
-                CodeTheme.tintEdge.setFill()
-                NSRect(x: 0, y: y, width: 2, height: fragment.height).fill()
-            }
-            if changed.contains(line) {
-                CodeTheme.changed.setFill()
-                NSBezierPath(roundedRect: NSRect(x: 3, y: y + 2, width: 3, height: fragment.height - 4), xRadius: 1.5, yRadius: 1.5).fill()
-            }
-            let label = String(line) as NSString
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: current || commented ? CodeTheme.currentNumber : CodeTheme.number]
-            let size = label.size(withAttributes: attributes)
-            label.draw(at: NSPoint(x: bounds.width - CodeTheme.gutterPadding - size.width, y: y + (fragment.height - size.height) / 2), withAttributes: attributes)
+            textView.marks(forLine: line).drawGutter(line: line, in: NSRect(x: 0, y: y, width: bounds.width, height: fragment.height), font: font)
         }
     }
 }

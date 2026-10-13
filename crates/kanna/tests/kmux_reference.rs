@@ -15,7 +15,7 @@ mod commands {
 use kanna::args::Argv;
 use serde_json::{json, Value};
 
-const KANNA_ONLY: &[&str] = &["read", "status", "markup", "comment", "rename-pane", "task"];
+const KANNA_ONLY: &[&str] = &["read", "send-key", "status", "agents", "markup", "comment", "rename-pane", "task"];
 
 const EXTENDED: &[(&str, &str)] = &[
     ("open", "notes"),
@@ -163,6 +163,7 @@ fn every_kmux_example_and_request_parses_the_same() {
             "kmux list --json",
             "kmux capabilities",
             "kmux open --dock right --cmd claude",
+            "kmux open --dock --frozen --cmd claude",
             "kmux open --dock md /tmp/a.md",
             "kmux open web a.test --dock=right --window new",
             "kmux move agent --dock",
@@ -215,6 +216,7 @@ fn usage_errors_are_kmux_errors() {
         "kmux move agent --dock --tab",
         "kmux move agent --dock --to b",
         "kmux move agent --dock top",
+        "kmux open --frozen",
     ] {
         let kmux = kmux_parse(line).expect_err(line);
         let kanna = kanna_parse(line).expect_err(line);

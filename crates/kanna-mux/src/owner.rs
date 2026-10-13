@@ -169,7 +169,7 @@ impl LayoutOwner {
         let placed: HashSet<String> = self.placed().into_iter().collect();
         let mut added = vec![];
         for pane in live.iter().filter(|p| !placed.contains(&p.id)) {
-            self.model.place(&pane.id, &Placement { window: None, split: SplitSide::Auto, size: 0.5, new_tab: false, dock: None, from: None, shelf: false, planner: false })?;
+            self.model.place(&pane.id, &Placement { window: None, split: SplitSide::Auto, size: 0.5, new_tab: false, dock: None, frozen: false, from: None, shelf: false, backlog: false, planner: false }, &self.panes)?;
             added.push(pane.id.clone());
         }
         let mut reply = Map::new();
@@ -208,6 +208,9 @@ impl LayoutOwner {
                     let mut node = self.node(&Node::Pane(d.pane.clone()));
                     node["edge"] = d.edge.as_str().into();
                     node["width"] = num(d.width);
+                    if d.frozen {
+                        node["frozen"] = Value::Bool(true);
+                    }
                     node["name"] = self.panes.get(&d.pane).and_then(|p| p.name.clone()).map_or(Value::Null, Value::String);
                     node
                 });
@@ -371,6 +374,21 @@ mod tests {
     }
 
     #[test]
+    fn an_open_from_a_terminal_goes_beside_it_in_its_window_not_the_key_one() {
+        let (mut owner, _) = LayoutOwner::open(None, false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({}));
+        place(&mut owner, "p2", json!({ "window": "new" }));
+        assert_eq!(owner.view()["key"], "w2");
+        place(&mut owner, "p3", json!({ "from": "p1" }));
+        let view = Value::Object(owner.view());
+        assert_eq!(view["key"], "w1");
+        assert_eq!(view["windows"][0]["tabs"][0]["panes"], json!(["p1", "p3"]));
+        assert_eq!(view["windows"][0]["focused"], "p3");
+        assert_eq!(view["windows"][1]["tabs"][0]["panes"], json!(["p2"]));
+    }
+
+    #[test]
     fn a_saved_layout_comes_back_without_the_panes_that_are_gone() {
         let dir = folder("back");
         let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
@@ -497,6 +515,7 @@ mod tests {
 
         let parked = task(&mut owner, json!({ "action": "park" }));
         assert_eq!(parked["task"], "p1", "{parked}");
+        assert_eq!(parked["moves"], json!([{ "task": "p1", "from": "desk", "to": "shelf", "window": "w1" }]));
         let empty = window(&owner);
         assert_eq!((empty["desk"].clone(), empty["dock"].clone(), empty["tabs"].clone()), (json!(true), Value::Null, json!([])));
         assert_eq!(owner.view()["shelf"][0]["task"], "p1");
@@ -512,12 +531,14 @@ mod tests {
         assert_eq!(listed["tasks"][0]["window"], Value::Null);
         let pulled = task(&mut again, json!({ "action": "pull", "task": "p1" }));
         assert_eq!((pulled["window"].clone(), pulled["moved"].clone()), (json!("w1"), json!(true)), "{pulled}");
+        assert_eq!(pulled["moves"], json!([{ "task": "p1", "from": "shelf", "to": "desk", "window": "w1" }]));
         let after = window(&again);
         for field in ["dock", "tabs", "tab", "root", "focused"] {
             assert_eq!(after[field], before[field], "{field}");
         }
         assert_eq!(again.view()["shelf"], json!([]));
         assert_eq!(task(&mut again, json!({ "action": "pull", "task": "p1" }))["moved"], false);
+        assert_eq!(task(&mut again, json!({ "action": "pull", "task": "p1" }))["moves"], Value::Null, "a task already on its Desk doesn't move");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -581,6 +602,19 @@ mod tests {
     }
 
     #[test]
+    fn a_pull_onto_a_desk_with_a_task_says_both_moved() {
+        let (mut owner, _) = LayoutOwner::open(None, false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let task = |owner: &mut LayoutOwner, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "task", "args": args } }));
+        task(&mut owner, json!({ "action": "desk" }));
+        place(&mut owner, "p1", json!({ "dock": "left", "shelf": true }));
+        place(&mut owner, "p2", json!({ "dock": "left", "shelf": true }));
+        task(&mut owner, json!({ "action": "pull", "task": "p1", "window": "w1" }));
+        let swapped = task(&mut owner, json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        assert_eq!(swapped["moves"], json!([{ "task": "p1", "from": "desk", "to": "shelf", "window": "w1" }, { "task": "p2", "from": "shelf", "to": "desk", "window": "w1" }]), "{swapped}");
+    }
+
+    #[test]
     fn a_planning_agent_shows_while_no_task_does_is_no_task_and_survives_a_relaunch() {
         let dir = folder("planner");
         let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
@@ -616,6 +650,54 @@ mod tests {
         gone.handle(&json!({ "call": "attach", "panes": table(&["p2"]) }));
         assert_eq!(window(&gone)["planner"], Value::Null);
         assert_eq!(window(&gone)["project"], "/work/app");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_task_parks_and_pulls_with_its_zoom_and_the_shelf_keeps_its_own_across_a_relaunch() {
+        let dir = folder("shelf-zoom");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let command = |owner: &mut LayoutOwner, cmd: &str, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": cmd, "args": args } }));
+        let window = |owner: &LayoutOwner| owner.view()["windows"][0].clone();
+        let shown = |owner: &LayoutOwner| (window(owner)["focused"].clone(), window(owner)["zoomed"].clone());
+        command(&mut owner, "task", json!({ "action": "desk", "project": "/work/app" }));
+        place(&mut owner, "p1", json!({ "planner": true, "window": "w1" }));
+        place(&mut owner, "p2", json!({ "dock": "left", "shelf": true }));
+        command(&mut owner, "task", json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        place(&mut owner, "p3", json!({}));
+        place(&mut owner, "p4", json!({ "split": "right" }));
+        command(&mut owner, "focus", json!({ "pane": "p3" }));
+        assert_eq!(command(&mut owner, "zoom", json!({ "pane": "p3" }))["zoomed"], true);
+        assert_eq!(shown(&owner), (json!("p3"), json!("p3")));
+        assert_eq!(window(&owner)["root"], json!({ "pane": "p3", "type": "term" }));
+
+        command(&mut owner, "task", json!({ "action": "park" }));
+        assert_eq!(shown(&owner), (json!("p1"), Value::Null), "the Shelf view isn't zoomed");
+        assert_eq!(command(&mut owner, "zoom", json!({ "pane": "p1" }))["zoomed"], true);
+        assert_eq!(shown(&owner), (json!("p1"), json!("p1")));
+        let listed = owner.handle(&json!({ "call": "serve", "request": { "op": "windows" } }));
+        assert_eq!(listed["windows"][0]["zoomed"], "p1", "{listed}");
+
+        command(&mut owner, "task", json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        assert_eq!(shown(&owner), (json!("p3"), json!("p3")), "the task comes back zoomed where it was");
+        command(&mut owner, "task", json!({ "action": "park" }));
+        assert_eq!(shown(&owner), (json!("p1"), json!("p1")), "the Shelf view comes back zoomed");
+        command(&mut owner, "task", json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        owner.save().unwrap();
+
+        let (mut again, _) = LayoutOwner::open(Some(file), false);
+        again.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2", "p3", "p4"]) }));
+        assert_eq!(shown(&again), (json!("p3"), json!("p3")));
+        command(&mut again, "task", json!({ "action": "park" }));
+        assert_eq!(shown(&again), (json!("p1"), json!("p1")), "the Shelf's zoom survives a relaunch behind a task");
+        assert_eq!(command(&mut again, "zoom", json!({ "pane": "p1" }))["zoomed"], false);
+        command(&mut again, "task", json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        assert_eq!(shown(&again), (json!("p3"), json!("p3")));
+        assert_eq!(command(&mut again, "zoom", json!({ "pane": "p3" }))["zoomed"], false);
+        command(&mut again, "task", json!({ "action": "park" }));
+        assert_eq!(shown(&again), (json!("p1"), Value::Null));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

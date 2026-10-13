@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S52) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S59) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -20,6 +20,8 @@ Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app (or $
   KANNA_STATE_DIR  where the daemon, keeper and app keep their files
                    (the keeper writes keeper.pid there)
   KANNA_KEEPER     the keeper binary the daemon starts (once it uses one)
+S57 runs the real claude and codex (on PATH, or $KANNA_E2E_CLAUDE / $KANNA_E2E_CODEX)
+against tools/agent-harness's mock model, each in a HOME of its own.
 USAGE
 }
 
@@ -33,7 +35,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-2]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-9]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -44,8 +46,10 @@ unset KANNA_PANE KANNA_INSTANCE
 new_state_dir() {
   KANNA_STATE_DIR="$(mktemp -d /tmp/kanna-e2e.XXXXXX)" || exit 1
   export KANNA_AGENT_RULES_DIR="$KANNA_STATE_DIR/agent-rules-override"
+  export KANNA_AGENTS_HOME="$KANNA_STATE_DIR/home"
   [[ -n "$KANNA_STATE_DIR" && -d "$KANNA_STATE_DIR" ]] || { echo "e2e-kanna: mktemp gave no folder" >&2; exit 1; }
   export KANNA_STATE_DIR KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
+  mkdir -p "$KANNA_AGENTS_HOME/.kanna-v4" && echo '{"version": 2, "setup": false}' >"$KANNA_AGENTS_HOME/.kanna-v4/agents.json"
 }
 new_state_dir
 export KANNA_IGNORE_OCCLUSION=1
@@ -53,6 +57,7 @@ export KANNA_DEBUG=1
 export KANNA_NO_INITIAL_WINDOW=1
 export KANNA_AGENT_RULES_URL=none
 export KANNA_AGENT="$repo_root/tools/mock-agent/mock-agent"
+export KANNA_AGENT_SKILLS="${app%/MacOS/Kanna}/Resources/kanna-skills"
 daemon_pid="" app_pid=""
 
 need() { [[ -x "$1" ]] || { echo "not built: ${1#$repo_root/}"; return 1; }; }
@@ -91,7 +96,14 @@ cleanup() {
   stop_app; stop_daemon
   stop_started_daemon
   stop_keeper
+  stop_agents
   rm -rf "$KANNA_STATE_DIR"
+}
+stop_agents() {
+  [[ -d "$KANNA_STATE_DIR/agents" ]] || return 0
+  pkill -f "$KANNA_STATE_DIR/agents/" 2>/dev/null
+  wait_for 10 eval "! pgrep -f '$KANNA_STATE_DIR/agents/' >/dev/null" || pkill -9 -f "$KANNA_STATE_DIR/agents/" 2>/dev/null
+  return 0
 }
 stop_started_daemon() {
   local pid
@@ -304,6 +316,22 @@ S10() {
   kanna open --name live --split right --cmd 'echo LIVE-READY; exec cat' >/dev/null || return 1
   app_shows_live() { raw '{"id":1,"cmd":"debug.text","args":{"pane":"live"}}' | field text | grep -q LIVE-READY; }
   check wait_for 5 app_shows_live || return 1
+  local home="$KANNA_AGENTS_HOME"
+  mkdir -p "$home/.claude" "$home/.codex" && echo '{"model":"opus"}' >"$home/.claude/settings.json" && echo '{"hooks":{}}' >"$home/.codex/hooks.json"
+  check grep -q "you said no" <(kanna agents) || return 1
+  check test -z "$(echo y | kanna agents setup --ask)" || { echo "S10: setup --ask asked after you said no"; return 1; }
+  check grep -q "Kanna's skills are installed" <(kanna agents setup) || return 1
+  check grep -q "kanna task name" "$home/.claude/skills/kanna-tasks/SKILL.md" || return 1
+  check test -f "$home/.agents/skills/kanna-planning/SKILL.md" || return 1
+  check grep -qF "$KANNA_SOCKET" "$home/.claude/settings.json" || return 1
+  check grep -q "kanna-tasks skill" "$home/.claude/settings.json" || return 1
+  check grep -q "kanna-tasks skill" "$home/.codex/hooks.json" || return 1
+  check grep -q "up to date" <(kanna agents) || return 1
+  check test -z "$(echo y | kanna agents update --ask)" || { echo "S10: update --ask asked with nothing new"; return 1; }
+  kanna agents remove >/dev/null || return 1
+  check test ! -e "$home/.agents/skills/kanna-tasks" || return 1
+  check test "$(tr -d ' \n' <"$home/.claude/settings.json")" == '{"model":"opus"}' || return 1
+  check test "$(tr -d ' \n' <"$home/.codex/hooks.json")" == '{"hooks":{}}' || return 1
   kill "$first"
   wait_for 15 eval '[[ "$(cat "$KANNA_STATE_DIR/daemon.pid" 2>/dev/null)" != "$first" ]] && app_attached' || { echo "the app did not start a new daemon"; return 1; }
   check test "$(kanna list --json | field panes.0.type)" == term || return 1
@@ -1000,7 +1028,16 @@ S38() {
   [[ "$refused" == *"agent isn't a task, and only a task's agent docks"* ]] || { echo "docking a pane that isn't a task should say why: $refused"; return 1; }
   check test "$(win w1 dock)" == None || return 1
   kanna close agent >/dev/null || return 1
-  kanna open --name agent --dock --cmd "printf 'agent: zoom as a mode\n'; exec sleep 600" >/dev/null || return 1
+  opened="$(kanna open --name agent --dock --frozen --cmd "printf 'agent: zoom as a mode\n'; exec sleep 600")" || return 1
+  [[ "$opened" == *"(agent) docked left, frozen, in window w1: running" ]] || { echo "open --dock --frozen should say it's frozen: $opened"; return 1; }
+  [[ "$(kanna list)" == *"(agent)  left 2/5  frozen"* ]] || { echo "list should show the dock frozen: $(kanna list)"; return 1; }
+  refused="$(kanna move agent --dock right 2>&1)" && { echo "moving a frozen docked pane should fail"; return 1; }
+  [[ "$refused" == *"frozen: agent ("*") is frozen in its dock and doesn't move"* ]] || { echo "moving a frozen docked pane should say why: $refused"; return 1; }
+  refused="$(kanna move dt2 --to agent 2>&1)" && { echo "swapping onto a frozen docked pane should fail"; return 1; }
+  [[ "$refused" == *"is frozen in w1's dock; nothing drops on it"* ]] || { echo "swapping onto a frozen docked pane should say why: $refused"; return 1; }
+  check test "$(raw '{"id":1,"cmd":"debug.drag","args":{"pane":"dt2","to":{"pane":"agent","x":0.5,"y":0.5}}}' | field dropped)" == False || return 1
+  check test "$(raw '{"id":1,"cmd":"debug.drag","args":{"pane":"agent","to":{"pane":"dt2","x":0.5,"y":0.5}}}' | field dropped)" == False || return 1
+  check test "$(win w1 dock.pane)" == agent || return 1
   kanna close dt2 >/dev/null || return 1
   check test "$(win w1 tabs)" == '[]' || return 1
   check test "$(win w1 dock.pane)" == agent || return 1
@@ -1344,7 +1381,7 @@ S43() {
   kanna open --name ta --dock --window new --cwd "$repo_root/docs" >/dev/null || return 1
   kanna open --name tb --dock --window new --cwd "$repo_root" >/dev/null || return 1
   kanna open --name tc --dock --window new --cwd "$repo_root" 2>"$KANNA_STATE_DIR/s43-limit" && return 1
-  grep -q "has 3 tasks already" "$KANNA_STATE_DIR/s43-limit" || { cat "$KANNA_STATE_DIR/s43-limit"; return 1; }
+  grep -q "has 3 tasks on the Shelf already" "$KANNA_STATE_DIR/s43-limit" || { cat "$KANNA_STATE_DIR/s43-limit"; return 1; }
   kanna open --name elsewhere --dock --window new --cwd "$KANNA_STATE_DIR" >/dev/null || return 1
   ta=$(kanna task list | awk '$2 == "ta" { print $4 }')
   KANNA_PANE=ta kanna open --name ta-notes >/dev/null || return 1
@@ -1369,12 +1406,12 @@ S44() {
   expected="added t1 \"Fix it\" to the backlog of $repo"; says in_repo task new "Fix it" "say hi" --agent "$agent" || { echo "S44 line $LINENO"; return 1; }
   in_repo task new "Plain" >/dev/null || { echo "S44 line $LINENO"; return 1; }
   [[ "$(cd "$KANNA_STATE_DIR" && kanna task new "Nowhere" 2>&1)" == *"belongs to a git repo"* ]] || { echo "S44 line $LINENO"; return 1; }
-  in_repo task list | grep -qE '^t1 +Fix it +Backlog +made' || { in_repo task list; return 1; }
+  in_repo task list | grep -qE '^t1 +Fix it +Backlog +stopped +made' || { in_repo task list; return 1; }
   expected="took t2 off the backlog"; says kanna task done t2 || { echo "S44 line $LINENO"; return 1; }
   stop_app; stop_daemon; start_daemon && start_app || { echo "S44 line $LINENO"; return 1; }
   in_repo task list | grep -qE '^t1 +Fix it +Backlog' || { echo "the backlog didn't survive a restart"; in_repo task list; return 1; }
-  local started wt; started="$(kanna task start t1)" || { echo "S44 line $LINENO"; return 1; }
-  [[ "$started" =~ ^"started t1 on the Shelf: p1 in $repo/.kanna-worktrees/"(task-[0-9a-f]{8})" ("(task-[0-9a-f]{8})")"$ && "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] || { echo "S44 line $LINENO: $started"; return 1; }
+  local started wt; started="$(kanna task shelve t1)" || { echo "S44 line $LINENO"; return 1; }
+  [[ "$started" =~ ^"moved t1 to the Shelf: p1 in $repo/.kanna-worktrees/"(task-[0-9a-f]{8})" ("(task-[0-9a-f]{8})")"$ && "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] || { echo "S44 line $LINENO: $started"; return 1; }
   wt="$repo/.kanna-worktrees/${BASH_REMATCH[1]}"
   check wait_for 5 eval '[[ "$(pane "Fix it" id)" == p1 ]]' || { echo "S44 line $LINENO"; return 1; }
   check test "$(git -C "$wt" branch --show-current)" == "${wt##*/}" || { echo "S44 line $LINENO"; return 1; }
@@ -1384,9 +1421,9 @@ S44() {
   check wait_for 5 is "Fix it" status idle || { echo "S44 line $LINENO"; return 1; }
   expected='named p1 "Fixed"'; says kanna task name p1 Fixed || { echo "S44 line $LINENO"; return 1; }
   for n in 3 4 5; do in_repo task new "More $n" --agent "$agent" >/dev/null || return 1; done
-  kanna task start t3 >/dev/null && kanna task start t4 >/dev/null || { echo "S44 line $LINENO"; return 1; }
-  kanna task start t5 2>"$KANNA_STATE_DIR/s44-limit" && { echo "S44 line $LINENO"; return 1; }
-  grep -q "has 3 tasks running" "$KANNA_STATE_DIR/s44-limit" || { cat "$KANNA_STATE_DIR/s44-limit"; return 1; }
+  kanna task shelve t3 >/dev/null && kanna task shelve t4 >/dev/null || { echo "S44 line $LINENO"; return 1; }
+  kanna task shelve t5 2>"$KANNA_STATE_DIR/s44-limit" && { echo "S44 line $LINENO"; return 1; }
+  grep -q "has 3 tasks on the Shelf" "$KANNA_STATE_DIR/s44-limit" || { cat "$KANNA_STATE_DIR/s44-limit"; return 1; }
   in_repo task list | grep -q '^t5 .*Backlog' || { echo "S44 line $LINENO"; return 1; }
   check test "$(ls "$repo/.kanna-worktrees" | wc -l | tr -d ' ')" == 3 || { echo "S44 line $LINENO"; return 1; }
   in_repo open --name plain >/dev/null || { echo "S44 line $LINENO"; return 1; }
@@ -1394,10 +1431,15 @@ S44() {
   grep -q "plain isn't a task, and only a task's agent docks" "$KANNA_STATE_DIR/s44-dock" || { cat "$KANNA_STATE_DIR/s44-dock"; return 1; }
   in_repo task list | grep -q ' plain$' && { echo "S44 line $LINENO"; return 1; }
   kanna task pull Fixed >/dev/null || { echo "S44 line $LINENO"; return 1; }
-  check test "$(kanna move Fixed --dock right --json | field dock.edge)" == right || { echo "S44 line $LINENO"; return 1; }
+  check test "$(kanna list --json | python3 -c 'import json, sys; print([w["dock"].get("frozen") for w in json.load(sys.stdin)["windows"] if w.get("dock")])')" == '[True]' || { kanna list; return 1; }
+  kanna move Fixed --dock right 2>"$KANNA_STATE_DIR/s44-frozen" && { echo "S44 line $LINENO"; return 1; }
+  grep -q "frozen: Fixed (p1) is frozen in its dock and doesn't move" "$KANNA_STATE_DIR/s44-frozen" || { cat "$KANNA_STATE_DIR/s44-frozen"; return 1; }
+  kanna move plain --to Fixed 2>"$KANNA_STATE_DIR/s44-swap" && { echo "S44 line $LINENO"; return 1; }
+  grep -q "Fixed (p1) is frozen in .*'s dock; nothing drops on it" "$KANNA_STATE_DIR/s44-swap" || { cat "$KANNA_STATE_DIR/s44-swap"; return 1; }
+  in_repo task list | grep -qE '^p1 +Fixed ' || { in_repo task list; return 1; }
   kanna close plain >/dev/null || { echo "S44 line $LINENO"; return 1; }
   kanna task done Fixed >/dev/null || { echo "S44 line $LINENO"; return 1; }
-  kanna task start t5 >/dev/null || { echo "S44 line $LINENO"; return 1; }
+  kanna task shelve t5 >/dev/null || { echo "S44 line $LINENO"; return 1; }
   check test -d "$wt" || { echo "S44 line $LINENO"; return 1; }
 }
 
@@ -1406,6 +1448,7 @@ S45() {
   mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S45 line $LINENO"; return 1; }
   repo="$(cd "$repo" && pwd -P)"
   mkdir -p "$repo/.kanna" && printf '{"planning": {"context": 400000}}\n' >"$repo/.kanna/config.json"
+  rm "$KANNA_AGENTS_HOME/.kanna-v4/agents.json"
   start_daemon || { echo "S45 line $LINENO"; return 1; }
   env -u KANNA_NO_INITIAL_WINDOW "$app" --bg >>"$out/app.log" 2>&1 &
   app_pid=$!
@@ -1415,7 +1458,13 @@ S45() {
   planner="$(desk planner)"
   check test "$(desk page)" == True || { echo "S45 line $LINENO"; return 1; }
   check test "$(desk strip)" == False || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 10 shows "$planner" "Install Kanna's skills? \[Y/n\]" || { echo "S45: the planning terminal didn't ask to install Kanna's skills"; kanna read "$planner"; return 1; }
+  check shows "$planner" "Kanna needs its skills installed" || { kanna read "$planner"; return 1; }
+  kanna send "$planner" "y" >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 10 shows "$planner" "This terminal is for planning" || { kanna read "$planner"; return 1; }
+  check shows "$planner" "Kanna's skills are installed" || { kanna read "$planner"; return 1; }
+  check test -f "$KANNA_AGENTS_HOME/.agents/skills/kanna-tasks/SKILL.md" || { echo "S45: answering yes didn't install the skills"; return 1; }
+  check grep -q "kanna-planning skill" "$KANNA_AGENTS_HOME/.claude/settings.json" || return 1
   check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "S45: Kanna started from no folder should plan in ~"; return 1; }
   check test "$(kanna task list | grep -c "$planner")" == 0 || { echo "S45: the planning terminal is listed as a task"; kanna task list; return 1; }
   kanna send "$planner" "cd '$repo'" >/dev/null || { echo "S45 line $LINENO"; return 1; }
@@ -1437,7 +1486,7 @@ S45() {
   check wait_for 5 eval '[[ "$(desk planner)" == "$planner" && "$(desk page)" == True && "$(desk strip)" == False ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}'; return 1; }
   check shows "$planner" "planner=1 context=300000" || { echo "S45: the planning terminal lost its scrollback"; return 1; }
   [[ "$(desk header)" == "Planning · "*"${repo#/private} · main" ]] || { desk header; return 1; }
-  kanna task start t2 >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  kanna task shelve t2 >/dev/null || { echo "S45 line $LINENO"; return 1; }
   (cd "$repo" && kanna task new "Third" && kanna task new "Fourth") >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(desk running)" == 2 && "$(desk backlog)" == "[\"t3\", \"t4\"]" ]]' || { desk running; desk backlog; return 1; }
   key cmd+t; key cmd+d
@@ -1446,7 +1495,7 @@ S45() {
   check wait_for 10 eval '[[ "$(desk running)" == 3 && "$(desk backlog)" == "[\"t4\"]" ]]' || { desk running; desk backlog; return 1; }
   check test "$(desk window.dock)" == None || { echo "S45: starting a backlog task docked it"; return 1; }
   raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t4","window":"w1"}}' >/dev/null
-  check wait_for 5 eval '[[ "$(desk note)" == *"3 tasks running"* ]]' || { desk note; return 1; }
+  check wait_for 5 eval '[[ "$(desk note)" == *"3 tasks on the Shelf"* ]]' || { desk note; return 1; }
   stop_app; start_app || { echo "S45 line $LINENO"; return 1; }
   check wait_for 10 eval '[[ "$(desk planner)" == "$planner" ]]' || { echo "S45: the planning terminal didn't survive the app's restart"; kanna list; return 1; }
   local refused; refused="$(raw "{\"id\":1,\"cmd\":\"backlog\",\"args\":{\"action\":\"blank\",\"repo\":\"$repo\"}}")"
@@ -1494,22 +1543,22 @@ S47() {
   mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S47 line $LINENO"; return 1; }
   repo="$(cd "$repo" && pwd -P)"
   (cd "$repo" && kanna task new "Later" "say hi" --agent "$agent") >/dev/null || { echo "S47 line $LINENO"; return 1; }
-  local started wt; started="$(kanna task start t1)" || { echo "S47 line $LINENO"; return 1; }
+  local started wt; started="$(kanna task shelve t1)" || { echo "S47 line $LINENO"; return 1; }
   [[ "$started" =~ " in "([^ ]+)" (" ]] && wt="${BASH_REMATCH[1]/#\~/$HOME}" || { echo "S47 line $LINENO: $started"; return 1; }
   check wait_for 5 eval '[[ "$(pane Later id)" == p1 ]]' || { echo "S47 line $LINENO"; return 1; }
   touch "$wt/work-in-progress"
   local pid; pid="$(pane Later pid)"
-  expected="moved p1 to the backlog as t1, still running: start it to bring it back"; says kanna task defer Later || { echo "S47 line $LINENO"; return 1; }
+  expected="moved p1 to the backlog as t1, still running: shelve it to bring it back"; says kanna task defer Later || { echo "S47 line $LINENO"; return 1; }
   check test "$(pane Later pid)" == "$pid" || { echo "S47: the deferred agent stopped"; kanna list; return 1; }
   (cd "$repo" && kanna task list) | grep -qE '^t1 +Later +Backlog' || { (cd "$repo" && kanna task list); return 1; }
   (cd "$repo" && kanna task list) | grep -qE '^p1 ' && { echo "S47: the deferred task is still on the Shelf"; (cd "$repo" && kanna task list); return 1; }
   check test -f "$wt/work-in-progress" || { echo "S47 line $LINENO"; return 1; }
-  started="$(kanna task start t1)" || { echo "S47 line $LINENO"; return 1; }
-  [[ "$started" == "started t1 on the Shelf: p1 in ${wt/#$HOME/\~} ("* ]] || { echo "S47: it didn't come back as it was: $started"; return 1; }
+  started="$(kanna task shelve t1)" || { echo "S47 line $LINENO"; return 1; }
+  [[ "$started" == "moved t1 to the Shelf: p1 in ${wt/#$HOME/\~} ("* ]] || { echo "S47: it didn't come back as it was: $started"; return 1; }
   check test "$(pane Later pid)" == "$pid" || { echo "S47: the agent was started again"; kanna list; return 1; }
   check test "$(ls "$repo/.kanna-worktrees" | wc -l | tr -d ' ')" == 1 || { echo "S47 line $LINENO"; return 1; }
   kanna open --name mine --dock --cwd "$repo" --cmd "exec $agent" >/dev/null || { echo "S47 line $LINENO"; return 1; }
-  expected="moved $(pane mine id) to the backlog as t2, still running: start it to bring it back"; says kanna task defer mine || { echo "S47 line $LINENO"; return 1; }
+  expected="moved $(pane mine id) to the backlog as t2, still running: shelve it to bring it back"; says kanna task defer mine || { echo "S47 line $LINENO"; return 1; }
   (cd "$repo" && kanna task done t2) >/dev/null || { echo "S47 line $LINENO"; return 1; }
   check wait_for 5 eval '! kanna list --json | grep -q "\"mine\""' || { echo "S47: Done left the backlog task's agent running"; kanna list; return 1; }
   [[ "$(kanna task defer nothing 2>&1)" == *'no running task "nothing"'* ]] || { echo "S47 line $LINENO"; return 1; }
@@ -1523,7 +1572,7 @@ S48() {
   local w
   desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}" | field "$1"; }
   (cd "$repo" && kanna task new "Later" "say hi" --agent "$agent") >/dev/null || { echo "S48 line $LINENO"; return 1; }
-  kanna task start t1 >/dev/null || { echo "S48 line $LINENO"; return 1; }
+  kanna task shelve t1 >/dev/null || { echo "S48 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(pane Later id)" == p* ]]' || { echo "S48 line $LINENO"; return 1; }
   kanna task pull Later --window new >/dev/null || { echo "S48 line $LINENO"; return 1; }
   w="$(kanna list --json | field windows.0.id)"
@@ -1711,12 +1760,306 @@ S51() {
   check wait_for 10 eval '[[ "$(desk backlog)" != *"t20"* && "$(desk shelf.0.title)" == "Task 20" ]]' || { desk backlog; desk shelf; return 1; }
   check eval '(( $(desk scroll.top) > 0 && $(desk scroll.top) <= top ))' || { echo "S51: the page lost its scroll position"; desk scroll; return 1; }
   check eval '(( $(desk scroll.top) + $(desk scroll.visible) <= $(desk scroll.height) ))' || { desk scroll; return 1; }
+  (cd "$repo" && kanna task new "The Shelf strip shows every parked task's time beside its name" "hello" --agent "$agent" && kanna task new "Long titles truncate before the times and the strip never overflows" "hello" --agent "$agent") >/dev/null || { echo "S51 line $LINENO"; return 1; }
+  kanna task shelve t21 >/dev/null && kanna task shelve t22 >/dev/null || { echo "S51 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk running)" == 3 ]]' || { desk running; return 1; }
+  kanna task pull "Task 20" >/dev/null || { echo "S51 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk strip)" == True && "$(desk title)" == "Task 20" ]]' || { desk stripLayout; return 1; }
+  fits() { desk stripLayout "$1" | python3 -c 'import json, sys; g = json.load(sys.stdin); items = g["items"]
+sys.exit(not (len(items) == 2 and all(i["meta"].startswith("· parked ") for i in items) and all(i["right"] <= g["width"] for i in items)))'; }
+  check eval 'fits "\"size\":[1400,420]"' || { desk stripLayout; return 1; }
+  check test "$(desk waiting)" == "19 in backlog" || { desk waiting; return 1; }
+  check eval 'fits "\"size\":[520,420]"' || { desk stripLayout; return 1; }
+  check test "$(desk waiting)" == "19 in backlog" || { echo "S51: the backlog count gave way before the titles"; desk stripLayout; return 1; }
+  check eval 'fits "\"size\":[400,420]"' || { desk stripLayout; return 1; }
+  check test "$(desk waiting)" == "" || { echo "S51: the backlog count didn't give way on a narrow strip"; desk stripLayout; return 1; }
+  sleep 0.3; snap w1 s51-strip >/dev/null
+}
+
+S53() {
+  local agent="$repo_root/tools/mock-agent/mock-agent" repo="$KANNA_STATE_DIR/repo"
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S53 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  start_daemon || { echo "S53 line $LINENO"; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
+  desk() { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}' | field "$1"; }
+  search() { desk search."$1"; }
+  type() { raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$1\"}}" >/dev/null; sleep 0.3; }
+  check wait_for 10 eval '[[ "$(desk planner)" == p* ]]' || { echo "S53: no planning terminal"; kanna list; return 1; }
+  check test "$(search shown)" == False || { echo "S53: a search field over an empty backlog"; return 1; }
+  (cd "$repo" && kanna task new "Fix flaky status test" "S40 waits for working; follow the status" --agent "$agent" \
+    && kanna task new "Resume every agent's session" "Give codex its own session ID and resume it" --agent "$agent" \
+    && kanna task new "Shelf strip shows parked time" "Show how long ago each item was parked" --agent "$agent" \
+    && kanna task new "Start tasks past the Shelf" "Let a fourth task wait for a slot" --agent "$agent") >/dev/null || { echo "S53 line $LINENO"; return 1; }
+  for i in $(seq 5 12); do (cd "$repo" && kanna task new "Task $i" "hello" --agent "$agent") >/dev/null || { echo "S53 line $LINENO"; return 1; }; done
+  check wait_for 5 eval '[[ "$(desk backlog)" == *"t12"* && "$(search shown)" == True ]]' || { desk backlog; desk search; return 1; }
+  key cmd+f
+  check test "$(search focused)" == True || { echo "S53: ⌘F didn't reach the backlog search"; desk responder; return 1; }
+  local at; at="$(search left),$(search right)"
+  type shelf
+  check test "$(search left),$(search right)" == "$at" || { echo "S53: the search field moved as the count changed"; desk search; return 1; }
+  check test "$(search found)" == '["t3", "t4"]' || { desk search; return 1; }
+  check test "$(search selected)" == 0 || { desk search; return 1; }
+  type " parked"
+  check test "$(search found)" == '["t3"]' || { desk search; return 1; }
+  key escape
+  check test "$(search query)" == "" || { echo "S53: esc didn't clear the search"; desk search; return 1; }
+  check test "$(search found | grep -o '"t' | wc -l | tr -d ' ')" == 12 || { desk search; return 1; }
+  check test "$(search focused)" == True || { desk search; return 1; }
+  key escape
+  check test "$(search focused)" == False || { echo "S53: a second esc stayed in the search"; desk search; return 1; }
+  check test "$(desk responder)" == TerminalSurfaceView || { echo "S53: a second esc didn't go back to the planning terminal"; desk responder; return 1; }
+  key cmd+f; type "RESUME codex"
+  check test "$(search found)" == '["t2"]' || { echo "S53: no match on a first message, ignoring case"; desk search; return 1; }
+  type " nothing"
+  check test "$(search found)" == '[]' || { desk search; return 1; }
+  key escape; type shelf
+  raw '{"id":1,"cmd":"debug.app","args":{"appearance":"light"}}' >/dev/null; sleep 0.3; snap w1 s53-light >/dev/null
+  raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null; sleep 0.3; snap w1 s53-dark >/dev/null
+  key down
+  check test "$(search selected)" == 1 || { desk search; return 1; }
+  key down
+  check test "$(search selected)" == 1 || { echo "S53: the selection ran past the last match"; desk search; return 1; }
+  key up
+  check test "$(search selected)" == 0 || { desk search; return 1; }
+  key down; key return
+  check wait_for 10 eval '[[ "$(desk backlog)" != *"t4"* && "$(desk shelf.0.title)" == "Start tasks past the Shelf" ]]' || { desk backlog; desk shelf; desk note; return 1; }
+  check wait_for 5 eval '[[ "$(search query)" == "" ]]' || { echo "S53: the search stayed after starting its task"; desk search; return 1; }
+  local listed; listed="$(cd "$repo" && kanna task list shelf)"
+  check test "$(wc -l <<<"$listed" | tr -d ' ')" == 3 || { echo "$listed"; return 1; }
+  [[ "$listed" == *"Start tasks past the Shelf"*"Shelf"* && "$listed" == *"t3"*"Backlog"* ]] || { echo "S53: kanna task list QUERY"; echo "$listed"; return 1; }
+}
+
+S54() {
+  start_daemon && start_app || { echo "S54 line $LINENO"; return 1; }
+  local repo="$KANNA_STATE_DIR/repo" agent="$KANNA_STATE_DIR/bin/claude"
+  mkdir -p "$repo" "${agent%/*}" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$agent" || { echo "S54 line $LINENO"; return 1; }
+  git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S54 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  local n listed
+  for n in 1 2 3 4 5; do (cd "$repo" && kanna task new "Task $n" "say $n" --agent "$agent") >/dev/null || { echo "S54 line $LINENO"; return 1; }; done
+  for n in 1 2 3 4 5; do
+    [[ "$(kanna task start t$n)" == "started t$n in the backlog: p"* ]] || { echo "S54: t$n didn't start in the backlog"; return 1; }
+  done
+  check wait_for 10 eval '[[ "$(cd "$repo" && kanna task list | grep -cE "^t[1-5] +Task [1-5] +Backlog +(idle|working|running)")" == 5 ]]' || { (cd "$repo" && kanna task list); return 1; }
+  for n in 1 2 3 4 5; do check wait_for 5 shows "Task $n" "say $n" || { echo "S54: Task $n's agent didn't get its first message"; return 1; }; done
+  [[ "$(kanna task start t1 2>&1)" == *"t1 is running"* ]] || { echo "S54 line $LINENO"; return 1; }
+  for n in 1 2 3; do kanna task shelve t$n >/dev/null || { echo "S54: t$n didn't move to the Shelf"; return 1; }; done
+  [[ "$(kanna task shelve t4 2>&1)" == *"has 3 tasks on the Shelf"* ]] || { echo "S54: a fourth task went to the Shelf"; return 1; }
+  listed="$(cd "$repo" && kanna task list)"
+  [[ "$(grep -cE ' Shelf ' <<<"$listed")" == 3 && "$(grep -cE ' Backlog ' <<<"$listed")" == 2 ]] || { echo "$listed"; return 1; }
+  local task session; task="$(pane "Task 1" id)"
+  session="$(kanna read "Task 1" | tr -d '\r\n' | sed -n 's/.*--session-id \([0-9a-f-]\{36\}\).*/\1/p')"
+  [[ "$session" =~ ^[0-9a-f-]{36}$ ]] || { echo "S54: Task 1 started without a session"; kanna read "Task 1"; return 1; }
+  KANNA_PANE="$task" kanna open --name side --cmd 'exec cat' >/dev/null || { echo "S54 line $LINENO"; return 1; }
+  expected="stopped $task; \`kanna task start $task\` starts it again"; says kanna task stop "Task 1" || { echo "S54 line $LINENO"; return 1; }
+  check is "Task 1" state exited || { echo "S54: Task 1's agent is still running"; return 1; }
+  kanna list --json | grep -q '"side"' && { echo "S54: Task 1's tab is still open"; return 1; }
+  (cd "$repo" && kanna task list) | grep -qE "^$task +Task 1 +Shelf +stopped" || { echo "S54: Task 1 left the Shelf"; (cd "$repo" && kanna task list); return 1; }
+  [[ "$(kanna task stop "Task 1" 2>&1)" == *"is stopped"* ]] || { echo "S54 line $LINENO"; return 1; }
+  [[ "$(kanna task shelve t4 2>&1)" == *"has 3 tasks on the Shelf"* ]] || { echo "S54: a stopped task stopped counting on the Shelf"; return 1; }
+  expected="started $task again: $task"; says kanna task start "Task 1" || { echo "S54 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(kanna read "Task 1" | tr -d "\r\n")" == *"--resume $session"* ]]' || { echo "S54: Task 1 didn't resume its conversation"; kanna read "Task 1"; return 1; }
+  (cd "$repo" && kanna task list) | grep -qE "^$task +Task 1 +Shelf +(idle|working|running)" || { (cd "$repo" && kanna task list); return 1; }
+  [[ "$(kanna task stop t5)" == "stopped t5 in the backlog; "* ]] || { echo "S54 line $LINENO"; return 1; }
+  (cd "$repo" && kanna task list) | grep -qE '^t5 +Task 5 +Backlog +stopped' || { (cd "$repo" && kanna task list); return 1; }
+  [[ "$(kanna task start t5)" == "started t5 again in the backlog: p"* ]] || { echo "S54 line $LINENO"; return 1; }
+  check wait_for 5 shows "Task 5" "--resume" || { echo "S54: t5 didn't resume"; kanna read "Task 5"; return 1; }
+  stop_app; stop_daemon; start_daemon && start_app || { echo "S54 line $LINENO"; return 1; }
+  kanna task stop t4 >/dev/null || { echo "S54 line $LINENO"; return 1; }
+  stop_app; stop_daemon; start_daemon && start_app || { echo "S54 line $LINENO"; return 1; }
+  (cd "$repo" && kanna task list) | grep -qE '^t4 +Task 4 +Backlog +stopped' || { echo "S54: a stopped task didn't survive a restart"; (cd "$repo" && kanna task list); return 1; }
+  kanna task start t4 >/dev/null && check wait_for 5 shows "Task 4" "--resume" || { echo "S54: t4 didn't resume after a restart"; return 1; }
+}
+
+S55() {
+  start_daemon && start_app || return 1
+  local file="$KANNA_STATE_DIR/s55.rs"
+  nested() { echo 'fn outer() {'; echo '    loop {'; echo "        if $1() {"; for i in $(seq 4 60); do echo "            step($i);"; done; echo '        }'; echo '    }'; echo '}'; }
+  nested ready >"$file"
+  code() { raw "{\"id\":1,\"cmd\":\"debug.code\",\"args\":{\"pane\":\"$1\"}}" | field "$2"; }
+  key() { raw "{\"id\":1,\"cmd\":\"debug.key\",\"args\":{\"key\":\"$1\"}}" >/dev/null; }
+  kanna open code --name src "$file" >/dev/null || return 1
+  check wait_for 5 eval '(( $(code src scopes) == 3 ))' || { echo "scopes $(code src scopes)"; return 1; }
+  nested ready_now >"$file"
+  check wait_for 5 eval '[[ "$(code src changed)" == 3 ]]' || { echo "changed $(code src changed)"; return 1; }
+  raw '{"id":1,"cmd":"debug.click","args":{"pane":"src","at":[300,300]}}' >/dev/null; sleep 0.3
+  key cmd+f
+  check wait_for 5 eval '[[ "$(code src find_bar)" == 1 ]]' || return 1
+  raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"ready"}}' >/dev/null
+  raw '{"id":1,"cmd":"debug.code","args":{"pane":"src","select":[3,11,5]}}' >/dev/null
+  check wait_for 5 eval '[[ "$(code src selection_line)" == 3 && "$(code src selection_length)" == 5 ]]' || return 1
+  raw '{"id":1,"cmd":"debug.code","args":{"pane":"src","pick":40}}' >/dev/null
+  check wait_for 5 eval '[[ "$(code src pinned)" == 3 && "$(code src pinned_rows.2.line)" == 3 ]]' || { echo "pinned $(code src pinned_rows)"; return 1; }
+  check wait_for 5 eval '[[ "$(code src pinned_rows.2.matches)" == "[[11, 5]]" ]]' || { echo "matches $(code src pinned_rows)"; return 1; }
+  check test "$(code src pinned_rows.2.selection)" == "[[11, 5]]" || { echo "selection $(code src pinned_rows)"; return 1; }
+  check test "$(code src pinned_rows.2.changed)" == True || { echo "changed $(code src pinned_rows)"; return 1; }
+  for row in 0 1; do
+    check test "$(code src pinned_rows.$row.selection)$(code src pinned_rows.$row.matches)$(code src pinned_rows.$row.changed)" == "[][]False" || { echo "row $row $(code src pinned_rows)"; return 1; }
+  done
+  raw '{"id":1,"cmd":"debug.code","args":{"pane":"src","select":[2,4,4]}}' >/dev/null
+  check wait_for 5 eval '[[ "$(code src pinned_rows.1.selection)" == "[[4, 4]]" && "$(code src pinned_rows.2.selection)" == "[]" ]]' || { echo "reselect $(code src pinned_rows)"; return 1; }
+  key escape
+  check wait_for 5 eval '[[ "$(code src pinned_rows.2.matches)" == "[]" ]]' || { echo "after find $(code src pinned_rows)"; return 1; }
+}
+
+S56() {
+  start_daemon || return 1
+  kanna open --name bytes --cmd 'stty raw -echo; printf "READY\r\n"; while :; do printf "%s " "$(dd bs=1 count=1 2>/dev/null | od -An -tx1 | tr -d " \n")"; done' >/dev/null || return 1
+  check wait_for 5 shows bytes READY || return 1
+  kanna send-key bytes up ctrl+c return esc shift+tab || return 1
+  check wait_for 5 shows bytes "1b 5b 41 03 0d 1b 1b 5b 5a" || { kanna read bytes; return 1; }
+  kanna open --name agent --cmd "$KANNA_AGENT" >/dev/null || return 1
+  check wait_for 5 shows agent "type turn" || return 1
+  kanna send agent ask || return 1
+  check wait_for 5 shows agent "proceed?" || return 1
+  kanna send-key agent down return || return 1
+  check wait_for 5 shows agent "Declined." || { kanna read agent; return 1; }
+  kanna send agent turn || return 1
+  check wait_for 10 shows agent "proceed?" || return 1
+  kanna send-key agent down up return || return 1
+  check wait_for 5 shows agent TURN_DONE || { kanna read agent; return 1; }
+  kanna send agent ask && check wait_for 5 shows agent "proceed?" || return 1
+  kanna send agent 2 || return 1
+  check wait_for 5 shows agent "Declined." || { kanna read agent; return 1; }
+  ! shows agent "not in application cursor mode" || { echo "an arrow was sent in normal cursor mode"; kanna read agent; return 1; }
+  [[ "$(kanna send-key agent cmd+c 2>&1)" == *"cmd+c only means something to Kanna.app"* ]] || { echo "cmd+c wasn't refused"; return 1; }
+}
+
+S57() {
+  local claude="${KANNA_E2E_CLAUDE:-$(command -v claude)}" codex="${KANNA_E2E_CODEX:-$(command -v codex)}"
+  [[ -x "$claude" ]] || { echo "S57: claude isn't installed (or set KANNA_E2E_CLAUDE)"; return 1; }
+  [[ -x "$codex" ]] || { echo "S57: codex isn't installed (or set KANNA_E2E_CODEX)"; return 1; }
+  start_daemon && start_app || { echo "S57 line $LINENO"; return 1; }
+  local agents="$KANNA_STATE_DIR/agents" repo="$KANNA_STATE_DIR/repo" harness="$repo_root/tools/agent-harness"
+  mkdir -p "$agents" "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S57 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  python3 -I "$harness/mock_server.py" --log "$agents/mock.jsonl" >"$agents/port" 2>"$agents/mock.log" &
+  check wait_for 10 eval '[[ -s "$agents/port" ]]' || { echo "S57: the mock model didn't start"; return 1; }
+  local port; port="$(cat "$agents/port")"
+  local agent real
+  for agent in claude codex; do
+    [[ $agent == claude ]] && real="$claude" || real="$codex"
+    python3 -I "$harness/isolate.py" --agent $agent --real "$real" --home "$agents/$agent-home" --port "$port" --trust "$repo" --out "$agents/bin/$agent" || { echo "S57 line $LINENO"; return 1; }
+  done
+  asked() { python3 -c 'import json, sys
+lines = [json.loads(l) for l in open(sys.argv[1])]
+print(sum(1 for l in lines if l.get("turn") and sys.argv[2] in l["prompt"] and (len(sys.argv) < 4 or any(sys.argv[3] in h for h in l["history"]))))' "$agents/mock.jsonl" "$@"; }
+  local id task first second
+  for agent in claude codex; do
+    first="RESUME_FIRST $agent" second="RESUME_SECOND $agent"
+    id="$(cd "$repo" && kanna task new "$agent task" "$first" --agent "$agents/bin/$agent" | sed -n 's/^added \(t[0-9]*\).*/\1/p')"
+    [[ "$id" =~ ^t[0-9]+$ ]] || { echo "S57: $agent's task wasn't added"; return 1; }
+    kanna task start "$id" >/dev/null || { echo "S57: $agent's task didn't start"; return 1; }
+    check wait_for 60 eval '[[ "$(asked "$first")" == 1 ]]' || { echo "S57: $agent's first message didn't reach the mock model"; kanna read "$agent task"; return 1; }
+    check wait_for 30 shows "$agent task" "Agent status probe" || { echo "S57: $agent didn't show the mock's answer"; kanna read "$agent task"; return 1; }
+    check wait_for 10 grep -rqs "Agent status probe" "$agents/$agent-home" || { echo "S57: $agent didn't save its answer"; return 1; }
+    kanna task shelve "$id" >/dev/null || { echo "S57: $agent's task didn't move to the Shelf"; return 1; }
+    task="$(pane "$agent task" id)"
+    [[ "$(kanna task defer "$task")" == *"to the backlog as $id"* ]] || { echo "S57: $agent's task didn't move back to the backlog as $id"; return 1; }
+    [[ "$(kanna task stop "$id")" == "stopped $id in the backlog; "* ]] || { echo "S57: $agent's task didn't stop"; return 1; }
+    check is "$agent task" state exited || { echo "S57: $agent is still running"; return 1; }
+    [[ "$(kanna task start "$id")" == "started $id again in the backlog: "* ]] || { echo "S57: $agent's task didn't start again"; return 1; }
+    check wait_for 60 eval 'shows "$agent task" "$first" && shows "$agent task" "Agent status probe"' || { echo "S57: $agent didn't come back to its conversation"; kanna read "$agent task"; return 1; }
+    sleep 3
+    [[ "$(asked "$first")" == 1 ]] || { echo "S57: $agent started again with its first message instead of resuming"; return 1; }
+    kanna send "$agent task" "$second" || { echo "S57 line $LINENO"; return 1; }
+    kanna send-key "$agent task" return || { echo "S57 line $LINENO"; return 1; }
+    check wait_for 60 eval '[[ "$(asked "$second" "$first")" -ge 1 ]]' || { echo "S57: $agent's next message didn't carry its conversation"; kanna read "$agent task"; tail -3 "$agents/mock.jsonl" | cut -c1-300; return 1; }
+  done
+  stop_agents
+}
+
+S58() {
+  local agent="$repo_root/tools/mock-agent/mock-agent" repo="$KANNA_STATE_DIR/repo" planner task shot
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S58 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  start_daemon || { echo "S58 line $LINENO"; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"w1\"}}" | field "$1"; }
+  check wait_for 10 eval '[[ "$(desk planner)" == p* ]]' || { echo "S58: no planning terminal"; kanna list; return 1; }
+  planner="$(desk planner)"
+  (cd "$repo" && kanna task new "Zoomed task" "hello" --agent "$agent") >/dev/null && kanna task shelve t1 >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  kanna task pull "Zoomed task" >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  task="$(win w1 dock.pane)"
+  KANNA_PANE="$task" kanna open --name log --cmd "printf 'GET / 200\n'; exec sleep 600" >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  kanna open --name tests --split right --cmd "printf 'test result: ok\n'; exec sleep 600" >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  kanna focus log >/dev/null && key cmd+shift+return || { echo "S58 line $LINENO"; return 1; }
+  check test "$(win w1 zoomed)" == log || { echo "S58: ⇧⌘↩ didn't zoom the task's pane"; kanna list; return 1; }
+  shown_alone() { shot="$(snap w1 "$1")"; python3 -c 'import json, sys; s = json.loads(sys.argv[1]); p = s["panes"]; assert len(p) == 1 and p[0]["width"] == s["width"], s' "$shot"; }
+  sleep 0.5; check shown_alone s58-task-zoomed || { echo "S58: the zoomed pane doesn't fill the window"; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock)" == None ]]' || { echo "S58: ⌘. didn't park the task"; return 1; }
+  check test "$(win w1 focused):$(win w1 zoomed)" == "$planner:None" || { echo "S58: the Shelf view came up zoomed"; kanna list; return 1; }
+  check test "$(desk page)" == True || { echo "S58: no full Shelf beside the planner"; return 1; }
+  key cmd+shift+return
+  check test "$(win w1 zoomed)" == "$planner" || { echo "S58: ⇧⌘↩ didn't zoom the planner"; kanna list; return 1; }
+  sleep 0.5; check shown_alone s58-planner-zoomed || { echo "S58: the zoomed planner doesn't fill the window"; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == "$task" ]]' || { echo "S58: ⌘. didn't pull the task back"; return 1; }
+  check test "$(win w1 focused):$(win w1 zoomed)" == "log:log" || { echo "S58: the task didn't come back zoomed where it was"; kanna list; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock)" == None ]]' || { echo "S58 line $LINENO"; return 1; }
+  check test "$(win w1 zoomed)" == "$planner" || { echo "S58: the Shelf view didn't come back zoomed"; kanna list; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == "$task" ]]' || { echo "S58 line $LINENO"; return 1; }
+  stop_app; start_app || { echo "S58 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(win w1 zoomed)" == log ]]' || { echo "S58: the task's zoom didn't survive a relaunch"; kanna list; return 1; }
+  sleep 0.5; check shown_alone s58-task-relaunched || { echo "S58 line $LINENO"; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock)" == None ]]' || { echo "S58 line $LINENO"; return 1; }
+  check test "$(win w1 zoomed)" == "$planner" || { echo "S58: the Shelf's zoom didn't survive a relaunch"; kanna list; return 1; }
+  kanna zoom "$planner" >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  check test "$(win w1 zoomed)" == None || { echo "S58: kanna zoom didn't turn the Shelf's zoom off"; return 1; }
+  sleep 0.5; check drawn "$(snap w1 s58-shelf)" 1 || return 1
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 zoomed)" == log ]]' || { echo "S58: the task lost its zoom to the Shelf's"; kanna list; return 1; }
+  stop_agents
+}
+
+S59() {
+  local repo="$KANNA_STATE_DIR/repo" agent="$KANNA_STATE_DIR/bin/claude" state="$KANNA_STATE_DIR"
+  mkdir -p "$repo" "${agent%/*}" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$agent" || { echo "S59 line $LINENO"; return 1; }
+  git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S59 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  printf '{"counter": 3, "tasks": [{"id": "t3", "name": "From JSON", "message": "hi", "repo": "%s", "madeAt": 1700000000, "agent": "%s"}], "running": []}' "$repo" "$agent" >"$state/backlog.json"
+  start_daemon && start_app || { echo "S59 line $LINENO"; return 1; }
+  [[ -f "$state/kanna.db" && -f "$state/backlog.json.imported" && ! -e "$state/backlog.json" ]] || { echo "S59: backlog.json wasn't imported"; ls "$state"; return 1; }
+  (cd "$repo" && kanna task list) | grep -qE '^t3 +From JSON +Backlog' || { echo "S59: the imported task isn't in the backlog"; (cd "$repo" && kanna task list); return 1; }
+  events() { raw "{\"id\":1,\"cmd\":\"backlog\",\"args\":{\"action\":\"events\",\"task\":\"$1\"}}" | python3 -c 'import json, sys; print(" ".join(e["what"] + ("@" + e["by"] if e["by"] else "") for e in json.load(sys.stdin)["events"]))'; }
+  [[ "$(events t3)" == "made" ]] || { echo "S59: t3's events are $(events t3)"; return 1; }
+  (cd "$repo" && kanna task new "Fresh" "say fresh" --agent "$agent") | grep -q 't4' || { echo "S59: a new task didn't follow the imported counter"; return 1; }
+  kanna task shelve t4 >/dev/null || { echo "S59 line $LINENO"; return 1; }
+  local task window; task="$(pane Fresh id)"
+  window="$(KANNA_PANE="$task" kanna task pull "$task")" && window="${window##* onto }" && [[ "$window" =~ ^w[0-9]+$ ]] || { echo "S59: pull said $window"; return 1; }
+  raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"park\":\"$window\"}}" >/dev/null
+  check wait_for 5 eval '[[ "$(events t4)" == *"parked@user" ]]' || { echo "S59: the app's park wasn't recorded: $(events t4)"; return 1; }
+  kanna task stop "$task" >/dev/null && kanna task start "$task" >/dev/null || { echo "S59 line $LINENO"; return 1; }
+  kanna task name "$task" "Fresher" >/dev/null || { echo "S59 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(events t4)" == *renamed ]]' || { echo "S59: the rename wasn't recorded: $(events t4)"; return 1; }
+  kanna task defer "$task" >/dev/null && kanna task done t4 >/dev/null || { echo "S59 line $LINENO"; return 1; }
+  local want="made@user shelved@user pulled@$task parked@user stopped@user started@user renamed deferred@user done@user"
+  [[ "$(events t4)" == "$want" ]] || { echo "S59: t4's events are \"$(events t4)\", not \"$want\""; return 1; }
+  [[ "$(sqlite3 -readonly "$state/kanna.db" "select place from tasks where id = 't4'")" == done ]] || { echo "S59: a done task's row is gone or not done"; return 1; }
+  stop_app; stop_daemon
+  local lines; lines="$(wc -l <"$out/daemon.log")"
+  rm -f "$state/kanna.db-wal" "$state/kanna.db-shm"
+  printf 'this is not a database %.0s' {1..200} >"$state/kanna.db"
+  start_daemon && start_app || { echo "S59 line $LINENO"; return 1; }
+  tail -n +"$((lines + 1))" "$out/daemon.log" | grep -q "kanna.db can't be used" || { echo "S59: the daemon didn't say the db was bad"; return 1; }
+  tail -n +"$((lines + 1))" "$out/daemon.log" | grep -q "restored .*kanna.db from" || { echo "S59: the daemon didn't say it restored the db"; return 1; }
+  (cd "$repo" && kanna task list) | grep -qE '^t3 +From JSON +Backlog' || { echo "S59: a backlog task was lost with the db"; (cd "$repo" && kanna task list); return 1; }
+  ls "$state" | grep -q '^kanna.db.bad-' || { echo "S59: the bad db wasn't kept"; return 1; }
 }
 
 due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-2]) echo M4 ;; esac
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

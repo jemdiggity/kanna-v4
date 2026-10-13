@@ -207,8 +207,9 @@ extension AppController {
             item.state = commentsOn(pane) ? .on : .off
             return contents.web(pane) != nil || contents.markdown(pane) != nil
         case #selector(goBack), #selector(goForward): return contents.web(pane) != nil || contents.markdown(pane) != nil || contents.code(pane) != nil
-        case #selector(nextPane), #selector(previousPane), #selector(toggleZoom), #selector(movePaneToNewWindow), #selector(restartPane):
+        case #selector(nextPane), #selector(previousPane), #selector(toggleZoom), #selector(restartPane):
             return focusedPane != nil
+        case #selector(movePaneToNewWindow): return focusedPane.map { !frozen($0) } ?? false
         case #selector(closeFocusedPane): return focusedPane.map { !docked($0) } ?? false
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1

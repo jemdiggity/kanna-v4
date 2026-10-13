@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod args;
 pub mod commands;
 pub mod complete;
@@ -133,6 +134,14 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     if command.name == "comment" && request["doc"] == true {
         return threads::comment(&request, &mut mux, json_output);
     }
+    if command.name == "agents" && !json_output && matches!(request["action"].as_str(), Some("setup" | "update")) {
+        let tool = agents::merge_tool();
+        let mut call = |args: Value| mux.call("agents", args);
+        let mut merge = |path: &std::path::Path, base: &std::path::Path, new: &std::path::Path| agents::merge_in_editor(path, base, new, &tool);
+        let stdin = std::io::stdin();
+        let mut io = agents::Io { call: &mut call, input: &mut stdin.lock(), out: &mut std::io::stdout(), merge: &mut merge, tool: tool.clone() };
+        return agents::run(&request, &mut io);
+    }
     let mut reply = match mux.call(wire(command, &request), request.clone()) {
         Ok(reply) => reply,
         Err(failure) => return Err(explain(command, failure, &mut mux, &target)),
@@ -140,6 +149,9 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     if command.name == "task" && request["action"] == "list" {
         if let Ok(backlog) = mux.call("backlog", serde_json::json!({ "action": "list" })) {
             reply["backlog"] = backlog["tasks"].clone();
+        }
+        if let Some(query) = request["query"].as_str() {
+            output::keep_matching(&mut reply, query);
         }
     }
     if json_output {
@@ -186,7 +198,7 @@ fn explain(command: &Command, mut failure: Failure, mux: &mut Session, target: &
 fn wire(command: &Command, request: &Value) -> &'static str {
     match command.name {
         "markup" if request.get("type").is_some() => "open",
-        "task" if ["new", "start", "defer"].contains(&request["action"].as_str().unwrap_or("")) => "backlog",
+        "task" if ["new", "start", "stop", "shelve", "defer"].contains(&request["action"].as_str().unwrap_or("")) => "backlog",
         "task" if request["action"] == "done" && request["task"].as_str().is_some_and(commands::is_backlog_task) => "backlog",
         "task" if request["action"] == "done" => "close",
         "task" if request["action"] == "name" => "rename-pane",
@@ -388,8 +400,8 @@ fn overview(target: &Target) -> String {
          \n\
          {running}\n\
          --json prints the reply from Kanna as JSON; -- ends the options (kanna send p1 -- --json types --json).\n\
-         Terminals live in Kanna's daemon and keep running with Kanna.app closed: list, send, read, close, restart\n\
-         and open (unplaced) work without the app. Commands that need it start it if it isn't running (in front,\n\
+         Terminals live in Kanna's daemon and keep running with Kanna.app closed: list, send, send-key, read, close,\n\
+         restart and open (unplaced) work without the app. Commands that need it start it if it isn't running (in front,\n\
          or behind your other windows with --bg or KANNA_BG=1), as does any command when nothing answers. A started\n\
          Kanna.app brings back the layout it saved; --fresh (or KANNA_FRESH=1) opens a new window instead.\n\
          With KANNA_SOCKET set, kanna never starts the app.\n\
@@ -583,9 +595,12 @@ mod tests {
             ("kanna read s1", json!({ "pane": "s1" })),
             ("kanna read s1 --lines 5", json!({ "pane": "s1", "lines": 5 })),
             ("kanna send p1 -- --json", json!({ "pane": "p1", "text": "--json" })),
+            ("kanna send-key agent return", json!({ "pane": "agent", "keys": ["return"] })),
+            ("kanna send-key p3 up up shift+tab ctrl+c", json!({ "pane": "p3", "keys": ["up", "up", "shift+tab", "ctrl+c"] })),
             ("kanna send p1 echo -- --mux -x", json!({ "pane": "p1", "text": "echo --mux -x" })),
             ("kanna open --cwd /tmp", json!({ "type": "term", "cwd": "/tmp" })),
             ("kanna open --name agent --dock", json!({ "type": "term", "name": "agent", "dock": "left" })),
+            ("kanna open --name agent --dock --frozen", json!({ "type": "term", "name": "agent", "dock": "left", "frozen": true })),
             ("kanna open --dock right --cmd claude", json!({ "type": "term", "dock": "right", "cmd": "claude" })),
             ("kanna open --dock md /tmp/a.md", json!({ "type": "md", "dock": "left", "path": "/tmp/a.md" })),
             ("kanna open web a.test --dock=right --window new", json!({ "type": "web", "url": "a.test", "dock": "right", "window": "new" })),
@@ -623,6 +638,8 @@ mod tests {
             ("kanna lsit", "Did you mean: list"),
             ("kanna rename t1 x", "Did you mean: rename-tab"),
             ("kanna read", "missing PANE"),
+            ("kanna send-key", "missing PANE"),
+            ("kanna send-key p1", "missing KEY"),
             ("kanna read p1 --lines 0", "--lines needs a whole number"),
             ("kanna open ios", "need an app"),
             ("kanna open --app x", "only for iOS panes"),
@@ -664,6 +681,10 @@ mod tests {
         assert!(text.contains("\n  dock: p1 (agent)  left 2/5\n  *t1 \"Tab 1\"  p2"), "{text}");
         let opened = json!({ "pane": { "id": "p1", "name": "agent", "state": "running" }, "window": "w1", "tab": null, "dock": "left" });
         assert_eq!(output::opened(&json!({}), &opened), "opened p1 (agent) docked left in window w1: running");
+        assert_eq!(output::opened(&json!({ "frozen": true }), &opened), "opened p1 (agent) docked left, frozen, in window w1: running");
+        let frozen = json!({ "windows": [{ "id": "w1", "dock": { "pane": "agent", "edge": "left", "width": "2/5", "frozen": true }, "tabs": [] }],
+                             "panes": [{ "id": "p1", "name": "agent", "type": "term", "state": "running" }] });
+        assert!(output::list(&frozen).contains("\n  dock: p1 (agent)  left 2/5  frozen"), "{}", output::list(&frozen));
         let moved = json!({ "window": "w1", "dock": { "pane": "agent", "edge": "right", "width": "1/3" } });
         assert_eq!(output::moved(&moved), "agent is docked right in w1 (width 1/3)");
     }

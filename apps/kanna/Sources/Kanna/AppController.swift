@@ -207,6 +207,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         windows.contains { $0["dock"]?["pane"]?.string == pane }
     }
 
+    func frozen(_ pane: String) -> Bool {
+        windows.contains { $0["dock"]?["pane"]?.string == pane && $0["dock"]?["frozen"]?.bool == true }
+    }
+
     func windowOf(pane: String) -> JSON? {
         windows.first { window in
             if window["dock"]?["pane"]?.string == pane { return true }
@@ -314,6 +318,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         if reply["ok"]?.bool != true {
             FileHandle.standardError.write(Data("kanna: \(cmd): \(reply["error"]?["message"]?.string ?? "failed")\n".utf8))
         }
+        if let moves = reply["moves"], case .array(let list) = moves, !list.isEmpty {
+            request("backlog", ["action": "moved", "moves": moves, "by": "user"])
+        }
         layoutChanged()
         return reply
     }
@@ -420,6 +427,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         controller.agentHeader.onPark = { [weak self] in self?.layoutCommand("task", ["action": "park", "window": .string(id)]) }
         controller.shelfPage.onPull = { [weak self] task in self?.pullTask(task, into: id) }
         controller.shelfPage.onStart = { [weak self] task in self?.startTask(task, from: id) }
+        controller.shelfPage.onLeaveSearch = { [weak self, weak controller] in
+            guard let self, let controller, let planner = controller.plannerShown, let view = panes.keyView(planner) else { return }
+            controller.window.makeFirstResponder(view)
+        }
         controller.onBecomeKey = { [weak self, weak controller] in
             guard let self, let controller, let appLayout else { return }
             if controller.window.isKeyWindow, state["key"]?.string != id {

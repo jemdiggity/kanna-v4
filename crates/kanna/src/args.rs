@@ -37,6 +37,10 @@ impl Argv {
         (!words.is_empty()).then(|| words.join(" "))
     }
 
+    pub fn positionals(&mut self) -> Vec<String> {
+        std::iter::from_fn(|| self.positional()).collect()
+    }
+
     pub fn first(&self) -> Option<&str> {
         self.options.first().or(self.rest.front().map(String::as_str))
     }

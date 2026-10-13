@@ -46,6 +46,10 @@ sequenceDiagram
 ![After the agent's edit, line 87 is marked; sticky scope shows where line 81 sits](code-viewer-sticky.png)
 
 - **Sticky scope.** The lines that open the scopes the top line is in (function, `impl`, loop, `if`…) stay pinned at the top, outermost first, five at most. Clicking one scrolls to it. Scopes come from the syntax tree, so they work the same for braces (Rust, C) and indentation (Python, YAML).
+- **A pinned line looks as it does in the text**: its selection, find matches, current line, comment tint (or dimming) and changed mark stay on it, and follow as they change.
+
+![Line 73 is pinned with its selection and its changed mark](code-viewer-pinned.png)
+
 - **Indent guides** mark each indent level; blank lines take the next line's level.
 - **Scrolling past the end**, so the last lines can reach the top.
 - **Long lines don't wrap.** The pane scrolls sideways; the line numbers stay.
@@ -78,7 +82,7 @@ sequenceDiagram
 | `kanna open code FILE[:LINE] [placement]` | opens a code pane at that line |
 | `kanna navigate PANE FILE[:LINE]` | shows that file and line in the pane; `back`, `forward` as for markdown |
 | `kanna list` | shows a code pane's file and line |
-| `kanna raw '{"cmd":"debug.code","args":{"pane":"p86"}}'` | for tests: the text, the top line, the pinned scopes and each line's highlight spans by capture name |
+| `kanna raw '{"cmd":"debug.code","args":{"pane":"p86"}}'` | for tests: the text, the top line, the pinned scopes with each one's marks (selection, find matches, current, comment, dimmed, changed, flashing), and each line's highlight spans by capture name; `select: [line, column, length]` selects text |
 
 The pane's record in `layout.json` is `{type: "code", path, line, zoom}`, so it comes back after a relaunch where it was.
 
@@ -151,10 +155,11 @@ flowchart TB
 
 - **Grammars** come from each language's tree-sitter crate with its own highlight query. **Scopes** come from a small query per language naming the nodes that open one (functions, types, `impl`, loops, conditionals, blocks), after Neovim's treesitter-context.
 - **Languages inside languages** (a Vue or Svelte component's `<script>` and `<style>`, an HTML page's) are tree-sitter's injections: the outer grammar's injection query names the parts and the language of each, and `kanna-syntax` highlights them with that grammar. Vue's grammar crates on crates.io are young forks, so its grammar source is vendored into the crate at a pinned commit, as Helix and Zed do.
-- **Find is AppKit's** find bar (`NSTextFinder`) on the pane's text view, with its incremental match highlighting.
+- **Find is AppKit's** find bar: the pane owns an `NSTextFinder` on its text view and draws the incremental matches itself (`incrementalMatchRanges`, drawn with `drawIncrementalMatchHighlight`), so the text and the pinned lines draw the same matches.
+- **One source for a line's marks.** The text view answers each line's marks (selection, find matches, current, comment, changed, flash); the text view, the gutter and the pinned lines all draw from it with the same drawing code, and the pinned lines are redrawn whenever a mark changes, not only on scroll.
 - **The theme is Swift's**, a table from capture name to colour for light and dark beside `MarkdownTheme`; the Rust side never knows colours.
 - **A reload reparses the whole file** off the main thread, then swaps in the new text and spans at the same scroll position. Changed lines come from a line diff with the previous text.
-- **Checks:** `kanna-syntax` tests per language (a fixture file, its expected captures and scopes); `crates/kanna-daemon/tests/panes.rs` for the record, `open code` and `navigate`; an e2e scenario that opens a file at a line, reads `debug.code`, changes the file and sees it reload with the line marked, and relaunches.
+- **Checks:** `kanna-syntax` tests per language (a fixture file, its expected captures and scopes); `crates/kanna-daemon/tests/panes.rs` for the record, `open code` and `navigate`; an e2e scenario that opens a file at a line, reads `debug.code`, changes the file and sees it reload with the line marked, and relaunches; S55 marks a scope's opening line changed, finds and selects text on it, pins it and checks the pinned line keeps all three.
 
 ## 6. Glossary
 

@@ -20,6 +20,13 @@ pub trait PaneHost {
     fn start(&self, pane: &Pane);
     fn stop(&self, pane: &Pane);
     fn send(&self, pane: &Pane, text: &str);
+    fn send_keys(&self, pane: &Pane, keys: Vec<String>, done: Responder) {
+        let _ = keys;
+        done.reply(Err(KmuxError::new("unsupported", format!("{} can't take keys here", pane.label()))));
+    }
+    fn end(&self, pane: &Pane) {
+        let _ = pane;
+    }
     fn read(&self, pane: &Pane, lines: Option<usize>) -> Result<String, KmuxError> {
         let _ = lines;
         Err(KmuxError::new("unsupported", format!("{} can't be read here", pane.label())))
@@ -50,7 +57,7 @@ pub fn project(cwd: Option<&str>) -> Option<std::path::PathBuf> {
     Some(main.unwrap_or_else(|| root.to_path_buf()))
 }
 
-pub const CORE_COMMANDS: [&str; 11] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read", "markup", "comment", "rename-pane"];
+pub const CORE_COMMANDS: [&str; 12] = ["capabilities", "open", "list", "close", "restart", "send", "send-key", "navigate", "read", "markup", "comment", "rename-pane"];
 
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
 
@@ -263,6 +270,37 @@ impl CoreHandle {
         }
     }
 
+    pub fn end(&self, id: &str, done: impl FnOnce(Result<(), KmuxError>) + 'static) {
+        let core = self.clone();
+        let id = id.to_string();
+        self.0.exec.spawn(Box::pin(async move { done(core.ended(&id).await) }));
+        self.0.exec.run();
+    }
+
+    async fn ended(&self, id: &str) -> Result<(), KmuxError> {
+        let live = |core: &CoreHandle| core.state().panes.get(id).is_some_and(|p| matches!(p.state, PaneState::Starting | PaneState::Running));
+        let pane = self.need_pane(Some(id))?;
+        if !live(self) {
+            return Ok(());
+        }
+        if let Some(host) = self.host() {
+            host.end(&pane);
+        }
+        let deadline = Instant::now() + self.state().start_timeout;
+        while live(self) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(KmuxError::new("failed", format!("{} didn't end", pane.label())));
+            }
+            let signal = Rc::new(Signal::default());
+            self.0.waiters.borrow_mut().entry(id.into()).or_default().push(signal.clone());
+            let mut wait = pin!(signal.wait());
+            let mut timer = pin!(sleep(self.0.exec.clone(), left));
+            poll_fn(|cx| if wait.as_mut().poll(cx).is_ready() || timer.as_mut().poll(cx).is_ready() { Poll::Ready(()) } else { Poll::Pending }).await;
+        }
+        Ok(())
+    }
+
     pub fn later(&self, f: impl FnOnce() + 'static) {
         self.0.exec.spawn(Box::pin(async move { f() }));
     }
@@ -390,6 +428,7 @@ impl CoreHandle {
             "close" => self.close(&args).await,
             "restart" => self.restart(&args).await,
             "send" => self.send(&args),
+            "send-key" => self.send_key(&args).await,
             "read" => self.read(&args),
             "navigate" => self.navigate(&args).await,
             "markup" => self.markup(&args).await,
@@ -413,9 +452,12 @@ impl CoreHandle {
             }
             _ if self.0.layout.commands().contains(&cmd) => {
                 let _turn = self.0.turns.take().await;
-                let result = self.layout(json!({ "op": "command", "cmd": cmd, "args": args })).await;
+                let mut result = self.layout(json!({ "op": "command", "cmd": cmd, "args": args })).await;
                 if result.is_ok() {
                     self.changed();
+                }
+                if let (Ok(listed), "task") = (&mut result, cmd) {
+                    self.mark_running(listed);
                 }
                 result
             }
@@ -539,9 +581,17 @@ impl CoreHandle {
         if dock.is_some() && (args.get("split").is_some() || args.get("size").is_some() || new_tab) {
             return Err(bad_request("a docked pane takes no split, size or tab"));
         }
-        let shelf = is_true(args, "shelf");
+        if args.get("frozen").is_some_and(|f| !f.is_null() && !f.is_boolean()) {
+            return Err(bad_request("frozen must be true or false"));
+        }
+        let frozen = is_true(args, "frozen");
+        if frozen && dock.is_none() {
+            return Err(bad_request("only a docked pane is frozen"));
+        }
+        let backlog = is_true(args, "backlog");
+        let shelf = is_true(args, "shelf") || backlog;
         if shelf && (dock.is_none() || args.get("window").is_some()) {
-            return Err(bad_request("shelf is for a docked pane, without a window"));
+            return Err(bad_request("shelf and backlog are for a docked pane, without a window"));
         }
         let planner = is_true(args, "planner");
         if planner && (kind != PaneType::Term || dock.is_some() || split.is_some() || size.is_some() || new_tab || string(args, "window").is_none()) {
@@ -555,7 +605,7 @@ impl CoreHandle {
         }
         let turn = self.0.turns.take().await;
         taken(self)?;
-        if dock.is_some() {
+        if dock.is_some() && !backlog {
             self.room_for_task(string(args, "cwd")).await?;
         }
         let id = self.state().panes.next_id();
@@ -566,7 +616,7 @@ impl CoreHandle {
             None if kind == PaneType::Term && dock.is_none() && !planner => self.task_folder(from.as_deref(), string(args, "window")).await,
             None => None,
         };
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, from.as_deref(), shelf, planner)).await?;
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), shelf, backlog, planner)).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();
@@ -764,8 +814,12 @@ impl CoreHandle {
             };
             let found = self.layout(scope_request(&scope)).await?;
             let ids = found.get("panes").and_then(Value::as_array).cloned().unwrap_or_default();
+            let kept = match &scope {
+                Scope::Task(task) if is_true(args, "tabs") => Some(task.clone()),
+                _ => None,
+            };
             let s = self.state();
-            ids.iter().filter_map(Value::as_str).filter(|id| s.panes.get(id).is_some()).map(String::from).collect()
+            ids.iter().filter_map(Value::as_str).filter(|id| s.panes.get(id).is_some() && kept.as_deref() != Some(*id)).map(String::from).collect()
         };
         for id in &victims {
             self.forget_pane(id);
@@ -775,6 +829,17 @@ impl CoreHandle {
         }
         self.changed();
         Ok(reply([("closed", victims.into())]))
+    }
+
+    fn mark_running(&self, listed: &mut Map) {
+        let s = self.state();
+        for task in listed.get_mut("tasks").and_then(Value::as_array_mut).into_iter().flatten() {
+            let Some(pane) = task.get("id").and_then(Value::as_str).and_then(|id| s.panes.get(id)) else { continue };
+            let running = matches!(pane.state, PaneState::Starting | PaneState::Running);
+            let status = pane.status().map_or(Value::Null, |s| s.into());
+            task["running"] = Value::Bool(running);
+            task["status"] = status;
+        }
     }
 
     async fn room_for_task(&self, cwd: Option<&str>) -> Result<(), KmuxError> {
@@ -789,7 +854,7 @@ impl CoreHandle {
             return Ok(());
         }
         let place = here.map_or("this project".to_string(), |p| p.display().to_string());
-        Err(KmuxError::new("task_limit", format!("{place} has {TASKS_PER_PROJECT} tasks already ({}): end one with `kanna task done TASK` first", same.join(", "))))
+        Err(KmuxError::new("task_limit", format!("{place} has {TASKS_PER_PROJECT} tasks on the Shelf already ({}): move one to the backlog with `kanna task defer TASK` first", same.join(", "))))
     }
 
     fn forget_pane(&self, id: &str) {
@@ -839,6 +904,24 @@ impl CoreHandle {
             host.send(&pane, string(args, "text").unwrap_or(""));
         }
         Ok(Map::new())
+    }
+
+    async fn send_key(&self, args: &Value) -> Result<Map, KmuxError> {
+        let pane = self.need_pane(string(args, "pane"))?;
+        if pane.kind != PaneType::Term {
+            return Err(KmuxError::new("wrong_type", format!("{} is a {} pane; send-key only works on term panes", pane.label(), pane.kind.as_str())));
+        }
+        let keys: Vec<String> = match args.get("keys") {
+            Some(Value::Array(keys)) if !keys.is_empty() => keys.iter().map(|k| k.as_str().map(str::to_string)).collect::<Option<_>>().ok_or_else(|| bad_request("keys must be strings"))?,
+            _ => return Err(bad_request("missing keys")),
+        };
+        if pane.state != PaneState::Running {
+            return Err(bad_request(format!("{} is {}", pane.label(), pane.state.as_str())));
+        }
+        let Some(host) = self.host() else { return Ok(Map::new()) };
+        let (responder, answer) = responder();
+        host.send_keys(&pane, keys, responder);
+        answer.await
     }
 
     fn read(&self, args: &Value) -> Result<Map, KmuxError> {

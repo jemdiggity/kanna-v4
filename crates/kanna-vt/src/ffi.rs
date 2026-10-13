@@ -20,6 +20,18 @@ pub struct GhosttySnapshotDecoderImpl {
     _private: [u8; 0],
 }
 pub type GhosttySnapshotDecoder = *mut GhosttySnapshotDecoderImpl;
+
+#[repr(C)]
+pub struct GhosttyKeyEncoderImpl {
+    _private: [u8; 0],
+}
+pub type GhosttyKeyEncoder = *mut GhosttyKeyEncoderImpl;
+
+#[repr(C)]
+pub struct GhosttyKeyEventImpl {
+    _private: [u8; 0],
+}
+pub type GhosttyKeyEvent = *mut GhosttyKeyEventImpl;
 #[repr(C)]
 pub struct GhosttyAllocator {
     _private: [u8; 0],
@@ -79,6 +91,42 @@ pub const GHOSTTY_TERMINAL_SCREEN_ALTERNATE: i32 = 1;
 pub const GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES: i32 = 0;
 pub const GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION: i32 = 1;
 pub const GHOSTTY_POINT_TAG_SCREEN: i32 = 2;
+pub const GHOSTTY_KEY_ACTION_PRESS: i32 = 1;
+pub const GHOSTTY_MODS_SHIFT: u16 = 1 << 0;
+pub const GHOSTTY_MODS_CTRL: u16 = 1 << 1;
+pub const GHOSTTY_MODS_ALT: u16 = 1 << 2;
+pub const GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT: i32 = 6;
+pub const GHOSTTY_OPTION_AS_ALT_TRUE: i32 = 1;
+pub const GHOSTTY_KEY_UNIDENTIFIED: i32 = 0;
+pub const GHOSTTY_KEY_BACKQUOTE: i32 = 1;
+pub const GHOSTTY_KEY_BACKSLASH: i32 = 2;
+pub const GHOSTTY_KEY_BRACKET_LEFT: i32 = 3;
+pub const GHOSTTY_KEY_BRACKET_RIGHT: i32 = 4;
+pub const GHOSTTY_KEY_COMMA: i32 = 5;
+pub const GHOSTTY_KEY_DIGIT_0: i32 = 6;
+pub const GHOSTTY_KEY_EQUAL: i32 = 16;
+pub const GHOSTTY_KEY_A: i32 = 20;
+pub const GHOSTTY_KEY_MINUS: i32 = 46;
+pub const GHOSTTY_KEY_PERIOD: i32 = 47;
+pub const GHOSTTY_KEY_QUOTE: i32 = 48;
+pub const GHOSTTY_KEY_SEMICOLON: i32 = 49;
+pub const GHOSTTY_KEY_SLASH: i32 = 50;
+pub const GHOSTTY_KEY_BACKSPACE: i32 = 53;
+pub const GHOSTTY_KEY_ENTER: i32 = 58;
+pub const GHOSTTY_KEY_SPACE: i32 = 63;
+pub const GHOSTTY_KEY_TAB: i32 = 64;
+pub const GHOSTTY_KEY_DELETE: i32 = 68;
+pub const GHOSTTY_KEY_END: i32 = 69;
+pub const GHOSTTY_KEY_HOME: i32 = 71;
+pub const GHOSTTY_KEY_INSERT: i32 = 72;
+pub const GHOSTTY_KEY_PAGE_DOWN: i32 = 73;
+pub const GHOSTTY_KEY_PAGE_UP: i32 = 74;
+pub const GHOSTTY_KEY_ARROW_DOWN: i32 = 75;
+pub const GHOSTTY_KEY_ARROW_LEFT: i32 = 76;
+pub const GHOSTTY_KEY_ARROW_RIGHT: i32 = 77;
+pub const GHOSTTY_KEY_ARROW_UP: i32 = 78;
+pub const GHOSTTY_KEY_ESCAPE: i32 = 120;
+pub const GHOSTTY_KEY_F1: i32 = 121;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct GhosttyPointCoordinate {
@@ -241,4 +289,23 @@ extern "C" {
         terminal: *mut GhosttyTerminal,
     ) -> GhosttyResult;
     pub fn ghostty_snapshot_decoder_free(decoder: GhosttySnapshotDecoder);
+    pub fn ghostty_key_encoder_new(allocator: *const GhosttyAllocator, encoder: *mut GhosttyKeyEncoder) -> GhosttyResult;
+    pub fn ghostty_key_encoder_free(encoder: GhosttyKeyEncoder);
+    pub fn ghostty_key_encoder_setopt(encoder: GhosttyKeyEncoder, option: i32, value: *const c_void);
+    pub fn ghostty_key_encoder_setopt_from_terminal(encoder: GhosttyKeyEncoder, terminal: GhosttyTerminal);
+    pub fn ghostty_key_encoder_encode(
+        encoder: GhosttyKeyEncoder,
+        event: GhosttyKeyEvent,
+        out_buf: *mut u8,
+        out_buf_size: usize,
+        out_len: *mut usize,
+    ) -> GhosttyResult;
+    pub fn ghostty_key_event_new(allocator: *const GhosttyAllocator, event: *mut GhosttyKeyEvent) -> GhosttyResult;
+    pub fn ghostty_key_event_free(event: GhosttyKeyEvent);
+    pub fn ghostty_key_event_set_action(event: GhosttyKeyEvent, action: i32);
+    pub fn ghostty_key_event_set_key(event: GhosttyKeyEvent, key: i32);
+    pub fn ghostty_key_event_set_mods(event: GhosttyKeyEvent, mods: u16);
+    pub fn ghostty_key_event_set_consumed_mods(event: GhosttyKeyEvent, mods: u16);
+    pub fn ghostty_key_event_set_utf8(event: GhosttyKeyEvent, utf8: *const u8, len: usize);
+    pub fn ghostty_key_event_set_unshifted_codepoint(event: GhosttyKeyEvent, codepoint: u32);
 }

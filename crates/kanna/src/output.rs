@@ -26,13 +26,14 @@ fn brief(text: &str) -> String {
     if line.chars().count() > 60 { format!("{}…", line.chars().take(59).collect::<String>()) } else { line.to_string() }
 }
 
-pub fn opened(_: &Value, reply: &Value) -> String {
+pub fn opened(request: &Value, reply: &Value) -> String {
     if reply["window"].is_null() && reply.get("window").is_some() {
         return format!("opened {}, unplaced until Kanna.app opens: {}", label(&reply["pane"]), state(&reply["pane"]));
     }
     let window = reply["window"].as_str().unwrap_or("?");
     if let Some(edge) = reply["dock"].as_str() {
-        return format!("opened {} docked {edge} in window {window}: {}", label(&reply["pane"]), state(&reply["pane"]));
+        let frozen = if request["frozen"] == true { ", frozen," } else { "" };
+        return format!("opened {} docked {edge}{frozen} in window {window}: {}", label(&reply["pane"]), state(&reply["pane"]));
     }
     format!("opened {} in window {window}, tab {}: {}", label(&reply["pane"]), reply["tab"].as_str().unwrap_or("?"), state(&reply["pane"]))
 }
@@ -115,33 +116,52 @@ pub fn task(request: &Value, reply: &Value) -> String {
         Some("list") => {
             let tasks = reply["tasks"].as_array().cloned().unwrap_or_default();
             let waiting = reply["backlog"].as_array().cloned().unwrap_or_default();
+            if let (true, Some(query)) = (tasks.is_empty() && waiting.is_empty(), request["query"].as_str()) {
+                return format!("no task matches \"{query}\"");
+            }
             if tasks.is_empty() && waiting.is_empty() {
                 return "no tasks: add one with `kanna task new NAME \"FIRST MESSAGE\"`, or dock an agent with `kanna open --dock --cmd claude`".into();
             }
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
-            let rows: Vec<[String; 4]> = tasks
+            let state = |t: &Value| match (t["running"].as_bool(), t["status"].as_str()) {
+                (Some(false), _) => "stopped".to_string(),
+                (_, Some("needs-you")) => "needs you".to_string(),
+                (_, Some(status)) if status != "exited" => status.to_string(),
+                _ => "running".to_string(),
+            };
+            let rows: Vec<[String; 5]> = tasks
                 .iter()
                 .map(|t| {
                     let place = t["window"].as_str().map_or("Shelf".to_string(), |w| format!("Desk {w}"));
                     let parked = t["parkedAt"].as_f64().map_or(String::new(), |at| format!("parked {}", ago(now - at)));
-                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), place, parked]
+                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), place, state(t), parked]
                 })
                 .chain(waiting.iter().map(|t| {
                     let made = t["madeAt"].as_f64().map_or(String::new(), |at| format!("made {} · {}", ago(now - at), tilde(t["repo"].as_str().unwrap_or(""))));
-                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), "Backlog".into(), made]
+                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), "Backlog".into(), state(t), made]
                 }))
                 .collect();
-            let width = |i: usize| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0).max(["TASK", "NAME", "WHERE", ""][i].len());
-            let line = |r: [&str; 4]| format!("{:w0$}  {:w1$}  {:w2$}  {}", r[0], r[1], r[2], r[3], w0 = width(0), w1 = width(1), w2 = width(2)).trim_end().to_string();
-            std::iter::once(line(["TASK", "NAME", "WHERE", ""])).chain(rows.iter().map(|r| line([&r[0], &r[1], &r[2], &r[3]]))).collect::<Vec<_>>().join("\n")
+            let head = ["TASK", "NAME", "WHERE", "STATE", ""];
+            let width = |i: usize| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0).max(head[i].len());
+            let line = |r: [&str; 5]| format!("{:w0$}  {:w1$}  {:w2$}  {:w3$}  {}", r[0], r[1], r[2], r[3], r[4], w0 = width(0), w1 = width(1), w2 = width(2), w3 = width(3)).trim_end().to_string();
+            std::iter::once(line(head)).chain(rows.iter().map(|r| line([&r[0], &r[1], &r[2], &r[3], &r[4]]))).collect::<Vec<_>>().join("\n")
         }
         Some("park") if reply["parked"] == Value::Bool(true) => format!("parked {id}; {} is an empty Desk", reply["window"].as_str().unwrap_or("?")),
         Some("park") => format!("{id} is already on the Shelf"),
         Some("pull") if reply["moved"] == Value::Bool(true) => format!("pulled {id} onto {}", reply["window"].as_str().unwrap_or("?")),
         Some("pull") => format!("{id} is on {}; brought it forward", reply["window"].as_str().unwrap_or("?")),
         Some("new") => format!("added {} \"{}\" to the backlog of {}", reply["task"]["id"].as_str().unwrap_or("?"), reply["task"]["name"].as_str().unwrap_or(""), tilde(reply["task"]["repo"].as_str().unwrap_or("?"))),
+        Some("start") if reply["resumed"] == Value::Bool(true) => format!("started {} again{}: {}", reply["task"].as_str().unwrap_or("?"), place(reply), reply["pane"].as_str().unwrap_or("?")),
         Some("start") => format!(
-            "started {} on the {}: {} in {}{}",
+            "started {} in the backlog: {} in {}{}",
+            reply["task"].as_str().unwrap_or("?"),
+            reply["pane"].as_str().unwrap_or("?"),
+            tilde(reply["folder"].as_str().unwrap_or("?")),
+            reply["branch"].as_str().map_or(String::new(), |b| format!(" ({b})"))
+        ),
+        Some("stop") => format!("stopped {}{}; `kanna task start {}` starts it again", reply["task"].as_str().unwrap_or("?"), place(reply), reply["task"].as_str().unwrap_or("?")),
+        Some("shelve") => format!(
+            "moved {} to the {}: {} in {}{}",
             reply["task"].as_str().unwrap_or("?"),
             reply["window"].as_str().map_or("Shelf".to_string(), |w| format!("Desk {w}")),
             reply["pane"].as_str().unwrap_or("?"),
@@ -150,10 +170,32 @@ pub fn task(request: &Value, reply: &Value) -> String {
         ),
         Some("done") if reply.get("closed").is_none() => format!("took {} off the backlog", reply["task"]["id"].as_str().unwrap_or("?")),
         Some("desk") => format!("opened {} on {}", reply["window"].as_str().unwrap_or("?"), tilde(reply["project"].as_str().unwrap_or("?"))),
-        Some("defer") => format!("moved {} to the backlog as {}, still running: start it to bring it back", reply["pane"].as_str().unwrap_or("?"), reply["task"]["id"].as_str().unwrap_or("?")),
+        Some("defer") => format!(
+            "moved {} to the backlog as {}, {}: shelve it to bring it back",
+            reply["pane"].as_str().unwrap_or("?"),
+            reply["task"]["id"].as_str().unwrap_or("?"),
+            if reply["running"] == Value::Bool(false) { "stopped" } else { "still running" }
+        ),
         Some("name") => format!("named {} \"{}\"", request["pane"].as_str().unwrap_or("?"), request["name"].as_str().unwrap_or("")),
         Some("done") => format!("{} is done: closed {}", request["task"].as_str().unwrap_or("?"), join(&reply["closed"])),
         _ => String::new(),
+    }
+}
+
+fn place(reply: &Value) -> &'static str {
+    if reply["place"] == "backlog" { " in the backlog" } else { "" }
+}
+
+pub fn keep_matching(reply: &mut Value, query: &str) {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    let matches = |task: &Value| {
+        let text = [&task["name"], &task["message"]].iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n").to_lowercase();
+        words.iter().all(|word| text.contains(word.as_str()))
+    };
+    for list in ["tasks", "backlog"] {
+        if let Some(tasks) = reply[list].as_array_mut() {
+            tasks.retain(matches);
+        }
     }
 }
 
@@ -257,10 +299,11 @@ pub fn list(reply: &Value) -> String {
         if let Some(name) = dock["pane"].as_str() {
             let pane = panes.iter().find(|p| p["name"] == name || p["id"] == name);
             out.push(format!(
-                "  dock: {}  {} {}",
+                "  dock: {}  {} {}{}",
                 pane.map(label).unwrap_or_else(|| name.to_string()),
                 dock["edge"].as_str().unwrap_or("?"),
-                dock["width"].as_str().unwrap_or("?")
+                dock["width"].as_str().unwrap_or("?"),
+                if dock["frozen"] == true { "  frozen" } else { "" }
             ));
         }
         for tab in window["tabs"].as_array().unwrap_or(&empty) {
@@ -299,6 +342,56 @@ pub fn list(reply: &Value) -> String {
         out.push(row.iter().zip(&widths).map(|(cell, w)| format!("{cell:w$}")).collect::<Vec<_>>().join("  ").trim_end().to_string());
     }
     out.join("\n")
+}
+
+pub fn agents(args: &Value, reply: &Value) -> String {
+    let lines = |key: &str, label: &str| reply[key].as_array().filter(|a| !a.is_empty()).map(|a| format!("{label}:\n{}", a.iter().filter_map(Value::as_str).map(|p| format!("  {}", tilde(p))).collect::<Vec<_>>().join("\n")));
+    let changes = changed_skills(reply).map(|c| format!("{c}\n"));
+    let conflicts = reply["conflicts"].as_array().filter(|a| !a.is_empty()).map(|a| format!("your changes conflict with Kanna's, so these are as you left them (kanna agents update to merge them):\n{}", a.iter().filter_map(|c| c["path"].as_str()).map(|p| format!("  {}", tilde(p))).collect::<Vec<_>>().join("\n")));
+    match args["action"].as_str() {
+        Some("setup") => [
+            Some("Kanna's skills are installed; Kanna asks before it updates them".to_string()),
+            changes.map(|c| c.trim_end().to_string()),
+            lines("kept", "left alone (yours; kanna agents update --force puts Kanna's back)"),
+            conflicts,
+            (reply["settings"] != true).then(|| "~/.claude/settings.json isn't JSON, so Claude's hook and sandbox entry weren't added".to_string()),
+        ].into_iter().flatten().collect::<Vec<_>>().join("\n"),
+        Some("update") => [
+            Some(if changes.is_some() { "updated Kanna's skills".to_string() } else { "Kanna's skills are up to date".to_string() }),
+            changes.map(|c| c.trim_end().to_string()),
+            lines("kept", "left alone (yours; --force puts Kanna's back)"),
+            conflicts,
+        ].into_iter().flatten().collect::<Vec<_>>().join("\n"),
+        Some("remove") => [
+            Some("took Kanna's skills, hooks and sandbox entry back out; Kanna won't ask again (kanna agents setup to set them up again)".to_string()),
+            lines("kept", "left alone (changed since Kanna installed them)"),
+        ].into_iter().flatten().collect::<Vec<_>>().join("\n"),
+        _ => {
+            let skills = reply["skills"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+            let state = match reply["setup"].as_str() {
+                Some("yes") => match changed_skills(reply) {
+                    Some(changes) => format!("set up; this Kanna has newer skills (kanna agents update):\n{changes}"),
+                    None => "set up, and up to date".to_string(),
+                },
+                Some("no") => "not set up (you said no), so agents don't name their tasks, plan or answer comments: kanna agents setup".to_string(),
+                _ => "not set up yet, so agents don't name their tasks, plan or answer comments; Kanna's planning terminal asks, or: kanna agents setup".to_string(),
+            };
+            format!("{state}\nskills: {}", if skills.is_empty() { "none in this Kanna".into() } else { skills })
+        }
+    }
+}
+
+pub fn changed_skills(reply: &Value) -> Option<String> {
+    let changes = reply["changes"].as_object().filter(|c| !c.is_empty())?;
+    let width = changes.keys().map(|k| k.chars().count()).max().unwrap_or(0);
+    Some(changes.iter().map(|(skill, change)| {
+        let change = match change.as_str().unwrap_or("") {
+            "merged" => "updated, merged with your changes",
+            "conflict" => "updated; your changes conflict, kept yours",
+            other => other,
+        };
+        format!("  {skill:width$}  {change}")
+    }).collect::<Vec<_>>().join("\n"))
 }
 
 pub fn status(args: &Value, reply: &Value) -> String {

@@ -1,4 +1,7 @@
 mod ffi;
+mod key;
+
+pub use key::{Key, KeyError};
 
 use std::ffi::c_void;
 use std::fmt;
@@ -672,6 +675,47 @@ mod abi {
             ("sizeof GhosttyTerminalProgressReport", size_of::<GhosttyTerminalProgressReport>() as i64),
             ("GhosttyTerminalProgressReport.state", offset_of!(GhosttyTerminalProgressReport, state) as i64),
             ("GhosttyTerminalProgressReport.progress", offset_of!(GhosttyTerminalProgressReport, progress) as i64),
+            ("GHOSTTY_KEY_ACTION_PRESS", GHOSTTY_KEY_ACTION_PRESS as i64),
+            ("GHOSTTY_MODS_SHIFT", GHOSTTY_MODS_SHIFT as i64),
+            ("GHOSTTY_MODS_CTRL", GHOSTTY_MODS_CTRL as i64),
+            ("GHOSTTY_MODS_ALT", GHOSTTY_MODS_ALT as i64),
+            ("GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT", GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT as i64),
+            ("GHOSTTY_OPTION_AS_ALT_TRUE", GHOSTTY_OPTION_AS_ALT_TRUE as i64),
+            ("sizeof GhosttyKey", size_of::<i32>() as i64),
+            ("sizeof GhosttyOptionAsAlt", size_of::<i32>() as i64),
+            ("GHOSTTY_KEY_UNIDENTIFIED", GHOSTTY_KEY_UNIDENTIFIED as i64),
+            ("GHOSTTY_KEY_BACKQUOTE", GHOSTTY_KEY_BACKQUOTE as i64),
+            ("GHOSTTY_KEY_BACKSLASH", GHOSTTY_KEY_BACKSLASH as i64),
+            ("GHOSTTY_KEY_BRACKET_LEFT", GHOSTTY_KEY_BRACKET_LEFT as i64),
+            ("GHOSTTY_KEY_BRACKET_RIGHT", GHOSTTY_KEY_BRACKET_RIGHT as i64),
+            ("GHOSTTY_KEY_COMMA", GHOSTTY_KEY_COMMA as i64),
+            ("GHOSTTY_KEY_DIGIT_0", GHOSTTY_KEY_DIGIT_0 as i64),
+            ("GHOSTTY_KEY_DIGIT_9", (GHOSTTY_KEY_DIGIT_0 + 9) as i64),
+            ("GHOSTTY_KEY_EQUAL", GHOSTTY_KEY_EQUAL as i64),
+            ("GHOSTTY_KEY_A", GHOSTTY_KEY_A as i64),
+            ("GHOSTTY_KEY_Z", (GHOSTTY_KEY_A + 25) as i64),
+            ("GHOSTTY_KEY_MINUS", GHOSTTY_KEY_MINUS as i64),
+            ("GHOSTTY_KEY_PERIOD", GHOSTTY_KEY_PERIOD as i64),
+            ("GHOSTTY_KEY_QUOTE", GHOSTTY_KEY_QUOTE as i64),
+            ("GHOSTTY_KEY_SEMICOLON", GHOSTTY_KEY_SEMICOLON as i64),
+            ("GHOSTTY_KEY_SLASH", GHOSTTY_KEY_SLASH as i64),
+            ("GHOSTTY_KEY_BACKSPACE", GHOSTTY_KEY_BACKSPACE as i64),
+            ("GHOSTTY_KEY_ENTER", GHOSTTY_KEY_ENTER as i64),
+            ("GHOSTTY_KEY_SPACE", GHOSTTY_KEY_SPACE as i64),
+            ("GHOSTTY_KEY_TAB", GHOSTTY_KEY_TAB as i64),
+            ("GHOSTTY_KEY_DELETE", GHOSTTY_KEY_DELETE as i64),
+            ("GHOSTTY_KEY_END", GHOSTTY_KEY_END as i64),
+            ("GHOSTTY_KEY_HOME", GHOSTTY_KEY_HOME as i64),
+            ("GHOSTTY_KEY_INSERT", GHOSTTY_KEY_INSERT as i64),
+            ("GHOSTTY_KEY_PAGE_DOWN", GHOSTTY_KEY_PAGE_DOWN as i64),
+            ("GHOSTTY_KEY_PAGE_UP", GHOSTTY_KEY_PAGE_UP as i64),
+            ("GHOSTTY_KEY_ARROW_DOWN", GHOSTTY_KEY_ARROW_DOWN as i64),
+            ("GHOSTTY_KEY_ARROW_LEFT", GHOSTTY_KEY_ARROW_LEFT as i64),
+            ("GHOSTTY_KEY_ARROW_RIGHT", GHOSTTY_KEY_ARROW_RIGHT as i64),
+            ("GHOSTTY_KEY_ARROW_UP", GHOSTTY_KEY_ARROW_UP as i64),
+            ("GHOSTTY_KEY_ESCAPE", GHOSTTY_KEY_ESCAPE as i64),
+            ("GHOSTTY_KEY_F1", GHOSTTY_KEY_F1 as i64),
+            ("GHOSTTY_KEY_F12", (GHOSTTY_KEY_F1 + 11) as i64),
         ];
         let mut c = vec![0i64; rust.len() + 8];
         let n = unsafe { kanna_vt_abi(c.as_mut_ptr(), c.len()) };

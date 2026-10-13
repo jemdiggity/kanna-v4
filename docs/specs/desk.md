@@ -52,15 +52,21 @@ flowchart LR
   - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, a markdown link, or **+**.
   - Opening a file that's already open shows its tab.
 - **The title bar** (top) shows only the task's title (or Shelf, with no task on the Desk).
-- **With no task on it, the Desk shows the planning agent and the Shelf in full** (pictured above) in place of the strip: the agent docked on the left, and on the right the project's tasks (click one to pull it) and backlog, live, under a short encouraging line that changes each time the Shelf comes up. It holds no tabs: New Tab and the splits are off, and a pane opened onto it gets a plain window of its own ([planning agent](planning-agent.md#1-when-it-shows)).
+- **With no task on it, the Desk shows the planning agent and the Shelf in full** (pictured above) in place of the strip: the agent docked on the left, and on the right the project's tasks (click one to pull it) and backlog, live, under a short encouraging line that changes each time the Shelf comes up. ⌘F searches the backlog ([backlog search](backlog-search.md)). It holds no tabs: New Tab and the splits are off, and a pane opened onto it gets a plain window of its own ([planning agent](planning-agent.md#1-when-it-shows)).
 - **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
 
 ## 3. The Shelf
 
 - **The project's tasks not on a Desk**, latest parked first (a stack), each with its [agent status](agent-status.md) and how long ago it was parked. **Needs you** moves a task to the front.
+- **Each task's time shows beside its name** (pictured above): how long ago it was parked, or needs you, muted, kept current while it's shown. Its ⌘ key shows on hover. When the strip is too narrow, titles truncate first, each in proportion to its length, down to a short floor; then the backlog count gives way; then the times.
 - **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘3** swap in the Shelf's 1st … 3rd task the same way. **⇧⌘A** pulls the task that has needed you longest, and **⌘.** parks, or on an empty Desk pulls back the task parked last. They're in the Task menu.
-- **At most three tasks per project:** the one on the Desk and two on the Shelf (three on the full Shelf). Starting a fourth is refused until one is Done.
-- **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one and scroll positions come back as they were.
+- **At most three tasks per project:** the one on the Desk and two on the Shelf (three on the full Shelf), running or stopped. Moving a fourth to the Shelf is refused until one goes back to the backlog or is Done; any number run in the backlog ([tasks](tasks.md#5-stop-done-or-back-to-the-backlog)).
+- **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one, focus, [zoom](zoom.md#on-a-desk-the-tasks-zoom-and-the-shelfs) and scroll positions come back as they were.
+- **The Shelf view has its own zoom.** ⇧⌘↩ on it zooms the planner, and it stays zoomed (or not) whatever the tasks do:
+
+  | Task zoomed | ⌘. | Shelf view, zoomed earlier | ⌘. |
+  |---|---|---|---|
+  | ![The task's log fills the window](zoom-desk-task.png) | → | ![The planner fills the window](zoom-desk-planner.png) | → back to the task, zoomed |
 
 ## 4. The planning agent
 
@@ -70,11 +76,11 @@ With no task on the Desk, the window's planning terminal, where you run your pla
 
 | Command | Does |
 |---|---|
-| `kanna task list` | Every task: ID, name, where it is (a Desk or the Shelf), status |
+| `kanna task list [QUERY]` | Every task: ID, name, where it is (a Desk or the Shelf), status; QUERY filters by name and first message |
 | `kanna task pull ID` | Put a task on the key window's Desk |
 | `kanna task park [ID]` | Move a task (default: the one on the key Desk) to the Shelf |
 | `kanna task done ID` | End a task: close its panes |
-| `kanna task new`, `start`, `name` | Make, start and name tasks: [tasks](tasks.md#6-cli) |
+| `kanna task new`, `start`, `stop`, `shelve`, `defer`, `name` | Make, run, stop, move and name tasks: [tasks](tasks.md#6-cli) |
 
 A task's ID is its docked pane's ID. Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens a new tab on the task's Desk (or, while it's parked, among its parked tabs). `done` leaves its Desk empty.
 
@@ -96,7 +102,7 @@ flowchart TB
 
 - **The mux layer does the layout.** A Desk is an ordinary window with a [docked pane](docked-pane.md) and tabs. Nothing in the mux layer knows about tasks.
 - **The Desk layer is chrome and the Shelf.** The app keeps parked tasks (their dock with its width, their tabs, and when they were parked), saved with the windows ([4.7](../kanna-spec.md#47-the-layout)). The title bar, agent header and Shelf are app views around the window's content.
-- **Parking** moves the task's dock and tabs off the window; the panes keep their IDs, and their terminals never notice.
+- **Parking** moves the task's dock, tabs, focus and zoom off the window; the panes keep their IDs, and their terminals never notice. The window keeps the Shelf view's zoom ([zoom](zoom.md#4-how-its-built)).
 - **The planning terminal is the window's `planner`**: a pane the window holds beside its dock, shown on the left only while the dock is empty. Parking and pulling move the dock and tabs and leave it where it is. The app asks the daemon for one (`backlog` `plan`) when a Desk shows no task and has none; the daemon makes its command and opens it with the `planner` placement.
 - **`kanna task` commands** are layout commands: they go to the app like `open --split`, and start it if it's closed.
 

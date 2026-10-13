@@ -29,10 +29,11 @@ fn brief(text: &str) -> String {
     if line.chars().count() > 60 { format!("{}…", line.chars().take(59).collect::<String>()) } else { line.to_string() }
 }
 
-pub fn opened(_: &Value, reply: &Value) -> String {
+pub fn opened(request: &Value, reply: &Value) -> String {
     let window = reply["window"].as_str().unwrap_or("?");
     if let Some(edge) = reply["dock"].as_str() {
-        return format!("opened {} docked {edge} in window {window}: {}", label(&reply["pane"]), state(&reply["pane"]));
+        let frozen = if request["frozen"] == true { ", frozen," } else { "" };
+        return format!("opened {} docked {edge}{frozen} in window {window}: {}", label(&reply["pane"]), state(&reply["pane"]));
     }
     format!("opened {} in window {window}, tab {}: {}", label(&reply["pane"]), reply["tab"].as_str().unwrap_or("?"), state(&reply["pane"]))
 }
@@ -125,10 +126,11 @@ pub fn list(reply: &Value) -> String {
         if let Some(name) = dock["pane"].as_str() {
             let pane = reply["panes"].as_array().and_then(|panes| panes.iter().find(|p| p["name"] == name || p["id"] == name));
             out.push(format!(
-                "  dock: {}  {} {}",
+                "  dock: {}  {} {}{}",
                 pane.map(label).unwrap_or_else(|| name.to_string()),
                 dock["edge"].as_str().unwrap_or("?"),
-                dock["width"].as_str().unwrap_or("?")
+                dock["width"].as_str().unwrap_or("?"),
+                if dock["frozen"] == true { "  frozen" } else { "" }
             ));
         }
         for tab in window["tabs"].as_array().unwrap_or(&empty) {

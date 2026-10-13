@@ -31,6 +31,10 @@
    - 4.17 [Agent Status](#417-agent-status)
    - 4.18 [Tab Completion](#418-tab-completion)
    - 4.19 [Code Viewer](#419-code-viewer)
+   - 4.20 [Code Tour](#420-code-tour)
+   - 4.21 [The Build](#421-the-build)
+   - 4.22 [Quiz](#422-quiz)
+   - 4.23 [The Database](#423-the-database)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -212,7 +216,7 @@ flowchart LR
 | **Terminal** | a pty, its screen and scrollback, cwd, exit code | the daemon | exactly as it was, still running |
 | **Layout state** | where panes are; a web pane's URL and history, a markdown pane's file, an iOS pane's device and app | the app | reopened: pages reload at their URL, files reopen, simulators never stopped |
 
-Terminal commands (`list`, `send`, `read`, `close`, `restart`, and `open` without a placement) work with the app closed. Layout, web, markdown and iOS commands are passed to the app; with the app closed, kanna starts it or fails clearly ([4.7](#47-the-layout)).
+Terminal commands (`list`, `send`, `send-key`, `read`, `close`, `restart`, and `open` without a placement) work with the app closed. Layout, web, markdown and iOS commands are passed to the app; with the app closed, kanna starts it or fails clearly ([4.7](#47-the-layout)).
 
 ### 4.3 kmux Is the Reference Model
 
@@ -267,7 +271,7 @@ The app is a client of the daemon, like the CLI, but it stays connected: it show
 
 **Saying it's the app.** The app's first line is `{"id": 0, "cmd": "app.hello", "args": {"pid": …}}`. The daemon answers `{"id": 0, "ok": true, "daemon": {"pid": …}, "panes": [{"id", "name", "type"}, …]}`, listing every terminal it has, and the connection is the app link from then on. One app at a time: a second gets `ok: false` (`app_attached`) and is closed. If the daemon goes away, the app keeps trying to connect, and on reconnecting says hello and attaches its terminals again.
 
-**The app starts the daemon.** Kanna.app carries the daemon and the keeper in `Contents/Helpers`, and nothing else has to be run first:
+**The app starts the daemon.** Kanna.app carries the daemon, the keeper and the `kanna` CLI in `Contents/Helpers`, and nothing else has to be run first:
 
 - **When:** at launch, as soon as nothing answers on the daemon socket; after losing a daemon it has been attached to, once nothing has answered for 2 s (so a daemon being restarted on purpose gets there first). At most one start every 10 s. The daemon's lock ([4.8](#48-restarting-the-daemon)) makes a race harmless: a second daemon on the folder exits.
 - **How:** in its own session (`setsid`), so it outlives the app; signals back to their defaults; no descriptors of the app's; stdin from `/dev/null`, stdout and stderr appended to `daemon.log` in the state folder. It gets the app's environment without `KANNA_*` and `KMUX_*` (only `KANNA_STATE_DIR` and `KANNA_DEBUG` pass), plus `KANNA_SOCKET` (the app's daemon socket) and `KANNA_KEEPER` (the bundled keeper). The daemon then starts the keeper as before.
@@ -381,7 +385,7 @@ flowchart LR
 | `export`, `check {state, ids}`, `install {state, ids}` | `debug.saveState`, `debug.restoreState` | as kmux | `no_app` |
 
 - **With the app attached** every layout command is the app's; `close` closes the terminals in the daemon and then has the app remove them.
-- **With the app closed**, terminals keep working: `list`, `send`, `read`, `close`, `restart`, and `open` without a placement (the pane is placed when the app next opens). Commands that need the layout fail with `no_app`: "… needs Kanna.app, and none is attached to this daemon".
+- **With the app closed**, terminals keep working: `list`, `send`, `send-key`, `read`, `close`, `restart`, and `open` without a placement (the pane is placed when the app next opens). Commands that need the layout fail with `no_app`: "… needs Kanna.app, and none is attached to this daemon".
 - **If the app goes away mid-step**, the step gets the no-app answer: an unplaced `open` still opens its terminal, a placed one fails.
 - **`list`** answers `panes` from the daemon and `windows` from the app; with no app, `windows` is `[]` (no last-known layout: the app's file is the only copy, and it may be stale) and each pane's window shows as `-`.
 
@@ -412,7 +416,7 @@ sequenceDiagram
 
 **The CLI starts the app** ([plan](plans/mux-build.md) steps 1.4 and B.6). When the daemon answers a command with `no_app` and `KANNA_SOCKET` isn't set, `kanna` starts Kanna.app (`open -n -a $KANNA_APP`; else, for a dev build, its checkout's `target/Kanna.app`; else by its channel's bundle ID, `dev.kanna.app` or `dev.kanna.app.staging`; never the branded kmux `dev.kanna.kanna`; with `KANNA_SOCKET` and `KANNA_STATE_DIR` passed on, in the background with `--bg` or `KANNA_BG=1`), retries the command every 200 ms until the app has attached (a `no_app` answer changes nothing, so the retry is safe), and gives up after 20 s with exit 6. With `KANNA_SOCKET` set (a test, a script, a terminal inside Kanna) it never starts an app: it exits 6 with the daemon's message and "KANNA_SOCKET is set, so kanna doesn't start Kanna.app for it". Without `KANNA_SOCKET`, kanna talks to the daemon of its instance (its build's default, such as `kanna-dev/kanna.sock` in the app support folder; [build channels](specs/build-channels.md)), and when nothing answers there it starts Kanna.app, which starts the daemon ([4.5](#45-the-app-link)), as kmux's CLI starts kmux; the CLI itself never starts a daemon ([4.11](#411-the-kanna-cli)).
 
-**Conformance.** kmux's 45 protocol cases pass three ways: against `kanna-mux` with the model in-process; with the model behind `LayoutOwner`, every step sent as JSON and answered on a later turn (`crates/kanna-mux/tests/protocol_cases.rs`); and through a running daemon, keeper and app link, with a test app answering through `LayoutOwner` (`crates/kanna-daemon/tests/protocol_cases.rs`: all of them since M3, the 12 of docked panes since 4.16, [4.9](#49-web-markdown-and-ios-panes)). The app's own glue is checked by S5 and S9 of `scripts/e2e-kanna.sh` and by `crates/kanna-layout/tests`.
+**Conformance.** kmux's 46 protocol cases pass three ways: against `kanna-mux` with the model in-process; with the model behind `LayoutOwner`, every step sent as JSON and answered on a later turn (`crates/kanna-mux/tests/protocol_cases.rs`); and through a running daemon, keeper and app link, with a test app answering through `LayoutOwner` (`crates/kanna-daemon/tests/protocol_cases.rs`: all of them since M3, the 13 of docked panes since 4.16, [4.9](#49-web-markdown-and-ios-panes)). The app's own glue is checked by S5 and S9 of `scripts/e2e-kanna.sh` and by `crates/kanna-layout/tests`.
 
 ### 4.8 Restarting the Daemon
 
@@ -493,7 +497,7 @@ A web, markdown or iOS pane is a view in the app and a record in its layout: a w
 | `debug.web`, `debug.md`, `debug.ios` (with an `id`) | daemon | kmux's commands for these panes (the page's URL and text; the rendered markdown; a tap or Home on the simulator), passed on like `debug.text` |
 
 - **Starting:** a web pane reports `running` as soon as its view loads the URL (a server that isn't up yet shows a notice and is retried, as kmux); a markdown pane once the file is read (`failed`: "No such file"); an iOS pane once the simulator is booted, the app launched and the screen attached (up to 180 s). `open` waits for that, as kmux.
-- **With the app closed** the daemon knows only terminals: `list` shows terminals and `windows: []`. `open web|md|ios` fails with `no_app` (the CLI starts the app, [4.7](#47-the-layout)); so does any command naming a pane the daemon doesn't know (it may be one of the app's), except `send` and `read`, which only work on terminals and answer `not_found`. `navigate` and `debug.web|md|ios` reach the app or fail with `no_app`.
+- **With the app closed** the daemon knows only terminals: `list` shows terminals and `windows: []`. `open web|md|ios` fails with `no_app` (the CLI starts the app, [4.7](#47-the-layout)); so does any command naming a pane the daemon doesn't know (it may be one of the app's), except `send`, `send-key` and `read`, which only work on terminals and answer `not_found`. `navigate` and `debug.web|md|ios` reach the app or fail with `no_app`.
 - **When the app goes away** its panes leave the daemon's table; an `open` still waiting for one fails (`start_failed`, "Kanna.app went away").
 - **After a relaunch** the app reads `layout.json`, says hello with its panes and shows them: pages load at their URL (cookies and logins stay in WebKit's store; the back and forward lists aren't kept, as kmux), files reopen at their zoom, iOS panes find their device (still booted) and attach to its screen, launching the app only if it isn't running. After a daemon restart the app's views are untouched: the hello hands the same records back.
 - **kmux's commands for these panes are kmux's:** there is no `web.*` namespace in kmux; `debug.web` (URL and page text), `debug.md` and `debug.ios` are its, and Kanna follows it.
@@ -638,13 +642,13 @@ Why this and not:
 | Build kmux's source files into `kanna` and rebrand the strings as it runs | a private file of kmux's would become kanna's API, so any refactor in kmux breaks kanna's build; replacing "kmux" in text gets some sentences wrong; and Kanna's additions (`read`, its notes) can't be added to kmux's fixed table |
 | **Port it, and check the port against kmux's source** (chosen) | one source of truth for Kanna's commands, inside kanna; kmux stays the reference: when kmux's CLI changes and kanna hasn't followed, the test fails, as kmux's protocol cases do for the core |
 
-**What the conformance test checks:** the same commands, groups and order as kmux (plus `read`); every summary, usage, option, note and example is kmux's with "kmux" read as "kanna" (the notes of `open`, `send` and `list` may only add to kmux's); every kmux example and request line parses to the same request; every usage error has kmux's exit code and message; every reply prints as kmux prints it. kmux's own CLI tests (`every_documented_example_parses`, `requests`, `usage_errors_say_what_to_do`, `layouts_print_as_expressions`) are ported as kanna's unit tests.
+**What the conformance test checks:** the same commands, groups and order as kmux (plus Kanna's: `read`, `send-key`, …); every summary, usage, option, note and example is kmux's with "kmux" read as "kanna" (the notes of `open`, `send` and `list` may only add to kmux's); every kmux example and request line parses to the same request; every usage error has kmux's exit code and message; every reply prints as kmux prints it. kmux's own CLI tests (`every_documented_example_parses`, `requests`, `usage_errors_say_what_to_do`, `layouts_print_as_expressions`) are ported as kanna's unit tests.
 
 **Commands** (`kanna help`, `kanna help COMMAND` or `kanna COMMAND --help`):
 
 | Group | Commands |
 |---|---|
-| Panes | `open`, `close`, `focus`, `zoom`, `restart`, `send`, `read` (Kanna's), `resize`, `move`, `navigate` |
+| Panes | `open`, `close`, `focus`, `zoom`, `restart`, `send`, `send-key` (Kanna's), `read` (Kanna's), `resize`, `move`, `navigate` |
 | Tabs and windows | `arrange`, `rename-tab`, `move-tab` |
 | Information | `list`, `capabilities` |
 | More | `help [COMMAND\|instances\|raw]`, `commands [--json]`, `raw REQUEST`, `instances [--json]`, `instances prune` |
@@ -657,12 +661,13 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 |---|---|---|---|
 | `read PANE [--lines N]` | — | prints a terminal's screen as text, scrollback with `--lines` | the daemon keeps every screen, with or without the app; agents read terminals |
 | `status explain PANE`, `status explain --file SCREEN --agent AGENT`, `status update`; `list`'s STATUS column and `status` field | — | agent status ([4.17](#417-agent-status)); the column shows only when a pane has a status, so a kmux reply prints as kmux prints it | the daemon judges agent panes; `capabilities` lists `status` |
+| `send-key PANE KEY...` | — (`send` types a line and presses Return; `debug.key` goes through the app's window) | presses keys in a terminal, encoded for the program's current modes, without the app ([6](#6-commands)) | agents answer another agent's menu, interrupt a command or submit a prompt; kmux's research recommends cmux's `send-key`, and kmux gets it from this port |
 | `--` | — (`--json` is taken from anywhere, so it can't be typed) | ends the options: `kanna send p1 -- --json` | text that looks like an option |
 | `--mux`, `KANNA_MUX` | — | `kanna` (default) or `kmux` | kanna can drive a kmux too |
 | `markup FILE.md\|FILE.html [--to PANE]`, `markup PANE [--to PANE \| --off]`, `markup comments\|show\|reply\|resolve\|reopen` | — | opens a doc with comments, or turns them on or off in a pane; `open` shows docs without them; the rest read and answer its threads, in the doc's thread file, without the daemon ([4.13](#413-doc-markup)) | review with an agent is opt-in |
 | `rename-pane PANE NAME` | — (a name is set only by `open --name`) | names, renames or (with `""`) unnames a pane; no two panes share a name and a name can't be another pane's ID; the daemon keeps it, so it works with or without the app | names are how you refer to panes, and an agent may start one unnamed |
-| `task new\|start\|list\|park\|pull\|defer\|name\|done`; `open` with no placement from a task's terminal | — | makes backlog tasks and starts them (the daemon's `backlog` command: a worktree `.kanna-worktrees/NAME` on branch NAME, NAME `task-` and a random UUID's first 32 bits in hex, on an empty branch in a repo with no commits yet; a folder that isn't a git repo is refused, and an agent docked onto the Shelf), lists, parks, pulls, moves back to the backlog (`defer`: parks the task's window marked as in the backlog, its panes still running and off the Shelf and the limit, until its start clears the mark), names or ends tasks; `done` is a `close` of the task's panes; `open` from a task's terminal opens a tab on its Desk; a fourth running task in one repo (a worktree counts as its main repo) is refused ([4.15](#415-desk), [tasks](specs/tasks.md)) | the Desk is Kanna's |
-| `move PANE --dock` | docks any pane | moves only the docked pane (to the other edge or another window); any other pane is refused (`not_a_task`), and the three protocol cases that dock one are skipped by name | a docked pane is a running task, so docking one would start a task outside the backlog and the limit ([tasks](specs/tasks.md)) |
+| `task new\|start\|list\|park\|pull\|defer\|name\|done`; `open` with no placement from a task's terminal | — | makes backlog tasks and starts them (the daemon's `backlog` command: a worktree `.kanna-worktrees/NAME` on branch NAME, NAME `task-` and a random UUID's first 32 bits in hex, on an empty branch in a repo with no commits yet; a folder that isn't a git repo is refused, and an agent docked onto the Shelf), lists, parks, pulls, moves back to the backlog (`defer`: parks the task's window marked as in the backlog, its panes still running and off the Shelf and the limit, until its start clears the mark), names or ends tasks; `done` is a `close` of the task's panes; `open` from a task's terminal opens a tab on its Desk, and from a terminal in a plain window splits beside that terminal, in its window, not the key window's focused pane; a fourth running task in one repo (a worktree counts as its main repo) is refused ([4.15](#415-desk), [tasks](specs/tasks.md)) | the Desk is Kanna's |
+| `move PANE --dock` | docks any pane | moves only the docked pane (to the other edge or another window) unless it's frozen, as a task's agent is; any other pane is refused (`not_a_task`), and the three protocol cases that dock one are skipped by name | a docked pane is a running task, so docking one would start a task outside the backlog and the limit ([tasks](specs/tasks.md)) |
 | `completions zsh\|bash`, `__complete` | — | tab completion from the command table, with live pane, tab and window names ([4.18](#418-tab-completion)) | the CLI is how you drive Kanna from a terminal |
 | Exit 6 | — | the command needs Kanna.app, which isn't attached and wasn't started | terminals work without the app; layout commands don't ([4.7](#47-the-layout)) |
 | Starting | starts the kmux app | starts this build's Kanna.app (`$KANNA_APP`, a dev build's `target/Kanna.app`, or its channel's bundle ID; never the branded `dev.kanna.kanna`), which starts the daemon; never with `KANNA_SOCKET` set | the app starts the daemon ([4.5](#45-the-app-link)) |
@@ -687,6 +692,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 │   ├── keeper.sock …     its keeper
 │   ├── terminals/        its terminals (4.8)
 │   ├── layout.json       its app's layout (4.7)
+│   ├── kanna.db          its tasks and their history (specs/database.md), with kanna.db.bak
 │   └── instance.json     the build its daemon is: channel, app, checkout, worktree
 ├── kanna-dev-work/       the instance named work, the same inside
 ├── kanna-dev-task-3f9a1c2e/  the default instance of the dev build in worktree task-3f9a1c2e
@@ -725,7 +731,7 @@ sequenceDiagram
 
 | Works | Needs the app (`no_app`: started, or exit 6 with `KANNA_SOCKET`) |
 |---|---|
-| `list` (terminals, no windows), `send`, `read`, `close PANE`, `restart`, `open` (a terminal, unplaced), `capabilities`, `raw` of these | `open` with `--split`, `--size`, `--tab` or `--window`; `open web\|md\|ios`; `focus`, `zoom`, `resize`, `move`, `arrange`, `rename-tab`, `move-tab`; `close --tab\|--window`; `navigate`; every `debug.*` |
+| `list` (terminals, no windows), `send`, `send-key`, `read`, `close PANE`, `restart`, `open` (a terminal, unplaced), `capabilities`, `raw` of these | `open` with `--split`, `--size`, `--tab` or `--window`; `open web\|md\|ios`; `focus`, `zoom`, `resize`, `move`, `arrange`, `rename-tab`, `move-tab`; `close --tab\|--window`; `navigate`; every `debug.*` |
 
 **The app's `debug.*` commands** go through the daemon by name: every `debug.*` the core doesn't answer itself (only `debug.saveState` and `debug.restoreState`) is passed to the app with pane names turned into IDs, so a debug command the app adds (kmux's `debug.click`, `debug.drag`, `debug.menu`, …) needs no change in the daemon. The app answers one it doesn't know with kmux's `unknown command`.
 
@@ -876,6 +882,31 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 **[Built]** The agent comments on code as it explains it: `kanna comment FILE:LINE "text"` opens the file in a code tab, tints those lines (snapped to their tree-sitter scope), dims the rest and lists the comment beside the code, folding the earlier ones. Comments live on the code pane\'s record; the daemon asks the app to snap. How to give a tour is the `kanna-tour` skill. Its own spec: [specs/code-tour.md](specs/code-tour.md); mockup `references/mockups/code-tour.html`. In `crates/kanna-mux` (`comment`, the record), `crates/kanna` (the command, threads on docs), `apps/kanna/Sources/KannaCode` (the box, tint and dim) and `AppCommands.swift` (`app.snap`); checked by `crates/kanna-daemon/tests/panes.rs` and S50.
 
+### 4.21 The Build
+
+**What Kanna compiles is built for the app's macOS, set in one place; nothing it links is built for a newer one.** The app's minimum macOS is `MACOSX_DEPLOYMENT_TARGET` in `.cargo/config.toml` (`force = true`, so a shell's own value can't override it), which every cargo build reads: rustc links for it and the `cc` crate compiles the tree-sitter grammars' C for it. Without it, rustc builds for macOS 11 and `cc` for the SDK's version (26.5), and linking the app warns for every such object that it was built for a newer macOS than the app. `apps/kanna/Package.swift`'s `platforms` must say the same version; `kanna_macos_target` in `scripts/env.sh` reads both, and `scripts/build.sh` and `scripts/build-kanna-app.sh` stop if they differ. The app's `LSMinimumSystemVersion` comes from it too.
+
+| Piece | Built by | Minimum macOS |
+|---|---|---|
+| `libkanna_ffi.a`, daemon, keeper, CLI | cargo (rustc, `cc`) | the app's (15.0) |
+| Kanna.app | SwiftPM | the app's (15.0) |
+| GhosttyKit, libghostty-vt | Zig, in Ghostty's build | 13.0, Ghostty's own floor |
+| Rust's std, `compiler_builtins` (in `libkanna_ffi.a`) | prebuilt, shipped with the toolchain | 11.0, Rust's default |
+
+Ghostty's `build.zig` sets its own minimum (13.0) and ignores the environment, and Rust's std comes prebuilt (rebuilding it needs nightly `-Zbuild-std`). A lower minimum than the app's is safe to link: those objects use nothing newer than their own minimum. A higher one is the bug the warning reports.
+
+Changing the deployment target needs a clean cargo build. Cargo reruns the `cc` build scripts when the `[env]` value changes, but it doesn't recompile pure Rust crates, so their objects keep the old version. `kanna_cargo_release_for` (`scripts/env.sh`) keeps the version `target/release` was built for in `target/release/macos-deployment-target` and cleans `target/release` when it differs or is missing; the build scripts call it before cargo. Ghostty's builds are reused by commit (`ghostty.rev`, borrowed by worktrees through `kanna_borrow_built`), so a change to how Ghostty is built goes in the fork and the pinned commit, and the new pin makes every checkout rebuild them.
+
+How a task's worktree builds quickly (clones of the main checkout's cargo dependencies and Swift packages, and dev's Swift app in debug), with timings: [specs/build-speed.md](specs/build-speed.md).
+
+### 4.22 Quiz
+
+**[Planned]** Five multiple-choice questions about what landed on main in the last day, asked by an agent in a Quiz window of its own, each answer explained and a miss opening the code with `kanna comment`. It's a skill only, `kanna-quiz`: the planning agent offers a round when something has merged and opens the window with `kanna open`, and the quiz agent writes the questions itself; nothing is kept between rounds yet. Its own spec: [specs/quiz.md](specs/quiz.md); mockup `references/mockups/quiz.html`.
+
+### 4.23 The Database
+
+**[Built]** The daemon keeps tasks and every change to them in one SQLite file, `kanna.db`. Its own spec: [specs/database.md](specs/database.md).
+
 ---
 
 ## 5. Mux Backends
@@ -924,7 +955,7 @@ Every adapter implements the same operations. Adding a new mux means writing a n
 | `arrange(layoutTree)` | Apply a parsed layout. |
 | `resize(pane, fraction)` | Change a pane's size. |
 | `list()`, `focus()`, `close()`, `restart()` | Manage panes. |
-| `send(pane, text)`, `navigate(pane, url)` | Act on a pane's contents. |
+| `send(pane, text)`, `sendKey(pane, keys)`, `navigate(pane, url)` | Act on a pane's contents. |
 
 The kmux adapter maps these one-to-one onto the [kmux control protocol](https://github.com/tampopogk/kmux/blob/main/docs/kmux-spec.md#7-control-protocol).
 
@@ -950,6 +981,7 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 | `kanna close PANE` / `--tab TAB` / `--window WINDOW` | Close a pane, or a tab or window with everything in it. |
 | `kanna restart PANE` | Restart what's inside a pane. |
 | `kanna send PANE TEXT` | Type text into a terminal pane. |
+| `kanna send-key PANE KEY...` | Press keys in a terminal pane: `kanna send-key agent down down return`, `kanna send-key server ctrl+c`. Kanna's (kmux has no `send-key` yet). |
 | `kanna read PANE [--lines N]` | Print a terminal pane's screen as text; with `--lines`, its last N lines, counting scrollback. Kanna.app only (kmux has no `read` yet). |
 | `kanna navigate PANE URL\|FILE\|--back\|--forward` | Point a web pane at a new URL (or move through its history), or a markdown pane at another `.md` file. |
 | `kanna capabilities` | Show what the running mux supports (and, for Kanna, whether the app is attached). |
@@ -960,6 +992,20 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 `PANE` can be a name (`site`) or an ID (`p2`).
 
 `--` ends the options: everything after it is text, so `kanna send p1 -- --json` types `--json`. **[Decided difference from kmux]**, whose CLI strips `--json` from anywhere in the arguments.
+
+**Keys for `send-key`** (`{cmd: "send-key", args: {pane, keys: [...]}}`), `debug.key`'s names without ⌘:
+
+| Key | Written |
+|---|---|
+| modifiers, held with the key | `ctrl+`, `alt+` (`opt+`, `option+`), `shift+`, combined: `ctrl+alt+a` |
+| named keys | `return` (`enter`), `esc` (`escape`), `tab`, `space`, `backspace` and `delete` (⌫), `forward-delete` (⌦), `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `insert`, `f1`–`f12` |
+| a character | `a`, `A` (shift+a), `?`, `1`, `é`; on a US layout, so `shift+1` is `!` |
+| refused | `cmd+…` (`super+…`): only Kanna.app has meaning for it; anything longer than a character that isn't a named key ("use kanna send") |
+
+- **Encoded in the daemon, for the program's modes.** Each key goes through libghostty-vt's key encoder, set from the pane's screen as the daemon keeps it: application cursor and keypad keys, the kitty keyboard protocol's flags, modifyOtherKeys, alt sending ESC. So `up` is `ESC [ A` to a shell and `ESC O A` to a program that turned on application cursor keys, `esc` is `ESC [ 27 u` to one that asked for the kitty protocol, and the bytes match what Ghostty in the app would send (`ctrl+[` and `ctrl+shift+c` are CSI u, as Ghostty sends them).
+- **One key at a time.** Keys are written in order, each its own write 50 ms after the one before, the first 50 ms after the command arrives, so a TUI reads separate key presses rather than a paste, even right after `kanna send`. Every key is checked first: if one isn't a key, or encodes to nothing in the current mode, nothing is sent. The reply comes after the last key is written, so a `read` after it sees its effect.
+- **No app, no focus.** It works with the app closed and on a pane that isn't in front, like `send`.
+- **Checked by** `crates/kanna-vt/tests/key.rs` (names, ctrl and alt, cursor key modes, kitty, modifyOtherKeys), `crates/kanna/tests/cli.rs` (the bytes a raw-mode program reads, ctrl+c interrupting a shell, the errors) and S56 of `scripts/e2e-kanna.sh` (the bytes, and the mock agent's menu, in application cursor mode, answered with `down return`).
 
 Options for `open`:
 

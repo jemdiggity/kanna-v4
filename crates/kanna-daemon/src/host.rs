@@ -1,6 +1,6 @@
 use crate::app_link::AppLink;
 use crate::terminals::Terminals;
-use kanna_mux::{KmuxError, Pane, PaneHost, PaneType};
+use kanna_mux::{KmuxError, Pane, PaneHost, PaneType, Responder};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
@@ -46,8 +46,18 @@ impl PaneHost for Host {
         }
     }
 
+    fn end(&self, pane: &Pane) {
+        if pane.kind == PaneType::Term {
+            self.terminals.end(pane);
+        }
+    }
+
     fn send(&self, pane: &Pane, text: &str) {
         self.terminals.send(pane, text);
+    }
+
+    fn send_keys(&self, pane: &Pane, keys: Vec<String>, done: Responder) {
+        self.terminals.send_keys(pane, keys, done);
     }
 
     fn read(&self, pane: &Pane, lines: Option<usize>) -> Result<String, KmuxError> {
