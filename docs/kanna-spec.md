@@ -896,7 +896,7 @@ Changing the deployment target needs a clean cargo build. Cargo reruns the `cc` 
 
 ### 4.22 Quiz
 
-**[Planned]** Five multiple-choice questions about what landed on main since your last quiz, asked by an agent in a Quiz window of its own (`kanna quiz`), each answer explained and a miss opening the code with `kanna comment`. The planning agent offers a round when one is ready; a short-lived background agent prepares the questions after main moves, and the daemon keeps them per repo, dropping one when its lines change. Its own spec: [specs/quiz.md](specs/quiz.md); mockup `references/mockups/quiz.html`.
+**[Planned]** Five multiple-choice questions about what landed on main since your last quiz, asked by an agent in a Quiz window of its own, each answer explained and a miss opening the code with `kanna comment`. It's a skill only, `kanna-quiz`: the planning agent offers a round when something has merged and opens the window with `kanna open`, and the quiz agent writes the questions itself and keeps the misses in the repo's git folder for a later round. Its own spec: [specs/quiz.md](specs/quiz.md); mockup `references/mockups/quiz.html`.
 
 ---
 

@@ -55,6 +55,10 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .ask .opt .d { color: var(--muted); display: block; padding-left: 5ch; }
 .ask .opt.cur .d { color: var(--muted); }
 .ask .foot { color: var(--muted); margin-top: 4px; }
+.ask .side { display: flex; gap: 3ch; align-items: flex-start; }
+.ask .side .opts { flex: none; }
+.ask .pic { flex: none; border: 1px solid var(--line); border-radius: 4px; padding: 4px 2ch; white-space: pre; line-height: 1.2; font-family: Menlo, monospace; }
+.drawn { white-space: pre; line-height: 1.2; font-family: Menlo, monospace; margin: 4px 0 4px 2ch; color: var(--muted); }
 .snip { border-left: 2px solid var(--line); margin: 4px 0 4px 2ch; padding-left: 1ch; }
 .snip .n { color: var(--num); }
 .snip .lbl { color: var(--accent); font-weight: 700; }
@@ -99,16 +103,17 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 <main>
   <div class="intro">
     <h1>Quiz: the agent asks about what the agents built</h1>
-    <p>A round of five multiple-choice questions about what landed on main since your last quiz, asked one at a time by an agent in its chat, about two minutes. The planning agent offers a round when something new is ready; yes opens a Quiz window: an agent in the repo on main (no task, no worktree: the quiz changes nothing), with the code it opens split beside it. Close the window to stop; the round is kept. Each answer gets a short explanation, and the agent opens the code at the line with <code>kanna comment</code>. The questions are prepared in the background after work lands on main; <code>kanna quiz</code> opens the window, and the agent there gets them from <code>kanna quiz start</code>, <code>next</code> and <code>answer</code>. Click an answer in the chat, or press 1–4.</p>
+    <p>A round of five multiple-choice questions about what landed on main since your last quiz, asked one at a time by an agent in its chat, about two minutes. The planning agent offers a round when something has merged since your last quiz; yes opens a Quiz window: an agent in the repo on main (no task, no worktree: the quiz changes nothing), with the code it opens split beside it. Close the window to stop; the round is kept. Each answer gets a short explanation, and the agent opens the code at the line with <code>kanna comment</code>. It's all the <code>kanna-quiz</code> skill: the planning agent opens the window with <code>kanna open</code>, and the agent there writes each question itself from what's on main. Click an answer in the chat, or press its number.</p>
     <div class="controls">
       <button id="theme">Light / dark</button>
       <button data-go="offer">The offer</button>
-      <button data-go="q1">A question</button>
+      <button data-go="q1">A drawing to pick</button>
+      <button data-go="q2">A question</button>
       <button data-go="a1">Answered right</button>
       <button data-go="a2">Answered wrong: the code opens</button>
-      <button data-go="q4">Spot the bug</button>
+      <button data-go="bug">Spot the bug</button>
       <button data-go="end">End of the round</button>
-      <button data-go="prep">Nothing ready: preparing</button>
+      <button data-go="prep">Writing the questions</button>
     </div>
   </div>
   <div id="stage"></div>
@@ -122,7 +127,21 @@ const hl = t => esc(t)
   .replace(/\b([a-z_]+)(\()/g, '<span class="fn">$1</span>$2')
   .replace(/\b(String|Option|Vec|Command)\b/g, '<span class="ty">$1</span>');
 
+const BOX = (a, b, c) => [
+  "┌───────────┐   ┌────────┐   ┌────────┐",
+  `│ ${a.padEnd(9)} │◀─▶│ ${b.padEnd(6)} │◀─▶│ ${c.padEnd(6)} │`,
+  "└───────────┘   └────────┘   └────────┘"];
+const PICS = [
+  [...BOX("Kanna.app", "keeper", "pty"), "                    ▲ spawns", "                ┌────────┐", "                │ daemon │", "                └────────┘"],
+  [...BOX("Kanna.app", "daemon", "pty"), "                    │ asks       ▲", "                    ▼ to spawn   │ holds", "                ┌────────┐       │ a copy", "                │ keeper │───────┘", "                └────────┘"],
+  ["┌────────┐   ┌───────────┐   ┌────────┐", "│ daemon │◀─▶│ Kanna.app │◀─▶│ pty    │", "└────────┘   └───────────┘   └────────┘", "", "  the daemon only names and places panes"],
+];
+
 const Q = [
+  { kind: "Architecture", from: "docs/kanna-spec.md", q: "Which drawing shows how a terminal's bytes reach Kanna.app?", pics: PICS,
+    choices: [["Drawing A", ""], ["Drawing B", ""], ["Drawing C", ""]],
+    answer: 1, why: "The daemon reads and writes every pty. The keeper only spawns each one and holds a copy, so restarting the daemon loses no terminal, and it's never in the path of a byte.",
+    at: "docs/kanna-spec.md:141", topic: "Who reads a terminal" },
   { kind: "Behaviour", from: "6dae46b", q: "When a Codex task starts, how does Kanna run `codex`?",
     choices: [["With `--no-daemon`", "its session runs in the task's own terminal"], ["In Codex's shared background server", "one session per task"],
               ["As `codex exec`", "with the first message as its prompt"], ["With `resume`", "and the task's session ID, as Claude does"]],
@@ -144,11 +163,6 @@ const Q = [
     choices: [["A", "a file that failed to write is ignored"], ["B", "`-q` hides the conflicts"], ["C", "the folder goes before the output is read"], ["D", "a merge with two conflicts gets through"]],
     answer: 3, why: "`git merge-file` exits with the number of conflicts, so `!= Some(1)` lets 2 or more through and a file full of conflict markers gets installed. The code says `== Some(0)`.",
     at: "crates/kanna-daemon/src/agents.rs:526", topic: "git merge-file's exit code" },
-  { kind: "Behaviour", from: "5448836", q: "What does `kanna task start` do to a task in the backlog?",
-    choices: [["Moves it to the Shelf", "and starts its agent"], ["Runs it where it is", "it gets a worktree, branch and agent, and stays in the backlog"],
-              ["Pulls it onto the Desk", "parking the task there"], ["Refuses", "when the Shelf has three tasks"]],
-    answer: 1, why: "Running and place are separate: `start` runs a task where it is, with no limit in the backlog; `shelve` moves it to the Shelf.",
-    at: "crates/kanna-daemon/src/backlog.rs:455", topic: "Start runs a task where it is" },
 ];
 
 const CODE = {
@@ -203,31 +217,34 @@ function asked(k) {
 function answered(k) {
   const q = Q[k], right = s.picks[k] === q.answer;
   const head = right ? `<span class="ok">Right.</span>` : `<span class="no">Not quite:</span> it's ${q.answer + 1}, ${tick(q.choices[q.answer][0].replace(/^./, c => c.toLowerCase()))}.`;
-  const opened = s.code === k ? "\n" + tool(`kanna comment ${q.at} "…"`, `opened p152 · ${q.at.split("/").pop()}`) : "";
-  return say(`${head} ${tick(q.why)}`) + opened;
+  const drawn = q.pics && !right ? `\n<div class="drawn">${esc(q.pics[q.answer].join("\n"))}</div>` : "";
+  const opened = s.code === k ? "\n" + tool(`kanna comment ${q.at} "…" --split right`, `opened p152 · ${q.at.split("/").pop()}`) : "";
+  return say(`${head} ${tick(q.why)}`) + drawn + opened;
 }
 
 function question(k) {
   const q = Q[k];
-  return `<div class="ask"><span class="chip">Quiz ${k + 1}/5</span>\n<b>${tick(q.q)}</b>\n\n${q.choices.map(([a, d], j) => `<span class="opt ${j === s.cur ? "cur" : ""}" data-pick="${j}">${j === s.cur ? "❯" : " "} ${j + 1}. ${tick(a)}<span class="d">${tick(d)}</span></span>`).join("")}\n<span class="foot">Enter to select · ↑/↓ to move · Esc to pause</span></div>`;
+  const opts = q.choices.map(([a, d], j) => `<span class="opt ${j === s.cur ? "cur" : ""}" data-pick="${j}">${j === s.cur ? "❯" : " "} ${j + 1}. ${tick(a)}${d ? `<span class="d">${tick(d)}</span>` : ""}</span>`).join("");
+  const body = q.pics ? `<div class="side"><div class="opts">${opts}</div><div class="pic">${esc(q.pics[s.cur].join("\n"))}</div></div>` : opts;
+  return `<div class="ask"><span class="chip">Quiz ${k + 1}/5</span>\n<b>${tick(q.q)}</b>\n\n${body}\n<span class="foot">Enter to select · ↑/↓ to move · Esc to pause</span></div>`;
 }
 
 function offer() {
   const out = [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``,
-    tool("kanna quiz status", "5 questions ready · 3 tasks merged into main since your last quiz, yesterday 18:20"),
+    tool("git log --oneline 4f1c2e0..main", "6dae46b A Codex task starts with --no-daemon, … (3 commits)"),
     say(tick("Morning. Three tasks landed on main since yesterday: agent setup, `kanna agents`, and Codex's `--no-daemon`. Two more are on the Shelf, three wait in the backlog.")),
     `  Quiz on today's changes? Five questions, about two minutes.`];
   return wrap(out, `<div class="prompt">&gt; <span class="g">yes · later</span></div>`);
 }
 
 function chat() {
-  const out = [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude "Quiz me on what landed on main"`, ``];
+  const out = [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude "/kanna-quiz"`, ``];
   if (s.step === "prep") {
-    out.push(tool("kanna quiz start", "preparing a round from 3 merged tasks (about a minute)"), say("Writing the questions now. I'll ask the first as soon as they're ready; carry on in the other window meanwhile."), ``, `<span class="spin">✻</span> <span class="g">Waiting for the round… (kanna quiz start --wait)</span>`);
+    out.push(tool("git log --stat 4f1c2e0..main", "3 commits · 14 files changed, 1210 insertions(+), 96 deletions(-)"), say("Reading what landed since yesterday: agent setup, <code>kanna agents</code>, and Codex's <code>--no-daemon</code>. First question in a moment."), ``, `<span class="spin">✻</span> <span class="g">Reading crates/kanna-daemon/src/agents.rs… 0:12</span>`);
     return wrap(out, "");
   }
   let tail = "";
-  out.push(tool("kanna quiz start", "round r7 · 5 questions · 3 tasks merged since yesterday 18:20"));
+  out.push(tool("git log --stat 4f1c2e0..main", "3 commits · 14 files changed, 1210 insertions(+), 96 deletions(-)"));
   const last = s.step === "end" ? 5 : s.i + 1;
   for (let k = 0; k < last; k++) out.push(``, asked(k));
   if (s.step === "q") {
@@ -236,7 +253,7 @@ function chat() {
   }
   if (s.step === "end") {
     const n = s.picks.filter((p, k) => p === Q[k].answer).length, missed = Q.filter((q, k) => s.picks[k] !== q.answer);
-    out.push(``, tool("kanna quiz end", `knew ${n} of 5 · missed: ${missed.map(q => q.topic).join(", ")}`),
+    out.push(``, `<span class="m">●</span> <b>Write</b>(.git/kanna-quiz.json)\n  <span class="g">⎿  main 6dae46b · ${missed.length} missed</span>`,
       say(`You knew <b>${n} of 5</b> about today's changes.`),
       ...Q.map((q, k) => `  ${s.picks[k] === q.answer ? '<span class="ok">✓</span>' : '<span class="no">✗</span>'} ${esc(q.topic)} <span class="g">· ${esc(q.at.split("/").pop())}</span>`),
       ``, `  ${missed.length === 1 ? `“${esc(missed[0].topic)}” comes` : "The ones you missed come"} back in a later round. Close this window, or another round?`);
@@ -299,18 +316,20 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("keydown", e => {
   if (e.metaKey || e.ctrlKey) return;
-  if (/^[1-4]$/.test(e.key)) pick(+e.key - 1);
-  else if (e.key === "ArrowDown" || e.key === "ArrowUp") { s.cur = (s.cur + (e.key === "ArrowDown" ? 1 : 3)) % 4; render(); }
+  const n = Q[s.i].choices.length;
+  if (/^[1-9]$/.test(e.key) && +e.key <= n) pick(+e.key - 1);
+  else if (e.key === "ArrowDown" || e.key === "ArrowUp") { s.cur = (s.cur + (e.key === "ArrowDown" ? 1 : n - 1)) % n; render(); }
   else if (e.key === "Enter") { if (s.step === "offer") { s.step = "q"; render(); } else if (s.picks[s.i] === undefined) pick(s.cur); else next(); }
 });
 
 function go(scene) {
   s = fresh();
   if (scene === "q1") s.step = "q";
-  if (scene === "a1") { s.step = "q"; s.picks = [0]; }
-  if (scene === "a2") { s.step = "q"; s.i = 1; s.picks = [0, 3]; s.code = 1; }
-  if (scene === "q4") { s.step = "q"; s.i = 3; s.picks = [0, 3, 2]; }
-  if (scene === "end") { s.step = "end"; s.i = 4; s.picks = [0, 3, 2, 3, 1]; s.code = 1; }
+  if (scene === "q2") { s.step = "q"; s.i = 1; s.picks = [1]; }
+  if (scene === "a1") { s.step = "q"; s.i = 1; s.picks = [1, 0]; }
+  if (scene === "a2") { s.step = "q"; s.i = 2; s.picks = [1, 0, 3]; s.code = 2; }
+  if (scene === "bug") { s.step = "q"; s.i = 4; s.picks = [1, 0, 3, 2]; }
+  if (scene === "end") { s.step = "end"; s.i = 4; s.picks = [1, 0, 3, 2, 3]; s.code = 2; }
   if (scene === "prep") s.step = "prep";
   render();
 }
