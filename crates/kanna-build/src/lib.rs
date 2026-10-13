@@ -1,4 +1,6 @@
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_INSTANCE: &str = "default";
@@ -6,6 +8,31 @@ pub const DEFAULT_INSTANCE: &str = "default";
 pub const SOCKET: &str = "kanna.sock";
 
 pub const RECORD: &str = "instance.json";
+
+pub const DAEMON: &str = "kanna-daemon";
+
+pub fn build_id(binary: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(binary).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0; 1 << 16];
+    loop {
+        match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buffer[..n]),
+            Err(_) => return None,
+        }
+    }
+    Some(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+pub fn own_build_id() -> Option<String> {
+    build_id(&std::env::current_exe().ok()?)
+}
+
+pub fn sibling_daemon_build_id() -> Option<String> {
+    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+    build_id(&exe.parent()?.join(DAEMON))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Channel {
@@ -169,6 +196,15 @@ mod tests {
 
     fn build(channel: Channel, worktree: Option<&str>) -> Build {
         Build { channel, checkout: PathBuf::from("/r/kanna"), worktree: worktree.map(String::from) }
+    }
+
+    #[test]
+    fn a_build_id_is_the_binarys_sha256() {
+        let file = std::env::temp_dir().join(format!("kanna-build-id-{}", std::process::id()));
+        std::fs::write(&file, b"abc").unwrap();
+        assert_eq!(build_id(&file).as_deref(), Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(build_id(&file), None);
     }
 
     #[test]

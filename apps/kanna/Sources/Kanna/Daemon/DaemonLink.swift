@@ -30,7 +30,9 @@ final class DaemonLink: TerminalLink {
         connection = DaemonConnection(
             path: socketPath,
             hello: { [weak self] in
-                ["id": 0, "cmd": "app.hello", "args": ["pid": .number(Double(ProcessInfo.processInfo.processIdentifier)), "panes": self?.helloPanes?() ?? []]]
+                var args: [String: JSON] = ["pid": .number(Double(ProcessInfo.processInfo.processIdentifier)), "panes": self?.helloPanes?() ?? []]
+                if let build = KannaBuild.daemonBuild { args["build"] = .string(build) }
+                return ["id": 0, "cmd": "app.hello", "args": .object(args)]
             },
             connected: { [weak self] in self?.connected() },
             received: { [weak self] message, delivery in self?.received(message, delivery) },
@@ -76,6 +78,10 @@ final class DaemonLink: TerminalLink {
             if ok {
                 connection.accepted()
                 onAttach?(message["panes"] ?? [])
+            } else if message["error"]?["code"]?.string == "other_build" {
+                connection.accepted()
+                starter?.replacing()
+                FileHandle.standardError.write(Data("kanna: the daemon is from another build and is stopping; starting this build's\n".utf8))
             } else {
                 connection.refused()
                 FileHandle.standardError.write(Data("kanna: the daemon refused this app: \(message["error"]?["message"]?.string ?? "")\n".utf8))

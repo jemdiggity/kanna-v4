@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 
 enum KannaBuild {
     static let channels = ["production": "kanna-prod", "staging": "kanna-staging", "dev": "kanna-dev"]
@@ -12,6 +13,18 @@ enum KannaBuild {
     static var defaultInstance: String { info["KannaInstance"] as? String ?? "default" }
 
     static var name: String { info["CFBundleName"] as? String ?? "Kanna" }
+
+    static let daemonBuild: String? = buildID(of: DaemonStarter.helpers.appendingPathComponent("kanna-daemon"))
+
+    static func buildID(of binary: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: binary) else { return nil }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try? handle.read(upToCount: 1 << 16), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
 
     static func instanceFolder(_ name: String) -> String {
         name == "default" ? folder : "\(folder)-\(name)"

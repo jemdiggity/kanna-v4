@@ -104,6 +104,7 @@ fn app_socket() -> PathBuf {
 
 fn run() -> Result<(), String> {
     let _ = Brand::set_current(Brand::new("kanna", "Kanna"));
+    let build_id = kanna_build::own_build_id();
     let build = Build::current();
     let socket = env_path("KANNA_SOCKET").unwrap_or_else(|| build.instance_folder(&support_folder(), &build.default_instance()).join(kanna_build::SOCKET));
     if socket.to_string_lossy().to_lowercase() == app_socket().to_string_lossy().to_lowercase() {
@@ -211,7 +212,7 @@ fn run() -> Result<(), String> {
     }
 
     let app_timeout = std::env::var("KANNA_APP_TIMEOUT_MS").ok().and_then(|ms| ms.parse().ok()).map(Duration::from_millis).unwrap_or(APP_TIMEOUT);
-    let app = Rc::new(AppLink::new(core.weak(), terminals.clone(), app_timeout));
+    let app = Rc::new(AppLink::new(core.weak(), terminals.clone(), app_timeout, build_id.clone()));
     layout.connect(&app);
     app.connect_backlog(&backlog);
     host.connect(&app);
@@ -278,9 +279,11 @@ fn run() -> Result<(), String> {
                 Some(error) => reply(json!({ "id": request.get("id").cloned().unwrap_or(Value::Null), "ok": false, "error": { "code": error.code, "message": error.message } })),
                 None if request.get("cmd").and_then(Value::as_str) == Some("capabilities") => {
                     let attached = app.attached();
+                    let build = build_id.clone();
                     core.handle(request, move |mut answer| {
                         if answer.get("ok") == Some(&Value::Bool(true)) {
                             answer["app"] = Value::Bool(attached);
+                            answer["build"] = json!(build);
                             if let Some(Value::Array(commands)) = answer.get_mut("commands") {
                                 commands.extend(["status", "agents", "quiz"].map(|c| Value::String(c.into())));
                                 commands.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
@@ -354,7 +357,11 @@ fn run() -> Result<(), String> {
                 failure = Some(reason);
                 break;
             }
-            Event::AppHello { conn, hello, out, stream } => app.hello(conn, hello, out, stream),
+            Event::AppHello { conn, hello, out, stream } => {
+                if app.hello(conn, hello, out, stream) {
+                    break;
+                }
+            }
             Event::AppMessage { conn, message } => {
                 if let Some(request) = app.message(conn, message) {
                     let link = Rc::downgrade(&app);

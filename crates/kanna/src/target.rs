@@ -317,10 +317,34 @@ impl<'a> Session<'a> {
                     std::thread::sleep(Duration::from_millis(200));
                 }
                 Err(Error::Mux { code, message }) if code == "unsupported" => return Err(fail(exit::UNSUPPORTED, format!("{message} [{code}]"))),
+                Err(error @ Error::Mux { .. }) => {
+                    let mut failure = Failure::from(error);
+                    if let Some(note) = self.other_build() {
+                        failure.message = format!("{}\n{note}", failure.message);
+                    }
+                    return Err(failure);
+                }
                 other => return other.map_err(Failure::from),
             }
         }
     }
+
+    fn other_build(&mut self) -> Option<String> {
+        if self.target.backend != Backend::Kanna {
+            return None;
+        }
+        let ours = kanna_build::sibling_daemon_build_id()?;
+        let reply = self.mux.call("capabilities", json!({})).ok()?;
+        let theirs = reply.get("build")?.as_str()?;
+        other_build_note(&ours, theirs)
+    }
+}
+
+pub fn other_build_note(ours: &str, theirs: &str) -> Option<String> {
+    (ours != theirs).then(|| {
+        let short = |id: &str| id.chars().take(12).collect::<String>();
+        format!("(the daemon on this socket is from another build than this kanna ({} here, {} there); quit and relaunch Kanna.app to replace it)", short(ours), short(theirs))
+    })
 }
 
 pub fn capabilities(target: &Target) -> Option<Value> {
@@ -349,6 +373,13 @@ mod tests {
 
     fn support(home: &str) -> String {
         if cfg!(target_os = "macos") { format!("{home}/Library/Application Support") } else { format!("{home}/.local/share") }
+    }
+
+    #[test]
+    fn a_daemon_of_another_build_gets_a_note() {
+        assert_eq!(other_build_note("abc", "abc"), None);
+        let note = other_build_note("0123456789abcdef", "fedcba9876543210").unwrap();
+        assert!(note.contains("0123456789ab here, fedcba987654 there") && note.contains("relaunch Kanna.app"), "{note}");
     }
 
     #[test]

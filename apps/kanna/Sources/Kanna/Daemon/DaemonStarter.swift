@@ -25,6 +25,10 @@ final class DaemonStarter: @unchecked Sendable {
         }
     }
 
+    func replacing() {
+        lock.withLock { everConnected = false }
+    }
+
     func unreachable() {
         let now = Date()
         let due = lock.withLock { () -> Bool in
