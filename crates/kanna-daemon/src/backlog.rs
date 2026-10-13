@@ -788,7 +788,7 @@ impl Backlog {
     fn revive(&self, pane: &str, command: Option<String>, done: impl FnOnce(Result<(), KmuxError>) + 'static) {
         let Some(core) = self.core.upgrade() else { return done(Err(gone())) };
         if let Some(command) = command {
-            core.with_pane_mut(pane, |p| p.command = Some(command));
+            core.set_command(pane, command);
         }
         core.handle(json!({ "cmd": "restart", "args": { "pane": pane } }), move |reply| done(failed(&reply).map_or(Ok(()), Err)));
     }
@@ -911,8 +911,6 @@ impl Backlog {
             let mut ran = entry.clone();
             ran.folder = Some(folder.clone());
             ran.session = ran.session.or(session);
-            // The agent has started, so restarting its pane (kanna restart) resumes its session rather than starting
-            // it again: claude refuses a session ID that already has a conversation.
             if let Some(core) = weak.upgrade() {
                 core.set_command(&pane, ran.command(None));
             }

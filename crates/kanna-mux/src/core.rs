@@ -231,7 +231,6 @@ impl CoreHandle {
         self.state().panes.get_mut(id).map(f)
     }
 
-    /// Changes the command a terminal runs when it's restarted, kept with its record.
     pub fn set_command(&self, id: &str, command: String) {
         if self.with_pane_mut(id, |pane| pane.command = Some(command)).is_some() {
             self.changed();
