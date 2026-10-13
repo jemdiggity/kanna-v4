@@ -609,7 +609,7 @@ S11() {
   local menus
   menus="$(raw '{"id":1,"cmd":"debug.menu"}')"
   for item in "Split Right" "Split Down" "New Web Pane Right" "New Markdown Pane Below…" "Open URL…" "Back" "Forward" "Home" "Next Pane" \
-              "Previous Pane" "Zoom" "Move Pane to New Window" "Restart" "Close Pane" "New Tab" "Next Tab" "Previous Tab" "Zoom In" "Zoom Out" \
+              "Previous Pane" "Zoom" "Move Pane to New Window" "Reload" "Close Pane" "New Tab" "Next Tab" "Previous Tab" "Zoom In" "Zoom Out" \
               "Actual Size" "New Window" "Close Window" "Move Tab to New Window" "Next Window" "Previous Window" "Undo" "Cut" "Copy" "Paste" \
               "Select All" "New Desk" "Quit $(/usr/libexec/PlistBuddy -c "Print CFBundleName" "${app%/Contents/MacOS/Kanna}/Contents/Info.plist")"; do
     [[ "$menus" == *"\"item\":\"$item\""* ]] || { echo "no menu item \"$item\""; return 1; }
@@ -709,7 +709,7 @@ S13() {
   menu="$(raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"tab\":\"$(win w1 tabs.0.id)\",\"button\":1}}")"
   check test "$(field menu <<<"$menu")" == '["Move Tab to New Window", "Close Tab"]' || return 1
   menu="$(raw '{"id":1,"cmd":"debug.click","args":{"pane":"db","button":1}}')"
-  for item in "Split Right" "Close Pane" "Move Pane to New Window" "Restart"; do
+  for item in "Split Right" "Close Pane" "Move Pane to New Window" "Reload"; do
     [[ "$menu" == *"\"$item\""* ]] || { echo "the pane menu has no \"$item\": $menu"; return 1; }
   done
   sleep 1
@@ -2019,6 +2019,10 @@ print(sum(1 for l in lines if l.get("turn") and sys.argv[2] in l["prompt"] and (
     check wait_for 60 eval '[[ "$(asked "$first")" == 1 ]]' || { echo "S57: $agent's first message didn't reach the mock model"; kanna read "$agent task"; return 1; }
     check wait_for 30 shows "$agent task" "Agent status probe" || { echo "S57: $agent didn't show the mock's answer"; kanna read "$agent task"; return 1; }
     check wait_for 10 grep -rqs "Agent status probe" "$agents/$agent-home" || { echo "S57: $agent didn't save its answer"; return 1; }
+    kanna restart "$agent task" >/dev/null || { echo "S57: $agent's pane didn't restart"; return 1; }
+    check wait_for 60 eval 'shows "$agent task" "$first" && shows "$agent task" "Agent status probe"' || { echo "S57: $agent didn't restart into its conversation"; kanna read "$agent task"; return 1; }
+    sleep 3
+    [[ "$(asked "$first")" == 1 ]] || { echo "S57: $agent restarted with its first message instead of resuming"; return 1; }
     kanna task shelve "$id" >/dev/null || { echo "S57: $agent's task didn't move to the Shelf"; return 1; }
     task="$(pane "$agent task" id)"
     [[ "$(kanna task defer "$task")" == *"to the backlog as $id"* ]] || { echo "S57: $agent's task didn't move back to the backlog as $id"; return 1; }

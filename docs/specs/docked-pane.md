@@ -40,7 +40,7 @@ The right side needs nothing new: the window's own tabs already are a group of t
 - **Any pane kind:** terminal, web, markdown or iOS. It's an ordinary pane with its ID and name, so `send`, `read`, `navigate` and `restart` work on it unchanged.
 - **Width** is a fraction of the window, dragged at its divider and saved with the window. Default 2/5.
 - **Always shown:** switching tabs leaves it alone. The tab bar spans only the tabs' side.
-- **It closes only with its window.** Close Pane (⌘W) and `kanna close` don't close it: ⌘W in the docked pane does nothing, and `kanna close` on it fails with `docked: it closes with its window`. If its program exits, it stays on screen as `exited`, and Restart (⌘R) starts it again. Closing the window's last tab leaves the window with just its docked pane.
+- **It closes only with its window.** Close Pane (⌘W) and `kanna close` don't close it: ⌘W in the docked pane does nothing, and `kanna close` on it fails with `docked: it closes with its window`. If its program exits, it stays on screen as `exited`, and `kanna restart` starts it again. Closing the window's last tab leaves the window with just its docked pane.
 - **Stays with its window:** moving or dragging a tab to another window leaves the docked pane where it is.
 - **Focus:** Next/Previous Pane go from the docked pane into the shown tab's panes and back. Zoom on any pane fills the window: a zoomed tab's pane covers the docked pane and the tab bar, a zoomed docked pane covers the tabs, and zooming it again brings both sides back. Zoom is the window's mode ([zoom](zoom.md)).
 - **Docking where one is already docked** moves the old one into a new tab, not shown; the new one keeps the window's width.
