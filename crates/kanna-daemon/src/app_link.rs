@@ -120,11 +120,13 @@ pub struct AppLink {
     attached: RefCell<HashSet<String>>,
     unsent: RefCell<HashMap<String, Instant>>,
     backlog: RefCell<Option<Weak<crate::backlog::Backlog>>>,
+    build: Option<String>,
 }
 
 impl AppLink {
-    pub fn new(core: WeakCore, terminals: Rc<Terminals>, timeout: Duration) -> AppLink {
+    pub fn new(core: WeakCore, terminals: Rc<Terminals>, timeout: Duration, build: Option<String>) -> AppLink {
         AppLink {
+            build,
             core,
             terminals,
             app: RefCell::new(None),
@@ -181,7 +183,7 @@ impl AppLink {
         self.send(json!({ "cmd": cmd, "args": args }));
     }
 
-    pub fn hello(&self, conn: u64, hello: Value, out: Outbox, stream: UnixStream) {
+    pub fn hello(&self, conn: u64, hello: Value, out: Outbox, stream: UnixStream) -> bool {
         let id = hello.get("id").cloned().unwrap_or(Value::Null);
         let answer = |reply: Value| {
             out.push(&reply);
@@ -189,13 +191,25 @@ impl AppLink {
         if self.app.borrow().is_some() {
             answer(json!({ "id": id, "ok": false, "error": { "code": "app_attached", "message": "another Kanna.app is attached to this daemon" } }));
             let _ = stream.shutdown(Shutdown::Read);
-            return;
+            return false;
+        }
+        let app_build = hello.get("args").and_then(|a| a.get("build")).and_then(Value::as_str);
+        if let (Some(app_build), Some(build)) = (app_build, self.build.as_deref()) {
+            if app_build != build {
+                eprintln!("kanna-daemon: the app is from another build ({app_build}, this daemon is {build}); stopping so it starts its own");
+                let reply = json!({ "id": id, "ok": false, "error": { "code": "other_build", "message": format!("this daemon is from another build ({build}); it is stopping so the app can start its own") } });
+                let mut line = encode(&reply).into_bytes();
+                line.push(b'\n');
+                write_all(&stream, &line);
+                let _ = stream.shutdown(Shutdown::Both);
+                return true;
+            }
         }
         let pid = hello.get("args").and_then(|a| a.get("pid")).cloned().unwrap_or(Value::Null);
         eprintln!("kanna-daemon: the app attached (pid {pid})");
         self.lend(hello.get("args").and_then(|a| a.get("panes")));
         let panes = self.core.upgrade().map_or(Value::Array(vec![]), |core| core.with_panes(pane_table));
-        answer(json!({ "id": id, "ok": true, "daemon": { "pid": std::process::id() }, "panes": panes }));
+        answer(json!({ "id": id, "ok": true, "daemon": { "pid": std::process::id(), "build": self.build }, "panes": panes }));
         *self.app.borrow_mut() = Some(Connection { id: conn, out, stream, behind: Cell::new(false), cut: Cell::new(false) });
         let statuses: Vec<(String, String)> = self.core.upgrade().map_or(vec![], |core| {
             core.with_panes(|panes| panes.iter().filter_map(|p| p.status().map(|s| (p.id.clone(), s.to_string()))).collect())
@@ -213,6 +227,7 @@ impl AppLink {
         if let Some(tasks) = tasks {
             self.notify("backlog", json!({ "tasks": tasks }));
         }
+        false
     }
 
     pub fn connect_backlog(self: &Rc<Self>, backlog: &Rc<crate::backlog::Backlog>) {

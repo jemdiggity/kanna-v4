@@ -1,6 +1,6 @@
 mod common;
 
-use common::{alive, data, is, wait_for, Instance};
+use common::{alive, data, is, wait_for, App, Instance};
 use kanna_vt::{Lines, Terminal};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -199,4 +199,37 @@ fn a_task_keeps_the_folder_it_opened_in_across_a_restart() {
     let beside = beside["pane"]["id"].as_str().unwrap_or_else(|| panic!("{beside}")).to_string();
     wait_for("the task's folder", || instance.screen(&beside).lines().any(|line| line == folder.to_string_lossy()));
     std::fs::remove_dir_all(&folder).unwrap();
+}
+
+#[test]
+fn an_app_from_another_build_stops_the_daemon_and_the_next_keeps_its_terminals() {
+    let mut instance = Instance::start();
+    let pane = instance.open("shell", None);
+    let pid = instance.pane("shell")["pid"].as_i64().unwrap();
+    let build = instance.call("capabilities", json!({}))["build"].as_str().unwrap().to_string();
+    assert_eq!(build.len(), 64, "{build}");
+
+    let mut same = App::raw(&instance.socket());
+    same.send(json!({"id": 0, "cmd": "app.hello", "args": {"pid": 1, "build": build, "panes": []}}));
+    let hello = same.next().unwrap();
+    assert_eq!((hello["ok"].as_bool(), hello["daemon"]["build"].as_str()), (Some(true), Some(build.as_str())), "{hello}");
+    drop(same);
+
+    let mut other = App::raw(&instance.socket());
+    wait_for("the first app to go", || {
+        other.send(json!({"id": 0, "cmd": "app.hello", "args": {"pid": 2, "build": "0000", "panes": []}}));
+        let reply = other.next().unwrap();
+        if reply["error"]["code"] == "app_attached" {
+            other = App::raw(&instance.socket());
+            return false;
+        }
+        assert_eq!(reply["error"]["code"], "other_build", "{reply}");
+        true
+    });
+    wait_for("the daemon to stop", || instance.daemon.try_wait().unwrap().is_some());
+    assert!(alive(pid), "replacing the daemon ended the shell");
+
+    instance.start_again();
+    let shell = instance.pane("shell");
+    assert_eq!((shell["id"].as_str(), shell["pid"].as_i64()), (Some(pane.as_str()), Some(pid)), "{shell}");
 }
