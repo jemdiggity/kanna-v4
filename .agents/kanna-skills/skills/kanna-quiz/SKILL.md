@@ -77,7 +77,7 @@ Write each question just before you ask it:
 
 - Say what they knew: "You knew 4 of 5 about today's changes." Then one line per question: ✓ or ✗, its topic, and its file and line.
 - Ask: close this window, or another round? Another round picks new topics from the same commits, or older ones once those run out.
-- To close: close the panes you opened, then your own window (`kanna close` with the window `kanna list` shows yours in).
+- To close: close the panes you opened, then your own window (`kanna close --window WINDOW`, the one `kanna list` shows your pane in).
 
 Nothing is kept between rounds: no files, no history.
 
