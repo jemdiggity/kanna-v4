@@ -24,7 +24,7 @@ Both pictures were taken by the command, of a window in the background (`--bg`).
 - **`--out FILE`** (`-o`) is made absolute against the folder kanna runs in. An existing file is refused (`exists`) unless `--force`.
 - **No `--out`:** a new file in the caller's `$TMPDIR`, named for the pane or window and the time, `kanna-w1-20261012-142301.png`, with `-2`, `-3` … if taken.
 - **Readable only by you** (mode 0600), since a terminal can show anything.
-- **Every pane type:** terminal, web, markdown and iOS panes are all layers of the window, so one capture has them all. An iOS pane's shot is the simulator's screen in its frame, as the pane shows it:
+- **Every pane type:** terminal, web, markdown, code and iOS panes are all layers of the window, so one capture has them all. An iOS pane's shot is the simulator's screen in its frame, as the pane shows it:
 
   ![An iOS pane: the Settings app on an iPhone 17 simulator](screenshot-ios.png)
 
@@ -63,4 +63,4 @@ sequenceDiagram
 - **Capture is `CGWindowListCreateImage`**, looked up at run time: obsoleted in the macOS 15 SDK but still exported, and an app may capture its own windows without the screen-recording permission ScreenCaptureKit needs. It copies what the window server has.
 - **Hidden terminals are drawn first.** A window behind others (every `--bg` window, or one you've covered) is occluded, so its terminals are hidden from Ghostty, which stops drawing them: one resized while hidden (by a split) holds a frame never drawn, and comes out as blocks of colour. Before capturing, each such terminal is shown to Ghostty until its layer has a new frame (at most 1 s), and hidden again after.
 - **`debug.snapshot` shares the capture** (`Snapshot.swift`), for the tests: every pane of a window as its own PNG.
-- **Checked by** `crates/kanna/tests/cli.rs` (the request each form sends, usage errors, `capabilities`), the kmux conformance test (a Kanna-only command), and e2e S49: with the app started without `KANNA_DEBUG` or `KANNA_IGNORE_OCCLUSION`, a pane and a window shot and their PNG sizes, a legible terminal, `exists` and `--force`, a hidden pane, and the caller's window.
+- **Checked by** `crates/kanna/tests/cli.rs` (the request each form sends, usage errors, `capabilities`), the kmux conformance test (a Kanna-only command), and e2e S62: with the app started without `KANNA_DEBUG` or `KANNA_IGNORE_OCCLUSION`, a pane and a window shot and their PNG sizes, a legible terminal, `exists` and `--force`, a hidden pane, and the caller's window.
