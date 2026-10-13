@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S61) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S62) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -1723,6 +1723,69 @@ S52() {
   check test "$(cd "$(pane "$(desk planner w3)" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "S52: the second new Desk isn't in ~"; return 1; }
 }
 
+png_size() { python3 -c 'import struct, sys
+d = open(sys.argv[1], "rb").read(24)
+assert d[:8] == b"\x89PNG\r\n\x1a\n"
+print("%dx%d" % struct.unpack(">II", d[16:24]))' "$1"; }
+png_ink() { python3 -c 'import struct, sys, zlib, collections
+d = open(sys.argv[1], "rb").read(); i = 8; idat = b""
+while i < len(d):
+    n, kind = struct.unpack(">I4s", d[i:i + 8]); body = d[i + 8:i + 8 + n]; i += 12 + n
+    if kind == b"IHDR": w, h, depth, color = struct.unpack(">IIBB", body[:10])
+    if kind == b"IDAT": idat += body
+assert depth == 8 and color in (2, 6)
+bpp = 3 if color == 2 else 4; raw = zlib.decompress(idat); stride = w * bpp; prev = bytearray(stride); rows = []
+for y in range(h):
+    f = raw[y * (stride + 1)]; line = bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+    for x in range(stride):
+        a = line[x - bpp] if x >= bpp else 0; b = prev[x]; c = prev[x - bpp] if x >= bpp else 0
+        if f == 1: line[x] = (line[x] + a) & 255
+        elif f == 2: line[x] = (line[x] + b) & 255
+        elif f == 3: line[x] = (line[x] + (a + b) // 2) & 255
+        elif f == 4:
+            p = a + b - c; pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+            line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+    rows.append(line); prev = line
+px = [tuple(r[x:x + 3]) for r in rows[::2] for x in range(0, stride, bpp * 2)]
+bg = collections.Counter(px).most_common(1)[0][0]
+print(round(sum(1 for p in px if sum(abs(p[k] - bg[k]) for k in range(3)) > 60) / len(px), 4))' "$1"; }
+
+S62() {
+  start_daemon || return 1
+  env -u KANNA_DEBUG -u KANNA_IGNORE_OCCLUSION "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  check wait_for 10 eval '[[ "$(kanna capabilities)" == *"Kanna.app: attached"* ]]' || return 1
+  local shots="$KANNA_STATE_DIR/shots"; mkdir -p "$shots" && shots="$(cd "$shots" && pwd -P)"
+  kanna open --name s62 --cmd 'for i in $(seq 80); do echo "S62 $i the quick brown fox jumps over the lazy dog"; done; exec cat' >/dev/null || return 1
+  check wait_for 5 shows s62 "S62 80" || return 1
+  printf '# S62\n\nA markdown pane.\n' >"$KANNA_STATE_DIR/s62.md"
+  kanna open md "$KANNA_STATE_DIR/s62.md" --name doc --split right >/dev/null || return 1
+  check wait_for 5 is doc state running || return 1
+  raw '{"id":1,"cmd":"debug.app"}' | grep -q '"unknown command' || { echo "S62: the app answers debug commands"; return 1; }
+  local window pane doc
+  window="$(cd "$shots" && kanna screenshot --window w1 -o w1.png)" || { echo "S62 line $LINENO"; return 1; }
+  check test "$window" == "$shots/w1.png" || return 1
+  pane="$(cd "$shots" && kanna screenshot s62 --out s62.png)" || { echo "S62 line $LINENO"; return 1; }
+  doc="$(kanna screenshot doc --json)" || { echo "S62 line $LINENO"; return 1; }
+  cp "$shots"/*.png "$out/" 2>/dev/null
+  local ww wh pw ph; IFS=x read -r ww wh <<<"$(png_size "$shots/w1.png")"; IFS=x read -r pw ph <<<"$(png_size "$shots/s62.png")"
+  check test "$ww" -ge 800 -a "$wh" -ge 400 || return 1
+  check test $((pw * 2 - ww)) -ge -4 -a $((pw * 2 - ww)) -le 4 || { echo "S62: pane $pw wide in a window $ww wide"; return 1; }
+  check test "$ph" -lt "$wh" -a "$ph" -gt $((wh / 2)) || return 1
+  check python3 -c 'import json, sys
+r = json.loads(sys.argv[1]); assert r["pane"] == "p2" and r["window"] == "w1" and r["path"].endswith(".png") and r["width"] > 0, r' "$doc" || return 1
+  check test "$(png_size "$(echo "$doc" | field path)")" == "$(echo "$doc" | field width)x$(echo "$doc" | field height)" || return 1
+  local ink; ink="$(png_ink "$shots/s62.png")"
+  check python3 -c 'import sys; assert 0.01 < float(sys.argv[1]) < 0.5, sys.argv[1]' "$ink" || { echo "S62: the terminal pane isn't legible (ink $ink)"; return 1; }
+  (cd "$shots" && kanna screenshot s62 -o s62.png) 2>/dev/null && { echo "S62: it overwrote s62.png"; return 1; }
+  (cd "$shots" && kanna screenshot s62 -o s62.png --force) >/dev/null || { echo "S62 line $LINENO"; return 1; }
+  kanna open --tab --name other >/dev/null || return 1
+  local hidden; hidden="$(kanna screenshot s62 2>&1)" && { echo "S62: shot a pane that isn't showing"; return 1; }
+  [[ "$hidden" == *"is in tab t1, which isn't showing"* ]] || { echo "S62: $hidden"; return 1; }
+  local caller; caller="$(KANNA_PANE="$(pane other id)" kanna screenshot --json | field window)" || return 1
+  check test "$caller" == w1
+}
+
 S42() {
   SHELL=/bin/bash PATH="$bin:$PATH" start_daemon && start_app || return 1
   kanna open --name s42 >/dev/null || return 1
@@ -2117,7 +2180,7 @@ S61() {
 due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]|S6[0-9]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61 S62)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

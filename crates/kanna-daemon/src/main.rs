@@ -222,6 +222,15 @@ fn run() -> Result<(), String> {
             app.started(pane);
         }
     }));
+    let link = Rc::downgrade(&app);
+    core.add_command(
+        "screenshot",
+        Rc::new(move |args, responder| {
+            if let Some(link) = link.upgrade() {
+                link.forward("screenshot", args, responder);
+            }
+        }),
+    );
     for prefix in [APP_PREFIX, APP_ASK] {
         let link = Rc::downgrade(&app);
         core.add_prefix(
@@ -284,10 +293,6 @@ fn run() -> Result<(), String> {
                         if answer.get("ok") == Some(&Value::Bool(true)) {
                             answer["app"] = Value::Bool(attached);
                             answer["build"] = json!(build);
-                            if let Some(Value::Array(commands)) = answer.get_mut("commands") {
-                                commands.extend(["status", "agents", "quiz"].map(|c| Value::String(c.into())));
-                                commands.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
-                            }
                         }
                         reply(answer)
                     })

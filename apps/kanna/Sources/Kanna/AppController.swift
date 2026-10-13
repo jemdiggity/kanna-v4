@@ -134,6 +134,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         installAppCommands()
         installCommands()
+        installScreenshot()
         installAgentStatus()
         for signal in [SIGTERM, SIGINT, SIGHUP] {
             Darwin.signal(signal, SIG_IGN)

@@ -10,18 +10,43 @@ enum Snapshot {
         return unsafeBitCast(symbol, to: CreateImage.self)
     }()
 
-    static func run(_ window: NSWindow, id: String, panes: [(id: String, view: NSView)], tabBar: NSView? = nil, path: String?, marker: String?) throws -> [String: JSON] {
-        guard let image = createImage?(.null, CGWindowListOption.optionIncludingWindow.rawValue, UInt32(window.windowNumber), CGWindowImageOption([.boundsIgnoreFraming, .bestResolution]).rawValue)?.takeRetainedValue(),
-              let data = image.dataProvider?.data else {
-            throw KannaError("bad_request", "window capture unavailable")
+    static func capture(_ window: NSWindow, terminals: [TerminalSurfaceView]) async throws -> CGImage {
+        window.displayIfNeeded()
+        let hidden = terminals.filter(\.hiddenFromGhostty).map { ($0, $0.presented) }
+        for (terminal, _) in hidden { terminal.showToGhostty() }
+        defer { for (terminal, _) in hidden { terminal.updateVisibility() } }
+        let deadline = ContinuousClock.now + .seconds(1)
+        while hidden.contains(where: { $0.0.presented == $0.1 }), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
         }
+        CATransaction.flush()
+        guard let image = createImage?(.null, CGWindowListOption.optionIncludingWindow.rawValue, UInt32(window.windowNumber), CGWindowImageOption([.boundsIgnoreFraming, .bestResolution]).rawValue)?.takeRetainedValue() else {
+            throw KannaError("unavailable", "window capture unavailable")
+        }
+        return image
+    }
+
+    static func crop(_ image: CGImage, to view: NSView, in window: NSWindow) -> CGImage? {
+        let scale = CGFloat(image.width) / window.frame.width
+        let inWindow = view.convert(view.bounds, to: nil)
+        let rect = CGRect(x: inWindow.minX * scale, y: (window.frame.height - inWindow.maxY) * scale, width: inWindow.width * scale, height: inWindow.height * scale)
+        return image.cropping(to: rect.integral)
+    }
+
+    static func png(_ image: CGImage) throws -> Data {
+        guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+            throw KannaError("bad_request", "could not encode the screenshot")
+        }
+        return png
+    }
+
+    static func run(_ window: NSWindow, id: String, panes: [(id: String, view: NSView)], tabBar: NSView? = nil, path: String?, marker: String?) async throws -> [String: JSON] {
+        let image = try await capture(window, terminals: panes.compactMap { $0.view as? TerminalSurfaceView })
+        guard let data = image.dataProvider?.data else { throw KannaError("unavailable", "window capture unavailable") }
         var out: [String: JSON] = ["window": .string(id), "width": .number(Double(image.width)), "height": .number(Double(image.height))]
         if let path {
             let url = try outputURL(path)
-            guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
-                throw KannaError("bad_request", "could not encode the snapshot")
-            }
-            try writeNew(png, to: url)
+            try write(png(image), to: url, replacing: false)
             out["path"] = .string(url.path)
         }
         let scale = CGFloat(image.width) / window.frame.width
@@ -62,9 +87,12 @@ enum Snapshot {
         return outputDirectory.appendingPathComponent(name, isDirectory: false)
     }
 
-    private static func writeNew(_ data: Data, to url: URL) throws {
-        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw KannaError("bad_request", "can't create \(url.path): \(String(cString: strerror(errno)))") }
+    static func write(_ data: Data, to url: URL, replacing: Bool) throws {
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | (replacing ? O_TRUNC : O_EXCL), 0o600)
+        guard fd >= 0 else {
+            if errno == EEXIST { throw KannaError("exists", "\(url.path) already exists (--force replaces it)") }
+            throw KannaError("bad_request", "can't create \(url.path): \(String(cString: strerror(errno)))")
+        }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         do {
             try handle.write(contentsOf: data)
