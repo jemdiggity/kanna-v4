@@ -797,6 +797,24 @@ function run(t, line) {
     say(["ID   WHERE   STATUS     REPO              NAME"].concat(s.tasks.filter(x => matches(x, words.slice(3).join(" "))).map(x => `${x.id.padEnd(4)} ${(x.backlog ? "Backlog" : deskOf(x.id) ? deskOf(x.id).id : "Shelf").padEnd(7)} ${(x.backlog ? (blockers(x).length ? "blocked" : "stopped") : statusText[x.status]).padEnd(10)} ${x.repo.replace("~/work/", "").padEnd(17)} ${x.title || "(unnamed)"}${deps(x) ? "  [" + deps(x) + "]" : ""}`)).join("\n"));
     return render();
   }
+  if (cmd === "task" && sub === "edit") {
+    const x = task(arg);
+    if (!x || !x.backlog) { say(`kanna: no backlog task "${arg || ""}"`); return render(); }
+    const flag = f => { const at = words.indexOf(f); return at > 0 ? words[at + 1] : undefined; };
+    const after = flag("--after"), on = flag("--on");
+    if (after === undefined && on === undefined) { say(`kanna: task edit TASK [--after TASK,…|none] [--on TASK|none]`); return render(); }
+    const ids = after === undefined ? x.after || [] : after === "none" ? [] : after.split(",").filter(Boolean);
+    const base = on === undefined ? x.on : on === "none" ? null : on;
+    const missing = ids.concat(base ? [base] : []).find(id => !task(id));
+    if (missing) { say(`kanna: no task "${missing}"`); return render(); }
+    const loop = (id, seen) => id === x.id || (!seen.has(id) && (seen.add(id), ((task(id) || {}).after || []).some(n => loop(n, seen))));
+    const cycle = ids.find(id => loop(id, new Set()));
+    if (cycle) { say(`kanna: ${cycle} already waits for ${x.id}: they'd wait for each other`); return render(); }
+    if (base === x.id) { say(`kanna: a task can't stack on itself`); return render(); }
+    Object.assign(x, { after: ids, on: base });
+    say(`${x.id} ` + [ids.length ? `waits for ${ids.join(", ")}` : "waits for nothing", base ? `stacks on ${base}'s branch` : "starts from the repo's checkout"].join("; "));
+    return render();
+  }
   if (cmd === "task" && (sub === "start" || sub === "shelve")) {
     const x = task(arg);
     if (!x || !x.backlog) { say(`kanna: no backlog task "${arg || ""}"`); return render(); }
