@@ -104,7 +104,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 <main>
   <div class="intro">
     <h1>Quiz: the agent asks about what the agents built</h1>
-    <p>A round of five multiple-choice questions about what landed on main in the last day, asked one at a time by an agent in its chat, about two minutes. The planning agent offers a round when something has merged in the last day; yes opens a Quiz window: an agent in the repo on main (no task, no worktree: the quiz changes nothing), docked on the left with what it opens in tabs beside it. Close the window to stop; nothing is kept. Each answer gets a short explanation, and the agent opens the code at the line with <code>kanna comment</code>. A pick-the-drawing question writes its three drawings, A, B and C, in one markdown file and opens it in a tab beside the agent. It's all the <code>kanna-quiz</code> skill: the planning agent opens the window with <code>kanna open</code>, and the agent there writes each question itself from what's on main. Click an answer in the chat, or press its number.</p>
+    <p>A round of five multiple-choice questions about what landed on main in the last day, asked one at a time by an agent in its chat, about two minutes. The planning agent offers a round when something has merged in the last day; yes opens a Quiz window: an agent in the repo on main (no task, no worktree: the quiz changes nothing), with what it opens split beside it. Close the window to stop; nothing is kept. Each answer gets a short explanation, and the agent opens the code at the line with <code>kanna comment</code>. A pick-the-drawing question writes its three drawings, A, B and C, in one markdown file and opens it beside the agent. It's all the <code>kanna-quiz</code> skill: the planning agent opens the window with <code>kanna open</code>, and the agent there writes each question itself from what's on main. Click an answer in the chat, or press its number.</p>
     <div class="controls">
       <button id="theme">Light / dark</button>
       <button data-go="offer">The offer</button>
@@ -208,7 +208,7 @@ const tool = (cmd, out) => `<span class="m">●</span> <b>Bash</b>(${esc(cmd)})\
 function asked(k) {
   const q = Q[k], picked = s.picks[k];
   const diff = q.diff ? `<div class="snip">${q.diff.map(([n, t, l]) => `<span class="lbl">${l}</span> <span class="n">${n}</span> ${esc(t)}`).join("\n")}</div>` : "";
-  const opened = q.pics ? [tool("kanna open md $TMPDIR/kanna-quiz/drawings.md --tab", "opened p160 · drawings.md")] : [];
+  const opened = q.pics ? [tool("kanna open md $TMPDIR/kanna-quiz/drawings.md", "opened p160 · drawings.md")] : [];
   const lines = [...opened, say(`<b>${k + 1} of 5</b> · ${q.kind} <span class="g">· ${esc(q.from)}</span>`)].concat(picked === undefined && !q.diff ? [] : [`  ${tick(q.q)}`]);
   return lines.join("\n") + (diff ? "\n" + diff : "") + (picked === undefined ? "" : "\n" + you(`${picked + 1}. ${tick(q.choices[picked][0])}`) + "\n" + answered(k));
 }
@@ -272,7 +272,7 @@ function shelfPage() {
 
 function drawings() {
   const q = Q[s.i];
-  return `<div class="dtabs"><div class="dtab on"><span>drawings.md</span></div></div>
+  return `<div class="dtabs" style="background:var(--panel)"><span style="font:11.5px var(--mono)">$TMPDIR/kanna-quiz/drawings.md</span></div>
     <div class="md"><p>${tick(q.q)}</p>${q.pics.map((_, j) => `<h2>${"ABC"[j]}</h2><div class="mmd" data-mmd="${j}"></div>`).join("")}</div>`;
 }
 
@@ -290,7 +290,7 @@ function render() {
     <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Shelf</span></div>
     <div class="content"><div class="agent"><div class="head">Planning · ~/work/kanna-v4 · main</div><div class="term">${offer()}</div></div>
       <div class="docs">${shelfPage()}</div></div></div>` : `<div class="window">
-    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Quiz · kanna-v4</span></div>
+    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Quiz · kanna-v4</span></div><div class="dtabs"><div class="dtab on"><span>Quiz</span></div></div>
     <div class="content"><div class="agent" style="${right ? "" : "flex:1"}"><div class="head">~/work/kanna-v4 · main</div><div class="term">${chat()}</div></div>
       ${right ? `<div class="docs">${right}</div>` : ""}</div></div>`;
   const t = document.querySelector(".term .scroll");
