@@ -92,7 +92,7 @@ Kanna gives an agent a session ID of its own when it starts, if the agent takes 
 | Agent | Started with | Resumed with | A task Kanna didn't start |
 |---|---|---|---|
 | claude | `claude --session-id UUID 'FIRST'` | `claude --resume UUID` | `claude --continue` (the folder's latest) |
-| codex | `codex --yolo 'FIRST'` (it takes no ID) | `codex --yolo resume --last` (the folder's latest: codex filters by folder) | the same |
+| codex | `codex --yolo --no-daemon 'FIRST'` (it takes no ID) | `codex --yolo --no-daemon resume --last` (the folder's latest: codex filters by folder) | the same |
 | copilot | `copilot --session-id UUID -i 'FIRST'` | `copilot --session-id UUID` | the latest session in `~/.copilot/session-state/*/workspace.yaml` whose `cwd` is the folder (`copilot --continue` isn't the folder's) |
 | opencode | `opencode --prompt 'FIRST'` (it takes no ID) | `opencode --session ID`, the latest top-level session in `~/.local/share/opencode/opencode.db` whose `directory` is the folder (`--continue` is the repo's, shared by its worktrees) | the same |
 | antigravity | `agy -i 'FIRST'` (it takes no ID) | `agy --continue` (the folder's last conversation) | the same |
@@ -148,6 +148,7 @@ flowchart TB
 
 1. **Task IDs that travel:** backlog IDs (`t4`) are this machine's; sending tasks elsewhere will want IDs that don't clash.
 2. **Codex, opencode and antigravity take no session ID up front:** they resume the folder's latest session, which is the task's while each task has its own worktree. If one starts to take an ID, it moves to the ID like claude and copilot.
+3. **Codex saves its last reply a moment after showing it:** in its own terminal (`--no-daemon`) it writes the reply to its session about a second after it appears, and a stop within that second (SIGHUP, then SIGKILL a second later) loses the reply: started again, it shows the question and "Conversation interrupted". Stopping could wait for the agent to go idle, or ask it to quit; S57 waits for the reply to be saved.
 
 ## 9. Glossary
 
