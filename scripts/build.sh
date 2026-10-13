@@ -33,6 +33,7 @@ else
 fi
 
 echo "==> kanna, kanna-daemon, kanna-keeper, libkanna_ffi (cargo build --workspace --release)"
+kanna_borrow_cargo "$repo_root"
 kanna_cargo_release_for "$repo_root" "$macos_target"
 cargo build --manifest-path "$repo_root/Cargo.toml" --workspace --release
 

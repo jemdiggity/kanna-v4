@@ -37,7 +37,7 @@ cargo build --workspace --release # CLI, daemon, keeper, and libkanna_ffi (layou
 scripts/build-kanna-app.sh        # the Swift app and target/Kanna.app, with the daemon and keeper inside (takes the channel too)
 ```
 
-A bare `cargo build` or `swift build` misses steps, so start with `scripts/build.sh`. A second run is quick: Ghostty is skipped and the rest is cargo's and SwiftPM's incremental builds. The first build compiles Ghostty with Zig (downloaded if the right version isn't installed), which takes a while. A git worktree of this repo (a Kanna task's, say) reuses the main checkout's Ghostty builds when they're the pinned commit, linking them into its own `target/`, so building there skips Ghostty.
+A bare `cargo build` or `swift build` misses steps, so start with `scripts/build.sh`. A second run is quick: Ghostty is skipped and the rest is cargo's and SwiftPM's incremental builds. The first build compiles Ghostty with Zig (downloaded if the right version isn't installed), which takes a while. A git worktree of this repo (a Kanna task's, say) reuses the main checkout's Ghostty builds when they're the pinned commit, linking them into its own `target/`, and starts from clones of its cargo dependencies and Swift packages, so its first build takes about 20s. Dev builds compile the Swift app in debug; production and staging in release. See [build speed](docs/specs/build-speed.md).
 
 ## Use
 

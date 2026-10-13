@@ -83,3 +83,41 @@ kanna_borrow_built() {
   [ "$(cat "$main/ghostty.rev" 2>/dev/null)" = "$KANNA_GHOSTTY_COMMIT" ] || return 0
   mkdir -p "$(dirname "$here")" && ln -s "$main" "$here"
 }
+
+kanna_main_checkout() {
+  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  main="$(dirname "$common")"
+  [ "$(cd "$main" && pwd -P)" != "$(cd "$1" && pwd -P)" ] || return 1
+  echo "$main"
+}
+
+kanna_borrow_cargo() {
+  here="$1/target/release"
+  [ -e "$here" ] && return
+  main="$(kanna_main_checkout "$1")" || return 0
+  [ -d "$main/target/release/.fingerprint" ] || return 0
+  mkdir -p "$1/target"
+  if cp -c -R -p "$main/target/release" "$here.borrowing" 2>/dev/null; then
+    rm -rf "$here.borrowing"/.fingerprint/kanna-*
+    mv "$here.borrowing" "$here"
+    echo "Cloned $main/target/release's dependencies"
+  else
+    rm -rf "$here.borrowing"
+  fi
+}
+
+kanna_borrow_swiftpm() {
+  here="$1/target/kanna-build"
+  [ -e "$here" ] && return
+  main="$(kanna_main_checkout "$1")" || return 0
+  from="$main/target/kanna-build"
+  [ -f "$from/workspace-state.json" ] && [ -d "$from/checkouts" ] && [ -d "$from/repositories" ] || return 0
+  mkdir -p "$here.borrowing"
+  if cp -c -R -p "$from/repositories" "$from/checkouts" "$here.borrowing/" 2>/dev/null &&
+     sed "s#$main/#$1/#g" "$from/workspace-state.json" > "$here.borrowing/workspace-state.json"; then
+    mv "$here.borrowing" "$here"
+    echo "Cloned $from's Swift packages"
+  else
+    rm -rf "$here.borrowing"
+  fi
+}
