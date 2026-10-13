@@ -27,7 +27,7 @@ flowchart LR
     D -->|"copy of each file as installed"| R["~/.kanna-v4/agents/"]
 ```
 
-- **The skills:** `kanna-tasks`, `kanna-planning`, `kanna-new-project`, `kanna-markup`, `kanna-explain`, copied to `~/.agents/skills/` and linked from `~/.claude/skills/` (`../../.agents/skills/NAME`), the layout `install.sh --global` uses.
+- **The skills:** `kanna-tasks`, `kanna-planning`, `kanna-new-project`, `kanna-markup`, `kanna-explain`, `kanna-quiz`, copied to `~/.agents/skills/` and linked from `~/.claude/skills/` (`../../.agents/skills/NAME`), the layout `install.sh --global` uses.
 - **The socket entry** lets an agent in Claude's sandbox run `kanna`. That lets it control Kanna's terminals, which run outside the sandbox, as the kmux socket entry in a repo's own settings did; the prompt says so. The rest of `settings.json` stays as it was, keys in their order and its permissions kept. A `settings.json` Kanna had to make is deleted again by remove.
 - **The hook** is a `SessionStart` hook in `~/.claude/settings.json` and `~/.codex/hooks.json` (Codex has hooks on by default since 0.162). Its command ends `# kanna agents setup`, so Kanna finds its own and leaves yours.
 - **Nothing else.** No environment variables, no flags on the agent's command line.
@@ -39,6 +39,7 @@ An agent picks a skill by its description, from what's in its context: its folde
 | In the terminal | The hook prints |
 |---|---|
 | `$KANNA_PLANNER` set | You're running in Kanna, as a window's planning agent: use the kanna-planning skill now. |
+| `$KANNA_QUIZ` set (the [quiz](quiz.md)'s agent) | You're running in Kanna as a quiz, on main: use the kanna-quiz skill now. |
 | `$KANNA_PANE` set | You're running in Kanna, as a task's agent (pane p9): use the kanna-tasks skill as soon as you know what the work is. |
 | neither | nothing |
 

@@ -12,7 +12,7 @@ const RECORD_VERSION: u64 = 2;
 
 const MARK: &str = "# kanna agents setup";
 
-const HOOK: &str = "if [ -n \"$KANNA_PLANNER\" ]; then echo \"You're running in Kanna, as a window's planning agent: use the kanna-planning skill now.\"; elif [ -n \"$KANNA_PANE\" ]; then echo \"You're running in Kanna, as a task's agent (pane $KANNA_PANE): use the kanna-tasks skill as soon as you know what the work is.\"; fi # kanna agents setup";
+const HOOK: &str = "if [ -n \"$KANNA_PLANNER\" ]; then echo \"You're running in Kanna, as a window's planning agent: use the kanna-planning skill now.\"; elif [ -n \"$KANNA_QUIZ\" ]; then echo \"You're running in Kanna as a quiz, on main: use the kanna-quiz skill now.\"; elif [ -n \"$KANNA_PANE\" ]; then echo \"You're running in Kanna, as a task's agent (pane $KANNA_PANE): use the kanna-tasks skill as soon as you know what the work is.\"; fi # kanna agents setup";
 
 pub struct Agents {
     pub home: PathBuf,
@@ -952,11 +952,12 @@ mod tests {
     fn the_hook_tells_an_agent_in_kanna_which_skill_to_use() {
         let run = |vars: &[(&str, &str)]| {
             let mut sh = Command::new("/bin/sh");
-            sh.arg("-c").arg(HOOK).env_remove("KANNA_PLANNER").env_remove("KANNA_PANE").envs(vars.iter().copied());
+            sh.arg("-c").arg(HOOK).env_remove("KANNA_PLANNER").env_remove("KANNA_QUIZ").env_remove("KANNA_PANE").envs(vars.iter().copied());
             String::from_utf8(sh.output().unwrap().stdout).unwrap()
         };
         assert_eq!(run(&[]), "");
         assert!(run(&[("KANNA_PANE", "p9")]).contains("(pane p9): use the kanna-tasks skill"));
         assert!(run(&[("KANNA_PANE", "p9"), ("KANNA_PLANNER", "1")]).contains("use the kanna-planning skill"));
+        assert!(run(&[("KANNA_PANE", "p9"), ("KANNA_QUIZ", "1")]).contains("use the kanna-quiz skill"));
     }
 }

@@ -33,6 +33,7 @@
    - 4.19 [Code Viewer](#419-code-viewer)
    - 4.20 [Code Tour](#420-code-tour)
    - 4.21 [The Build](#421-the-build)
+   - 4.22 [Quiz](#422-quiz)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -664,7 +665,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 | `--mux`, `KANNA_MUX` | — | `kanna` (default) or `kmux` | kanna can drive a kmux too |
 | `markup FILE.md\|FILE.html [--to PANE]`, `markup PANE [--to PANE \| --off]`, `markup comments\|show\|reply\|resolve\|reopen` | — | opens a doc with comments, or turns them on or off in a pane; `open` shows docs without them; the rest read and answer its threads, in the doc's thread file, without the daemon ([4.13](#413-doc-markup)) | review with an agent is opt-in |
 | `rename-pane PANE NAME` | — (a name is set only by `open --name`) | names, renames or (with `""`) unnames a pane; no two panes share a name and a name can't be another pane's ID; the daemon keeps it, so it works with or without the app | names are how you refer to panes, and an agent may start one unnamed |
-| `task new\|start\|list\|park\|pull\|defer\|name\|done`; `open` with no placement from a task's terminal | — | makes backlog tasks and starts them (the daemon's `backlog` command: a worktree `.kanna-worktrees/NAME` on branch NAME, NAME `task-` and a random UUID's first 32 bits in hex, on an empty branch in a repo with no commits yet; a folder that isn't a git repo is refused, and an agent docked onto the Shelf), lists, parks, pulls, moves back to the backlog (`defer`: parks the task's window marked as in the backlog, its panes still running and off the Shelf and the limit, until its start clears the mark), names or ends tasks; `done` is a `close` of the task's panes; `open` from a task's terminal opens a tab on its Desk; a fourth running task in one repo (a worktree counts as its main repo) is refused ([4.15](#415-desk), [tasks](specs/tasks.md)) | the Desk is Kanna's |
+| `task new\|start\|list\|park\|pull\|defer\|name\|done`; `open` with no placement from a task's terminal | — | makes backlog tasks and starts them (the daemon's `backlog` command: a worktree `.kanna-worktrees/NAME` on branch NAME, NAME `task-` and a random UUID's first 32 bits in hex, on an empty branch in a repo with no commits yet; a folder that isn't a git repo is refused, and an agent docked onto the Shelf), lists, parks, pulls, moves back to the backlog (`defer`: parks the task's window marked as in the backlog, its panes still running and off the Shelf and the limit, until its start clears the mark), names or ends tasks; `done` is a `close` of the task's panes; `open` from a task's terminal opens a tab on its Desk, and from a terminal in a plain window splits beside that terminal, in its window, not the key window's focused pane; a fourth running task in one repo (a worktree counts as its main repo) is refused ([4.15](#415-desk), [tasks](specs/tasks.md)) | the Desk is Kanna's |
 | `move PANE --dock` | docks any pane | moves only the docked pane (to the other edge or another window) unless it's frozen, as a task's agent is; any other pane is refused (`not_a_task`), and the three protocol cases that dock one are skipped by name | a docked pane is a running task, so docking one would start a task outside the backlog and the limit ([tasks](specs/tasks.md)) |
 | `completions zsh\|bash`, `__complete` | — | tab completion from the command table, with live pane, tab and window names ([4.18](#418-tab-completion)) | the CLI is how you drive Kanna from a terminal |
 | Exit 6 | — | the command needs Kanna.app, which isn't attached and wasn't started | terminals work without the app; layout commands don't ([4.7](#47-the-layout)) |
@@ -893,6 +894,10 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 Ghostty's `build.zig` sets its own minimum (13.0) and ignores the environment, and Rust's std comes prebuilt (rebuilding it needs nightly `-Zbuild-std`). A lower minimum than the app's is safe to link: those objects use nothing newer than their own minimum. A higher one is the bug the warning reports.
 
 Changing the deployment target needs a clean cargo build. Cargo reruns the `cc` build scripts when the `[env]` value changes, but it doesn't recompile pure Rust crates, so their objects keep the old version. `kanna_cargo_release_for` (`scripts/env.sh`) keeps the version `target/release` was built for in `target/release/macos-deployment-target` and cleans `target/release` when it differs or is missing; the build scripts call it before cargo. Ghostty's builds are reused by commit (`ghostty.rev`, borrowed by worktrees through `kanna_borrow_built`), so a change to how Ghostty is built goes in the fork and the pinned commit, and the new pin makes every checkout rebuild them.
+
+### 4.22 Quiz
+
+**[Planned]** Five multiple-choice questions about what landed on main in the last day, asked by an agent in a Quiz window of its own, each answer explained and a miss opening the code with `kanna comment`. It's a skill only, `kanna-quiz`: the planning agent offers a round when something has merged and opens the window with `kanna open`, and the quiz agent writes the questions itself; nothing is kept between rounds yet. Its own spec: [specs/quiz.md](specs/quiz.md); mockup `references/mockups/quiz.html`.
 
 ---
 

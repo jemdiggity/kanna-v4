@@ -983,7 +983,11 @@ impl LayoutHost for Model {
         if let Some(placed) = at.from.as_deref().and_then(|from| self.place_on_task(pane, from)) {
             return Ok(placed);
         }
-        let mut w = self.target_window(at.window.as_deref())?;
+        let beside = at.from.as_deref().and_then(|from| self.locate(from).map(|l| (l.window, l.tab, from.to_string())));
+        let mut w = match &beside {
+            Some((w, _, _)) => *w,
+            None => self.target_window(at.window.as_deref())?,
+        };
         if at.dock.is_none() && self.is_shelf(w) {
             w = self.make_window();
         }
@@ -995,13 +999,21 @@ impl LayoutHost for Model {
             self.key = Some(window.id.clone());
             return Ok(Some(window.id.clone()));
         }
-        let t = if at.new_tab || self.windows[w].tabs.is_empty() { self.make_tab(w, true) } else { self.windows[w].active_index().unwrap() };
+        let beside_tab = beside.is_some();
+        let t = match &beside {
+            Some((_, t, _)) => *t,
+            None if at.new_tab || self.windows[w].tabs.is_empty() => self.make_tab(w, true),
+            None => self.windows[w].active_index().unwrap(),
+        };
         let tab = &mut self.windows[w].tabs[t];
         if tab.root.is_none() {
             tab.root = Some(Node::Pane(pane.into()));
         } else {
             let ids = pane_ids(tab.root.as_ref());
-            let target = self.windows[w].focused.clone().filter(|f| ids.contains(f)).unwrap_or_else(|| ids.last().unwrap().clone());
+            let target = match beside {
+                Some((_, _, from)) => from,
+                None => self.windows[w].focused.clone().filter(|f| ids.contains(f)).unwrap_or_else(|| ids.last().unwrap().clone()),
+            };
             let axis = match at.split {
                 SplitSide::Right => Axis::Row,
                 SplitSide::Down => Axis::Column,
@@ -1011,6 +1023,9 @@ impl LayoutHost for Model {
             self.insert(Node::Pane(pane.into()), &target, (w, t), axis, true, at.size);
         }
         let window = &mut self.windows[w];
+        if beside_tab {
+            window.active = Some(window.tabs[t].id.clone());
+        }
         window.focused = Some(pane.into());
         if let Some(active) = window.active_index() {
             window.tabs[active].last_focus = Some(pane.into());
