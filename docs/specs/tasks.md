@@ -97,7 +97,7 @@ Kanna gives an agent a session ID of its own when it starts, if the agent takes 
 | opencode | `opencode --prompt 'FIRST'` (it takes no ID) | `opencode --session ID`, the latest top-level session in `~/.local/share/opencode/opencode.db` whose `directory` is the folder (`--continue` is the repo's, shared by its worktrees) | the same |
 | antigravity | `agy -i 'FIRST'` (it takes no ID) | `agy --continue` (the folder's last conversation) | the same |
 
-**Tested** by e2e S57 for claude and codex: the real agents run as tasks against a local mock model (`tools/agent-harness`), and after Move to Backlog, Stop and Start, the mock sees their next message carry the first, with no second start. Copilot and antigravity only talk to their own services, and opencode (which could use the mock as a provider) isn't covered yet, so only their command lines are tested (`backlog.rs`).
+**Tested** by e2e S57 for claude and codex: the real agents run as tasks against a local mock model (`tools/agent-harness`), come back to their conversation after `kanna restart` on their first start, and after Move to Backlog, Stop and Start, the mock sees their next message carry the first, with no second start. Copilot and antigravity only talk to their own services, and opencode (which could use the mock as a provider) isn't covered yet, so only their command lines are tested (`backlog.rs`).
 
 An agent not in the table starts again with its first message, its conversation lost; so do copilot and opencode when no session of theirs is found for the folder. Copilot, opencode and antigravity take the first message as a flag (`-i`, `--prompt`), not an argument.
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import shlex
 import shutil
 from pathlib import Path
@@ -39,8 +40,23 @@ def configure(agent, home, port, trusted, settings=None, ask=False):
     return env, []
 
 
+def interpreter_dir(real):
+    try:
+        with open(real, "rb") as f:
+            line = f.readline().decode(errors="replace").split()
+    except OSError:
+        return None
+    if len(line) < 2 or not line[0].endswith("/env") or shutil.which(line[1]):
+        return None
+    beside = Path(real).parent
+    return str(beside) if (beside / line[1]).exists() else None
+
+
 def wrapper(agent, real, home, port, trusted, path):
     env, args = configure(agent, home, port, trusted)
+    beside = interpreter_dir(real)
+    if beside:
+        env["PATH"] = beside + ":" + os.environ.get("PATH", "/usr/bin:/bin")
     exports = "".join(f"export {k}={shlex.quote(v)}\n" for k, v in env.items())
     path.parent.mkdir(parents=True, exist_ok=True)
     clear = "for v in $(env | sed -nE 's/^((CLAUDE|CODEX|ANTHROPIC|OPENAI)[A-Z_]*)=.*/\\1/p'); do unset \"$v\"; done\n"
