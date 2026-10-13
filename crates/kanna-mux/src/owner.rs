@@ -515,6 +515,7 @@ mod tests {
 
         let parked = task(&mut owner, json!({ "action": "park" }));
         assert_eq!(parked["task"], "p1", "{parked}");
+        assert_eq!(parked["moves"], json!([{ "task": "p1", "from": "desk", "to": "shelf", "window": "w1" }]));
         let empty = window(&owner);
         assert_eq!((empty["desk"].clone(), empty["dock"].clone(), empty["tabs"].clone()), (json!(true), Value::Null, json!([])));
         assert_eq!(owner.view()["shelf"][0]["task"], "p1");
@@ -530,12 +531,14 @@ mod tests {
         assert_eq!(listed["tasks"][0]["window"], Value::Null);
         let pulled = task(&mut again, json!({ "action": "pull", "task": "p1" }));
         assert_eq!((pulled["window"].clone(), pulled["moved"].clone()), (json!("w1"), json!(true)), "{pulled}");
+        assert_eq!(pulled["moves"], json!([{ "task": "p1", "from": "shelf", "to": "desk", "window": "w1" }]));
         let after = window(&again);
         for field in ["dock", "tabs", "tab", "root", "focused"] {
             assert_eq!(after[field], before[field], "{field}");
         }
         assert_eq!(again.view()["shelf"], json!([]));
         assert_eq!(task(&mut again, json!({ "action": "pull", "task": "p1" }))["moved"], false);
+        assert_eq!(task(&mut again, json!({ "action": "pull", "task": "p1" }))["moves"], Value::Null, "a task already on its Desk doesn't move");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -596,6 +599,19 @@ mod tests {
         again.handle(&json!({ "call": "attach", "panes": [] }));
         assert_eq!(again.view()["windows"][0]["project"], "/work/app", "{:?}", again.view());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_pull_onto_a_desk_with_a_task_says_both_moved() {
+        let (mut owner, _) = LayoutOwner::open(None, false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let task = |owner: &mut LayoutOwner, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "task", "args": args } }));
+        task(&mut owner, json!({ "action": "desk" }));
+        place(&mut owner, "p1", json!({ "dock": "left", "shelf": true }));
+        place(&mut owner, "p2", json!({ "dock": "left", "shelf": true }));
+        task(&mut owner, json!({ "action": "pull", "task": "p1", "window": "w1" }));
+        let swapped = task(&mut owner, json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        assert_eq!(swapped["moves"], json!([{ "task": "p1", "from": "desk", "to": "shelf", "window": "w1" }, { "task": "p2", "from": "shelf", "to": "desk", "window": "w1" }]), "{swapped}");
     }
 
     #[test]

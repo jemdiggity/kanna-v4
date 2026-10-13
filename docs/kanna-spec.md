@@ -34,6 +34,7 @@
    - 4.20 [Code Tour](#420-code-tour)
    - 4.21 [The Build](#421-the-build)
    - 4.22 [Quiz](#422-quiz)
+   - 4.23 [The Database](#423-the-database)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -691,6 +692,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 │   ├── keeper.sock …     its keeper
 │   ├── terminals/        its terminals (4.8)
 │   ├── layout.json       its app's layout (4.7)
+│   ├── kanna.db          its tasks and their history (specs/database.md), with kanna.db.bak
 │   └── instance.json     the build its daemon is: channel, app, checkout, worktree
 ├── kanna-dev-work/       the instance named work, the same inside
 ├── kanna-dev-task-3f9a1c2e/  the default instance of the dev build in worktree task-3f9a1c2e
@@ -898,6 +900,10 @@ Changing the deployment target needs a clean cargo build. Cargo reruns the `cc` 
 ### 4.22 Quiz
 
 **[Planned]** Five multiple-choice questions about what landed on main in the last day, asked by an agent in a Quiz window of its own, each answer explained and a miss opening the code with `kanna comment`. It's a skill only, `kanna-quiz`: the planning agent offers a round when something has merged and opens the window with `kanna open`, and the quiz agent writes the questions itself; nothing is kept between rounds yet. Its own spec: [specs/quiz.md](specs/quiz.md); mockup `references/mockups/quiz.html`.
+
+### 4.23 The Database
+
+**[Built]** The daemon keeps tasks and every change to them in one SQLite file, `kanna.db`. Its own spec: [specs/database.md](specs/database.md).
 
 ---
 

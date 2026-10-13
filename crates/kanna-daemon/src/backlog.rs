@@ -1,8 +1,9 @@
+use crate::db::{self, Change, Db, Place, Row};
 use crate::Event;
 use kanna_mux::json::{json, num, opt, string, Map, Value};
-use kanna_mux::{project, CoreHandle, KmuxError, PaneState, Responder, WeakCore, TASKS_PER_PROJECT};
+use kanna_mux::{project, CoreHandle, KmuxError, Pane, PaneState, Responder, WeakCore, TASKS_PER_PROJECT};
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -10,13 +11,9 @@ use std::rc::Rc;
 use std::sync::mpsc::Sender;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const FILE: &str = "backlog.json";
-
 const WORKTREES: &str = ".kanna-worktrees";
 
 const SCRATCH: &str = ".kanna/tmp";
-
-const MAX_FILE: u64 = 4 << 20;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
@@ -51,20 +48,38 @@ impl Entry {
         })
     }
 
-    fn from_value(value: &Value) -> Option<Entry> {
-        let text = |key: &str| string(value, key).filter(|s| !s.is_empty()).map(String::from);
-        Some(Entry {
-            id: text("id").filter(|id| number(id).is_some())?,
+    fn row(&self, place: Place, pane: Option<&str>) -> Row {
+        Row {
+            id: self.id.clone(),
+            repo: self.repo.clone(),
+            place,
+            pane: pane.map(String::from),
+            made_at: self.made_at,
+            doc: json!({
+                "name": opt(self.name.as_deref()),
+                "message": opt(self.message.as_deref()),
+                "by": opt(self.by.as_deref()),
+                "agent": self.agent,
+                "folder": opt(self.folder.as_deref()),
+                "session": opt(self.session.as_deref()),
+            }),
+        }
+    }
+
+    fn from_row(row: &Row) -> Entry {
+        let text = |key: &str| string(&row.doc, key).filter(|s| !s.is_empty()).map(String::from);
+        Entry {
+            id: row.id.clone(),
             name: text("name"),
             message: text("message"),
-            repo: text("repo")?,
+            repo: row.repo.clone(),
             by: text("by"),
-            made_at: value.get("madeAt").and_then(Value::as_f64).unwrap_or(0.0),
+            made_at: row.made_at,
             agent: text("agent").unwrap_or_else(default_agent),
             folder: text("folder"),
             session: text("session"),
-            held: text("held"),
-        })
+            held: row.pane.clone().filter(|_| row.place == Place::Backlog),
+        }
     }
 
     fn command(&self, session: Option<&str>) -> String {
@@ -240,8 +255,8 @@ fn default_agent() -> String {
     std::env::var("KANNA_AGENT").ok().filter(|a| !a.trim().is_empty()).unwrap_or_else(|| "claude".into())
 }
 
-fn number(id: &str) -> Option<usize> {
-    id.strip_prefix('t').filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())).and_then(|n| n.parse().ok())
+fn who(args: &Value) -> Option<&str> {
+    Some(string(args, "by").filter(|by| !by.is_empty()).unwrap_or("user"))
 }
 
 fn quote(text: &str) -> String {
@@ -344,7 +359,15 @@ struct Starting {
     entry: Entry,
     window: Option<String>,
     backlog: bool,
+    by: Option<String>,
     responder: Responder,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Running {
+    pane: String,
+    entry: Entry,
+    place: Place,
 }
 
 fn alive(core: &CoreHandle, pane: &str) -> bool {
@@ -356,11 +379,12 @@ fn gone() -> KmuxError {
 }
 
 pub struct Backlog {
-    path: PathBuf,
+    state: PathBuf,
+    db: Db,
     entries: RefCell<Vec<Entry>>,
-    /// The tasks this backlog started and that may still run, by their agent's pane: how to put each back.
-    running: RefCell<Vec<(String, Entry)>>,
-    counter: Cell<usize>,
+    running: RefCell<Vec<Running>>,
+    stopping: RefCell<HashSet<String>>,
+    dirty: Cell<bool>,
     events: Sender<Event>,
     core: WeakCore,
     pending: RefCell<HashMap<u64, Starting>>,
@@ -370,45 +394,156 @@ pub struct Backlog {
 
 impl Backlog {
     pub fn open(state_dir: &Path, core: WeakCore, events: Sender<Event>) -> Backlog {
-        let path = state_dir.join(FILE);
-        let saved = fs::metadata(&path)
-            .ok()
-            .filter(|m| m.len() <= MAX_FILE)
-            .and_then(|_| fs::read_to_string(&path).ok())
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            .unwrap_or(Value::Null);
-        let entries: Vec<Entry> = saved.get("tasks").and_then(Value::as_array).map_or(vec![], |list| list.iter().filter_map(Entry::from_value).collect());
-        let running: Vec<(String, Entry)> = saved.get("running").and_then(Value::as_array).map_or(vec![], |list| {
-            list.iter().filter_map(|v| Some((string(v, "pane")?.to_string(), Entry::from_value(v)?))).collect()
+        let db = Db::open(state_dir);
+        let rows = db.tasks().unwrap_or_else(|error| {
+            eprintln!("kanna-daemon: can't read the tasks in {}: {error}", state_dir.join(db::FILE).display());
+            vec![]
         });
-        let counter = saved.get("counter").and_then(Value::as_u64).unwrap_or(0) as usize;
-        let counter = entries.iter().chain(running.iter().map(|(_, e)| e)).filter_map(|e| number(&e.id)).fold(counter, usize::max);
-        Backlog { path, entries: RefCell::new(entries), running: RefCell::new(running), counter: Cell::new(counter), events, core, pending: RefCell::default(), next: Cell::new(0), on_change: RefCell::default() }
+        let (mut entries, mut running) = (vec![], vec![]);
+        for row in &rows {
+            match (row.place, &row.pane) {
+                (Place::Shelf | Place::Desk, Some(pane)) => running.push(Running { pane: pane.clone(), entry: Entry::from_row(row), place: row.place }),
+                (Place::Shelf | Place::Desk, None) => {
+                    let entry = Entry::from_row(row);
+                    let back = Change::new("deferred").moved(row.place, Place::Backlog).by(Some("daemon"));
+                    if let Err(error) = db.put(&entry.row(Place::Backlog, None), Some(&back)) {
+                        eprintln!("kanna-daemon: couldn't put {} back on the backlog: {error}", entry.id);
+                    }
+                    entries.push(entry);
+                }
+                _ => entries.push(Entry::from_row(row)),
+            }
+        }
+        Backlog {
+            state: state_dir.to_path_buf(),
+            db,
+            entries: RefCell::new(entries),
+            running: RefCell::new(running),
+            stopping: RefCell::default(),
+            dirty: Cell::new(true),
+            events,
+            core,
+            pending: RefCell::default(),
+            next: Cell::new(0),
+            on_change: RefCell::default(),
+        }
     }
 
     pub fn view(&self) -> Value {
         Value::Array(self.entries.borrow().iter().map(Entry::to_value).collect())
     }
 
-    fn save(&self) {
-        let running: Vec<Value> = self.running.borrow().iter().map(|(pane, entry)| {
-            let mut value = entry.to_value();
-            value["pane"] = json!(pane);
-            value
-        }).collect();
-        let saved = json!({ "counter": self.counter.get(), "tasks": self.view(), "running": running });
-        let temporary = self.path.with_extension("json.tmp");
-        let written = fs::write(&temporary, saved.to_string()).and_then(|_| fs::rename(&temporary, &self.path));
-        if let Err(error) = written {
-            eprintln!("kanna-daemon: couldn't save the backlog to {}: {error}", self.path.display());
+    fn store(&self, entry: &Entry, place: Place, pane: Option<&str>, change: Option<Change>) -> Result<(), KmuxError> {
+        self.db.put(&entry.row(place, pane), change.as_ref()).map_err(|error| {
+            eprintln!("kanna-daemon: couldn't save {} in {}: {error}", entry.id, db::FILE);
+            KmuxError::new("failed", format!("couldn't save {}: {error}", entry.id))
+        })
+    }
+
+    fn note(&self, pane: &str, change: Change) {
+        let Some(id) = self.task_of(pane) else { return };
+        if let Err(error) = self.db.log(&id, &change) {
+            eprintln!("kanna-daemon: couldn't save {id}'s {} in {}: {error}", change.what, db::FILE);
         }
     }
 
+    fn task_of(&self, pane: &str) -> Option<String> {
+        let running = self.running.borrow().iter().find(|r| r.pane == pane).map(|r| r.entry.id.clone());
+        running.or_else(|| self.entries.borrow().iter().find(|e| e.held.as_deref() == Some(pane)).map(|e| e.id.clone()))
+    }
+
     fn changed(&self) {
-        self.save();
         if let Some(on_change) = self.on_change.borrow().as_ref() {
             on_change(self.view());
         }
+    }
+
+    pub fn mark_changed(&self) {
+        self.dirty.set(true);
+    }
+
+    pub fn exited(&self, pane: &str, code: i32) {
+        if !self.stopping.borrow_mut().remove(pane) {
+            self.note(pane, Change::new("exited").by(Some("daemon")).with("code", json!(code)));
+        }
+    }
+
+    pub fn sweep(&self) {
+        if !self.dirty.replace(false) {
+            return;
+        }
+        let Some(core) = self.core.upgrade() else { return };
+        let gone: Vec<Running> = self.running.borrow().iter().filter(|r| core.pane(&r.pane).is_none()).cloned().collect();
+        for r in gone {
+            eprintln!("kanna-daemon: {}'s agent {} is closed, so {} is done", r.entry.id, r.pane, r.entry.id);
+            self.running.borrow_mut().retain(|x| x.pane != r.pane);
+            let _ = self.store(&r.entry, Place::Done, None, Some(Change::new("done").moved(r.place, Place::Done).by(Some("daemon")).with("pane", json!(r.pane))));
+        }
+        let renamed: Vec<(Running, Option<String>)> = self
+            .running
+            .borrow_mut()
+            .iter_mut()
+            .filter_map(|r| {
+                let name = core.pane(&r.pane)?.name.filter(|n| r.entry.name.as_ref() != Some(n))?;
+                let old = r.entry.name.replace(name);
+                Some((r.clone(), old))
+            })
+            .collect();
+        for (r, old) in renamed {
+            let _ = self.store(&r.entry, r.place, Some(&r.pane), Some(Change::new("renamed").with("from", opt(old.as_deref()))));
+        }
+        let lost: Vec<Entry> = self
+            .entries
+            .borrow_mut()
+            .iter_mut()
+            .filter(|e| e.held.as_ref().is_some_and(|pane| core.pane(pane).is_none()))
+            .map(|e| {
+                e.held = None;
+                e.clone()
+            })
+            .collect();
+        for entry in lost {
+            let _ = self.store(&entry, Place::Backlog, None, None);
+        }
+    }
+
+    pub fn moved(self: &Rc<Self>, reply: &Value, by: Option<&str>) {
+        for step in reply.get("moves").and_then(Value::as_array).into_iter().flatten() {
+            let (Some(pane), Some(to)) = (string(step, "task"), string(step, "to").and_then(Place::parse)) else { continue };
+            let change = Change { from: string(step, "from").and_then(Place::parse), to: Some(to), ..Change::new(if to == Place::Desk { "pulled" } else { "parked" }) };
+            let change = change.by(by).with("window", step.get("window").cloned().unwrap_or(Value::Null));
+            let known = self.running.borrow_mut().iter_mut().find(|r| r.pane == pane).map(|r| {
+                r.place = to;
+                r.entry.clone()
+            });
+            let entry = match known {
+                Some(entry) => entry,
+                None => match self.adopt(pane, to) {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        eprintln!("kanna-daemon: {pane} moved to the {} but isn't a task Kanna can keep: {}", to.as_str(), error.message);
+                        continue;
+                    }
+                },
+            };
+            let _ = self.store(&entry, to, Some(pane), Some(change));
+        }
+    }
+
+    fn adopt(&self, pane: &str, place: Place) -> Result<Entry, KmuxError> {
+        let Some(found) = self.core.upgrade().and_then(|core| core.pane(pane)) else { return Err(not_found(pane)) };
+        let entry = self.mint_for(&found)?;
+        self.store(&entry, place, Some(pane), Some(Change { to: Some(place), ..Change::new("made") }.by(Some("daemon"))))?;
+        self.running.borrow_mut().push(Running { pane: pane.to_string(), entry: entry.clone(), place });
+        Ok(entry)
+    }
+
+    fn mint_for(&self, pane: &Pane) -> Result<Entry, KmuxError> {
+        let Some(folder) = pane.opened_in.clone().or(pane.cwd.clone()) else { return Err(bad(format!("{} has no folder to come back to", pane.id))) };
+        let repo = project(Some(&folder)).map(|r| r.to_string_lossy().to_string()).unwrap_or_default();
+        let agent = pane.command.as_deref().map(program).filter(|p| !p.is_empty()).map(String::from);
+        let args = json!({ "repo": repo, "agent": opt(agent.as_deref()) });
+        Ok(Entry { folder: Some(folder), ..self.mint(&args, pane.name.clone(), None)? })
     }
 
     pub fn install(self: &Rc<Self>, core: &CoreHandle) {
@@ -426,10 +561,26 @@ impl Backlog {
                     Some("shelve") => this.shelve(&args, responder),
                     Some("defer") => this.defer(&args, responder),
                     Some("plan") => this.plan(&args, responder),
-                    _ => responder.reply(Err(bad("backlog needs an action: new, list, done, start, stop, shelve, defer or plan"))),
+                    Some("events") => responder.reply(this.events(&args)),
+                    Some("moved") => {
+                        this.moved(&args, who(&args));
+                        responder.reply(Ok(Map::new()))
+                    }
+                    _ => responder.reply(Err(bad("backlog needs an action: new, list, done, start, stop, shelve, defer, plan, events or moved"))),
                 }
             }),
         );
+    }
+
+    fn events(&self, args: &Value) -> Result<Map, KmuxError> {
+        let reference = string(args, "task").ok_or_else(|| bad("say which task"))?;
+        let id = self.task_of(reference).unwrap_or_else(|| reference.to_string());
+        let events = self.db.events(&id).map_err(|error| KmuxError::new("failed", format!("couldn't read {id}'s events: {error}")))?;
+        let events = events
+            .into_iter()
+            .map(|e| json!({ "at": num(e.at), "what": e.what, "from": opt(e.from.map(Place::as_str)), "to": opt(e.to.map(Place::as_str)), "by": opt(e.by.as_deref()), "doc": e.doc }))
+            .collect();
+        Ok(Map::from_iter([("task".to_string(), json!(id)), ("events".to_string(), Value::Array(events))]))
     }
 
     fn mint(&self, args: &Value, name: Option<String>, message: Option<String>) -> Result<Entry, KmuxError> {
@@ -438,10 +589,12 @@ impl Backlog {
             return Err(bad(format!("{repo} isn't a git repo: a task works in a worktree of the repo, so set one up first (git init)")));
         }
         let by = string(args, "by").and_then(|by| self.core.upgrade()?.pane(by)).map(|pane| pane.id);
-        self.counter.set(self.counter.get() + 1);
-        self.save();
+        let id = self.db.next_task().map_err(|error| {
+            eprintln!("kanna-daemon: couldn't save a new task ID in {}: {error}", db::FILE);
+            KmuxError::new("failed", format!("couldn't save a new task ID: {error}"))
+        })?;
         Ok(Entry {
-            id: format!("t{}", self.counter.get()),
+            id,
             name,
             message,
             repo: repo.to_string(),
@@ -458,6 +611,7 @@ impl Backlog {
         let name = string(args, "name").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad("a task needs a name"))?.to_string();
         let message = string(args, "message").map(str::trim).filter(|m| !m.is_empty()).map(String::from);
         let entry = self.mint(args, Some(name), message)?;
+        self.store(&entry, Place::Backlog, None, Some(Change { to: Some(Place::Backlog), ..Change::new("made") }.by(entry.by.as_deref().or(who(args)))))?;
         let value = entry.to_value();
         self.entries.borrow_mut().push(entry);
         self.changed();
@@ -492,7 +646,11 @@ impl Backlog {
     /// Takes a task off the backlog, ending its agent and tabs if it was moved there still running.
     fn remove(&self, args: &Value, responder: Responder) {
         let Some(id) = string(args, "task") else { return responder.reply(Err(bad("say which task"))) };
-        let Some(entry) = self.take(id) else { return responder.reply(Err(not_found(id))) };
+        let Some(entry) = self.entries.borrow().iter().find(|e| e.id == id).cloned() else { return responder.reply(Err(not_found(id))) };
+        if let Err(error) = self.store(&entry, Place::Done, None, Some(Change::new("done").moved(Place::Backlog, Place::Done).by(who(args)))) {
+            return responder.reply(Err(error));
+        }
+        self.take(id);
         self.changed();
         let value = Map::from_iter([("task".to_string(), entry.to_value())]);
         match (entry.held, self.core.upgrade()) {
@@ -507,7 +665,7 @@ impl Backlog {
         let Some(window) = string(args, "window") else { return responder.reply(Err(bad("a planning terminal needs its window"))) };
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
         let folder = string(args, "folder").filter(|f| Path::new(f).is_absolute() && Path::new(f).is_dir()).unwrap_or(&home);
-        let zsh = self.path.parent().map(|state| state.join("shell/zsh")).filter(|dir| dir.join(".zshenv").is_file());
+        let zsh = Some(self.state.join("shell/zsh")).filter(|dir| dir.join(".zshenv").is_file());
         let cmd = planner_command(string(args, "guide"), planning_context(&config_files(Path::new(folder))), zsh.as_deref().and_then(Path::to_str), cli().as_deref().and_then(Path::to_str));
         let open = json!({ "type": "term", "planner": true, "window": window, "cwd": folder, "cmd": cmd, "wait": false });
         core.handle(json!({ "cmd": "open", "args": open }), move |reply| match failed(&reply) {
@@ -522,22 +680,29 @@ impl Backlog {
         if self.pending.borrow().values().any(|p| p.entry.id == entry.id) {
             return responder.reply(Err(bad(format!("{id} is starting"))));
         }
-        self.room(entry, string(args, "window").map(String::from), responder);
+        self.room(entry, string(args, "window").map(String::from), who(args).map(String::from), responder);
     }
 
     fn start(self: &Rc<Self>, args: &Value, responder: Responder) {
         let Some(core) = self.core.upgrade() else { return responder.reply(Err(gone())) };
         let Some(reference) = string(args, "task") else { return responder.reply(Err(bad("say which task"))) };
+        let by = who(args).map(String::from);
         let found = self.entries.borrow().iter().find(|e| e.id == reference).cloned();
         if let Some(entry) = found {
             if self.pending.borrow().values().any(|p| p.entry.id == entry.id) {
                 return responder.reply(Err(bad(format!("{reference} is starting"))));
             }
             let id = entry.id.clone();
+            let this = Rc::downgrade(self);
             return match entry.held.clone().filter(|pane| core.pane(pane).is_some()) {
                 Some(pane) if alive(&core, &pane) => responder.reply(Err(running(&id))),
-                Some(pane) => self.revive(&pane.clone(), Some(entry.resumable().command(None)), move |result| responder.reply(result.map(|_| started_here(&id, &pane, "backlog")))),
-                None => self.prepare(Entry { held: None, ..entry }, None, true, responder),
+                Some(pane) => self.revive(&pane.clone(), Some(entry.resumable().command(None)), move |result| {
+                    if let (Ok(()), Some(this)) = (&result, this.upgrade()) {
+                        this.note(&pane, Change::new("started").by(by.as_deref()));
+                    }
+                    responder.reply(result.map(|_| started_here(&id, &pane, "backlog")))
+                }),
+                None => self.prepare(Entry { held: None, ..entry }, None, true, by, responder),
             };
         }
         let this = Rc::downgrade(self);
@@ -550,29 +715,49 @@ impl Backlog {
             if this.core.upgrade().is_some_and(|core| alive(&core, &pane)) {
                 return responder.reply(Err(running(&pane)));
             }
-            let entry = this.running.borrow().iter().find(|(p, _)| *p == pane).map(|(_, e)| e.clone());
+            let entry = this.running.borrow().iter().find(|r| r.pane == pane).map(|r| r.entry.clone());
             let id = pane.clone();
-            this.revive(&pane, entry.map(|e| e.resumable().command(None)), move |result| responder.reply(result.map(|_| started_here(&id, &id, "shelf"))));
+            let again = Rc::downgrade(&this);
+            this.revive(&pane, entry.map(|e| e.resumable().command(None)), move |result| {
+                if let (Ok(()), Some(this)) = (&result, again.upgrade()) {
+                    this.note(&id, Change::new("started").by(by.as_deref()));
+                }
+                responder.reply(result.map(|_| started_here(&id, &id, "shelf")))
+            });
         });
     }
 
     fn stop(self: &Rc<Self>, args: &Value, responder: Responder) {
         let Some(reference) = string(args, "task") else { return responder.reply(Err(bad("say which task"))) };
         let found = self.entries.borrow().iter().find(|e| e.id == reference).cloned();
+        let by = who(args).map(String::from);
         let this = Rc::downgrade(self);
         let end = move |task: String, pane: String, place: &'static str, responder: Responder| {
-            let Some(core) = this.upgrade().and_then(|this| this.core.upgrade()) else { return responder.reply(Err(gone())) };
+            let Some(this) = this.upgrade() else { return responder.reply(Err(gone())) };
+            let Some(core) = this.core.upgrade() else { return responder.reply(Err(gone())) };
             if !alive(&core, &pane) {
                 return responder.reply(Err(KmuxError::new("stopped", format!("{task} is stopped: start it with `kanna task start {task}`"))));
             }
             let weak = core.weak();
+            let backlog = Rc::downgrade(&this);
+            this.stopping.borrow_mut().insert(pane.clone());
             core.handle(json!({ "cmd": "close", "args": { "task": pane, "tabs": true } }), move |closed| {
+                let forget = |backlog: &std::rc::Weak<Backlog>, pane: &str| backlog.upgrade().map(|b| b.stopping.borrow_mut().remove(pane));
                 if let Some(error) = failed(&closed) {
+                    forget(&backlog, &pane);
                     return responder.reply(Err(error));
                 }
                 let Some(core) = weak.upgrade() else { return responder.reply(Err(gone())) };
                 let out = Map::from_iter([("task".to_string(), json!(task)), ("pane".to_string(), json!(pane)), ("place".to_string(), json!(place))]);
-                core.end(&pane, move |ended| responder.reply(ended.map(|_| out)));
+                core.end(&pane.clone(), move |ended| {
+                    match (&ended, backlog.upgrade()) {
+                        (Ok(_), Some(backlog)) => backlog.note(&pane, Change::new("stopped").by(by.as_deref())),
+                        _ => {
+                            forget(&backlog, &pane);
+                        }
+                    }
+                    responder.reply(ended.map(|_| out))
+                });
             });
         };
         if let Some(entry) = found {
@@ -609,7 +794,7 @@ impl Backlog {
         core.handle(json!({ "cmd": "restart", "args": { "pane": pane } }), move |reply| done(failed(&reply).map_or(Ok(()), Err)));
     }
 
-    fn room(self: &Rc<Self>, entry: Entry, window: Option<String>, responder: Responder) {
+    fn room(self: &Rc<Self>, entry: Entry, window: Option<String>, by: Option<String>, responder: Responder) {
         let Some(core) = self.core.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
         let this = Rc::downgrade(self);
         let weak = self.core.clone();
@@ -626,25 +811,25 @@ impl Backlog {
             if running >= TASKS_PER_PROJECT {
                 return responder.reply(Err(KmuxError::new("task_limit", format!("{} has {TASKS_PER_PROJECT} tasks on the Shelf: move one to the backlog with `kanna task defer TASK` first", entry.repo))));
             }
-            this.prepare(entry, window, false, responder);
+            this.prepare(entry, window, false, by, responder);
         });
     }
 
-    fn prepare(self: &Rc<Self>, mut entry: Entry, window: Option<String>, backlog: bool, responder: Responder) {
+    fn prepare(self: &Rc<Self>, mut entry: Entry, window: Option<String>, backlog: bool, by: Option<String>, responder: Responder) {
         if let Some(pane) = entry.held.clone() {
-            return self.release(pane, entry, window, responder);
+            return self.release(pane, entry, window, by, responder);
         }
         if let Some(folder) = entry.folder.clone() {
             if Path::new(&folder).is_dir() {
                 let branch = git(Path::new(&folder), &["branch", "--show-current"]).unwrap_or_default();
-                return self.launch(Starting { entry: entry.resumable(), window, backlog, responder }, folder, branch);
+                return self.launch(Starting { entry: entry.resumable(), window, backlog, by, responder }, folder, branch);
             }
             (entry.folder, entry.session) = (None, None);
         }
         let token = self.next.get() + 1;
         self.next.set(token);
         let (repo, events) = (PathBuf::from(&entry.repo), self.events.clone());
-        self.pending.borrow_mut().insert(token, Starting { entry, window, backlog, responder });
+        self.pending.borrow_mut().insert(token, Starting { entry, window, backlog, by, responder });
         std::thread::spawn(move || {
             let result = make_worktree(&repo);
             let _ = events.send(Event::Worktree { token, result });
@@ -659,12 +844,10 @@ impl Backlog {
         }
     }
 
-    /// Remembers how to put a running task back on the backlog, forgetting tasks whose agent is gone.
-    fn record(&self, pane: &str, entry: Entry) {
-        let core = self.core.upgrade();
+    fn record(&self, pane: &str, entry: Entry, place: Place) {
         let mut running = self.running.borrow_mut();
-        running.retain(|(p, _)| p != pane && core.as_ref().is_none_or(|core| core.pane(p).is_some()));
-        running.push((pane.to_string(), entry));
+        running.retain(|r| r.pane != pane);
+        running.push(Running { pane: pane.to_string(), entry, place });
     }
 
     /// Move to Backlog: takes a running task off its Desk or the Shelf and puts it back on its repo's backlog,
@@ -673,20 +856,15 @@ impl Backlog {
         let Some(core) = self.core.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
         let Some(reference) = string(args, "task") else { return responder.reply(Err(bad("say which running task"))) };
         let Some(pane) = core.pane(reference) else { return responder.reply(Err(KmuxError::new("not_found", format!("no running task \"{reference}\"")))) };
-        let recorded = self.running.borrow().iter().find(|(p, _)| *p == pane.id).map(|(_, e)| e.clone());
-        let entry = match recorded {
-            Some(entry) => entry,
-            None => {
-                let Some(folder) = pane.opened_in.clone().or(pane.cwd.clone()) else { return responder.reply(Err(bad(format!("{} has no folder to come back to", pane.id)))) };
-                let repo = project(Some(&folder)).map(|r| r.to_string_lossy().to_string()).unwrap_or_default();
-                let agent = pane.command.as_deref().map(program).filter(|p| !p.is_empty()).map(String::from);
-                let args = json!({ "repo": repo, "agent": opt(agent.as_deref()) });
-                match self.mint(&args, pane.name.clone(), None) {
-                    Ok(entry) => Entry { folder: Some(folder), ..entry },
-                    Err(error) => return responder.reply(Err(error)),
-                }
-            }
+        let recorded = self.running.borrow().iter().find(|r| r.pane == pane.id).map(|r| (r.entry.clone(), Some(r.place)));
+        let (entry, from) = match recorded {
+            Some(found) => found,
+            None => match self.mint_for(&pane) {
+                Ok(entry) => (entry, None),
+                Err(error) => return responder.reply(Err(error)),
+            },
         };
+        let by = who(args).map(String::from);
         let this = Rc::downgrade(self);
         let id = pane.id.clone();
         core.handle(json!({ "cmd": "task", "args": { "action": "hold", "task": id } }), move |reply| {
@@ -694,11 +872,20 @@ impl Backlog {
             if let Some(error) = failed(&reply) {
                 return responder.reply(Err(error));
             }
-            this.running.borrow_mut().retain(|(p, _)| *p != id);
+            this.running.borrow_mut().retain(|r| r.pane != id);
             let entry = Entry { held: Some(id.clone()), ..entry };
+            let made = match from {
+                Some(_) => Ok(()),
+                None => this.store(&entry, Place::Backlog, Some(&id), Some(Change::new("made").by(Some("daemon")))),
+            };
+            let change = Change { from, to: Some(Place::Backlog), ..Change::new("deferred") }.by(by.as_deref());
+            let saved = made.and_then(|_| this.store(&entry, Place::Backlog, Some(&id), Some(change)));
             let value = entry.to_value();
             this.entries.borrow_mut().push(entry);
             this.changed();
+            if let Err(error) = saved {
+                return responder.reply(Err(error));
+            }
             let running = this.core.upgrade().is_some_and(|core| alive(&core, &id));
             responder.reply(Ok(Map::from_iter([("task".to_string(), value), ("pane".to_string(), json!(id)), ("running".to_string(), json!(running))])));
         });
@@ -706,7 +893,7 @@ impl Backlog {
 
     fn launch(self: &Rc<Self>, starting: Starting, folder: String, branch: String) {
         let Some(core) = self.core.upgrade() else { return starting.responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
-        let Starting { entry, window, backlog, responder } = starting;
+        let Starting { entry, window, backlog, by, responder } = starting;
         let name = entry.name.clone().filter(|n| core.pane(n).is_none());
         let session = (agent(&entry.agent).is_some_and(|a| a.named.is_some()) && entry.folder.is_none()).then(uuid).and_then(Result::ok);
         let place = if backlog { "backlog" } else { "shelf" };
@@ -726,15 +913,15 @@ impl Backlog {
             ran.folder = Some(folder.clone());
             ran.session = ran.session.or(session);
             if backlog {
-                return this.running_here(pane, ran, branch, responder);
+                return this.running_here(pane, ran, branch, by, responder);
             }
-            this.started(pane, ran, branch, window, &weak, responder);
+            this.started(pane, ran, branch, window, by, &weak, responder);
         });
     }
 
     /// Brings a task held in the backlog back to the Shelf, its agent and tabs as they were, or starts it again
     /// in its worktree when its agent's pane is gone.
-    fn release(self: &Rc<Self>, pane: String, entry: Entry, window: Option<String>, responder: Responder) {
+    fn release(self: &Rc<Self>, pane: String, entry: Entry, window: Option<String>, by: Option<String>, responder: Responder) {
         let Some(core) = self.core.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
         let this = Rc::downgrade(self);
         let weak = self.core.clone();
@@ -744,27 +931,27 @@ impl Backlog {
                 if weak.upgrade().is_some_and(|core| core.pane(&pane).is_some()) {
                     return responder.reply(Err(error));
                 }
-                return this.prepare(Entry { held: None, ..entry }, window, false, responder);
+                return this.prepare(Entry { held: None, ..entry }, window, false, by, responder);
             }
             let folder = entry.folder.clone().unwrap_or_default();
             let branch = git(Path::new(&folder), &["branch", "--show-current"]).unwrap_or_default();
             let entry = Entry { held: None, ..entry };
             if weak.upgrade().is_some_and(|core| alive(&core, &pane)) {
-                return this.started(pane, entry, branch, window, &weak, responder);
+                return this.started(pane, entry, branch, window, by, &weak, responder);
             }
             let again = Rc::downgrade(&this);
             let entry = entry.resumable();
             this.revive(&pane.clone(), Some(entry.command(None)), move |result| {
                 let Some(this) = again.upgrade() else { return };
                 match result {
-                    Ok(()) => this.started(pane, entry, branch, window, &weak, responder),
+                    Ok(()) => this.started(pane, entry, branch, window, by, &weak, responder),
                     Err(error) => responder.reply(Err(error)),
                 }
             });
         });
     }
 
-    fn running_here(&self, pane: String, ran: Entry, branch: String, responder: Responder) {
+    fn running_here(&self, pane: String, ran: Entry, branch: String, by: Option<String>, responder: Responder) {
         let out = Map::from_iter([
             ("task".to_string(), json!(ran.id)),
             ("pane".to_string(), json!(pane)),
@@ -772,15 +959,17 @@ impl Backlog {
             ("folder".to_string(), json!(ran.folder)),
             ("branch".to_string(), json!(branch)),
         ]);
-        if let Some(entry) = self.entries.borrow_mut().iter_mut().find(|e| e.id == ran.id) {
-            *entry = Entry { held: Some(pane), ..ran };
+        let entry = Entry { held: Some(pane.clone()), ..ran };
+        let saved = self.store(&entry, Place::Backlog, Some(&pane), Some(Change::new("started").by(by.as_deref())));
+        if let Some(found) = self.entries.borrow_mut().iter_mut().find(|e| e.id == entry.id) {
+            *found = entry;
         }
         self.changed();
-        responder.reply(Ok(out));
+        responder.reply(saved.map(|_| out));
     }
 
     /// A task now runs on the Shelf as `pane`: it leaves the backlog, and goes onto `window`'s Desk if it was asked for.
-    fn started(&self, pane: String, ran: Entry, branch: String, window: Option<String>, core: &WeakCore, responder: Responder) {
+    fn started(self: &Rc<Self>, pane: String, ran: Entry, branch: String, window: Option<String>, by: Option<String>, core: &WeakCore, responder: Responder) {
         self.take(&ran.id);
         let mut out = Map::from_iter([
             ("task".to_string(), json!(ran.id)),
@@ -788,10 +977,18 @@ impl Backlog {
             ("folder".to_string(), json!(ran.folder)),
             ("branch".to_string(), json!(branch)),
         ]);
-        self.record(&pane, ran);
+        let saved = self.store(&ran, Place::Shelf, Some(&pane), Some(Change::new("shelved").moved(Place::Backlog, Place::Shelf).by(by.as_deref())));
+        self.record(&pane, ran, Place::Shelf);
         self.changed();
+        if let Err(error) = saved {
+            return responder.reply(Err(error));
+        }
         let (Some(window), Some(core)) = (window, core.upgrade()) else { return responder.reply(Ok(out)) };
+        let this = Rc::downgrade(self);
         core.handle(json!({ "cmd": "task", "args": { "action": "pull", "task": pane, "window": window } }), move |pulled| {
+            if let Some(this) = this.upgrade() {
+                this.moved(&pulled, by.as_deref());
+            }
             out.insert("window".into(), pulled.get("window").cloned().unwrap_or(Value::Null));
             responder.reply(Ok(out));
         });
@@ -978,12 +1175,10 @@ mod tests {
     }
 
     #[test]
-    fn entries_round_trip_and_ids_are_t_numbers() {
+    fn entries_round_trip_through_the_db() {
         let entry = Entry { id: "t7".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into(), folder: Some("/r/.kanna-worktrees/task-1".into()), session: Some("s".into()), held: Some("p3".into()) };
-        assert_eq!(Entry::from_value(&entry.to_value()), Some(entry));
-        assert_eq!(number("t12"), Some(12));
-        assert_eq!(number("p3"), None);
-        assert_eq!(number("t"), None);
+        assert_eq!(Entry::from_row(&entry.row(Place::Backlog, Some("p3"))), entry);
+        assert_eq!(Entry::from_row(&entry.row(Place::Shelf, Some("p3"))).held, None, "a task on the Shelf isn't held");
     }
 
     #[test]
@@ -1037,10 +1232,9 @@ mod tests {
         assert_eq!(mint(), "t2");
         let backlog = Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0);
         let ran = Entry { id: "t9".into(), name: Some("Ran".into()), message: None, repo: "/r".into(), by: None, made_at: 0.0, agent: "claude".into(), folder: Some("/r/w".into()), session: Some("s".into()), held: None };
-        backlog.record("p4", ran.clone());
-        backlog.save();
+        backlog.store(&ran, Place::Desk, Some("p4"), Some(Change::new("pulled"))).unwrap();
         let again = Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0);
-        assert_eq!(*again.running.borrow(), vec![("p4".to_string(), ran)], "a running task's way back survives a restart");
+        assert_eq!(*again.running.borrow(), vec![Running { pane: "p4".into(), entry: ran, place: Place::Desk }], "a running task's way back survives a restart");
         assert_eq!(again.mint(&args, None, None).unwrap().id, "t10", "and its ID isn't handed out again");
         fs::remove_dir_all(&state).unwrap();
     }

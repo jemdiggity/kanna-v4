@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S58) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S59) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -35,7 +35,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-8]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-9]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -2021,10 +2021,45 @@ S58() {
   stop_agents
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-8]) echo M4 ;; esac
+S59() {
+  local repo="$KANNA_STATE_DIR/repo" agent="$KANNA_STATE_DIR/bin/claude" state="$KANNA_STATE_DIR"
+  mkdir -p "$repo" "${agent%/*}" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$agent" || { echo "S59 line $LINENO"; return 1; }
+  git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S59 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  printf '{"counter": 3, "tasks": [{"id": "t3", "name": "From JSON", "message": "hi", "repo": "%s", "madeAt": 1700000000, "agent": "%s"}], "running": []}' "$repo" "$agent" >"$state/backlog.json"
+  start_daemon && start_app || { echo "S59 line $LINENO"; return 1; }
+  [[ -f "$state/kanna.db" && -f "$state/backlog.json.imported" && ! -e "$state/backlog.json" ]] || { echo "S59: backlog.json wasn't imported"; ls "$state"; return 1; }
+  (cd "$repo" && kanna task list) | grep -qE '^t3 +From JSON +Backlog' || { echo "S59: the imported task isn't in the backlog"; (cd "$repo" && kanna task list); return 1; }
+  events() { raw "{\"id\":1,\"cmd\":\"backlog\",\"args\":{\"action\":\"events\",\"task\":\"$1\"}}" | python3 -c 'import json, sys; print(" ".join(e["what"] + ("@" + e["by"] if e["by"] else "") for e in json.load(sys.stdin)["events"]))'; }
+  [[ "$(events t3)" == "made" ]] || { echo "S59: t3's events are $(events t3)"; return 1; }
+  (cd "$repo" && kanna task new "Fresh" "say fresh" --agent "$agent") | grep -q 't4' || { echo "S59: a new task didn't follow the imported counter"; return 1; }
+  kanna task shelve t4 >/dev/null || { echo "S59 line $LINENO"; return 1; }
+  local task window; task="$(pane Fresh id)"
+  window="$(KANNA_PANE="$task" kanna task pull "$task")" && window="${window##* onto }" && [[ "$window" =~ ^w[0-9]+$ ]] || { echo "S59: pull said $window"; return 1; }
+  raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"park\":\"$window\"}}" >/dev/null
+  check wait_for 5 eval '[[ "$(events t4)" == *"parked@user" ]]' || { echo "S59: the app's park wasn't recorded: $(events t4)"; return 1; }
+  kanna task stop "$task" >/dev/null && kanna task start "$task" >/dev/null || { echo "S59 line $LINENO"; return 1; }
+  kanna task name "$task" "Fresher" >/dev/null || { echo "S59 line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(events t4)" == *renamed ]]' || { echo "S59: the rename wasn't recorded: $(events t4)"; return 1; }
+  kanna task defer "$task" >/dev/null && kanna task done t4 >/dev/null || { echo "S59 line $LINENO"; return 1; }
+  local want="made@user shelved@user pulled@$task parked@user stopped@user started@user renamed deferred@user done@user"
+  [[ "$(events t4)" == "$want" ]] || { echo "S59: t4's events are \"$(events t4)\", not \"$want\""; return 1; }
+  [[ "$(sqlite3 -readonly "$state/kanna.db" "select place from tasks where id = 't4'")" == done ]] || { echo "S59: a done task's row is gone or not done"; return 1; }
+  stop_app; stop_daemon
+  local lines; lines="$(wc -l <"$out/daemon.log")"
+  rm -f "$state/kanna.db-wal" "$state/kanna.db-shm"
+  printf 'this is not a database %.0s' {1..200} >"$state/kanna.db"
+  start_daemon && start_app || { echo "S59 line $LINENO"; return 1; }
+  tail -n +"$((lines + 1))" "$out/daemon.log" | grep -q "kanna.db can't be used" || { echo "S59: the daemon didn't say the db was bad"; return 1; }
+  tail -n +"$((lines + 1))" "$out/daemon.log" | grep -q "restored .*kanna.db from" || { echo "S59: the daemon didn't say it restored the db"; return 1; }
+  (cd "$repo" && kanna task list) | grep -qE '^t3 +From JSON +Backlog' || { echo "S59: a backlog task was lost with the db"; (cd "$repo" && kanna task list); return 1; }
+  ls "$state" | grep -q '^kanna.db.bad-' || { echo "S59: the bad db wasn't kept"; return 1; }
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
