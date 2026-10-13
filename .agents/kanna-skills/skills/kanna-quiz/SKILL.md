@@ -56,8 +56,8 @@ Write each question just before you ask it:
 - **About some lines:** read the file and pick the lines that answer it (a function, a spec's diagram, the place one piece hands off to another), so you can open them on a miss with the right line numbers.
 - **Ask it with your multiple-choice tool** (Claude's AskUserQuestion: the question, choices as options with a short description; header `Quiz N/5`). An agent without one: a numbered list, and the user answers with a number.
 - Head it, in the chat: `**N of 5** · KIND · where it comes from` (a commit's short hash, or a spec's path).
-- **Spot the bug:** show the lines in the chat, labelled A to D with their line numbers, with exactly one changed to put a bug in; the choices are A to D.
-- **Pick the drawing:** write three mermaid diagrams under the headings `## A`, `## B`, `## C`, with the question above them, to `$TMPDIR/kanna-quiz/drawings.md`, and open it beside you: `kanna open md "$TMPDIR/kanna-quiz/drawings.md"`. The choices are A, B and C. Close it (`kanna close PANE`) when you move on.
+- **Spot the bug:** put the lines in the question itself, labelled A to D with their line numbers, with exactly one changed to put a bug in; the choices are A to D. Not only in the chat before it: the question tool can cover what you wrote.
+- **Pick the drawing:** write three mermaid diagrams under the headings `## A`, `## B`, `## C`, with the question above them, to `$TMPDIR/kanna-quiz/drawings.md`, and open it beside you: `kanna open md "$TMPDIR/kanna-quiz/drawings.md"`. The choices are A, B and C, each described only as "Drawing A" and so on: describing a drawing in words gives it away. Close it (`kanna close PANE`) when you move on.
 - **Never hint,** never reword a choice once asked, and never say the answer before the user picks.
 
 ### Answering
