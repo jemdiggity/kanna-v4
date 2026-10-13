@@ -55,10 +55,11 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .ask .opt .d { color: var(--muted); display: block; padding-left: 5ch; }
 .ask .opt.cur .d { color: var(--muted); }
 .ask .foot { color: var(--muted); margin-top: 4px; }
-.ask .side { display: flex; gap: 3ch; align-items: flex-start; }
-.ask .side .opts { flex: none; }
-.ask .pic { flex: none; border: 1px solid var(--line); border-radius: 4px; padding: 4px 2ch; white-space: pre; line-height: 1.2; font-family: Menlo, monospace; }
-.drawn { white-space: pre; line-height: 1.2; font-family: Menlo, monospace; margin: 4px 0 4px 2ch; color: var(--muted); }
+.md { flex: 1; overflow: auto; padding: 28px 36px; font: 14px/1.6 var(--sans); }
+.md h2 { font-size: 18px; margin: 0 0 6px; }
+.md p { color: var(--muted); margin: 0 0 18px; }
+.md .mmd { display: flex; justify-content: center; margin-bottom: 14px; }
+.md .mmd svg { max-width: 100%; height: auto; }
 .snip { border-left: 2px solid var(--line); margin: 4px 0 4px 2ch; padding-left: 1ch; }
 .snip .n { color: var(--num); }
 .snip .lbl { color: var(--accent); font-weight: 700; }
@@ -103,7 +104,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 <main>
   <div class="intro">
     <h1>Quiz: the agent asks about what the agents built</h1>
-    <p>A round of five multiple-choice questions about what landed on main since your last quiz, asked one at a time by an agent in its chat, about two minutes. The planning agent offers a round when something has merged since your last quiz; yes opens a Quiz window: an agent in the repo on main (no task, no worktree: the quiz changes nothing), with the code it opens split beside it. Close the window to stop; the round is kept. Each answer gets a short explanation, and the agent opens the code at the line with <code>kanna comment</code>. It's all the <code>kanna-quiz</code> skill: the planning agent opens the window with <code>kanna open</code>, and the agent there writes each question itself from what's on main. Click an answer in the chat, or press its number.</p>
+    <p>A round of five multiple-choice questions about what landed on main in the last day, asked one at a time by an agent in its chat, about two minutes. The planning agent offers a round when something has merged in the last day; yes opens a Quiz window: an agent in the repo on main (no task, no worktree: the quiz changes nothing), docked on the left with what it opens in tabs beside it. Close the window to stop; nothing is kept. Each answer gets a short explanation, and the agent opens the code at the line with <code>kanna comment</code>. A pick-the-drawing question writes its three drawings, A, B and C, in one markdown file and opens it in a tab beside the agent. It's all the <code>kanna-quiz</code> skill: the planning agent opens the window with <code>kanna open</code>, and the agent there writes each question itself from what's on main. Click an answer in the chat, or press its number.</p>
     <div class="controls">
       <button id="theme">Light / dark</button>
       <button data-go="offer">The offer</button>
@@ -118,6 +119,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
   </div>
   <div id="stage"></div>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
 <script>
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const tick = t => esc(t).replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -127,19 +129,15 @@ const hl = t => esc(t)
   .replace(/\b([a-z_]+)(\()/g, '<span class="fn">$1</span>$2')
   .replace(/\b(String|Option|Vec|Command)\b/g, '<span class="ty">$1</span>');
 
-const BOX = (a, b, c) => [
-  "┌───────────┐   ┌────────┐   ┌────────┐",
-  `│ ${a.padEnd(9)} │◀─▶│ ${b.padEnd(6)} │◀─▶│ ${c.padEnd(6)} │`,
-  "└───────────┘   └────────┘   └────────┘"];
 const PICS = [
-  [...BOX("Kanna.app", "keeper", "pty"), "                    ▲ spawns", "                ┌────────┐", "                │ daemon │", "                └────────┘"],
-  [...BOX("Kanna.app", "daemon", "pty"), "                    │ asks       ▲", "                    ▼ to spawn   │ holds", "                ┌────────┐       │ a copy", "                │ keeper │───────┘", "                └────────┘"],
-  ["┌────────┐   ┌───────────┐   ┌────────┐", "│ daemon │◀─▶│ Kanna.app │◀─▶│ pty    │", "└────────┘   └───────────┘   └────────┘", "", "  the daemon only names and places panes"],
+  "flowchart LR\n  app[Kanna.app] <--> keeper <--> pty\n  daemon -- spawns --> keeper",
+  "flowchart LR\n  app[Kanna.app] <--> daemon <--> pty\n  daemon -- asks to spawn --> keeper\n  keeper -. holds a copy .-> pty",
+  "flowchart LR\n  daemon -- names and places panes --> app[Kanna.app]\n  app <--> pty",
 ];
 
 const Q = [
   { kind: "Architecture", from: "docs/kanna-spec.md", q: "Which drawing shows how a terminal's bytes reach Kanna.app?", pics: PICS,
-    choices: [["Drawing A", ""], ["Drawing B", ""], ["Drawing C", ""]],
+    choices: [["A", ""], ["B", ""], ["C", ""]],
     answer: 1, why: "The daemon reads and writes every pty. The keeper only spawns each one and holds a copy, so restarting the daemon loses no terminal, and it's never in the path of a byte.",
     at: "docs/kanna-spec.md:141", topic: "Who reads a terminal" },
   { kind: "Behaviour", from: "6dae46b", q: "When a Codex task starts, how does Kanna run `codex`?",
@@ -200,7 +198,7 @@ const BACKLOG = [
   ["Comment navigation ⌃− ⌃⇧−", "Go back and forward through the agent's comments across tabs"],
 ];
 
-const fresh = () => ({ step: "offer", i: 0, picks: [], code: null, cur: 0 });
+const fresh = () => ({ step: "offer", i: 0, picks: [], code: null, cur: 0, tab: 0 });
 let s = fresh();
 
 const say = t => `<span class="m">●</span> ${t}`;
@@ -210,28 +208,28 @@ const tool = (cmd, out) => `<span class="m">●</span> <b>Bash</b>(${esc(cmd)})\
 function asked(k) {
   const q = Q[k], picked = s.picks[k];
   const diff = q.diff ? `<div class="snip">${q.diff.map(([n, t, l]) => `<span class="lbl">${l}</span> <span class="n">${n}</span> ${esc(t)}`).join("\n")}</div>` : "";
-  const lines = [say(`<b>${k + 1} of 5</b> · ${q.kind} <span class="g">· ${esc(q.from)}</span>`)].concat(picked === undefined && !q.diff ? [] : [`  ${tick(q.q)}`]);
+  const opened = q.pics ? [tool("kanna open md $TMPDIR/kanna-quiz/drawings.md --tab", "opened p160 · drawings.md")] : [];
+  const lines = [...opened, say(`<b>${k + 1} of 5</b> · ${q.kind} <span class="g">· ${esc(q.from)}</span>`)].concat(picked === undefined && !q.diff ? [] : [`  ${tick(q.q)}`]);
   return lines.join("\n") + (diff ? "\n" + diff : "") + (picked === undefined ? "" : "\n" + you(`${picked + 1}. ${tick(q.choices[picked][0])}`) + "\n" + answered(k));
 }
 
 function answered(k) {
   const q = Q[k], right = s.picks[k] === q.answer;
   const head = right ? `<span class="ok">Right.</span>` : `<span class="no">Not quite:</span> it's ${q.answer + 1}, ${tick(q.choices[q.answer][0].replace(/^./, c => c.toLowerCase()))}.`;
-  const drawn = q.pics && !right ? `\n<div class="drawn">${esc(q.pics[q.answer].join("\n"))}</div>` : "";
-  const opened = s.code === k ? "\n" + tool(`kanna comment ${q.at} "…" --split right`, `opened p152 · ${q.at.split("/").pop()}`) : "";
-  return say(`${head} ${tick(q.why)}`) + drawn + opened;
+  const opened = s.code === k ? "\n" + tool(`kanna comment ${q.at} "…"`, `opened p152 · ${q.at.split("/").pop()}`) : "";
+  return say(`${head} ${tick(q.why)}`) + opened;
 }
 
 function question(k) {
   const q = Q[k];
   const opts = q.choices.map(([a, d], j) => `<span class="opt ${j === s.cur ? "cur" : ""}" data-pick="${j}">${j === s.cur ? "❯" : " "} ${j + 1}. ${tick(a)}${d ? `<span class="d">${tick(d)}</span>` : ""}</span>`).join("");
-  const body = q.pics ? `<div class="side"><div class="opts">${opts}</div><div class="pic">${esc(q.pics[s.cur].join("\n"))}</div></div>` : opts;
+  const body = opts;
   return `<div class="ask"><span class="chip">Quiz ${k + 1}/5</span>\n<b>${tick(q.q)}</b>\n\n${body}\n<span class="foot">Enter to select · ↑/↓ to move · Esc to pause</span></div>`;
 }
 
 function offer() {
   const out = [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``,
-    tool("git log --oneline 4f1c2e0..main", "6dae46b A Codex task starts with --no-daemon, … (3 commits)"),
+    tool("git log --oneline main --since=1.day", "6dae46b A Codex task starts with --no-daemon, … (3 commits)"),
     say(tick("Morning. Three tasks landed on main since yesterday: agent setup, `kanna agents`, and Codex's `--no-daemon`. Two more are on the Shelf, three wait in the backlog.")),
     `  Quiz on today's changes? Five questions, about two minutes.`];
   return wrap(out, `<div class="prompt">&gt; <span class="g">yes · later</span></div>`);
@@ -240,11 +238,11 @@ function offer() {
 function chat() {
   const out = [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude "/kanna-quiz"`, ``];
   if (s.step === "prep") {
-    out.push(tool("git log --stat 4f1c2e0..main", "3 commits · 14 files changed, 1210 insertions(+), 96 deletions(-)"), say("Reading what landed since yesterday: agent setup, <code>kanna agents</code>, and Codex's <code>--no-daemon</code>. First question in a moment."), ``, `<span class="spin">✻</span> <span class="g">Reading crates/kanna-daemon/src/agents.rs… 0:12</span>`);
+    out.push(tool("git log --stat main --since=1.day", "3 commits · 14 files changed, 1210 insertions(+), 96 deletions(-)"), say("Reading what landed since yesterday: agent setup, <code>kanna agents</code>, and Codex's <code>--no-daemon</code>. First question in a moment."), ``, `<span class="spin">✻</span> <span class="g">Reading crates/kanna-daemon/src/agents.rs… 0:12</span>`);
     return wrap(out, "");
   }
   let tail = "";
-  out.push(tool("git log --stat 4f1c2e0..main", "3 commits · 14 files changed, 1210 insertions(+), 96 deletions(-)"));
+  out.push(tool("git log --stat main --since=1.day", "3 commits · 14 files changed, 1210 insertions(+), 96 deletions(-)"));
   const last = s.step === "end" ? 5 : s.i + 1;
   for (let k = 0; k < last; k++) out.push(``, asked(k));
   if (s.step === "q") {
@@ -253,10 +251,10 @@ function chat() {
   }
   if (s.step === "end") {
     const n = s.picks.filter((p, k) => p === Q[k].answer).length, missed = Q.filter((q, k) => s.picks[k] !== q.answer);
-    out.push(``, `<span class="m">●</span> <b>Write</b>(.git/kanna-quiz.json)\n  <span class="g">⎿  main 6dae46b · ${missed.length} missed</span>`,
+    out.push(``,
       say(`You knew <b>${n} of 5</b> about today's changes.`),
       ...Q.map((q, k) => `  ${s.picks[k] === q.answer ? '<span class="ok">✓</span>' : '<span class="no">✗</span>'} ${esc(q.topic)} <span class="g">· ${esc(q.at.split("/").pop())}</span>`),
-      ``, `  ${missed.length === 1 ? `“${esc(missed[0].topic)}” comes` : "The ones you missed come"} back in a later round. Close this window, or another round?`);
+      ``, `  Close this window, or another round?`);
     tail = `<div class="prompt">&gt; <span class="g">close it · another round</span></div>`;
   }
   return wrap(out, tail);
@@ -272,6 +270,12 @@ function shelfPage() {
       ${BACKLOG.map(([n, p]) => `<div class="row waiting"><span class="dot"></span><div class="t"><div class="n">${esc(n)}</div><div class="s">${esc(p)}</div></div></div>`).join("")}</div></div>`;
 }
 
+function drawings() {
+  const q = Q[s.i];
+  return `<div class="dtabs"><div class="dtab on"><span>drawings.md</span></div></div>
+    <div class="md"><p>${tick(q.q)}</p>${q.pics.map((_, j) => `<h2>${"ABC"[j]}</h2><div class="mmd" data-mmd="${j}"></div>`).join("")}</div>`;
+}
+
 function codeTab() {
   const q = Q[s.code], [file, line] = q.at.split(":"), lines = CODE[file] || [];
   const [first, last] = SPAN[q.at] || [+line, +line];
@@ -281,17 +285,21 @@ function codeTab() {
 
 function render() {
   const onEmpty = s.step === "offer";
-  const tabs = `<div class="dtabs"><div class="dtab on"><span>Quiz</span></div></div>`;
-  const right = s.code !== null ? codeTab() : "";
+  const right = s.step === "q" && Q[s.i].pics ? drawings() : s.code !== null ? codeTab() : "";
   document.getElementById("stage").innerHTML = onEmpty ? `<div class="window">
     <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Shelf</span></div>
     <div class="content"><div class="agent"><div class="head">Planning · ~/work/kanna-v4 · main</div><div class="term">${offer()}</div></div>
       <div class="docs">${shelfPage()}</div></div></div>` : `<div class="window">
-    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Quiz · kanna-v4</span></div>${tabs}
+    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Quiz · kanna-v4</span></div>
     <div class="content"><div class="agent" style="${right ? "" : "flex:1"}"><div class="head">~/work/kanna-v4 · main</div><div class="term">${chat()}</div></div>
       ${right ? `<div class="docs">${right}</div>` : ""}</div></div>`;
   const t = document.querySelector(".term .scroll");
   if (t) t.parentElement.scrollTop = 1e6;
+  const ms = document.querySelectorAll("[data-mmd]");
+  if (ms.length && window.mermaid) {
+    mermaid.initialize({ startOnLoad: false, theme: document.documentElement.dataset.theme === "light" ? "default" : "dark" });
+    ms.forEach((m, j) => mermaid.render(`d${Date.now()}${j}`, Q[s.i].pics[+m.dataset.mmd]).then(({ svg }) => { m.innerHTML = svg; }));
+  }
 }
 
 function pick(j) {
@@ -309,6 +317,7 @@ function next() {
 document.addEventListener("click", e => {
   const el = sel => e.target.closest(sel);
   if (el("[data-go]")) return go(el("[data-go]").dataset.go);
+  if (el("[data-tab]")) { s.tab = +el("[data-tab]").dataset.tab; return render(); }
   if (el("[data-pick]")) return pick(+el("[data-pick]").dataset.pick);
   if (el("[data-act=uncode]")) { s.code = null; return render(); }
   if (el(".prompt") && s.step === "offer") { s.step = "q"; return render(); }
@@ -334,7 +343,7 @@ function go(scene) {
   render();
 }
 
-document.getElementById("theme").onclick = () => { const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "" : "light"; };
+document.getElementById("theme").onclick = () => { const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "" : "light"; render(); };
 if (location.hash.includes("picture")) document.body.classList.add("picture");
 if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
 const scene = location.hash.match(/scene=([a-z0-9]+)/);
