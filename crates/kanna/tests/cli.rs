@@ -119,7 +119,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["markup", "doc", "--off"]).ok(), "comments off in p6 (doc)");
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();
-    assert!(capabilities.starts_with("pane types: term, web, ios, md, code\ncommands: agents, arrange, capabilities, close, comment, focus, list, markup, move, move-tab, navigate, open, read, rename-pane, rename-tab, resize, restart, send, status, task, zoom"), "{capabilities}");
+    assert!(capabilities.starts_with("pane types: term, web, ios, md, code\ncommands: agents, arrange, capabilities, close, comment, focus, list, markup, move, move-tab, navigate, open, read, rename-pane, rename-tab, resize, restart, send, send-key, status, task, zoom"), "{capabilities}");
     assert!(capabilities.ends_with("Kanna.app: attached"), "{capabilities}");
     let raw = daemon.kanna(&["raw", r#"{"cmd":"debug.anything","args":{"pane":"a"}}"#]).json();
     assert_eq!(raw, json!({ "cmd": "debug.anything", "args": { "pane": "p1" } }));
@@ -169,6 +169,29 @@ fn errors_exit_as_kmux_says() {
     daemon.kanna(&["--bogus"]).fails(2, "unknown option \"--bogus\"\n\nkanna — control the Kanna");
     daemon.kanna(&["--instance", "a/b", "list"]).fails(2, "bad instance name \"a/b\"");
     daemon.kanna(&["--mux", "tmux", "list"]).fails(5, "the tmux backend isn't supported yet");
+}
+
+const BYTES: &str = r#"stty raw -echo; printf '\033[?1hREADY\r\n'; while :; do printf '%s ' "$(dd bs=1 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"; done"#;
+
+#[test]
+fn send_key_presses_keys_as_the_program_expects_them_without_the_app() {
+    let daemon = Daemon::start();
+    daemon.kanna(&["open", "--name", "bytes", "--cmd", BYTES]).ok();
+    wait_for("the program", || daemon.kanna(&["read", "bytes"]).ok().contains("READY"));
+    assert_eq!(daemon.kanna(&["send-key", "bytes", "up", "ctrl+c", "return", "shift+tab", "A", "esc"]).ok(), "");
+    assert!(daemon.kanna(&["read", "bytes"]).ok().contains("1b 4f 41 03 0d 1b 5b 5a 41 1b"), "{}", daemon.kanna(&["read", "bytes"]).ok());
+    daemon.kanna(&["send-key", "bytes", "cmd+c"]).fails(2, "cmd+c only means something to Kanna.app, not to the program in bytes (p1)");
+    daemon.kanna(&["send-key", "bytes", "up", "hello"]).fails(2, "\"hello\" isn't a key; to type text, use kanna send");
+    daemon.kanna(&["send-key", "bytes", "hyper+a"]).fails(2, "hyper+a: modifiers are ctrl, alt and shift");
+    daemon.kanna(&["send-key", "nope", "return"]).fails(4, "not_found");
+    daemon.kanna(&["raw", r#"{"cmd":"send-key","args":{"pane":"bytes","keys":[]}}"#]).fails(2, "missing keys");
+    daemon.kanna(&["open", "--name", "shell"]).ok();
+    daemon.kanna(&["send", "shell", "sleep 30"]).ok();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    daemon.kanna(&["send-key", "shell", "ctrl+c"]).ok();
+    daemon.kanna(&["send", "shell", "echo AFTER-$((6*7))"]).ok();
+    wait_for("the interrupted shell", || daemon.kanna(&["read", "shell"]).ok().contains("AFTER-42"));
+    assert!(daemon.kanna(&["read", "shell"]).ok().contains("sleep 30\n^C\n"));
 }
 
 #[test]
@@ -235,11 +258,11 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     assert!(kanna_at(&dir, Some(&nowhere), &["raw", "--help"]).ok().starts_with("usage: kanna raw REQUEST"));
     kanna_at(&dir, Some(&nowhere), &["help", "nope"]).fails(2, "unknown command \"nope\"");
     let commands = kanna_at(&dir, Some(&nowhere), &["commands"]).ok();
-    assert_eq!(commands.lines().count(), 21);
+    assert_eq!(commands.lines().count(), 22);
     assert!(commands.starts_with("open          Open a terminal"), "{commands}");
     let described = kanna_at(&dir, Some(&nowhere), &["commands", "--json"]).json();
     assert_eq!(described["running"], false);
-    assert_eq!(described["commands"].as_array().unwrap().len(), 21);
+    assert_eq!(described["commands"].as_array().unwrap().len(), 22);
     assert_eq!(described["exitCodes"]["6"], "needs Kanna.app, which isn't attached and wasn't started");
     assert!(described["globalOptions"].as_array().unwrap().iter().any(|o| o["flag"] == "--"));
 

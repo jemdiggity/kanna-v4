@@ -4,7 +4,9 @@ use crate::settings::Settings;
 use crate::status::Detector;
 use crate::store::{pane_number, Record, Saved, Store};
 use crate::Event;
-use kanna_mux::{KmuxError, Pane, PaneHost, PaneState, PaneType, WeakCore};
+use kanna_mux::json::Map;
+use kanna_mux::{KmuxError, Pane, PaneHost, PaneState, PaneType, Responder, WeakCore};
+use kanna_vt::{Key, KeyError};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fs::File;
@@ -13,6 +15,7 @@ use std::os::fd::OwnedFd;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub type OnStart = Box<dyn Fn(&str)>;
 
@@ -27,6 +30,8 @@ const COLS: u16 = 80;
 const ROWS: u16 = 24;
 
 const MAX_SIDE: u16 = 1000;
+
+const KEY_GAP: Duration = Duration::from_millis(50);
 
 struct Pty {
     master: OwnedFd,
@@ -526,6 +531,18 @@ impl PaneHost for Terminals {
         self.write(&pane.id, format!("{text}\r").into_bytes());
     }
 
+    fn send_keys(&self, pane: &Pane, names: Vec<String>, done: Responder) {
+        match self.presses(pane, &names) {
+            Ok(presses) => {
+                let sent = std::thread::Builder::new().name(format!("kanna.keys.{}", pane.id)).spawn(move || presses.press(done));
+                if let Err(error) = sent {
+                    eprintln!("kanna-daemon: couldn't start sending keys: {error}");
+                }
+            }
+            Err(error) => done.reply(Err(error)),
+        }
+    }
+
     fn read(&self, pane: &Pane, lines: Option<usize>) -> Result<String, KmuxError> {
         let live = self.live.borrow();
         let terminal = live.get(&pane.id).ok_or_else(|| KmuxError::new("bad_request", format!("{} has no terminal", pane.label())))?;
@@ -534,7 +551,53 @@ impl PaneHost for Terminals {
     }
 }
 
+struct Presses {
+    label: String,
+    keys: Vec<Key>,
+    feed: Arc<Mutex<Feed>>,
+    input: Sender<Vec<u8>>,
+}
+
+impl Presses {
+    fn press(self, done: Responder) {
+        for (i, key) in self.keys.iter().enumerate() {
+            if i > 0 {
+                std::thread::sleep(KEY_GAP);
+            }
+            let bytes = Feed::lock(&self.feed).encode_key(key).unwrap_or_default();
+            if !bytes.is_empty() && self.input.send(bytes).is_err() {
+                return done.reply(Err(KmuxError::new("bad_request", format!("{} ended before {key} was sent", self.label))));
+            }
+        }
+        done.reply(Ok(Map::new()));
+    }
+}
+
 impl Terminals {
+    fn presses(&self, pane: &Pane, names: &[String]) -> Result<Presses, KmuxError> {
+        let keys = names.iter().map(|name| name.parse::<Key>()).collect::<Result<Vec<Key>, KeyError>>().map_err(|error| {
+            let message = match error {
+                KeyError::AppOnly(key) => format!("{key} only means something to Kanna.app, not to the program in {}", pane.label()),
+                KeyError::UnknownKey(key) if key.chars().count() > 1 => format!("\"{key}\" isn't a key; to type text, use kanna send"),
+                error => error.to_string(),
+            };
+            KmuxError::new("bad_request", message)
+        })?;
+        let live = self.live.borrow();
+        let terminal = live.get(&pane.id).ok_or_else(|| KmuxError::new("bad_request", format!("{} has no terminal", pane.label())))?;
+        let pty = terminal.running().ok_or_else(|| KmuxError::new("bad_request", format!("{} has exited", pane.label())))?;
+        {
+            let feed = Feed::lock(&terminal.feed);
+            for key in &keys {
+                let bytes = feed.encode_key(key).map_err(|error| KmuxError::new("bad_request", format!("couldn't encode {key}: {error}")))?;
+                if bytes.is_empty() {
+                    return Err(KmuxError::new("bad_request", format!("{key} means nothing to the program in {} in the mode it's in", pane.label())));
+                }
+            }
+        }
+        Ok(Presses { label: pane.label(), keys, feed: terminal.feed.clone(), input: pty.input.clone() })
+    }
+
     fn run(&self, id: &str, keeper: &str, serial: u64, spawned: Spawned, feed: Arc<Mutex<Feed>>) -> std::io::Result<Terminal> {
         let Spawned { pid, master } = spawned;
         let (input, inputs) = mpsc::channel::<Vec<u8>>();

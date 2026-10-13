@@ -101,6 +101,47 @@ static const long long kanna_vt_abi_values[] = {
     sizeof(GhosttyTerminalProgressReport),
     offsetof(GhosttyTerminalProgressReport, state),
     offsetof(GhosttyTerminalProgressReport, progress),
+    GHOSTTY_KEY_ACTION_PRESS,
+    GHOSTTY_MODS_SHIFT,
+    GHOSTTY_MODS_CTRL,
+    GHOSTTY_MODS_ALT,
+    GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT,
+    GHOSTTY_OPTION_AS_ALT_TRUE,
+    sizeof(GhosttyKey),
+    sizeof(GhosttyOptionAsAlt),
+    GHOSTTY_KEY_UNIDENTIFIED,
+    GHOSTTY_KEY_BACKQUOTE,
+    GHOSTTY_KEY_BACKSLASH,
+    GHOSTTY_KEY_BRACKET_LEFT,
+    GHOSTTY_KEY_BRACKET_RIGHT,
+    GHOSTTY_KEY_COMMA,
+    GHOSTTY_KEY_DIGIT_0,
+    GHOSTTY_KEY_DIGIT_9,
+    GHOSTTY_KEY_EQUAL,
+    GHOSTTY_KEY_A,
+    GHOSTTY_KEY_Z,
+    GHOSTTY_KEY_MINUS,
+    GHOSTTY_KEY_PERIOD,
+    GHOSTTY_KEY_QUOTE,
+    GHOSTTY_KEY_SEMICOLON,
+    GHOSTTY_KEY_SLASH,
+    GHOSTTY_KEY_BACKSPACE,
+    GHOSTTY_KEY_ENTER,
+    GHOSTTY_KEY_SPACE,
+    GHOSTTY_KEY_TAB,
+    GHOSTTY_KEY_DELETE,
+    GHOSTTY_KEY_END,
+    GHOSTTY_KEY_HOME,
+    GHOSTTY_KEY_INSERT,
+    GHOSTTY_KEY_PAGE_DOWN,
+    GHOSTTY_KEY_PAGE_UP,
+    GHOSTTY_KEY_ARROW_DOWN,
+    GHOSTTY_KEY_ARROW_LEFT,
+    GHOSTTY_KEY_ARROW_RIGHT,
+    GHOSTTY_KEY_ARROW_UP,
+    GHOSTTY_KEY_ESCAPE,
+    GHOSTTY_KEY_F1,
+    GHOSTTY_KEY_F12,
 };
 
 #define SIGNATURE(name, ret, ...) static ret (*const check_##name)(__VA_ARGS__) __attribute__((used)) = name
@@ -120,6 +161,19 @@ SIGNATURE(ghostty_snapshot_decoder_new_buf, GhosttyResult, const GhosttyAllocato
 SIGNATURE(ghostty_snapshot_decoder_set, GhosttyResult, GhosttySnapshotDecoder, GhosttySnapshotDecoderOption, const void *);
 SIGNATURE(ghostty_snapshot_decoder_decode, GhosttyResult, GhosttySnapshotDecoder, GhosttyTerminal *);
 SIGNATURE(ghostty_snapshot_decoder_free, void, GhosttySnapshotDecoder);
+SIGNATURE(ghostty_key_encoder_new, GhosttyResult, const GhosttyAllocator *, GhosttyKeyEncoder *);
+SIGNATURE(ghostty_key_encoder_free, void, GhosttyKeyEncoder);
+SIGNATURE(ghostty_key_encoder_setopt, void, GhosttyKeyEncoder, GhosttyKeyEncoderOption, const void *);
+SIGNATURE(ghostty_key_encoder_setopt_from_terminal, void, GhosttyKeyEncoder, GhosttyTerminal);
+SIGNATURE(ghostty_key_encoder_encode, GhosttyResult, GhosttyKeyEncoder, GhosttyKeyEvent, char *, size_t, size_t *);
+SIGNATURE(ghostty_key_event_new, GhosttyResult, const GhosttyAllocator *, GhosttyKeyEvent *);
+SIGNATURE(ghostty_key_event_free, void, GhosttyKeyEvent);
+SIGNATURE(ghostty_key_event_set_action, void, GhosttyKeyEvent, GhosttyKeyAction);
+SIGNATURE(ghostty_key_event_set_key, void, GhosttyKeyEvent, GhosttyKey);
+SIGNATURE(ghostty_key_event_set_mods, void, GhosttyKeyEvent, GhosttyMods);
+SIGNATURE(ghostty_key_event_set_consumed_mods, void, GhosttyKeyEvent, GhosttyMods);
+SIGNATURE(ghostty_key_event_set_utf8, void, GhosttyKeyEvent, const char *, size_t);
+SIGNATURE(ghostty_key_event_set_unshifted_codepoint, void, GhosttyKeyEvent, uint32_t);
 static void (*const check_write_pty)(GhosttyTerminal, void *, const uint8_t *, size_t) __attribute__((used)) =
     (GhosttyTerminalWritePtyFn)0;
 static bool (*const check_device_attributes)(GhosttyTerminal, void *, GhosttyDeviceAttributes *) __attribute__((used)) =

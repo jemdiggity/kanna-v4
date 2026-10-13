@@ -53,7 +53,7 @@ pub const APP_PREFIX: &str = "debug.";
 
 pub const APP_ASK: &str = "app.";
 
-const TERMINAL_ONLY: [&str; 4] = ["send", "read", "list", "capabilities"];
+const TERMINAL_ONLY: [&str; 5] = ["send", "send-key", "read", "list", "capabilities"];
 
 pub fn takeover(events: Sender<Event>) -> Takeover {
     let counter = Arc::new(AtomicU64::new(0));
