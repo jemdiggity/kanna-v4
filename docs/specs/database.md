@@ -25,15 +25,30 @@ flowchart LR
     class CLI ext
 ```
 
-```mermaid
-flowchart LR
-    T["<b>tasks</b><br/>id PK · t76<br/>repo<br/>place · backlog, shelf, desk, done<br/>pane · its agent's pane<br/>made_at<br/><i>doc · name, message, by, agent, folder, session</i>"]
-    E["<b>task_events</b><br/>id PK<br/>task FK<br/>at<br/>what · made, started, stopped, exited, shelved,<br/>parked, pulled, deferred, renamed, done, imported<br/>from_place · to_place<br/>by · a pane, user, or daemon<br/><i>doc · window, code, old name</i>"]
-    M["<b>meta</b><br/>key PK · next_task<br/>value"]
-    T -->|"has many"| E
-    classDef table fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
-    class T,E,M table
-```
+**tasks**: one row per task, from made to done.
+
+| Column | Type | Holds |
+|---|---|---|
+| `id` | text, key | `t76` |
+| `repo` | text | the repo's folder |
+| `place` | text | `backlog`, `shelf`, `desk` or `done` |
+| `pane` | text | its agent's pane, while it has one |
+| `made_at` | real | when it was made |
+| `doc` | JSON | name, first message, by, agent, worktree folder, session, … |
+
+**task_events**: one row per change of a task's place or state.
+
+| Column | Type | Holds |
+|---|---|---|
+| `id` | integer, key | |
+| `task` | text → `tasks.id` | |
+| `at` | real | when |
+| `what` | text | `made`, `started`, `stopped`, `exited`, `shelved`, `parked`, `pulled`, `deferred`, `renamed`, `done`, `imported` |
+| `from_place`, `to_place` | text | where it was and went, for a move |
+| `by` | text | a pane, `user`, or `daemon` |
+| `doc` | JSON | window, exit code, old name, … |
+
+**meta**: `key`, `value`; holds `next_task`, the counter for `t` IDs.
 
 - **SQLite through `rusqlite` with its bundled SQLite** (`features = ["bundled"]`): one C file compiled by `cc` like the tree-sitter grammars, built for the app's macOS ([kanna spec 4.21](../kanna-spec.md#421-the-build)), no server and no system library. WAL mode, `synchronous = NORMAL`, a busy timeout, foreign keys on; file mode 0600 as the rest of the state folder.
 - **Columns for what's queried, a JSON doc for the rest.** A table's columns are what Kanna sorts, filters or joins on (a task's ID, repo, place and pane; an event's task, time, kind, places and who); everything else is a JSON `doc` (a task's name, first message, agent, worktree, session; an event's window or exit code). A new field is a new doc key, with no migration; a key the daemon doesn't know is kept when it updates the row (`json_patch`), so an older Kanna doesn't drop a newer one's fields. A doc field becomes a column, by a migration, when something starts to query it.
