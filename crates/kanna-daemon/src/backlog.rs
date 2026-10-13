@@ -380,7 +380,7 @@ fn gone() -> KmuxError {
 
 pub struct Backlog {
     state: PathBuf,
-    db: Db,
+    db: Rc<Db>,
     entries: RefCell<Vec<Entry>>,
     running: RefCell<Vec<Running>>,
     stopping: RefCell<HashSet<String>>,
@@ -393,8 +393,7 @@ pub struct Backlog {
 }
 
 impl Backlog {
-    pub fn open(state_dir: &Path, core: WeakCore, events: Sender<Event>) -> Backlog {
-        let db = Db::open(state_dir);
+    pub fn open(db: Rc<Db>, state_dir: &Path, core: WeakCore, events: Sender<Event>) -> Backlog {
         let rows = db.tasks().unwrap_or_else(|error| {
             eprintln!("kanna-daemon: can't read the tasks in {}: {error}", state_dir.join(db::FILE).display());
             vec![]
@@ -1227,13 +1226,13 @@ mod tests {
         assert!(Command::new("git").arg("-C").arg(&state).args(["init", "-q"]).status().unwrap().success());
         let core = kanna_mux::Core::default();
         let args = json!({ "repo": state.to_str().unwrap() });
-        let mint = || Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0).mint(&args, None, None).unwrap().id;
+        let mint = || Backlog::open(Rc::new(Db::open(&state)), &state, core.weak(), std::sync::mpsc::channel().0).mint(&args, None, None).unwrap().id;
         assert_eq!(mint(), "t1");
         assert_eq!(mint(), "t2");
-        let backlog = Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0);
+        let backlog = Backlog::open(Rc::new(Db::open(&state)), &state, core.weak(), std::sync::mpsc::channel().0);
         let ran = Entry { id: "t9".into(), name: Some("Ran".into()), message: None, repo: "/r".into(), by: None, made_at: 0.0, agent: "claude".into(), folder: Some("/r/w".into()), session: Some("s".into()), held: None };
         backlog.store(&ran, Place::Desk, Some("p4"), Some(Change::new("pulled"))).unwrap();
-        let again = Backlog::open(&state, core.weak(), std::sync::mpsc::channel().0);
+        let again = Backlog::open(Rc::new(Db::open(&state)), &state, core.weak(), std::sync::mpsc::channel().0);
         assert_eq!(*again.running.borrow(), vec![Running { pane: "p4".into(), entry: ran, place: Place::Desk }], "a running task's way back survives a restart");
         assert_eq!(again.mint(&args, None, None).unwrap().id, "t10", "and its ID isn't handed out again");
         fs::remove_dir_all(&state).unwrap();

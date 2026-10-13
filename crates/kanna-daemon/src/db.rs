@@ -38,6 +38,27 @@ const MIGRATIONS: &[&str] = &["
     );
     create index task_events_by_task on task_events (task, at);
     create index task_events_by_time on task_events (at);
+", "
+    create table quiz_rounds (
+        id integer primary key,
+        repo text not null,
+        at real not null,
+        head text not null,
+        doc text not null default '{}' check (json_valid(doc))
+    );
+    create index quiz_rounds_by_repo on quiz_rounds (repo, at);
+    create table quiz_answers (
+        id integer primary key,
+        round integer not null references quiz_rounds (id),
+        at real not null,
+        kind text not null,
+        file text not null,
+        right integer not null check (right in (0, 1)),
+        again integer references quiz_answers (id),
+        doc text not null default '{}' check (json_valid(doc))
+    );
+    create index quiz_answers_by_round on quiz_answers (round);
+    create index quiz_answers_by_again on quiz_answers (again);
 "];
 
 pub fn version() -> i64 {
@@ -116,6 +137,27 @@ pub struct Logged {
     pub from: Option<Place>,
     pub to: Option<Place>,
     pub by: Option<String>,
+    pub doc: Value,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Round {
+    pub id: i64,
+    pub repo: String,
+    pub at: f64,
+    pub head: String,
+    pub doc: Value,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Answer {
+    pub id: i64,
+    pub round: i64,
+    pub at: f64,
+    pub kind: String,
+    pub file: String,
+    pub right: bool,
+    pub again: Option<i64>,
     pub doc: Value,
 }
 
@@ -365,6 +407,56 @@ impl Db {
         })?;
         rows.collect()
     }
+
+    pub fn start_round(&self, repo: &str, head: &str, doc: &Value) -> rusqlite::Result<i64> {
+        self.conn.execute("insert into quiz_rounds (repo, at, head, doc) values (?1, ?2, ?3, json_patch('{}', ?4))", params![repo, now(), head, doc.to_string()])?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn round(&self, id: i64) -> rusqlite::Result<Option<Round>> {
+        self.conn.query_row("select id, repo, at, head, doc from quiz_rounds where id = ?1", [id], round_row).optional()
+    }
+
+    pub fn answer(&self, round: i64, kind: &str, file: &str, right: bool, again: Option<i64>, doc: &Value) -> rusqlite::Result<i64> {
+        self.conn.execute(
+            "insert into quiz_answers (round, at, kind, file, right, again, doc) values (?1, ?2, ?3, ?4, ?5, ?6, json_patch('{}', ?7))",
+            params![round, now(), kind, file, right, again, doc.to_string()],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn find_answer(&self, id: i64) -> rusqlite::Result<Option<(Answer, String)>> {
+        self.conn
+            .query_row(&format!("select {ANSWER}, r.repo from quiz_answers a join quiz_rounds r on r.id = a.round where a.id = ?1"), [id], |r| Ok((answer_row(r)?, r.get(8)?)))
+            .optional()
+    }
+
+    pub fn rounds(&self, repo: &str) -> rusqlite::Result<Vec<Round>> {
+        let mut statement = self.conn.prepare("select id, repo, at, head, doc from quiz_rounds where repo = ?1 order by id desc")?;
+        let rows = statement.query_map([repo], round_row)?;
+        rows.collect()
+    }
+
+    pub fn answers(&self, repo: &str, misses: bool) -> rusqlite::Result<Vec<Answer>> {
+        let only = if misses { "and a.right = 0 and not exists (select 1 from quiz_answers later where later.again = a.id)" } else { "" };
+        let mut statement = self.conn.prepare(&format!("select {ANSWER} from quiz_answers a join quiz_rounds r on r.id = a.round where r.repo = ?1 {only} order by a.round desc, a.id"))?;
+        let rows = statement.query_map([repo], answer_row)?;
+        rows.collect()
+    }
+}
+
+const ANSWER: &str = "a.id, a.round, a.at, a.kind, a.file, a.right, a.again, a.doc";
+
+fn doc_of(text: String) -> Value {
+    serde_json::from_str(&text).unwrap_or(Value::Null)
+}
+
+fn round_row(r: &rusqlite::Row) -> rusqlite::Result<Round> {
+    Ok(Round { id: r.get(0)?, repo: r.get(1)?, at: r.get(2)?, head: r.get(3)?, doc: doc_of(r.get(4)?) })
+}
+
+fn answer_row(r: &rusqlite::Row) -> rusqlite::Result<Answer> {
+    Ok(Answer { id: r.get(0)?, round: r.get(1)?, at: r.get(2)?, kind: r.get(3)?, file: r.get(4)?, right: r.get(5)?, again: r.get(6)?, doc: doc_of(r.get(7)?) })
 }
 
 fn log(conn: &Connection, task: &str, change: &Change) -> rusqlite::Result<()> {
@@ -544,6 +636,49 @@ mod tests {
         let rows = db.tasks().unwrap();
         assert_eq!(rows.iter().map(|r| (r.id.as_str(), r.doc["name"].as_str().unwrap())).collect::<Vec<_>>(), [("t1", "In the db"), ("t5", "New")]);
         assert_eq!(db.next_task().unwrap(), "t6");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_db_from_before_the_quiz_takes_its_tables_and_keeps_its_tasks() {
+        let dir = folder("quiz-migration");
+        let conn = connect(&dir.join(FILE)).unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute("insert into tasks (id, repo, place, made_at, doc) values ('t1', '/r', 'backlog', 1.0, '{\"name\": \"Old\"}')", []).unwrap();
+        drop(conn);
+        let db = Db::open(&dir);
+        let found: i64 = db.conn.query_row("pragma user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(found, version());
+        assert_eq!(db.tasks().unwrap()[0].doc["name"], "Old");
+        let round = db.start_round("/r", "abc", &json!({ "by": "p3" })).unwrap();
+        db.answer(round, "why", "src/a.rs", true, None, &json!({})).unwrap();
+        assert_eq!(db.answers("/r", false).unwrap().len(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_miss_stays_a_miss_until_it_is_asked_again() {
+        let dir = folder("quiz-misses");
+        let db = Db::open(&dir);
+        let first = db.start_round("/r", "abc", &json!({ "commits": ["abc"], "gone": null })).unwrap();
+        let missed = db.answer(first, "where", "src/a.rs", false, None, &json!({ "question": "Where?", "line": 4 })).unwrap();
+        let kept = db.answer(first, "why", "docs/b.md", false, None, &json!({})).unwrap();
+        db.answer(first, "bug", "src/c.rs", true, None, &json!({})).unwrap();
+        let elsewhere = db.start_round("/other", "def", &json!({})).unwrap();
+        db.answer(elsewhere, "why", "x.rs", false, None, &json!({})).unwrap();
+        let round = db.round(first).unwrap().unwrap();
+        assert_eq!((round.repo.as_str(), round.head.as_str(), &round.doc), ("/r", "abc", &json!({ "commits": ["abc"] })));
+        assert_eq!(db.answers("/r", true).unwrap().iter().map(|a| a.id).collect::<Vec<_>>(), [missed, kept]);
+        let second = db.start_round("/r", "def", &json!({})).unwrap();
+        let again = db.answer(second, "where", "src/a.rs", false, Some(missed), &json!({})).unwrap();
+        assert_eq!(db.answers("/r", true).unwrap().iter().map(|a| a.id).collect::<Vec<_>>(), [again, kept], "the newer miss stands for it");
+        db.answer(second, "where", "src/a.rs", true, Some(again), &json!({})).unwrap();
+        assert_eq!(db.answers("/r", true).unwrap().iter().map(|a| a.id).collect::<Vec<_>>(), [kept]);
+        assert_eq!(db.rounds("/r").unwrap().iter().map(|r| r.id).collect::<Vec<_>>(), [second, first]);
+        assert_eq!(db.answers("/r", false).unwrap().len(), 5);
+        assert_eq!(db.find_answer(missed).unwrap().map(|(a, repo)| (a.file, repo)), Some(("src/a.rs".into(), "/r".into())));
+        assert!(db.answer(404, "why", "x", true, None, &json!({})).is_err(), "an answer needs its round");
         fs::remove_dir_all(&dir).unwrap();
     }
 }

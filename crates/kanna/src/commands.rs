@@ -472,6 +472,29 @@ pub static COMMANDS: &[Command] = &[
         show: output::status,
     },
     Command {
+        name: "quiz",
+        group: "Information",
+        summary: "Keep a quiz's rounds and answers, so misses come back in a later round and a round can cover what's new since the last.",
+        usage: "kanna quiz start [--json DOC]\n       kanna quiz answer ROUND --kind KIND --file FILE:LINE[-LAST] --right|--wrong [--again ANSWER] [--json DOC]\n       kanna quiz history [--misses]",
+        options: &[
+            ("--kind KIND", "answer: architecture, drawing, behaviour, where, why or bug."),
+            ("--file FILE:LINE[-LAST]", "answer: the lines the question is about, kept relative to the repo."),
+            ("--right, --wrong", "answer: whether the user picked the right choice."),
+            ("--again ANSWER", "answer: the earlier miss this question asks again (a7); it stops being a miss."),
+            ("--json DOC", "start, answer: a JSON object kept with the round (commits covered, agent) or the answer (question, choices, the pick, the right choice, explanation)."),
+            ("--misses", "history: only the misses not asked again since."),
+        ],
+        notes: "For the kanna-quiz skill's agent, run in the repo. start begins a round on this repo at main's commit and prints its ID (r12); answer records one answer to it and prints the answer's ID (a7); history lists this repo's rounds, newest first, each with its commit and answers. Nothing here is a score: history is for picking the next round's questions.",
+        examples: &[
+            ("kanna quiz start --json '{\"commits\": [\"67b287c\"]}'", "Start a round on main's commit; prints its ID, e.g. r12."),
+            ("kanna quiz answer r12 --kind why --file docs/specs/database.md:40 --wrong --json '{\"question\": \"Why one SQLite file?\", \"pick\": 2, \"answer\": 1}'", "Record a miss in round r12."),
+            ("kanna quiz answer r13 --kind why --file docs/specs/database.md:40 --right --again a7", "Ask miss a7 again, and record that it was right this time."),
+            ("kanna quiz history --misses --json", "The misses to bring back, as JSON."),
+        ],
+        parse: parse_quiz,
+        show: output::quiz,
+    },
+    Command {
         name: "agents",
         group: "Information",
         summary: "Set up your agents for Kanna: Kanna's skills for Claude and Codex, a hook that tells them they're in Kanna, and Claude's sandbox letting them reach Kanna.",
@@ -603,6 +626,90 @@ fn parse_markup(args: &mut Argv) -> Result<Value, Failure> {
     }
     from_caller(&mut out);
     Ok(Value::Object(out))
+}
+
+fn parse_quiz(args: &mut Argv) -> Result<Value, Failure> {
+    let misses = args.flag("--misses");
+    let (right, wrong) = (args.flag("--right"), args.flag("--wrong"));
+    let kind = args.option("--kind")?;
+    let file = args.option("--file")?;
+    let again = args.option("--again")?;
+    let doc = match args.doc() {
+        Some(text) => Some(serde_json::from_str::<Value>(&text).ok().filter(Value::is_object).ok_or_else(|| usage("quiz", "--json takes a JSON object"))?),
+        None => None,
+    };
+    let action = args.positional().ok_or_else(|| usage("quiz", "say what: start, answer or history"))?;
+    let only = |given: bool, flag: &str, action: &str| if given { Err(usage("quiz", &format!("{flag} is for quiz {action}"))) } else { Ok(()) };
+    if action != "answer" {
+        for (given, flag) in [(kind.is_some(), "--kind"), (file.is_some(), "--file"), (right || wrong, "--right and --wrong"), (again.is_some(), "--again")] {
+            only(given, flag, "answer")?;
+        }
+    }
+    if action != "history" {
+        only(misses, "--misses", "history")?;
+    }
+    let repo = repo_here().map_err(|_| usage("quiz", "a quiz is about a git repo: run this in one"))?;
+    let mut out = json!({ "action": action, "repo": repo });
+    match action.as_str() {
+        "start" => {
+            out["head"] = json!(main_commit(&repo)?);
+            if let Some(by) = std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()) {
+                out["by"] = json!(by);
+            }
+        }
+        "answer" => {
+            out["round"] = json!(args.positional().ok_or_else(|| usage("quiz", "answer needs a ROUND, the ID quiz start printed"))?);
+            out["kind"] = json!(kind.ok_or_else(|| usage("quiz", "answer needs --kind: architecture, drawing, behaviour, where, why or bug"))?);
+            let spot = file.ok_or_else(|| usage("quiz", "answer needs --file FILE:LINE"))?;
+            let (file, line, last) = file_lines(&spot).ok_or_else(|| usage("quiz", &format!("{spot} needs a line: FILE:LINE or FILE:LINE-LAST")))?;
+            out["file"] = json!(in_repo(&file));
+            out["line"] = json!(line);
+            if let Some(last) = last {
+                out["last"] = json!(last);
+            }
+            out["right"] = match (right, wrong) {
+                (true, false) => json!(true),
+                (false, true) => json!(false),
+                _ => return Err(usage("quiz", "say --right or --wrong")),
+            };
+            if let Some(again) = again {
+                out["again"] = json!(again);
+            }
+        }
+        "history" => {
+            out["misses"] = json!(misses);
+            if doc.is_some() {
+                return Err(usage("quiz", "--json DOC is for start and answer; history --json prints JSON"));
+            }
+        }
+        other => return Err(usage("quiz", &format!("unknown action \"{other}\" (start, answer or history)"))),
+    }
+    if let Some(doc) = doc {
+        out["doc"] = doc;
+    }
+    Ok(out)
+}
+
+fn main_commit(repo: &str) -> Result<String, Failure> {
+    ["main", "master"]
+        .iter()
+        .find_map(|branch| git_line(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}^{{commit}}")]))
+        .ok_or_else(|| usage("quiz", "a quiz asks about main, and this repo has no main (or master) branch"))
+}
+
+fn git_line(at: &str, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git").arg("-C").arg(at).args(args).output().ok().filter(|out| out.status.success())?;
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|line| !line.is_empty())
+}
+
+fn in_repo(file: &str) -> String {
+    let path = absolute(file);
+    let path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.into());
+    let top = git_line(".", &["rev-parse", "--show-toplevel"]);
+    match top.as_deref().and_then(|top| path.strip_prefix(top).ok()) {
+        Some(inside) => inside.to_string_lossy().into_owned(),
+        None => file.to_string(),
+    }
 }
 
 pub fn is_backlog_task(task: &str) -> bool {

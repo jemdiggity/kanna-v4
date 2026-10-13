@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S59) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S60) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -35,7 +35,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-9]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-9]|S6[0-9]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -2056,10 +2056,37 @@ S59() {
   ls "$state" | grep -q '^kanna.db.bad-' || { echo "S59: the bad db wasn't kept"; return 1; }
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]) echo M4 ;; esac
+S60() {
+  local repo="$KANNA_STATE_DIR/repo" state="$KANNA_STATE_DIR"
+  mkdir -p "$repo/src" && printf 'one\ntwo\nthree\n' >"$repo/src/a.rs" || { echo "S60 line $LINENO"; return 1; }
+  git -C "$repo" init -q -b main && git -C "$repo" add . && git -C "$repo" -c user.email=e@e -c user.name=e commit -q -m first || { echo "S60 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  local head; head="$(git -C "$repo" rev-parse main)"
+  start_daemon || { echo "S60 line $LINENO"; return 1; }
+  quiz() { (cd "$repo/src" && kanna quiz "$@"); }
+  [[ "$(quiz history)" == "no quiz rounds in this repo yet" ]] || { echo "S60: a new repo has history: $(quiz history)"; return 1; }
+  [[ "$(quiz start --json '{"commits": ["first"]}')" == r1 ]] || { echo "S60: the first round isn't r1"; return 1; }
+  [[ "$(quiz answer r1 --kind why --file a.rs:2 --wrong --json '{"question": "Why two?", "pick": 3, "answer": 1}')" == "a1 in r1" ]] || { echo "S60: the miss wasn't saved"; return 1; }
+  quiz answer r1 --kind architecture --file "$repo/src/a.rs:1-3" --right >/dev/null || { echo "S60 line $LINENO"; return 1; }
+  quiz answer r1 --kind trivia --file a.rs:1 --right >/dev/null 2>&1 && { echo "S60: an unknown kind was saved"; return 1; }
+  stop_daemon; start_daemon || { echo "S60 line $LINENO"; return 1; }
+  local misses; misses="$(quiz history --misses --json | python3 -c '
+import json, sys
+rounds = json.load(sys.stdin)["rounds"]
+answers = [a for r in rounds for a in r["answers"]]
+print(" ".join(r["round"] + "@" + r["head"] for r in rounds), " ".join(":".join([a["answer"], a["kind"], a["file"], str(a["doc"]["line"]), a["doc"]["question"]]) for a in answers))')"
+  [[ "$misses" == "r1@$head a1:why:src/a.rs:2:Why two?" ]] || { echo "S60: the misses read back as \"$misses\""; return 1; }
+  [[ "$(quiz start)" == r2 ]] || { echo "S60 line $LINENO"; return 1; }
+  quiz answer r2 --kind why --file a.rs:2 --right --again a1 >/dev/null || { echo "S60 line $LINENO"; return 1; }
+  [[ "$(quiz history --misses)" == "no misses to bring back" ]] || { echo "S60: a miss asked again is still a miss: $(quiz history --misses)"; return 1; }
+  quiz history | grep -qE '^  a2 +✓ architecture +src/a.rs:1$' || { echo "S60: the history lacks the right answer"; quiz history; return 1; }
+  [[ "$(sqlite3 -readonly "$state/kanna.db" "select count(*) from quiz_rounds; select group_concat(right) from quiz_answers")" == $'2\n0,1,1' ]] || { echo "S60: kanna.db doesn't hold the rounds and answers"; return 1; }
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]|S6[0-9]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

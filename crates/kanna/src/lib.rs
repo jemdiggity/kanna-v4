@@ -698,4 +698,43 @@ mod tests {
         assert!(list.contains("p1    -     term  running  (shell)"), "{list}");
         assert_eq!(output::list(&json!({ "windows": [], "panes": [] })), "no windows (open one with `kanna open`)");
     }
+
+    #[test]
+    fn a_quiz_answer_is_sent_with_its_repo_relative_file_and_a_round_on_main_s_commit() {
+        let git = |args: &[&str]| String::from_utf8(std::process::Command::new("git").args(args).output().unwrap().stdout).unwrap().trim().to_string();
+        let (top, repo) = (git(&["rev-parse", "--show-toplevel"]), git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]));
+        let (_, answer) = parse("kanna quiz answer r12 --kind why --file src/lib.rs:40-42 --wrong --again a7 --json '{\"pick\": 2}'").unwrap();
+        let file = std::path::Path::new(&std::env::current_dir().unwrap().canonicalize().unwrap()).join("src/lib.rs").strip_prefix(&top).unwrap().to_string_lossy().into_owned();
+        assert_eq!(answer, json!({ "action": "answer", "repo": repo.trim_end_matches("/.git"), "round": "r12", "kind": "why", "file": file, "line": 40, "last": 42, "right": false, "again": "a7", "doc": { "pick": 2 } }));
+        let (_, start) = parse("kanna quiz start").unwrap();
+        assert_eq!(start["head"], json!(git(&["rev-parse", "main"])));
+        assert_eq!(parse("kanna quiz history --misses").unwrap().1["misses"], json!(true));
+        let refused = |line: &str| parse(line).err().unwrap_or_else(|| panic!("{line} parsed")).message;
+        assert!(refused("kanna quiz answer r1 --kind why --file a.rs:1 --right --wrong").contains("--right or --wrong"));
+        assert!(refused("kanna quiz answer r1 --kind why --file a.rs --right").contains("needs a line"));
+        assert!(refused("kanna quiz start --misses").contains("--misses is for quiz history"));
+        assert!(refused("kanna quiz start --right").contains("for quiz answer"));
+        assert!(refused("kanna quiz start --json '{oops'").contains("JSON object"));
+        assert!(refused("kanna quiz score").contains("unknown action"));
+        assert!(refused("kanna list --json '{}'").contains("--json DOC"));
+    }
+
+    #[test]
+    fn quiz_history_lists_rounds_with_their_answers_and_no_score() {
+        let reply = json!({ "misses": false, "rounds": [
+            { "round": "r2", "at": 0.0, "head": "67b287cabc", "answers": [] },
+            { "round": "r1", "at": 0.0, "head": "90d98b9def", "answers": [
+                { "answer": "a1", "kind": "where", "file": "src/a.rs", "right": false, "again": null, "doc": { "line": 4, "question": "Where?" } },
+                { "answer": "a2", "kind": "why", "file": "docs/b.md", "right": true, "again": "a0", "doc": {} },
+            ] },
+        ]});
+        let text = output::quiz(&json!({ "action": "history" }), &reply);
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines[0].starts_with("r2  67b287c  "), "{text}");
+        assert_eq!(lines[2], "  a1   ✗ where        src/a.rs:4  Where?");
+        assert_eq!(lines[3], "  a2   ✓ why          docs/b.md  (again: a0)");
+        assert!(!text.contains("of"), "{text}");
+        assert_eq!(output::quiz(&json!({ "action": "history" }), &json!({ "misses": true, "rounds": [] })), "no misses to bring back");
+        assert_eq!(output::quiz(&json!({ "action": "start" }), &json!({ "round": "r3" })), "r3");
+    }
 }

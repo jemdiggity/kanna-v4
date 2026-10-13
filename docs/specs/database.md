@@ -7,12 +7,14 @@
 ```mermaid
 flowchart LR
     CLI["kanna CLI, agents"] -->|"socket: backlog …"| D
+    CLI -->|"socket: quiz …"| Q
     subgraph APP["Kanna app"]
         UI["Desk, Shelf, menus"] --> OWN["layout owner<br/>park · pull · hold · release"]
     end
     OWN -->|"moved: task, from, to, by"| D
     subgraph DP["Kanna daemon (the only writer)"]
         D["backlog.rs<br/>tasks · events"] --> DB["db.rs<br/>migrations · recovery"]
+        Q["quiz.rs<br/>rounds · answers"] --> DB
     end
     DB --> F[("kanna.db<br/>WAL")]
     DB -. "first run" .-> J[("backlog.json")]
@@ -20,7 +22,7 @@ flowchart LR
     classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
     classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
     classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
-    class UI,D,DB kanna
+    class UI,D,Q,DB kanna
     class OWN kmux
     class CLI ext
 ```
@@ -65,7 +67,7 @@ flowchart LR
 
 ## Quiz results
 
-**[Proposed]** Every [quiz](quiz.md) round and answer is kept, so misses can come back in a later round and a round can cover what's new since the last one.
+**Built.** Every [quiz](quiz.md) round and answer is kept, so misses can come back in a later round and a round can cover what's new since the last one.
 
 ```mermaid
 sequenceDiagram
@@ -76,11 +78,12 @@ sequenceDiagram
     K->>D: quiz start (repo, main's commit)
     D-->>Q: round r12
     loop each answer
-        Q->>K: kanna quiz answer r12 --kind why --file F:L --right|--wrong --json {…}
+        Q->>K: kanna quiz answer r12 --kind why --file F:L --right|--wrong [--again a7] --json {…}
         K->>D: quiz answer
+        D-->>Q: a8
     end
-    Q->>K: kanna quiz history [--misses]
-    D-->>Q: past answers, for picking the next round
+    Q->>K: kanna quiz history [--misses] --json
+    D-->>Q: rounds, newest first, with their answers
 ```
 
 **quiz_rounds**: one row per round.
@@ -101,16 +104,22 @@ sequenceDiagram
 | `round` | integer → `quiz_rounds.id` | |
 | `at` | real | when it was answered |
 | `kind` | text | `architecture`, `drawing`, `behaviour`, `where`, `why`, `bug` |
-| `file` | text | the file the question is about |
+| `file` | text | the file the question is about, relative to the repo |
 | `right` | integer | 1 or 0 |
-| `doc` | JSON | question, choices, the pick, the right choice, explanation, lines, … |
+| `again` | integer → `quiz_answers.id` | the earlier miss this question asked again |
+| `doc` | JSON | `line`, `last`, question, choices, the pick, the right choice, explanation, … |
 
-- **The quiz agent writes them** with `kanna quiz start`, `answer` and `history`, through the daemon like every other write. This replaces the quiz spec's "nothing is kept" rule and its rejected `kanna quiz` command.
+- **The quiz agent writes them** with `kanna quiz start`, `answer` and `history`, through the daemon's `quiz` command (`quiz.rs`) like every other write. This replaces the quiz spec's "nothing is kept" rule and its rejected `kanna quiz` command.
+- **One db, shared:** the daemon opens `kanna.db` once at start and hands it to the backlog and the quiz.
+- **A round** is on the repo's own folder (the main checkout, as a task's `repo`) and main's commit when it starts, which the CLI reads with git; it's shown as `r12`, an answer as `a7`. `--json DOC` is a JSON object kept as the row's doc, with the daemon adding the asking pane (`by`) to a round's.
+- **An answer** has a kind (`architecture`, `drawing`, `behaviour`, `where`, `why`, `bug`; the daemon refuses others), the file and lines it's about (`FILE:LINE[-LAST]`, kept relative to the repo, the lines in the doc), and right or wrong.
+- **A miss stays a miss until it's asked again:** `history --misses` answers the wrong answers that no later answer names as `again`. A miss asked again and missed is a new miss, standing for the old one. `again` is a column because that query joins on it; an answer from another repo's quiz is refused.
+- **`history`** answers this repo's rounds, newest first, each with its commit, doc and answers (with `--misses`, only rounds with misses); the newest round's `head` is where the next round's "what's new" starts.
 - **Still no score:** the end of a round says what you knew of these changes; `history` is for the agent picking questions, not a total shown to you.
 
 **Later candidates,** not built: agent session IDs per task over time; agent status history (how long a task waited on you); build timings.
 
-**Checked by** `db.rs`'s tests (a real `backlog.json` imported with every task and the counter; a held task; a change and its event together; unknown doc keys kept; a corrupt, missing or newer db; a `backlog.json` beside the db), the layout owner's tests (park and pull, a swap, report their moves) and e2e S59 (import, every event of a task's life with who did it, the app's park, a corrupt db at restart).
+**Checked by** `db.rs`'s tests (a real `backlog.json` imported with every task and the counter; a held task; a change and its event together; unknown doc keys kept; a corrupt, missing or newer db; a `backlog.json` beside the db; a version 1 db taking the quiz tables with its tasks kept; a miss kept until it's asked again), `quiz.rs`'s tests (a round and its answers read back; a bad answer refused), the CLI's tests (`kanna quiz` requests, the history's text), the layout owner's tests (park and pull, a swap, report their moves), e2e S59 (import, every event of a task's life with who did it, the app's park, a corrupt db at restart) and e2e S60 (a round recorded, read back after a restart, a miss asked again).
 
 **Why not JSON files and an `events.jsonl`.** Both would work for the first table and one log. The db wins once anything reads history back: the Shelf's history is a query by repo and time, "how long did it wait on me" a join of status changes, and a JSON log means reading the whole file and writing its indexes by hand. A change to a task and its event are one transaction, so they can't disagree after a crash; with two files they can. `backlog.json` is rewritten whole on every change (71 KB today, growing with every first message); a row update is a page or two. Migrations have a number and run in a transaction rather than being guessed from what keys a file has. The cost is one C dependency, compiled in, and a file people can't open in an editor, which the CLI covers. Moving away from JSON is cheap now and dearer with every table.
 

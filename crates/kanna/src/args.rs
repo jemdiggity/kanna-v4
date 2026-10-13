@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 pub struct Argv {
     options: Args,
     rest: VecDeque<String>,
+    doc: Option<String>,
 }
 
 impl Argv {
@@ -12,7 +13,12 @@ impl Argv {
             Some(i) => words.split_off(i).into_iter().skip(1).collect(),
             None => VecDeque::new(),
         };
-        Argv { options: Args::new(words), rest }
+        let doc = take_doc(&mut words);
+        Argv { options: Args::new(words), rest, doc }
+    }
+
+    pub fn doc(&mut self) -> Option<String> {
+        self.doc.take()
     }
 
     pub fn flag(&mut self, name: &str) -> bool {
@@ -42,8 +48,18 @@ impl Argv {
     }
 
     pub fn first(&self) -> Option<&str> {
-        self.options.first().or(self.rest.front().map(String::as_str))
+        self.options.first().or(self.rest.front().map(String::as_str)).or(self.doc.as_ref().map(|_| "--json DOC"))
     }
+}
+
+fn take_doc(words: &mut Vec<String>) -> Option<String> {
+    let object = |word: &str| word.trim_start().starts_with('{');
+    if let Some(i) = words.iter().position(|w| w.strip_prefix("--json=").is_some_and(object)) {
+        return Some(words.remove(i)["--json=".len()..].to_string());
+    }
+    let i = words.windows(2).position(|pair| pair[0] == "--json" && object(&pair[1]))?;
+    words.remove(i);
+    Some(words.remove(i))
 }
 
 #[cfg(test)]
@@ -66,6 +82,19 @@ mod tests {
         assert_eq!(argv.positional().as_deref(), Some("--json"));
         assert_eq!(argv.positional().as_deref(), Some("--mux"));
         assert_eq!(argv.positional(), None);
+    }
+
+    #[test]
+    fn a_json_object_after_json_is_the_command_s_doc_and_a_bare_json_is_still_the_output_flag() {
+        let mut argv = args(&["quiz", "answer", "--json", "{\"pick\": 2}", "--json", "--right"]);
+        assert_eq!(argv.doc().as_deref(), Some("{\"pick\": 2}"));
+        assert!(argv.flag("--json"));
+        assert!(argv.flag("--right"));
+        assert_eq!(args(&["--json={}", "list"]).doc().as_deref(), Some("{}"));
+        let mut unclaimed = args(&["list", "--json", "{}"]);
+        unclaimed.positional();
+        assert_eq!(unclaimed.first(), Some("--json DOC"));
+        assert_eq!(args(&["list", "--json"]).doc(), None);
     }
 
     #[test]
