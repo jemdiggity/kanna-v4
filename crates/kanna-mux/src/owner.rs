@@ -371,6 +371,21 @@ mod tests {
     }
 
     #[test]
+    fn an_open_from_a_terminal_goes_beside_it_in_its_window_not_the_key_one() {
+        let (mut owner, _) = LayoutOwner::open(None, false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        place(&mut owner, "p1", json!({}));
+        place(&mut owner, "p2", json!({ "window": "new" }));
+        assert_eq!(owner.view()["key"], "w2");
+        place(&mut owner, "p3", json!({ "from": "p1" }));
+        let view = Value::Object(owner.view());
+        assert_eq!(view["key"], "w1");
+        assert_eq!(view["windows"][0]["tabs"][0]["panes"], json!(["p1", "p3"]));
+        assert_eq!(view["windows"][0]["focused"], "p3");
+        assert_eq!(view["windows"][1]["tabs"][0]["panes"], json!(["p2"]));
+    }
+
+    #[test]
     fn a_saved_layout_comes_back_without_the_panes_that_are_gone() {
         let dir = folder("back");
         let file = StateFile::new(&dir.join("layout.json").to_string_lossy());

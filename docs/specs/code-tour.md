@@ -39,7 +39,7 @@ sequenceDiagram
 
 ## 2. Rules
 
-- **A comment** is on some lines of a file. `kanna comment FILE:LINE "text"` opens the file in a code tab, as `kanna open code` does (with no placement, a tab on the task's Desk), or selects the code tab in that window that already shows it, and adds the comment there.
+- **A comment** is on some lines of a file. `kanna comment FILE:LINE "text"` opens the file in a code tab, as `kanna open code` does (with no placement, a tab on the task's Desk, or from a terminal in a plain window, a split beside it), or selects the code tab in that window that already shows it, and adds the comment there.
 - **Only the newest comment shows.** Its lines are tinted, with a bar in the gutter, the rest of the file is dimmed, and the comment shows in a box just above its first line, with the lines it's on; the tab scrolls to it. A new comment in the same tab replaces it. **[Later, its own task]** ⌃− and ⌃⇧− go back and forward through the comments, across tabs, as in VS Code.
 - **A line snaps to its scope.** `FILE:LINE` becomes the scope that opens on that line (a function, a type, a loop, a block), or else the smallest scope the line is in, from the viewer's tree-sitter scopes, so `client.rs:244` covers the loop it's in, 242–259. `FILE:FIRST-LAST` is kept as written, for a few lines inside a long function. A file without scopes takes the line alone.
 - **Comments keep their lines.** A comment is snapped once, when it's made; if the file changes afterwards, it stays on the same line numbers.
