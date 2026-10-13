@@ -32,14 +32,16 @@ if [[ -z "${KANNA_GHOSTTY_VT_DIR:-}" ]]; then
   fi
 fi
 
+kanna_borrow_cargo "$repo_root"
 (cd "$repo_root" && cargo build --release -p kanna-ffi -p kanna-daemon -p kanna-keeper)
 
-configuration="${KANNA_CONFIGURATION:-release}"
+if [[ "$KANNA_CHANNEL" == dev ]]; then configuration="${KANNA_CONFIGURATION:-debug}"; else configuration="${KANNA_CONFIGURATION:-release}"; fi
 while IFS='=' read -r key value; do
   case "$key" in
     channel) channel="$value" ;; name) app_name="$value" ;; bundle_id) bundle_id="$value" ;; instance) instance="$value" ;; folder) folder="$value" ;;
   esac
 done < <("$repo_root/target/release/kanna-daemon" --build)
+kanna_borrow_swiftpm "$repo_root"
 build=(swift build --package-path "$repo_root/apps/kanna" --configuration "$configuration" --scratch-path "$repo_root/target/kanna-build")
 product_dir="$("${build[@]}" --show-bin-path)"
 [[ "$repo_root/target/release/libkanna_ffi.a" -nt "$product_dir/Kanna" ]] && rm -f "$product_dir/Kanna"

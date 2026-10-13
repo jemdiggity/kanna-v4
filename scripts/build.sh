@@ -31,6 +31,7 @@ else
 fi
 
 echo "==> kanna, kanna-daemon, kanna-keeper, libkanna_ffi (cargo build --workspace --release)"
+kanna_borrow_cargo "$repo_root"
 cargo build --manifest-path "$repo_root/Cargo.toml" --workspace --release
 
 echo "==> Swift app and target/Kanna.app (scripts/build-kanna-app.sh)"
