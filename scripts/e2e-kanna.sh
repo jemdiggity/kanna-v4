@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S60) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S61) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -2083,10 +2083,41 @@ print(" ".join(r["round"] + "@" + r["head"] for r in rounds), " ".join(":".join(
   [[ "$(sqlite3 -readonly "$state/kanna.db" "select count(*) from quiz_rounds; select group_concat(right) from quiz_answers")" == $'2\n0,1,1' ]] || { echo "S60: kanna.db doesn't hold the rounds and answers"; return 1; }
 }
 
+S61() {
+  local old="$KANNA_STATE_DIR/old"
+  mkdir -p "$old" && cp "$bin/kanna-daemon" "$old/kanna-daemon" || { echo "S61 line $LINENO"; return 1; }
+  codesign -f -s - -i dev.kanna.e2e.old-daemon "$old/kanna-daemon" 2>/dev/null || { echo "S61: can't re-sign a copy of the daemon as an older build"; return 1; }
+  KANNA_KEEPER="$bin/kanna-keeper" "$old/kanna-daemon" >>"$out/daemon.log" 2>&1 &
+  daemon_pid=$!
+  wait_for 5 test -S "$KANNA_SOCKET" || { echo "the old daemon did not open its socket"; return 1; }
+  local new_build old_build
+  new_build="$(shasum -a 256 "${app%/MacOS/Kanna}/Helpers/kanna-daemon" | cut -d' ' -f1)"
+  old_build="$(raw '{"id":1,"cmd":"capabilities"}' | field build)"
+  [[ "$old_build" == "$(shasum -a 256 "$old/kanna-daemon" | cut -d' ' -f1)" && "$old_build" != "$new_build" ]] || { echo "S61: the old daemon's build is $old_build"; return 1; }
+  kanna open --name s61 --cmd 'echo S61-BEFORE; exec cat' >/dev/null || return 1
+  check wait_for 5 shows s61 S61-BEFORE || return 1
+  local pid; pid="$(pane s61 pid)"
+  [[ "$(kanna send nosuch x 2>&1)" == *"from another build than this kanna"* ]] || { echo "S61: the CLI didn't note the old daemon"; return 1; }
+  "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 eval "! kill -0 $daemon_pid" || { echo "S61: the old daemon didn't stop for the new app"; return 1; }
+  wait "$daemon_pid" 2>/dev/null; daemon_pid=""
+  wait_for 15 app_attached || { echo "S61: the app did not start its daemon and attach"; return 1; }
+  check grep -q "Kanna.app/Contents/Helpers/kanna-daemon" <(ps -o command= -p "$(cat "$KANNA_STATE_DIR/daemon.pid")") || return 1
+  check test "$(raw '{"id":1,"cmd":"capabilities"}' | field build)" == "$new_build" || return 1
+  check is s61 pid "$pid" || return 1
+  kanna send s61 'S61-AFTER' || return 1
+  check wait_for 5 shows s61 S61-AFTER || return 1
+  kanna open --name s61b --split right >/dev/null || return 1
+  check app_text s61 S61-BEFORE || return 1
+  [[ "$(kanna send nosuch x 2>&1)" == *"another build"* ]] && { echo "S61: the CLI notes a daemon of its own build"; return 1; }
+  return 0
+}
+
 due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]|S6[0-9]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
