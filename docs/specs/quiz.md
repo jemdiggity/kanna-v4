@@ -4,7 +4,7 @@
 
 Agents write code faster than you can read it, and you lose track of how your own codebase works. The **quiz** is a short break between reading agent output that keeps you up with what they built: five multiple-choice questions about what landed on main in the last day, asked by an agent in its chat, each answer explained, with the code opened at the line. It's the same problem the `kanna-explain` skill addresses, from the other side: you're asked, rather than told.
 
-It's a skill, `kanna-quiz`: the agent writes the questions itself when you start, and uses the `kanna` commands that already exist to open its window and the code. Kanna adds two small things: a line in the SessionStart hook for the quiz agent, and an `open` from a terminal in a plain window going beside that terminal rather than into the window in front.
+It's a skill, `kanna-quiz`: the agent writes the questions itself when you start, and uses the `kanna` commands that already exist to open its window and the code. Kanna adds three small things: a line in the SessionStart hook for the quiz agent, an `open` from a terminal in a plain window going beside that terminal rather than into the window in front, and `kanna quiz`, which keeps every round and answer in [the database](database.md#quiz-results).
 
 **Done when** the planning agent offers a round on this repo's recent changes, and the agent in the Quiz window plays it as in the mockup, in light and dark.
 
@@ -35,11 +35,14 @@ sequenceDiagram
     You->>P: yes
     P->>K: kanna open --window new --name quiz … (agent, with the kanna-quiz skill)
     K->>Q: Quiz window: agent in the repo, on main
-    Q->>Q: read what's new (commits, diff, specs), plan five topics
+    Q->>K: kanna quiz history (last round's commit, misses)
+    Q->>Q: read what's new since (commits, diff, specs), plan five topics
+    Q->>K: kanna quiz start
     loop five questions
         Q->>You: the question, its choices
         You->>Q: 2
         Q->>You: Not quite: … why
+        Q->>K: kanna quiz answer r12 --kind … --file F:L --wrong
         Q->>K: kanna comment FILE:LINE "why" (on a miss)
     end
     Q->>You: You knew 4 of 5 about today's changes
@@ -61,9 +64,9 @@ sequenceDiagram
 - **A round is five questions, one at a time,** about two minutes once started. The quiz agent asks each with its multiple-choice tool: Claude's question tool, or a numbered list for an agent without one.
 - **Every answer gets a short explanation** and an offer to open the code. **A miss opens it straight away:** `kanna comment FILE:LINE "why"`, so the code shows beside the agent with the explanation on its lines ([code tour](code-tour.md)). A comment on the same file reuses that pane; before one on another file, the agent closes the last.
 - **Pausing is leaving.** Close the window or go back to your Desk.
-- **Nothing is kept** between rounds: no file, no history. Each round is about the last day on main. Remembering answers, so misses come back, waits for a database ([5](#5-later-keeping-you-fluent)).
+- **Every round and answer is kept** in Kanna's database ([quiz results](database.md#quiz-results)): the quiz agent records them with `kanna quiz start` and `kanna quiz answer`, and reads them back with `kanna quiz history`, so a round covers what's new since the last one and misses come back in a later round.
 - **Nothing interrupts a round.** A task that needs you shows on the Shelf in your Desk window, as always; the quiz doesn't stop for it.
-- **No score to protect.** No streaks, no totals over time: the end of a round says what you knew of *these* changes ("You knew 4 of 5 about today's changes").
+- **No score to protect.** No streaks, no totals over time: the end of a round says what you knew of *these* changes ("You knew 4 of 5 about today's changes"). The kept answers are for the agent picking questions, never shown to you as a score.
 - **Light and dark** follow the system, as every pane does.
 
 ![Light mode](quiz-light.png)
@@ -80,7 +83,8 @@ sequenceDiagram
 | **Spot the bug** | Which of these lines from today's merge has a bug put in? | a few lines from recently merged code, one changed |
 
 - **Only what's true on main:** the code at main's commit, the specs and docs there, and the messages of the commits in the last day. Never an agent's conversation.
-- **What's new:** main's commits in the last day, at most 30; with none, the agent says so and offers the last 30 commits instead.
+- **What's new:** main's commits since the commit the last round asked about, else in the last day, at most 30; with none, the agent says so and offers the last 30 commits instead.
+- **Misses come back:** up to two a round from earlier misses (`kanna quiz history --misses`), asked fresh, with new wording and the choices shuffled. Answered again (`--again`), right or wrong, a miss stops coming back; a new miss stands for it.
 - **Architecture questions** ask how the pieces fit: which process or module owns something, how data flows between them, what talks to what, about what today's changes touched, seen from above.
 - **Pick-the-drawing questions** have three diagrams for choices. The agent writes them as mermaid diagrams, headed A, B and C, in one markdown file (`$TMPDIR/kanna-quiz/drawings.md`) and opens it beside it (`kanna open md FILE`); you pick A, B or C. It closes that pane when it moves on.
 
@@ -103,10 +107,10 @@ sequenceDiagram
 
 In the quiz agent:
 
-- **Read before asking:** the commit messages and diff of the last day, and the specs they touch; pick five topics, broadest first.
+- **Read before asking:** `kanna quiz history`, then the commit messages and diff since the last round's commit (else the last day), and the specs they touch; pick five topics, broadest first, with the misses brought back among them. Then `kanna quiz start`.
 - **One question at a time,** written just before you ask it: four choices (three for a drawing), one right, the wrong ones plausible. Read the lines you'll point to, so the line numbers are right.
 - **Never hint,** and never reword the choices once asked.
-- **Answer:** right or not in one word, then why, in a sentence or two. On a miss, `kanna comment FILE:LINE "why"`; on a right answer, offer to open the code.
+- **Answer:** right or not in one word, then why, in a sentence or two, and `kanna quiz answer` with the kind, the lines, right or wrong, and the question as JSON. On a miss, `kanna comment FILE:LINE "why"`; on a right answer, offer to open the code.
 - **Follow questions** between questions, from the code, briefly; then go on.
 - **At the end,** say what you knew of the five, and ask whether to close the window or play another round.
 
@@ -124,7 +128,7 @@ flowchart LR
 
 - **Scope:** work out which parts of the codebase you're responsible for (asked once, then from what you review and merge).
 - **A round a day**, across those parts, at every level from the architecture down to a line's detail, so code literacy doesn't fade.
-- **Remember answers** in a database: every answer with its topic, level and file, so misses come back in a later round (asked fresh, choices shuffled) and a quiz covers what's new since the last one.
+- **Remember answers:** built ([quiz results](database.md#quiz-results)). Every answer is kept with its kind and file, so misses come back in a later round (asked fresh, choices shuffled) and a quiz covers what's new since the last one.
 - **Measure** how well you know each part at each level, from those answers.
 - **Adapt:** steer towards blind spots and parts you keep missing, while keeping breadth, and aiming for the higher levels first.
 
@@ -136,7 +140,7 @@ flowchart LR
 - **Docking the quiz agent:** a docked pane is a task in Kanna, counted against the project's three; the agent is the window's only tab pane instead, and what it opens splits beside it.
 - **Stepping aside when a task needs you:** the Shelf already shows it; the quiz never interrupts.
 - **Preparing questions in the background after main moves:** it costs agent runs for quizzes you never take, and needs something watching every repo.
-- **A `kanna quiz` command, with a store and a separate question writer in the daemon:** it only kept the answers from the quiz agent, which doesn't matter; the skill and the commands Kanna already has do it all.
+- **A question writer in the daemon,** writing rounds ahead for `kanna quiz` to hand out: the quiz agent writes better questions from what it just read, and answers follow questions. `kanna quiz` only keeps rounds and answers, which the agent writes; it was rejected at first, when nothing read them back, and came back once misses had to return ([quiz results](database.md#quiz-results)).
 
 ## 7. Glossary
 

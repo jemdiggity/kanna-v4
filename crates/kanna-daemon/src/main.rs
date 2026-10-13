@@ -5,6 +5,7 @@ mod db;
 mod host;
 mod keeper;
 mod pty;
+mod quiz;
 mod reader;
 mod settings;
 mod shell;
@@ -166,8 +167,11 @@ fn run() -> Result<(), String> {
     *terminals.detector.borrow_mut() = Some(detector.clone());
     let status_commands = Rc::new(status_command::StatusCommand::new(detector.clone(), events.clone()));
     status_commands.install(&core);
-    let backlog = Rc::new(backlog::Backlog::open(&state_dir, core.weak(), events.clone()));
+    let db = Rc::new(db::Db::open(&state_dir));
+    let backlog = Rc::new(backlog::Backlog::open(db.clone(), &state_dir, core.weak(), events.clone()));
     backlog.install(&core);
+    let quiz = Rc::new(quiz::Quiz::new(db));
+    quiz.install(&core);
     let agents = agents::Agents::new(agents::home(), agents::skills(), socket_path.clone());
     agents.refresh();
     agents.install(&core);
@@ -278,7 +282,7 @@ fn run() -> Result<(), String> {
                         if answer.get("ok") == Some(&Value::Bool(true)) {
                             answer["app"] = Value::Bool(attached);
                             if let Some(Value::Array(commands)) = answer.get_mut("commands") {
-                                commands.extend(["status", "agents"].map(|c| Value::String(c.into())));
+                                commands.extend(["status", "agents", "quiz"].map(|c| Value::String(c.into())));
                                 commands.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
                             }
                         }
