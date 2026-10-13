@@ -77,13 +77,15 @@ sequenceDiagram
 
 | Kind | Example | Comes from |
 |---|---|---|
+| **Architecture** | Which process owns a pane's terminal: the app, the daemon, or the CLI? | the code's structure (crates, modules, who calls whom) and the specs' diagrams |
 | **Behaviour** | When you Move to Backlog, what happens to the agent? | the code and commit messages |
 | **Where it lives** | Which file decides a pane's status? | the code |
 | **Why** | Why does an instance have its own daemon? | the specs and docs |
 | **Spot the bug** | Which of these lines from today's merge has a bug put in? | a few lines from recently merged code, one changed |
 
 - **Only what's true on main:** the code at main's commit, the specs and docs there, and the messages of the commits since the last quiz. Never an agent's conversation.
-- **Each question is about some lines**: a file, a first and last line, and the text of those lines when it was made. That's what the agent opens on a miss, and what staleness is checked against.
+- **Architecture questions** ask how the pieces fit: which process or module owns something, how data flows between them, what talks to what. They're about what today's changes touched, seen from above.
+- **Each question is about some lines**: a file, a first and last line, and the text of those lines when it was made. An architecture question's lines are where the answer is plainest: a spec's diagram, or the code where one piece hands off to another. That's what the agent opens on a miss, and what staleness is checked against.
 - **A question goes when its lines change.** Each time main moves, every saved question's lines are looked up in the file at main: found unchanged (anywhere in the file), the question stays, its line numbers updated if they moved; changed or gone, the question is dropped. A spot-the-bug question checks the original lines, not the changed one.
 - **Since the last quiz:** a round is drawn from questions about commits after the main commit at the end of your last round (on a first quiz, the last day of commits, at most 30).
 - **Picking a round:** misses due back first (at most two), then new questions, the broader ones first (architecture before a line's detail), spread across files.
