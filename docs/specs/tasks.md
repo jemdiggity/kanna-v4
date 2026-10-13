@@ -132,7 +132,7 @@ flowchart TB
     D["daemon: the backlog<br/>ID · name · repo · first message · maker"] -->|"start: git worktree add, open --dock on the Shelf"| L["layout: Desk / Shelf"]
 ```
 
-- **The daemon keeps the backlog** in `kanna.db` ([kanna spec 4.23](../kanna-spec.md#423-the-database)), with every task from made to done and each change of its place or state as an event, so agents add tasks with or without the app.
+- **The daemon keeps the backlog** in `kanna.db` ([database](database.md)), with every task from made to done and each change of its place or state as an event, so agents add tasks with or without the app.
 - **The daemon opens planning terminals** (`backlog` `plan`): it makes the command (`KANNA_PLANNER`, the context limit, the getting-started text, then your shell) and opens it as the window's planner in its folder ([planning agent](planning-agent.md#7-how-its-built)).
 - **A running task is its docked agent pane**, as on the [Desk](desk.md): its name is the pane's name, its repo the pane's folder.
 - **Only a task's agent docks.** `kanna move PANE --dock` refuses any pane that isn't docked (`not_a_task`), so a task starts only by starting one and the limit holds.
