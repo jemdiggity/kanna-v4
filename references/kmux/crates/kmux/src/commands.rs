@@ -29,7 +29,7 @@ pub static COMMANDS: &[Command] = &[
         name: "open",
         group: "Panes",
         summary: "Open a terminal, web, iOS or markdown pane and wait until it is running.",
-        usage: "kmux open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right]] [--no-wait]\n       kmux open web URL [--history] [same placement options]\n       kmux open md FILE [same placement options]\n       kmux open ios --app APP [--device DEVICE] [same placement options]",
+        usage: "kmux open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right] [--frozen]] [--no-wait]\n       kmux open web URL [--history] [same placement options]\n       kmux open md FILE [same placement options]\n       kmux open ios --app APP [--device DEVICE] [same placement options]",
         options: &[
             ("--cmd CMD", "Shell command line to run in your login shell, e.g. \"npm run dev\". Put it in single quotes if it uses $VARS or ;, so your own shell leaves it alone. Default: an interactive shell."),
             ("--cwd DIR", "Working directory."),
@@ -43,6 +43,7 @@ pub static COMMANDS: &[Command] = &[
             ("--device DEVICE", "iOS panes: a simulator device name or UDID, e.g. \"iPhone 16\". Default: a booted iPhone, else the newest one. The device is booted if needed (this can take a minute) and stays booted after the pane closes."),
             ("--history", "Web panes only: keep back/forward history (off by default), for `kmux navigate PANE --back` and the Pane menu's Back and Forward."),
             ("--dock [left|right]", "Make the pane the window's docked pane: along its left (default) or right edge, outside its tabs, shown whichever tab is. Not with --split, --size or --tab. A pane already docked there moves to a new tab."),
+            ("--frozen", "With --dock: the docked pane is frozen. It doesn't move, and nothing drops on it or docks in its place; it closes with its window."),
         ],
         notes: "Prints the new pane's ID and name. A pane whose command exits stays on screen as `exited`. A docked pane closes only with its window.",
         examples: &[
@@ -151,7 +152,7 @@ pub static COMMANDS: &[Command] = &[
             ("--window WINDOW|new", "Move into that window's active tab, or a new window."),
             ("--dock [left|right]", "Make it its window's docked pane (or that window's), on the left (default) or right edge; or move the docked pane to that edge. A pane already docked there moves to a new tab."),
         ],
-        notes: "Moving a docked pane to a tab, a window or beside a pane undocks it. A docked pane can't be split: --to it only swaps.",
+        notes: "Moving a docked pane to a tab, a window or beside a pane undocks it. A docked pane can't be split: --to it only swaps. A frozen docked pane (open --dock --frozen) doesn't move, and nothing moves onto it or into its dock.",
         examples: &[
             ("kmux move logs --to server --side bottom", "Put logs below server."),
             ("kmux move logs --window new", "Move logs into a new window."),
@@ -278,7 +279,7 @@ pub static COMMANDS: &[Command] = &[
         summary: "Show windows, tabs, layouts and panes, with their IDs.",
         usage: "kmux list",
         options: &[],
-        notes: "Layouts are written as `a:2/3 | b` (side by side) and `a / b` (stacked). `*` marks the key window, the active tab and the focused pane. A window's docked pane has its own line: `dock: p1 (agent)  left 2/5`.",
+        notes: "Layouts are written as `a:2/3 | b` (side by side) and `a / b` (stacked). `*` marks the key window, the active tab and the focused pane. A window's docked pane has its own line: `dock: p1 (agent)  left 2/5`, with `frozen` after a frozen one.",
         examples: &[("kmux list", "See everything that is open."), ("kmux list --json", "The same, as JSON.")],
         parse: |_| Ok(json!({})),
         show: |_, reply| output::list(reply),
@@ -389,6 +390,12 @@ fn parse_open(args: &mut Args) -> Result<Value, Failure> {
     }
     if out.contains_key("dock") && ["split", "size", "tab"].iter().any(|k| out.contains_key(*k)) {
         return Err(usage("open", "--dock goes on its own: no --split, --size or --tab"));
+    }
+    if args.flag("--frozen") {
+        if !out.contains_key("dock") {
+            return Err(usage("open", "--frozen goes with --dock: only a docked pane is frozen"));
+        }
+        out.insert("frozen".into(), json!(true));
     }
     if args.flag("--no-wait") {
         out.insert("wait".into(), json!(false));

@@ -76,6 +76,7 @@ pub struct Dock {
     pub pane: String,
     pub edge: Edge,
     pub width: f64,
+    pub frozen: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -114,6 +115,10 @@ impl Window {
 
     fn docks(&self, pane: &str) -> bool {
         self.dock.as_ref().is_some_and(|d| d.pane == pane)
+    }
+
+    fn frozen(&self) -> bool {
+        self.dock.as_ref().is_some_and(|d| d.frozen)
     }
 
     pub fn plans(&self, pane: &str) -> bool {
@@ -297,6 +302,10 @@ fn docked(message: impl std::fmt::Display) -> KmuxError {
     KmuxError::new("docked", format!("docked: {message}"))
 }
 
+fn frozen(message: impl std::fmt::Display) -> KmuxError {
+    KmuxError::new("frozen", format!("frozen: {message}"))
+}
+
 impl Model {
     pub fn new() -> Model {
         Model::default()
@@ -407,24 +416,41 @@ impl Model {
         self.locate(id).map(|l| l.window).or_else(|| self.dock_window(id)).or_else(|| self.planner_window(id))
     }
 
-    fn dock(&mut self, id: &str, w: usize, edge: Edge) {
+    fn frozen_dock(&self, pane: &str) -> Option<&Window> {
+        self.windows.iter().chain(&self.parked).find(|w| w.docks(pane) && w.frozen())
+    }
+
+    fn refuse_frozen(&self, window: Option<&Window>, panes: &Panes) -> Result<(), KmuxError> {
+        match window.and_then(|w| w.dock.as_ref().filter(|d| d.frozen).map(|d| (w, d))) {
+            Some((window, dock)) => Err(frozen(format!("{} is frozen in {}'s dock; nothing drops on it", panes.get(&dock.pane).map_or_else(|| dock.pane.clone(), |p| p.label()), window.id))),
+            None => Ok(()),
+        }
+    }
+
+    fn dock(&mut self, id: &str, w: usize, edge: Edge, frozen: bool) {
         let old = self.windows[w].dock.clone();
         if let Some(old) = old.as_ref().filter(|old| old.pane != id) {
             let t = self.make_tab(w, false);
             self.append(&old.pane, (w, t));
         }
-        self.windows[w].dock = Some(Dock { pane: id.into(), edge, width: old.map_or(DOCK_WIDTH, |old| old.width) });
+        self.windows[w].dock = Some(Dock { pane: id.into(), edge, width: old.map_or(DOCK_WIDTH, |old| old.width), frozen });
         self.windows[w].desk = true;
     }
 
     fn dock_view(&self, w: usize, panes: &Panes) -> Value {
         match &self.windows[w].dock {
             None => Value::Null,
-            Some(dock) => Value::Object(reply([
-                ("pane", panes.display(&dock.pane).into()),
-                ("edge", dock.edge.as_str().into()),
-                ("width", fraction::format(dock.width).into()),
-            ])),
+            Some(dock) => {
+                let mut view = reply([
+                    ("pane", panes.display(&dock.pane).into()),
+                    ("edge", dock.edge.as_str().into()),
+                    ("width", fraction::format(dock.width).into()),
+                ]);
+                if dock.frozen {
+                    view.insert("frozen".into(), Value::Bool(true));
+                }
+                Value::Object(view)
+            }
         }
     }
 
@@ -664,6 +690,9 @@ impl Model {
         if self.planner_window(&id).is_some() {
             return Err(KmuxError::new("planner", format!("{} is its window's planning agent, which stays where it is", panes.display(&id))));
         }
+        if self.frozen_dock(&id).is_some() {
+            return Err(frozen(format!("{} is frozen in its dock and doesn't move", panes.get(&id).map_or_else(|| id.clone(), |p| p.label()))));
+        }
         let from_w = self.window_containing(&id).ok_or_else(|| not_found(format!("no pane \"{id}\"")))?;
         let from_window = self.windows[from_w].id.clone();
         let from_tab = self.locate(&id).map(|l| self.windows[l.window].tabs[l.tab].id.clone());
@@ -671,6 +700,8 @@ impl Model {
             if args.get("to").is_some() || args.get("tab").is_some() {
                 return Err(bad_request("move takes one of to + side, tab, window or dock"));
             }
+            let into = if args.get("window").is_some() { string(args, "window").and_then(|window| self.window_index(window)) } else { Some(from_w) };
+            self.refuse_frozen(into.map(|w| &self.windows[w]), panes)?;
             if self.dock_window(&id).is_none() {
                 return Err(KmuxError::new("not_a_task", format!("{} isn't a task, and only a task's agent docks: start one with `kanna task new` and `kanna task start`", panes.display(&id))));
             }
@@ -679,7 +710,7 @@ impl Model {
                 Some(dock) if dock.pane == id => dock.edge = edge,
                 _ => {
                     self.detach(&id);
-                    self.dock(&id, w, edge);
+                    self.dock(&id, w, edge, false);
                 }
             }
             let window = self.windows[w].id.clone();
@@ -698,6 +729,7 @@ impl Model {
             if target == id {
                 return Ok(reply([("window", from_window.into())]));
             }
+            self.refuse_frozen(self.frozen_dock(&target), panes)?;
             if side != "swap" && self.dock_window(&target).is_some() {
                 return Err(docked(format!("{label} is docked and holds one pane; drop on its middle to swap")));
             }
@@ -940,12 +972,12 @@ impl LayoutHost for Model {
         &["windows", "tabs", "fractionalSizing", "zoom", "dock"]
     }
 
-    fn place(&mut self, pane: &str, at: &Placement) -> Result<Option<String>, KmuxError> {
+    fn place(&mut self, pane: &str, at: &Placement, panes: &Panes) -> Result<Option<String>, KmuxError> {
         if at.planner {
             return self.plan(pane, at.window.as_deref()).map(Some);
         }
         if let (true, Some(edge)) = (at.shelf, at.dock) {
-            self.shelve(pane, edge, at.backlog);
+            self.shelve(pane, edge, at.backlog, at.frozen);
             return Ok(None);
         }
         if let Some(placed) = at.from.as_deref().and_then(|from| self.place_on_task(pane, from)) {
@@ -956,7 +988,8 @@ impl LayoutHost for Model {
             w = self.make_window();
         }
         if let Some(edge) = at.dock {
-            self.dock(pane, w, edge);
+            self.refuse_frozen(Some(&self.windows[w]), panes)?;
+            self.dock(pane, w, edge, at.frozen);
             let window = &mut self.windows[w];
             window.focused = Some(pane.into());
             self.key = Some(window.id.clone());
@@ -1100,7 +1133,11 @@ impl LayoutHost for Model {
                     out.insert("frame".into(), Value::Object(reply([("x", num(f.x)), ("y", num(f.y)), ("w", num(f.w)), ("h", num(f.h))])));
                 }
                 if let Some(dock) = &window.dock {
-                    out.insert("dock".into(), Value::Object(reply([("pane", dock.pane.clone().into()), ("edge", dock.edge.as_str().into()), ("width", num(dock.width))])));
+                    let mut saved = reply([("pane", dock.pane.clone().into()), ("edge", dock.edge.as_str().into()), ("width", num(dock.width))]);
+                    if dock.frozen {
+                        saved.insert("frozen".into(), Value::Bool(true));
+                    }
+                    out.insert("dock".into(), Value::Object(saved));
                 }
                 if window.desk {
                     out.insert("desk".into(), Value::Bool(true));
@@ -1212,7 +1249,7 @@ impl LayoutHost for Model {
                 }
                 let width = saved.get("width").and_then(Value::as_f64).filter(|w| *w > 0.0 && *w < 1.0).unwrap_or(DOCK_WIDTH);
                 let edge = string(saved, "edge").and_then(Edge::parse).unwrap_or(Edge::Left);
-                window.dock = Some(Dock { pane: pane.into(), edge, width });
+                window.dock = Some(Dock { pane: pane.into(), edge, width, frozen: saved.get("frozen") == Some(&Value::Bool(true)) });
             }
             if let Some(saved) = item.get("planner").filter(|p| !p.is_null() && !parked) {
                 let pane = string(saved, "pane")
@@ -1222,7 +1259,7 @@ impl LayoutHost for Model {
                     return Err(bad(&format!("pane {pane} is placed twice")));
                 }
                 let width = saved.get("width").and_then(Value::as_f64).filter(|w| *w > 0.0 && *w < 1.0).unwrap_or(DOCK_WIDTH);
-                window.planner = Some(Dock { pane: pane.into(), edge: Edge::Left, width });
+                window.planner = Some(Dock { pane: pane.into(), edge: Edge::Left, width, frozen: false });
             }
             window.tabs.retain(|t| t.root.is_some());
             let active = string(item, "active");

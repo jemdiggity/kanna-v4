@@ -15,7 +15,8 @@ const hooks = {
 // window := { id, tabs, active, focused, zoom, dock, x, y, w, h, z }
 // tab    := { id, root, title, lastFocus }   (title: "Tab 1", "Tab 2"… per window until renamed)
 // node   := { t: 'pane', id } | { t: 'split', dir: 'row'|'column', kids: [{ node, size }] }
-// dock   := null | { pane, edge: 'left'|'right', width }   (the window's docked pane, outside its tabs)
+// dock   := null | { pane, edge: 'left'|'right', width, frozen? }   (the window's docked pane, outside its tabs;
+//           a frozen one doesn't move and nothing drops on it)
 // Sizes are fractions of the parent split and always sum to 1; a dock's width is a fraction of the window.
 // Empty containers close: a tab without panes, then a window without tabs or a docked pane.
 // ---------------------------------------------------------------------------
@@ -212,13 +213,19 @@ function autoDir(id) { return hooks.paneIsWide(id) ? 'row' : 'column'; }
 
 const DOCK_WIDTH = 2 / 5;
 const EDGES = ['left', 'right'];
-function dockPane(id, w, edge) {
+function dockPane(id, w, edge, frozen = false) {
   const old = w.dock;
   if (old && old.pane !== id) appendToTab(makeTab(w, false), old.pane);
-  w.dock = { pane: id, edge, width: old?.width ?? DOCK_WIDTH };
+  w.dock = { pane: id, edge, width: old?.width ?? DOCK_WIDTH, ...(frozen ? { frozen: true } : {}) };
 }
-const dockView = w => w.dock ? { pane: S.panes[w.dock.pane].name || w.dock.pane, edge: w.dock.edge, width: fmtFrac(w.dock.width) } : null;
+const dockView = w => w.dock ? { pane: S.panes[w.dock.pane].name || w.dock.pane, edge: w.dock.edge, width: fmtFrac(w.dock.width),
+  ...(w.dock.frozen ? { frozen: true } : {}) } : null;
 const dockErr = msg => kerr('docked', `docked: ${msg}`);
+const frozenErr = msg => kerr('frozen', `frozen: ${msg}`);
+// Nothing drops on a frozen docked pane: not a pane beside or in place of it, nor another docked pane.
+function refuseFrozen(w) {
+  if (w?.dock?.frozen) throw frozenErr(`${label(S.panes[w.dock.pane])} is frozen in ${w.id}'s dock; nothing drops on it`);
+}
 
 // ---------------------------------------------------------------------------
 // Panes and lifecycle: starting -> running | failed; running -> exited; * -> closed
@@ -348,7 +355,7 @@ function summary(p) {
 // Panes keep their IDs; terminals come back as new terminals (cwd, cmd), web
 // panes reload their URL, md panes their file, iOS panes relaunch their app.
 // state := { kmux: 'state', version, key, counters: { pane, tab, window },
-//            windows: [{ id, frame?, active, focused, zoomed, tabCount, dock?: { pane, edge, width },
+//            windows: [{ id, frame?, active, focused, zoomed, tabCount, dock?: { pane, edge, width, frozen? },
 //                        tabs: [{ id, title, lastFocus, layout }] }],
 //            panes: [{ id, name, type, …what it shows }] }
 // layout := { pane: ID } | { split: 'row'|'column', children: [{ …layout, size }] }
@@ -451,7 +458,8 @@ function importState(st) {
       if (!isObj(d) || !N.panes[d.pane]) throw bad(`window ${sw.id} docks unknown pane ${JSON.stringify(d?.pane ?? null)}`);
       if (placed.has(d.pane)) throw bad(`pane ${d.pane} is placed twice`);
       placed.add(d.pane);
-      w.dock = { pane: d.pane, edge: EDGES.includes(d.edge) ? d.edge : 'left', width: typeof d.width === 'number' && d.width > 0 && d.width < 1 ? d.width : DOCK_WIDTH };
+      w.dock = { pane: d.pane, edge: EDGES.includes(d.edge) ? d.edge : 'left', width: typeof d.width === 'number' && d.width > 0 && d.width < 1 ? d.width : DOCK_WIDTH,
+        ...(d.frozen === true ? { frozen: true } : {}) };
     }
     w.tabs = w.tabs.filter(t => t.root);
     if (!w.tabs.some(t => t.id === w.active)) w.active = w.tabs[0]?.id ?? null;
@@ -519,9 +527,12 @@ async function handle(req) {
         if (args.path != null && type !== 'md') throw kerr('bad_request', 'path is only for markdown panes');
         if (args.dock != null && !EDGES.includes(args.dock)) throw kerr('bad_request', 'dock must be left or right');
         if (args.dock != null && (args.split != null || args.size != null || args.tab)) throw kerr('bad_request', 'a docked pane takes no split, size or tab');
+        if (args.frozen != null && typeof args.frozen !== 'boolean') throw kerr('bad_request', 'frozen must be true or false');
+        if (args.frozen && args.dock == null) throw kerr('bad_request', 'only a docked pane is frozen');
         const w = targetWin(args.window);
+        if (args.dock) refuseFrozen(w);
         const p = createPane(type, args);
-        if (args.dock) dockPane(p.id, w, args.dock);
+        if (args.dock) dockPane(p.id, w, args.dock, args.frozen === true);
         else {
           place(p.id, w, { split: args.split || 'auto', size, tab: !!args.tab });
           findPane(p.id).tab.lastFocus = p.id;
@@ -581,10 +592,12 @@ async function handle(req) {
       case 'move': {
         const p = need(args.pane);
         const from = findPane(p.id);
+        if (dockOf(p.id)?.dock.frozen) throw frozenErr(`${label(p)} is frozen in its dock and doesn't move`);
         if (args.dock != null) {
           if (!EDGES.includes(args.dock)) throw kerr('bad_request', 'dock must be left or right');
           if (args.to || args.tab) throw kerr('bad_request', 'move takes one of to + side, tab, window or dock');
           const w = args.window ? targetWin(args.window) : from.win;
+          refuseFrozen(w);
           if (w.dock?.pane === p.id) w.dock.edge = args.dock;
           else { detach(p.id); dockPane(p.id, w, args.dock); }
           focusPane(p);
@@ -597,6 +610,7 @@ async function handle(req) {
           const side = args.side || 'swap';
           if (!['left', 'right', 'top', 'bottom', 'swap'].includes(side)) throw kerr('bad_request', 'side must be left, right, top, bottom or swap');
           if (target.id === p.id) return ok({ window: from.win.id });
+          refuseFrozen(dockOf(target.id));
           if (side !== 'swap' && dockOf(target.id)) throw dockErr(`${label(target)} is docked and holds one pane; drop on its middle to swap`);
           if (side === 'swap') {
             const b = findPane(target.id);

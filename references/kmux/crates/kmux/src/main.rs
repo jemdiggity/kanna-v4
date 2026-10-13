@@ -393,6 +393,7 @@ mod tests {
             ("kmux open --dock right --cmd claude", json!({ "type": "term", "dock": "right", "cmd": "claude" })),
             ("kmux open --dock md /tmp/a.md", json!({ "type": "md", "dock": "left", "path": "/tmp/a.md" })),
             ("kmux open web a.test --dock=right --window new", json!({ "type": "web", "url": "a.test", "dock": "right", "window": "new" })),
+            ("kmux open --name agent --dock --frozen", json!({ "type": "term", "name": "agent", "dock": "left", "frozen": true })),
             ("kmux move agent --dock", json!({ "pane": "agent", "dock": "left" })),
             ("kmux move agent --dock right --window w2", json!({ "pane": "agent", "dock": "right", "window": "w2" })),
             ("kmux move agent --tab", json!({ "pane": "agent", "tab": "new" })),
@@ -424,6 +425,7 @@ mod tests {
             ("kmux open --dock --tab", "--dock goes on its own"),
             ("kmux move agent --dock --tab", "--dock goes on its own"),
             ("kmux move agent --dock --to b", "--dock goes on its own"),
+            ("kmux open --frozen", "--frozen goes with --dock"),
         ] {
             let failure = parse(line).expect_err(line);
             assert_eq!(failure.code, exit::USAGE, "{line}");
@@ -451,6 +453,10 @@ mod tests {
         assert!(text.contains("\n  dock: p1 (agent)  left 2/5\n  *t1 \"Tab 1\"  p2"), "{text}");
         let opened = json!({ "pane": { "id": "p1", "name": "agent", "state": "running" }, "window": "w1", "tab": null, "dock": "left" });
         assert_eq!(output::opened(&json!({}), &opened), "opened p1 (agent) docked left in window w1: running");
+        assert_eq!(output::opened(&json!({ "frozen": true }), &opened), "opened p1 (agent) docked left, frozen, in window w1: running");
+        let frozen = json!({ "windows": [{ "id": "w1", "dock": { "pane": "agent", "edge": "left", "width": "2/5", "frozen": true }, "tabs": [] }],
+                             "panes": [{ "id": "p1", "name": "agent", "type": "term", "state": "running" }] });
+        assert!(output::list(&frozen).contains("\n  dock: p1 (agent)  left 2/5  frozen"), "{}", output::list(&frozen));
         let moved = json!({ "window": "w1", "dock": { "pane": "agent", "edge": "right", "width": "1/3" } });
         assert_eq!(output::moved(&moved), "agent is docked right in w1 (width 1/3)");
     }

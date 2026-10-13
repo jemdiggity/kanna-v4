@@ -7,7 +7,7 @@ import Foundation
 /// their URL, md panes on their file, iOS panes relaunching their app.
 ///
 ///     { kmux: "state", version: 1, key, counters: { pane, tab, window },
-///       windows: [{ id, frame?, active, focused, zoomed, tabCount, dock?: { pane, edge, width },
+///       windows: [{ id, frame?, active, focused, zoomed, tabCount, dock?: { pane, edge, width, frozen? },
 ///                   tabs: [{ id, title, lastFocus, layout }] }],
 ///       panes: [{ id, name, type, …what it shows }] }
 ///
@@ -27,7 +27,11 @@ extension Core {
                 }),
             ]
             if let frame = window.frame { out["frame"] = ["x": .number(frame.x), "y": .number(frame.y), "w": .number(frame.w), "h": .number(frame.h)] }
-            if let dock = window.dock { out["dock"] = ["pane": .string(dock.pane), "edge": .string(dock.edge.rawValue), "width": .number(dock.width)] }
+            if let dock = window.dock {
+                var saved: [String: JSON] = ["pane": .string(dock.pane), "edge": .string(dock.edge.rawValue), "width": .number(dock.width)]
+                if dock.frozen { saved["frozen"] = true }
+                out["dock"] = .object(saved)
+            }
             return .object(out)
         }
         let panes: [JSON] = model.paneOrder.compactMap { model.panes[$0] }.map { pane in
@@ -186,7 +190,7 @@ extension Core {
                 guard !placed.contains(pane) else { throw bad("pane \(pane) is placed twice") }
                 placed.insert(pane)
                 let width = saved["width"]?.number.flatMap { $0 > 0 && $0 < 1 ? $0 : nil } ?? Dock.defaultWidth
-                window.dock = Dock(pane: pane, edge: saved["edge"]?.string.flatMap(Edge.init(rawValue:)) ?? .left, width: width)
+                window.dock = Dock(pane: pane, edge: saved["edge"]?.string.flatMap(Edge.init(rawValue:)) ?? .left, width: width, frozen: saved["frozen"]?.bool == true)
             }
             window.tabs.removeAll { $0.root == nil }
             let active = item["active"]?.string

@@ -103,11 +103,14 @@ public struct Dock: Sendable, Equatable {
     public var pane: String
     public var edge: Edge
     public var width: Double
+    /// A frozen docked pane doesn't move, and nothing drops on it.
+    public var frozen: Bool
 
-    public init(pane: String, edge: Edge, width: Double) {
+    public init(pane: String, edge: Edge, width: Double, frozen: Bool = false) {
         self.pane = pane
         self.edge = edge
         self.width = width
+        self.frozen = frozen
     }
 }
 
@@ -219,9 +222,9 @@ public final class Model {
 
     public func window(containing id: String) -> Window? { locate(id)?.window ?? dockWindow(id) }
 
-    func dock(_ id: String, in window: Window, edge: Edge) {
+    func dock(_ id: String, in window: Window, edge: Edge, frozen: Bool = false) {
         if let old = window.dock, old.pane != id { append(old.pane, to: makeTab(in: window, activate: false)) }
-        window.dock = Dock(pane: id, edge: edge, width: window.dock?.width ?? Dock.defaultWidth)
+        window.dock = Dock(pane: id, edge: edge, width: window.dock?.width ?? Dock.defaultWidth, frozen: frozen)
     }
 
     func locate(_ id: String) -> Location? {
@@ -345,7 +348,9 @@ public final class Model {
 
     public func dockView(_ window: Window) -> JSON {
         guard let dock = window.dock else { return .null }
-        return ["pane": .string(panes[dock.pane]?.name ?? dock.pane), "edge": .string(dock.edge.rawValue), "width": .string(Fraction.format(dock.width))]
+        var out: [String: JSON] = ["pane": .string(panes[dock.pane]?.name ?? dock.pane), "edge": .string(dock.edge.rawValue), "width": .string(Fraction.format(dock.width))]
+        if dock.frozen { out["frozen"] = true }
+        return .object(out)
     }
 
     public func summary(_ pane: Pane) -> JSON {

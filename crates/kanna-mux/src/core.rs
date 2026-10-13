@@ -581,6 +581,13 @@ impl CoreHandle {
         if dock.is_some() && (args.get("split").is_some() || args.get("size").is_some() || new_tab) {
             return Err(bad_request("a docked pane takes no split, size or tab"));
         }
+        if args.get("frozen").is_some_and(|f| !f.is_null() && !f.is_boolean()) {
+            return Err(bad_request("frozen must be true or false"));
+        }
+        let frozen = is_true(args, "frozen");
+        if frozen && dock.is_none() {
+            return Err(bad_request("only a docked pane is frozen"));
+        }
         let backlog = is_true(args, "backlog");
         let shelf = is_true(args, "shelf") || backlog;
         if shelf && (dock.is_none() || args.get("window").is_some()) {
@@ -609,7 +616,7 @@ impl CoreHandle {
             None if kind == PaneType::Term && dock.is_none() && !planner => self.task_folder(from.as_deref(), string(args, "window")).await,
             None => None,
         };
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, from.as_deref(), shelf, backlog, planner)).await?;
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), shelf, backlog, planner)).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();

@@ -159,7 +159,7 @@ flowchart LR
 - **Products that keep terminals alive:** kmux itself never keeps a process across a restart. A product built on kmux can: its build names a **terminal wrapper** (`KMUX_TERMINAL_WRAPPER` in `scripts/build-kmux.sh`, a program inside the app). kmux then runs every terminal through it, `WRAPPER` for a shell or `WRAPPER -- $SHELL -c CMD` for a command, and a restored terminal gets `KMUX_RESTORED=1` (`KANNA_RESTORED` in Kanna), so the wrapper can reattach a session that outlived the app instead of starting a new one. kmux knows nothing else about it. Kanna's keeper works this way.
 - **Where:** one file per instance, next to its socket: `~/Library/Application Support/kmux/state-default.json` (`state-work.json` for an instance named `work`). A kmux on a socket elsewhere (`$KMUX_SOCKET`, as tests use) keeps it beside that socket: `/tmp/x.sock` → `/tmp/x.state.json`. Other brands use their own folder (Kanna: `…/kanna/`).
 - **When:** half a second after a change, and when kmux quits (⌘Q, SIGTERM, SIGINT or SIGHUP). Writes are atomic: a temporary file, flushed, then renamed over the old one.
-- **Format:** JSON with a `version` (now 1): the windows (with frames, and a `dock` `{ pane, edge, width }` when they have one), their tabs and layout trees (pane IDs, exact sizes), focus and zoom, and the panes. A file without `dock` loads as before. A terminal also has a `session`, reserved for re-attaching hosted terminals later and unused for now.
+- **Format:** JSON with a `version` (now 1): the windows (with frames, and a `dock` `{ pane, edge, width, frozen? }` when they have one), their tabs and layout trees (pane IDs, exact sizes), focus and zoom, and the panes. A file without `dock` loads as before. A terminal also has a `session`, reserved for re-attaching hosted terminals later and unused for now.
 - **Only kmux's own file:** restoring runs terminal commands again, so kmux restores a file only if it is a regular file (not a link), owned by the user, readable and writable by no one else (mode 0600), in a folder no other user can write to. kmux never restores from a path a client gives it.
 - **Never in the way:** a file that fails these checks, isn't valid, or has another version is moved aside to `….json.bad`, and kmux starts with a new window. So does a file with no windows left.
 - **Starting fresh:** `--fresh` (on the app or the CLI, or `KMUX_FRESH=1`) opens a new window instead; the saved layout is replaced at the next save. `KMUX_NO_STATE=1` turns saving and restoring off (for tests on shared sockets).
@@ -191,6 +191,7 @@ flowchart TB
 | Focus | Next/Previous Pane go through the window's shown panes in reading order: a left dock first, a right dock last. Switching tabs gives the keyboard to the shown tab, as before. |
 | Zoom | The focused pane fills the window, the docked pane or a tab's pane alike. |
 | `arrange` | Arranges the shown tab only. A tree that names the docked pane is refused (`docked`). |
+| Frozen | Opened with `open --dock --frozen`, the docked pane is frozen for good: `move` on it is refused, edge and window included, and so is anything that would land on it: a pane dropped on it or beside it, or docked in its window (`move --dock`, `open --dock`). The app shows no ⋯ grip on it, no drop over it, and no Move Pane to New Window for it. `resize` still sets its width, and it closes with its window. Saved frozen. Refusals use `frozen`. |
 
 ![The same window with the dock on the right, its divider dragged to 1/3](img/kmux/docked-pane-right.png)
 
@@ -341,13 +342,13 @@ Each request is `{ id, cmd, args }`. Each reply is `{ id, ok: true, … }` or `{
 | `cmd` | `args` | Notes |
 |-------|--------|-------|
 | `capabilities` | — | The instance name, pane types, features and the commands this kmux supports. |
-| `open` | `type`, `url` / `cmd` / `cwd` / `path` / `app` / `device`, `history?` (web only, default off), `name?`, `split?` (`right` / `down` / `auto`), `size?`, `tab?`, `window?`, `wait?`, `dock?` (`left` / `right`) | See [3.2](#32-sizes). The reply includes the pane's window and tab. With `dock`, the pane becomes the window's docked pane ([3.7](#37-docked-pane)); `split`, `size` and `tab` don't go with it, and the reply has `tab: null` and `dock`. |
+| `open` | `type`, `url` / `cmd` / `cwd` / `path` / `app` / `device`, `history?` (web only, default off), `name?`, `split?` (`right` / `down` / `auto`), `size?`, `tab?`, `window?`, `wait?`, `dock?` (`left` / `right`), `frozen?` (with `dock`) | See [3.2](#32-sizes). The reply includes the pane's window and tab. With `dock`, the pane becomes the window's docked pane ([3.7](#37-docked-pane)); `split`, `size` and `tab` don't go with it, and the reply has `tab: null` and `dock`. With `frozen`, the docked pane is frozen. |
 | `arrange` | `layout` (tree), `window?` | See [3.3](#33-arrange). |
-| `move` | `pane`, plus one of: `to` + `side` (`left` / `right` / `top` / `bottom` / `swap`); `tab` (ID, or `new` with optional `window`); `window` (ID or `new`); `dock` (`left` / `right`, with optional `window`) | See [section 6](#6-moving-windows-tabs-and-panes). Moving to a window adds the pane to that window's active tab. `dock` docks the pane in its own window (or `window`), or moves the docked pane to that edge; the reply has `dock` instead of `tab` and `layout`. Moving the docked pane anywhere else undocks it. |
+| `move` | `pane`, plus one of: `to` + `side` (`left` / `right` / `top` / `bottom` / `swap`); `tab` (ID, or `new` with optional `window`); `window` (ID or `new`); `dock` (`left` / `right`, with optional `window`) | See [section 6](#6-moving-windows-tabs-and-panes). Moving to a window adds the pane to that window's active tab. `dock` docks the pane in its own window (or `window`), or moves the docked pane to that edge; the reply has `dock` instead of `tab` and `layout`. Moving the docked pane anywhere else undocks it. A frozen docked pane doesn't move, and nothing moves onto it or into its dock (`frozen`). |
 | `move-tab` | `tab`, `window?`, `index?` | Reorders a tab or moves it to another window, or to a new one. |
 | `rename-tab` | `tab`, `title` | The title can't be empty. |
 | `resize` | `pane`, `size` | Fails if the pane fills its tab. On the docked pane, sets its width. |
-| `list` | — | Windows (with the key window marked, each window's focused and zoomed pane, and its `dock`: `{ pane, edge, width }`, when it has one), their tabs and layout trees, and all panes. |
+| `list` | — | Windows (with the key window marked, each window's focused and zoomed pane, and its `dock`: `{ pane, edge, width }`, with `frozen: true` for a frozen one, when it has one), their tabs and layout trees, and all panes. |
 | `focus` | one of `pane`, `tab`, `window` | Brings it to the front and makes its window key. With zoom on, the pane it focuses is the one shown. |
 | `zoom` | `pane` | Focuses the pane and turns its window's zoom on, or off if that pane is already the one zoomed. |
 | `close` | one of `pane`, `tab`, `window` | Closes it and everything inside it. A window's docked pane closes only with the window. |
@@ -377,6 +378,7 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 | `layout_invalid` | Malformed tree, a pane listed twice, or sizes adding up to more than 1. |
 | `start_failed` | The pane went to **failed**. The message says why. |
 | `docked` | `close` on a docked pane (`docked: it closes with its window`), `arrange` naming one, or `move` beside one. |
+| `frozen` | `move` on a frozen docked pane, or a `move` or `open` that would land on it or in its dock. |
 
 ### 7.4 The `kmux` CLI
 
@@ -434,6 +436,7 @@ $ kmux instances
 | Model and app in sync | The protocol cases in `tests/kmux-protocol/` run against both the reference model and the native core. |
 | Multiple windows | Required. Modelled in [3.1](#31-structure), [section 6](#6-moving-windows-tabs-and-panes) and [section 7](#7-control-protocol). |
 | Docked pane | **One per window, outside its tabs** ([3.7](#37-docked-pane)), built in kmux first for Kanna's Desk (the [kanna spec](../../kanna-v4/docs/specs/docked-pane.md)). It is a window field, `dock { pane, edge, width }`, not a special tab, so tabs, `move-tab` and `arrange` work as before. Refusals use one error code, `docked`. Docking where a pane is already docked sends the old one to a new tab, not shown, so nothing closes. `resize` on it sets the width. kmux's app draws windows from the core directly, so there are no layout steps to send: Kanna's `window.dock`, `window.undock` and `window.dock_width` correspond to `move … dock`, a move that undocks, and `resize`. |
+| Frozen docked pane | **A flag on the dock, set when it opens** (`open --dock --frozen`), for a client whose docked pane is what the window is for: Kanna's tasks, whose agent is the docked pane. Nothing unfreezes it, so a client can rely on it; it doesn't move, and nothing takes its place. Refusals use their own code, `frozen`. |
 
 ### 8.2 Open
 

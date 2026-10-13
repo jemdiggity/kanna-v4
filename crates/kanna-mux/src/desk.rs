@@ -58,9 +58,9 @@ impl Model {
         }
     }
 
-    pub(crate) fn shelve(&mut self, pane: &str, edge: Edge, backlog: bool) {
+    pub(crate) fn shelve(&mut self, pane: &str, edge: Edge, backlog: bool, frozen: bool) {
         let mut parked = Window::new(pane.into());
-        parked.dock = Some(Dock { pane: pane.into(), edge, width: DOCK_WIDTH });
+        parked.dock = Some(Dock { pane: pane.into(), edge, width: DOCK_WIDTH, frozen });
         parked.desk = true;
         parked.backlog = backlog;
         parked.parked_at = Some(now());
@@ -108,7 +108,7 @@ impl Model {
         if let Some(planner) = &window.planner {
             return Err(KmuxError::new("planned", format!("{} has a planning agent already: {}", window.id, planner.pane)));
         }
-        window.planner = Some(Dock { pane: pane.into(), edge: Edge::Left, width: DOCK_WIDTH });
+        window.planner = Some(Dock { pane: pane.into(), edge: Edge::Left, width: DOCK_WIDTH, frozen: false });
         window.desk = true;
         window.settle_focus();
         Ok(window.id.clone())

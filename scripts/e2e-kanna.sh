@@ -1028,7 +1028,16 @@ S38() {
   [[ "$refused" == *"agent isn't a task, and only a task's agent docks"* ]] || { echo "docking a pane that isn't a task should say why: $refused"; return 1; }
   check test "$(win w1 dock)" == None || return 1
   kanna close agent >/dev/null || return 1
-  kanna open --name agent --dock --cmd "printf 'agent: zoom as a mode\n'; exec sleep 600" >/dev/null || return 1
+  opened="$(kanna open --name agent --dock --frozen --cmd "printf 'agent: zoom as a mode\n'; exec sleep 600")" || return 1
+  [[ "$opened" == *"(agent) docked left, frozen, in window w1: running" ]] || { echo "open --dock --frozen should say it's frozen: $opened"; return 1; }
+  [[ "$(kanna list)" == *"(agent)  left 2/5  frozen"* ]] || { echo "list should show the dock frozen: $(kanna list)"; return 1; }
+  refused="$(kanna move agent --dock right 2>&1)" && { echo "moving a frozen docked pane should fail"; return 1; }
+  [[ "$refused" == *"frozen: agent ("*") is frozen in its dock and doesn't move"* ]] || { echo "moving a frozen docked pane should say why: $refused"; return 1; }
+  refused="$(kanna move dt2 --to agent 2>&1)" && { echo "swapping onto a frozen docked pane should fail"; return 1; }
+  [[ "$refused" == *"is frozen in w1's dock; nothing drops on it"* ]] || { echo "swapping onto a frozen docked pane should say why: $refused"; return 1; }
+  check test "$(raw '{"id":1,"cmd":"debug.drag","args":{"pane":"dt2","to":{"pane":"agent","x":0.5,"y":0.5}}}' | field dropped)" == False || return 1
+  check test "$(raw '{"id":1,"cmd":"debug.drag","args":{"pane":"agent","to":{"pane":"dt2","x":0.5,"y":0.5}}}' | field dropped)" == False || return 1
+  check test "$(win w1 dock.pane)" == agent || return 1
   kanna close dt2 >/dev/null || return 1
   check test "$(win w1 tabs)" == '[]' || return 1
   check test "$(win w1 dock.pane)" == agent || return 1
@@ -1422,7 +1431,12 @@ S44() {
   grep -q "plain isn't a task, and only a task's agent docks" "$KANNA_STATE_DIR/s44-dock" || { cat "$KANNA_STATE_DIR/s44-dock"; return 1; }
   in_repo task list | grep -q ' plain$' && { echo "S44 line $LINENO"; return 1; }
   kanna task pull Fixed >/dev/null || { echo "S44 line $LINENO"; return 1; }
-  check test "$(kanna move Fixed --dock right --json | field dock.edge)" == right || { echo "S44 line $LINENO"; return 1; }
+  check test "$(kanna list --json | python3 -c 'import json, sys; print([w["dock"].get("frozen") for w in json.load(sys.stdin)["windows"] if w.get("dock")])')" == '[True]' || { kanna list; return 1; }
+  kanna move Fixed --dock right 2>"$KANNA_STATE_DIR/s44-frozen" && { echo "S44 line $LINENO"; return 1; }
+  grep -q "frozen: Fixed (p1) is frozen in its dock and doesn't move" "$KANNA_STATE_DIR/s44-frozen" || { cat "$KANNA_STATE_DIR/s44-frozen"; return 1; }
+  kanna move plain --to Fixed 2>"$KANNA_STATE_DIR/s44-swap" && { echo "S44 line $LINENO"; return 1; }
+  grep -q "Fixed (p1) is frozen in .*'s dock; nothing drops on it" "$KANNA_STATE_DIR/s44-swap" || { cat "$KANNA_STATE_DIR/s44-swap"; return 1; }
+  in_repo task list | grep -qE '^p1 +Fixed ' || { in_repo task list; return 1; }
   kanna close plain >/dev/null || { echo "S44 line $LINENO"; return 1; }
   kanna task done Fixed >/dev/null || { echo "S44 line $LINENO"; return 1; }
   kanna task shelve t5 >/dev/null || { echo "S44 line $LINENO"; return 1; }

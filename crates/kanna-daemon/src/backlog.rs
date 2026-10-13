@@ -710,7 +710,7 @@ impl Backlog {
         let name = entry.name.clone().filter(|n| core.pane(n).is_none());
         let session = (agent(&entry.agent).is_some_and(|a| a.named.is_some()) && entry.folder.is_none()).then(uuid).and_then(Result::ok);
         let place = if backlog { "backlog" } else { "shelf" };
-        let mut args = json!({ "type": "term", "dock": "left", place: true, "cwd": folder, "cmd": entry.command(session.as_deref()), "wait": false });
+        let mut args = json!({ "type": "term", "dock": "left", "frozen": true, place: true, "cwd": folder, "cmd": entry.command(session.as_deref()), "wait": false });
         if let Some(name) = &name {
             args["name"] = json!(name);
         }

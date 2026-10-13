@@ -78,6 +78,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             guard let view = host.views[id], let pane = model.panes[id] else { continue }
             view.show(pane)
             view.focused = many && id == state.focused && window.isKeyWindow
+            view.grip.isHidden = state.dock?.pane == id && state.dock?.frozen == true
         }
         // Keyboard focus follows the model's focused pane, but only takes over
         // from another pane's view or from nothing: a tab being renamed keeps it.

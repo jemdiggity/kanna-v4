@@ -600,6 +600,7 @@ mod tests {
             ("kanna send p1 echo -- --mux -x", json!({ "pane": "p1", "text": "echo --mux -x" })),
             ("kanna open --cwd /tmp", json!({ "type": "term", "cwd": "/tmp" })),
             ("kanna open --name agent --dock", json!({ "type": "term", "name": "agent", "dock": "left" })),
+            ("kanna open --name agent --dock --frozen", json!({ "type": "term", "name": "agent", "dock": "left", "frozen": true })),
             ("kanna open --dock right --cmd claude", json!({ "type": "term", "dock": "right", "cmd": "claude" })),
             ("kanna open --dock md /tmp/a.md", json!({ "type": "md", "dock": "left", "path": "/tmp/a.md" })),
             ("kanna open web a.test --dock=right --window new", json!({ "type": "web", "url": "a.test", "dock": "right", "window": "new" })),
@@ -680,6 +681,10 @@ mod tests {
         assert!(text.contains("\n  dock: p1 (agent)  left 2/5\n  *t1 \"Tab 1\"  p2"), "{text}");
         let opened = json!({ "pane": { "id": "p1", "name": "agent", "state": "running" }, "window": "w1", "tab": null, "dock": "left" });
         assert_eq!(output::opened(&json!({}), &opened), "opened p1 (agent) docked left in window w1: running");
+        assert_eq!(output::opened(&json!({ "frozen": true }), &opened), "opened p1 (agent) docked left, frozen, in window w1: running");
+        let frozen = json!({ "windows": [{ "id": "w1", "dock": { "pane": "agent", "edge": "left", "width": "2/5", "frozen": true }, "tabs": [] }],
+                             "panes": [{ "id": "p1", "name": "agent", "type": "term", "state": "running" }] });
+        assert!(output::list(&frozen).contains("\n  dock: p1 (agent)  left 2/5  frozen"), "{}", output::list(&frozen));
         let moved = json!({ "window": "w1", "dock": { "pane": "agent", "edge": "right", "width": "1/3" } });
         assert_eq!(output::moved(&moved), "agent is docked right in w1 (width 1/3)");
     }
