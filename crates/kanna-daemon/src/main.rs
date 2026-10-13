@@ -1,3 +1,4 @@
+mod agents;
 mod app_link;
 mod backlog;
 mod host;
@@ -166,6 +167,9 @@ fn run() -> Result<(), String> {
     status_commands.install(&core);
     let backlog = Rc::new(backlog::Backlog::open(&state_dir, core.weak(), events.clone()));
     backlog.install(&core);
+    let agents = agents::Agents::new(agents::home(), agents::skills(), socket_path.clone());
+    agents.refresh();
+    agents.install(&core);
     let host = Rc::new(Host::new(terminals.clone()));
     core.set_host(Some(host.clone()));
     let on_change = Rc::downgrade(&terminals);
@@ -268,7 +272,7 @@ fn run() -> Result<(), String> {
                         if answer.get("ok") == Some(&Value::Bool(true)) {
                             answer["app"] = Value::Bool(attached);
                             if let Some(Value::Array(commands)) = answer.get_mut("commands") {
-                                commands.push(Value::String("status".into()));
+                                commands.extend(["status", "agents"].map(|c| Value::String(c.into())));
                                 commands.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
                             }
                         }

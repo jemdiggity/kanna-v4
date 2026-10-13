@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod args;
 pub mod commands;
 pub mod complete;
@@ -132,6 +133,14 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     let mut mux = Session::connect(&target, env)?;
     if command.name == "comment" && request["doc"] == true {
         return threads::comment(&request, &mut mux, json_output);
+    }
+    if command.name == "agents" && !json_output && matches!(request["action"].as_str(), Some("setup" | "update")) {
+        let tool = agents::merge_tool();
+        let mut call = |args: Value| mux.call("agents", args);
+        let mut merge = |path: &std::path::Path, base: &std::path::Path, new: &std::path::Path| agents::merge_in_editor(path, base, new, &tool);
+        let stdin = std::io::stdin();
+        let mut io = agents::Io { call: &mut call, input: &mut stdin.lock(), out: &mut std::io::stdout(), merge: &mut merge, tool: tool.clone() };
+        return agents::run(&request, &mut io);
     }
     let mut reply = match mux.call(wire(command, &request), request.clone()) {
         Ok(reply) => reply,
@@ -391,8 +400,8 @@ fn overview(target: &Target) -> String {
          \n\
          {running}\n\
          --json prints the reply from Kanna as JSON; -- ends the options (kanna send p1 -- --json types --json).\n\
-         Terminals live in Kanna's daemon and keep running with Kanna.app closed: list, send, read, close, restart\n\
-         and open (unplaced) work without the app. Commands that need it start it if it isn't running (in front,\n\
+         Terminals live in Kanna's daemon and keep running with Kanna.app closed: list, send, send-key, read, close,\n\
+         restart and open (unplaced) work without the app. Commands that need it start it if it isn't running (in front,\n\
          or behind your other windows with --bg or KANNA_BG=1), as does any command when nothing answers. A started\n\
          Kanna.app brings back the layout it saved; --fresh (or KANNA_FRESH=1) opens a new window instead.\n\
          With KANNA_SOCKET set, kanna never starts the app.\n\
@@ -586,6 +595,8 @@ mod tests {
             ("kanna read s1", json!({ "pane": "s1" })),
             ("kanna read s1 --lines 5", json!({ "pane": "s1", "lines": 5 })),
             ("kanna send p1 -- --json", json!({ "pane": "p1", "text": "--json" })),
+            ("kanna send-key agent return", json!({ "pane": "agent", "keys": ["return"] })),
+            ("kanna send-key p3 up up shift+tab ctrl+c", json!({ "pane": "p3", "keys": ["up", "up", "shift+tab", "ctrl+c"] })),
             ("kanna send p1 echo -- --mux -x", json!({ "pane": "p1", "text": "echo --mux -x" })),
             ("kanna open --cwd /tmp", json!({ "type": "term", "cwd": "/tmp" })),
             ("kanna open --name agent --dock", json!({ "type": "term", "name": "agent", "dock": "left" })),
@@ -627,6 +638,8 @@ mod tests {
             ("kanna lsit", "Did you mean: list"),
             ("kanna rename t1 x", "Did you mean: rename-tab"),
             ("kanna read", "missing PANE"),
+            ("kanna send-key", "missing PANE"),
+            ("kanna send-key p1", "missing KEY"),
             ("kanna read p1 --lines 0", "--lines needs a whole number"),
             ("kanna open ios", "need an app"),
             ("kanna open --app x", "only for iOS panes"),

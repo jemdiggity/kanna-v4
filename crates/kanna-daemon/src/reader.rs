@@ -1,7 +1,7 @@
 use crate::settings::Settings;
 use crate::Event;
 use kanna_detect::{Activity, Screen};
-use kanna_vt::{Lines, Mode, Terminal};
+use kanna_vt::{Key, Lines, Mode, Terminal};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -63,6 +63,10 @@ impl Feed {
 
     pub fn take_cwd(&mut self) -> Option<String> {
         self.cwd.take()
+    }
+
+    pub fn encode_key(&self, key: &Key) -> Result<Vec<u8>, kanna_vt::Error> {
+        self.screen.encode_key(key)
     }
 
     pub fn lock(feed: &Mutex<Feed>) -> MutexGuard<'_, Feed> {

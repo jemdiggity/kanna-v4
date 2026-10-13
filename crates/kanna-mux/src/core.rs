@@ -20,6 +20,10 @@ pub trait PaneHost {
     fn start(&self, pane: &Pane);
     fn stop(&self, pane: &Pane);
     fn send(&self, pane: &Pane, text: &str);
+    fn send_keys(&self, pane: &Pane, keys: Vec<String>, done: Responder) {
+        let _ = keys;
+        done.reply(Err(KmuxError::new("unsupported", format!("{} can't take keys here", pane.label()))));
+    }
     fn end(&self, pane: &Pane) {
         let _ = pane;
     }
@@ -53,7 +57,7 @@ pub fn project(cwd: Option<&str>) -> Option<std::path::PathBuf> {
     Some(main.unwrap_or_else(|| root.to_path_buf()))
 }
 
-pub const CORE_COMMANDS: [&str; 11] = ["capabilities", "open", "list", "close", "restart", "send", "navigate", "read", "markup", "comment", "rename-pane"];
+pub const CORE_COMMANDS: [&str; 12] = ["capabilities", "open", "list", "close", "restart", "send", "send-key", "navigate", "read", "markup", "comment", "rename-pane"];
 
 pub const DEBUG_COMMANDS: [&str; 2] = ["debug.saveState", "debug.restoreState"];
 
@@ -424,6 +428,7 @@ impl CoreHandle {
             "close" => self.close(&args).await,
             "restart" => self.restart(&args).await,
             "send" => self.send(&args),
+            "send-key" => self.send_key(&args).await,
             "read" => self.read(&args),
             "navigate" => self.navigate(&args).await,
             "markup" => self.markup(&args).await,
@@ -899,6 +904,24 @@ impl CoreHandle {
             host.send(&pane, string(args, "text").unwrap_or(""));
         }
         Ok(Map::new())
+    }
+
+    async fn send_key(&self, args: &Value) -> Result<Map, KmuxError> {
+        let pane = self.need_pane(string(args, "pane"))?;
+        if pane.kind != PaneType::Term {
+            return Err(KmuxError::new("wrong_type", format!("{} is a {} pane; send-key only works on term panes", pane.label(), pane.kind.as_str())));
+        }
+        let keys: Vec<String> = match args.get("keys") {
+            Some(Value::Array(keys)) if !keys.is_empty() => keys.iter().map(|k| k.as_str().map(str::to_string)).collect::<Option<_>>().ok_or_else(|| bad_request("keys must be strings"))?,
+            _ => return Err(bad_request("missing keys")),
+        };
+        if pane.state != PaneState::Running {
+            return Err(bad_request(format!("{} is {}", pane.label(), pane.state.as_str())));
+        }
+        let Some(host) = self.host() else { return Ok(Map::new()) };
+        let (responder, answer) = responder();
+        host.send_keys(&pane, keys, responder);
+        answer.await
     }
 
     fn read(&self, args: &Value) -> Result<Map, KmuxError> {

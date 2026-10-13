@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+import os
+import select
 import sys
+import termios
 import threading
 import time
+import tty
 
 VERSION = "mock-agent 1.0.0"
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -30,8 +34,53 @@ def work(seconds):
     out("\r\x1b[2K\x1b]9;4;0\x07")
 
 
+CHOICES = ["Yes", "No"]
+
+
+def draw(choice):
+    for i, name in enumerate(CHOICES):
+        out(f"\r\x1b[2K{'❯' if i == choice else ' '} {i + 1}. {name}\r\n")
+
+
 def ask():
-    out("\r\nDo you want to proceed?\r\n❯ 1. Yes\r\n  2. No\r\n")
+    out("\r\nDo you want to proceed?\r\n")
+    choice = 0
+    draw(choice)
+    fd = sys.stdin.fileno()
+    if not os.isatty(fd):
+        line = sys.stdin.readline().split()
+        return 0 if line[:1] in (["1"], ["y"], ["yes"]) else 1
+    saved = termios.tcgetattr(fd)
+    tty.setraw(fd)
+    out("\x1b[?1h")
+    try:
+        while True:
+            data = os.read(fd, 64)
+            if not data:
+                return 1
+            while data:
+                if data.startswith((b"\x1bOA", b"\x1bOB")):
+                    choice = max(0, min(len(CHOICES) - 1, choice + (1 if data[2:3] == b"B" else -1)))
+                    out(f"\x1b[{len(CHOICES)}A")
+                    draw(choice)
+                    data = data[3:]
+                elif data.startswith((b"\x1b[A", b"\x1b[B")):
+                    out(f"key: {data[:3]!r} (not in application cursor mode)\r\n")
+                    data = data[3:]
+                elif data[:1] in (b"\r", b"\n"):
+                    return choice
+                elif data[:1] in (b"1", b"2", b"y"):
+                    picked = 0 if data[:1] in (b"1", b"y") else 1
+                    if data[1:2] not in (b"\r", b"\n") and select.select([fd], [], [], 0.2)[0]:
+                        os.read(fd, 1)
+                    return picked
+                elif data[:1] in (b"\x1b", b"\x03"):
+                    return 1
+                else:
+                    data = data[1:]
+    finally:
+        out("\x1b[?1l")
+        termios.tcsetattr(fd, termios.TCSANOW, saved)
 
 
 def main():
@@ -42,34 +91,24 @@ def main():
     if sys.argv[1:]:
         out("args: " + " ".join(sys.argv[1:]) + "\r\n")
     composer()
-    asking = False
     for line in sys.stdin:
         words = line.split()
         out("\x1b[J\r\n")
-        if asking:
-            asking = False
-            out("\x1b[2J\x1b[H")
-            if words[:1] in (["1"], ["y"], ["yes"]):
-                work(1)
-                out("TURN_DONE\r\n")
-            else:
-                out("Declined.\r\n")
-            composer()
-            continue
         if words[:1] == ["exit"]:
             return 0
         if words[:1] == ["work"]:
             work(float(words[1]) if len(words) > 1 else 2)
             out("WORK_DONE\r\n")
-        elif words[:1] == ["turn"]:
-            work(2)
-            ask()
-            asking = True
-            continue
-        elif words[:1] == ["ask"]:
-            ask()
-            asking = True
-            continue
+        elif words[:1] in (["turn"], ["ask"]):
+            if words[:1] == ["turn"]:
+                work(2)
+            choice = ask()
+            out("\x1b[2J\x1b[H")
+            if choice == 0:
+                work(1)
+                out("TURN_DONE\r\n")
+            else:
+                out("Declined.\r\n")
         else:
             out(f"echo: {line.strip()}\r\n")
         composer()

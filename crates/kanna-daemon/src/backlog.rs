@@ -68,7 +68,7 @@ impl Entry {
     /// The agent's command line. A new claude task gets `session` as its ID, so Move to Backlog can resume it;
     /// a claude task back from the backlog resumes its session, or the folder's latest one if Kanna didn't start it.
     fn command(&self, session: Option<&str>) -> String {
-        let agent = unprompted(&self.agent);
+        let agent = in_its_terminal(&unprompted(&self.agent));
         let first = |agent: String| match &self.message {
             Some(message) => format!("{agent} {}", quote(message)),
             None => agent,
@@ -122,14 +122,20 @@ pub fn planning_context(files: &[PathBuf]) -> Option<u64> {
 }
 
 /// The planning terminal's command line: it marks the terminal as the window's planning terminal for the agent you
-/// start there, keeps a claude agent's context to `context` tokens, prints how to start, and hands over to your shell.
+/// start there, keeps a claude agent's context to `context` tokens, asks about agent setup with `cli`, prints how to start,
+/// and hands over to your shell.
 /// Kanna's zsh integration (`zsh`, its folder) hands ZDOTDIR back to yours while the command runs, so the shell it
 /// hands over to gets it again, as every Kanna terminal's does.
-pub fn planner_command(guide: Option<&str>, context: Option<u64>, zsh: Option<&str>) -> String {
+pub fn planner_command(guide: Option<&str>, context: Option<u64>, zsh: Option<&str>, cli: Option<&str>) -> String {
     let integrate = zsh.map_or(String::new(), |dir| format!("case \"${{SHELL##*/}}\" in zsh) [ -z \"${{ZDOTDIR+x}}\" ] || export KANNA_ZSH_ZDOTDIR=\"$ZDOTDIR\"; export ZDOTDIR={};; esac; ", quote(dir)));
     let limit = context.map_or(String::new(), |tokens| format!("[ -n \"$CLAUDE_CODE_AUTO_COMPACT_WINDOW\" ] || export CLAUDE_CODE_AUTO_COMPACT_WINDOW={tokens}; "));
     let show = guide.map_or(String::new(), |g| format!("if command -v glow >/dev/null 2>&1; then glow -w 0 {g}; else cat {g}; fi; echo; ", g = quote(g)));
-    format!("export KANNA_PLANNER=1; {limit}{show}{integrate}exec \"${{SHELL:-/bin/sh}}\" -l")
+    let ask = cli.map_or(String::new(), |cli| format!("{cli} agents setup --ask; {cli} agents update --ask; ", cli = quote(cli)));
+    format!("export KANNA_PLANNER=1; {limit}{ask}{show}{integrate}exec \"${{SHELL:-/bin/sh}}\" -l")
+}
+
+fn cli() -> Option<PathBuf> {
+    std::env::current_exe().ok()?.parent().map(|dir| dir.join("kanna")).filter(|cli| cli.is_file())
 }
 
 fn program(agent: &str) -> &str {
@@ -148,6 +154,13 @@ fn unprompted(agent: &str) -> String {
     match UNPROMPTED.iter().find(|(name, _)| *name == program) {
         Some((_, flag)) if !chooses => format!("{agent} {flag}"),
         _ => agent.to_string(),
+    }
+}
+
+fn in_its_terminal(agent: &str) -> String {
+    match program(agent) == "codex" && !agent.split_whitespace().any(|w| w == "--no-daemon") {
+        true => format!("{agent} --no-daemon"),
+        false => agent.to_string(),
     }
 }
 
@@ -422,7 +435,7 @@ impl Backlog {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
         let folder = string(args, "folder").filter(|f| Path::new(f).is_absolute() && Path::new(f).is_dir()).unwrap_or(&home);
         let zsh = self.path.parent().map(|state| state.join("shell/zsh")).filter(|dir| dir.join(".zshenv").is_file());
-        let cmd = planner_command(string(args, "guide"), planning_context(&config_files(Path::new(folder))), zsh.as_deref().and_then(Path::to_str));
+        let cmd = planner_command(string(args, "guide"), planning_context(&config_files(Path::new(folder))), zsh.as_deref().and_then(Path::to_str), cli().as_deref().and_then(Path::to_str));
         let open = json!({ "type": "term", "planner": true, "window": window, "cwd": folder, "cmd": cmd, "wait": false });
         core.handle(json!({ "cmd": "open", "args": open }), move |reply| match failed(&reply) {
             Some(error) => responder.reply(Err(error)),
@@ -718,9 +731,9 @@ mod tests {
     #[test]
     fn a_first_message_is_quoted_for_the_shell() {
         let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "codex".into(), folder: None, session: None, held: None };
-        assert_eq!(entry.command(None), "codex --yolo 'don'\\''t stop'");
+        assert_eq!(entry.command(None), "codex --yolo --no-daemon 'don'\\''t stop'");
         entry.message = None;
-        assert_eq!(entry.command(None), "codex --yolo");
+        assert_eq!(entry.command(None), "codex --yolo --no-daemon");
     }
 
     #[test]
@@ -734,19 +747,20 @@ mod tests {
         entry.session = Some(id.clone());
         assert_eq!(entry.command(None), format!("/bin/claude --dangerously-skip-permissions --resume '{id}'"));
         entry.agent = "codex".into();
-        assert_eq!(entry.command(None), "codex --yolo 'go'", "only claude resumes for now");
+        assert_eq!(entry.command(None), "codex --yolo --no-daemon 'go'", "only claude resumes for now");
     }
 
     #[test]
     fn the_planning_terminal_is_marked_keeps_claude_to_its_context_shows_the_guide_and_is_your_shell() {
-        let command = planner_command(Some("/K/getting started.md"), Some(300_000), None);
+        let command = planner_command(Some("/K/getting started.md"), Some(300_000), None, None);
         assert_eq!(command, "export KANNA_PLANNER=1; [ -n \"$CLAUDE_CODE_AUTO_COMPACT_WINDOW\" ] || export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000; if command -v glow >/dev/null 2>&1; then glow -w 0 '/K/getting started.md'; else cat '/K/getting started.md'; fi; echo; exec \"${SHELL:-/bin/sh}\" -l");
-        assert_eq!(planner_command(None, None, None), "export KANNA_PLANNER=1; exec \"${SHELL:-/bin/sh}\" -l");
-        let zsh = planner_command(None, None, Some("/S/shell/zsh"));
+        assert_eq!(planner_command(None, None, None, None), "export KANNA_PLANNER=1; exec \"${SHELL:-/bin/sh}\" -l");
+        assert_eq!(planner_command(None, None, None, Some("/A/kanna")), "export KANNA_PLANNER=1; '/A/kanna' agents setup --ask; '/A/kanna' agents update --ask; exec \"${SHELL:-/bin/sh}\" -l");
+        let zsh = planner_command(None, None, Some("/S/shell/zsh"), None);
         assert!(zsh.ends_with("case \"${SHELL##*/}\" in zsh) [ -z \"${ZDOTDIR+x}\" ] || export KANNA_ZSH_ZDOTDIR=\"$ZDOTDIR\"; export ZDOTDIR='/S/shell/zsh';; esac; exec \"${SHELL:-/bin/sh}\" -l"), "{zsh}");
         let run = |extra: &[(&str, &str)]| {
             let mut sh = Command::new("/bin/sh");
-            sh.arg("-c").arg(planner_command(Some("/dev/null"), Some(300_000), None).replace("exec \"${SHELL:-/bin/sh}\" -l", "echo \"P=$KANNA_PLANNER C=$CLAUDE_CODE_AUTO_COMPACT_WINDOW\"")).env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+            sh.arg("-c").arg(planner_command(Some("/dev/null"), Some(300_000), None, None).replace("exec \"${SHELL:-/bin/sh}\" -l", "echo \"P=$KANNA_PLANNER C=$CLAUDE_CODE_AUTO_COMPACT_WINDOW\"")).env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
             sh.envs(extra.iter().copied());
             String::from_utf8_lossy(&sh.output().unwrap().stdout).trim().to_string()
         };
@@ -806,6 +820,13 @@ mod tests {
         assert_eq!(unprompted("codex --ask-for-approval=untrusted"), "codex --ask-for-approval=untrusted");
         assert_eq!(unprompted("codex -a untrusted"), "codex -a untrusted");
         assert_eq!(unprompted("opencode"), "opencode");
+    }
+
+    #[test]
+    fn codex_runs_in_its_terminal_not_the_shared_server() {
+        assert_eq!(in_its_terminal("/opt/bin/codex --yolo"), "/opt/bin/codex --yolo --no-daemon");
+        assert_eq!(in_its_terminal("codex --no-daemon --yolo"), "codex --no-daemon --yolo");
+        assert_eq!(in_its_terminal("claude"), "claude");
     }
 
     #[test]

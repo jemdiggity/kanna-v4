@@ -40,6 +40,11 @@ const MORE: &[(&str, &str)] = &[
     ("config", "Kanna's settings: config schema prints their JSON Schema."),
 ];
 
+const KEYS: &[&str] = &[
+    "return", "esc", "tab", "shift+tab", "space", "backspace", "forward-delete", "up", "down", "left", "right", "home", "end", "pageup", "pagedown", "insert",
+    "ctrl+c", "ctrl+d", "ctrl+z", "ctrl+l", "ctrl+r", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+];
+
 const TYPES: &[(&str, &str)] = &[
     ("term", "A terminal (the default)."),
     ("web", "A web page, or a local HTML file."),
@@ -212,6 +217,7 @@ fn placeholder(name: &str) -> Vec<Want> {
         "DEVICE" => vec![Want::Devices],
         "THREAD" => vec![Want::Threads],
         "AGENT" => words(AGENTS),
+        "KEY" => words(KEYS),
         "TYPE" => vec![Want::Words(TYPES.iter().map(|(w, d)| (w.to_string(), d.to_string())).collect())],
         "SIDE" => words(&["left", "right", "top", "bottom", "swap"]),
         "FRACTION" => words(&["1/2", "1/3", "2/3", "1/4", "3/4"]),
@@ -526,6 +532,8 @@ mod tests {
         assert_eq!(at("focus --window "), [Want::Windows]);
         assert_eq!(at("send "), [Want::Panes]);
         assert_eq!(at("send p1 "), []);
+        assert_eq!(at("send-key "), [Want::Panes]);
+        assert!(matches!(&at("send-key p1 up ")[..], [Want::Words(keys)] if keys.iter().any(|(k, _)| k == "ctrl+c")));
         assert_eq!(at("move p1 --to "), [Want::Panes]);
         assert_eq!(words(&at("move p1 --side ")), ["left", "right", "top", "bottom", "swap"]);
         assert_eq!(at("rename-tab "), [Want::Tabs]);

@@ -99,7 +99,7 @@ Make the title bar quieter.
 
 - **Replies you add to a thread** are sent the same way, under the same header.
 - **Sent at once, never held.** Claude Code and Codex queue input that arrives during a turn and take it next. If you have unsent text in the agent's prompt, the comment joins it; Kanna doesn't try to detect that (v3 did, and it was never reliable).
-- **How to answer is a skill, not part of the message.** The `kanna-markup` skill in kanna-skills tells the agent that a `[kanna comment …]` is a review comment, to fix the doc, then answer with `kanna markup reply cN`.
+- **How to answer is a skill, not part of the message.** The `kanna-markup` skill in kanna-skills, which Kanna installs for every agent once you agree ([agent setup](agent-setup.md)), tells the agent that a `[kanna comment …]` is a review comment, to fix the doc, then answer with `kanna markup reply cN`.
 - **The agent replies; you resolve.** An answered thread stays open, so you read the reply beside the doc and resolve it yourself (or reply again). The agent resolves only when you ask.
 - **No agent** (the doc has none, or its pane is closed): posting still saves the thread, and the toolbar says it wasn't sent.
 
