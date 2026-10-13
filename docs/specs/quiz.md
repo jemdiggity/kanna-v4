@@ -36,7 +36,7 @@ sequenceDiagram
     You->>P: yes
     P->>K: kanna open --window new --name quiz … (agent, with the kanna-quiz skill)
     K->>Q: Quiz window: agent in the repo, on main
-    Q->>Q: read what's new: commits, diff, specs; plan five topics
+    Q->>Q: read what's new (commits, diff, specs), plan five topics
     loop five questions
         Q->>You: the question, its choices
         You->>Q: 2
