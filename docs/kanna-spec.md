@@ -518,7 +518,7 @@ Kanna.app's windows behave as kmux's: any number of windows, each with a tab bar
 | Kind | Examples | Goes to |
 |---|---|---|
 | **Layout only** | select, rename, reorder or tear off a tab; focus, zoom, next or previous pane, tab or window; move a pane (Move Pane to New Window, a drag) | the app's own layout model, as the same `command` step the daemon would send (`focus`, `zoom`, `rename-tab`, `move`, `move-tab`) |
-| **A pane starts or ends** | Split Right / Down, New Tab, New Window, new web, markdown and iOS panes, Close Pane, × on a tab, Close Window, the red button | the daemon, as a client's request (`open`, `restart`, `close`), which then sends its layout steps back |
+| **A pane starts or ends** | Split Right / Down, New Tab, New Window, new web, markdown and iOS panes, Close Pane, × on a tab, Close Window, the red button | the daemon, as a client's request (`open`, `close`), which then sends its layout steps back |
 | **What only the app knows** | a click focusing a pane, a divider dragged, a window moved, which panes are wide | the model's app-only calls (below) |
 
 Why layout-only actions don't go through the daemon: the app owns the layout and is its only writer; a round trip would make every tab click wait on the daemon (and fail while it restarts) and give the same answer. Why opening and closing do: panes are the daemon's ([4.2](#42-what-the-daemon-keeps-what-the-app-keeps)); its core gives the IDs, starts and stops terminals, and places the pane through the same steps as a CLI `open`.
@@ -535,7 +535,7 @@ flowchart LR
     subgraph D["daemon"]
         CORE["kanna-mux core"]
     end
-    UI -->|"open, close, restart"| CORE
+    UI -->|"open, close"| CORE
     CORE -->|"layout steps"| OWNER
     classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
     classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
@@ -584,21 +584,7 @@ sequenceDiagram
 
 **Terminal views.** A terminal's surface is made the first time its pane is on screen, and stays (attached to the daemon, drawing its output) until the pane leaves the layout, so switching tabs shows a live screen at once; a terminal in a tab never shown since launch keeps the size its pty has. Web, markdown and iOS views start when the daemon says `start` ([4.9](#49-web-markdown-and-ios-panes)) and are placed when shown.
 
-**Menus and shortcuts** are kmux's (its spec §5), with the shortcut the user's Ghostty config binds to the same action where there is one (`new_split:right`, `goto_split:next`, `toggle_split_zoom`, `new_tab`, `next_tab`, `increase_font_size:1`, `copy_to_clipboard`, …):
-
-| Menu | Items |
-|---|---|
-| Kanna | Quit Kanna ⌘Q (no New Instance, unlike kmux) |
-| File | New Desk ⌘N ([tasks](specs/tasks.md#2-how-tasks-are-made)) |
-| Edit | Undo ⌘Z, Redo ⇧⌘Z, Cut ⌘X, Copy ⌘C, Paste ⌘V, Select All ⌘A (sent to whatever has focus) |
-| Pane | Split Right ⌘D, Split Down ⇧⌘D, New Web / iOS Pane Right and Below, New Markdown Pane Right… and Below…, Open URL… ⌘L, Back, Forward, Home ⇧⌘H, Next Pane ⌘], Previous Pane ⌘[, Zoom ⇧⌘↩, Move Pane to New Window, Reload ⌘R (web panes only: reloads the page; terminals have no restart on a key, since it would end an agent or a shell's program without asking, and `kanna restart` is there for a command pane), Close Pane ⌘W |
-| View | New Tab ⌘T, Next Tab ⇧⌘], Previous Tab ⇧⌘[, Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 (a markdown or web pane's magnification, which scales the page without re-laying it out, or a terminal's font size; a pinch magnifies markdown and web panes too) |
-| Window | New Window (no shortcut: ⌘N is New Desk), Close Window ⇧⌘W, Move Tab to New Window, Next Window ⌘\`, Previous Window ⇧⌘\`, and the list of windows |
-
-- Every item acts on the key window and its focused pane. Pane, tab and window cycling go in reading order and wrap; zoom is the window's mode: while it's on, the focused pane fills the window wherever focus goes, until ⇧⌘↩ ([zoom](specs/zoom.md)). A new web pane starts with its URL selected for editing; a new markdown pane asks for a file; a new iOS pane opens Settings.
-- **Ghostty keybindings** that no menu item takes reach the app as actions: `new_split`, `goto_split` (previous, left and up go back; the rest forward), `toggle_split_zoom`, `new_tab`, `goto_tab` (next, previous), `new_window`, `close_window`, `goto_window`, and `close_surface` (closes the pane). The pane the key was typed in is focused first. `GhosttyRuntime` passes them on (`onAction`, `onClose`); the app decides.
-- **Right-clicking a pane** opens the Pane menu for it (it takes focus first): in a terminal unless its program uses the mouse, below WebKit's own items in a web pane, below the text items in a markdown pane, alone in an iOS pane.
-- **Instances** ([4.11](#411-the-kanna-cli)): unlike kmux, Kanna has no New Instance menu item: kmux used one to work on another project, and in Kanna that's a Desk (File → New Desk). Instances are a developer and testing tool, reached through dev builds and `kanna --instance`. An instance other than the default one shows its name in its window titles (`Tab 1 — w1 · work`) and at the top of the Kanna menu; the name comes from the socket's folder, as the daemon's does.
+**Menus and shortcuts:** the menu bar, Ghostty keybindings and the pane's right-click menu are in [menus](specs/menus.md).
 
 **Debug commands** (with `KANNA_DEBUG=1`; the daemon passes them to the app, turning a top-level `pane` name into its ID; nested ones are resolved by the app):
 
