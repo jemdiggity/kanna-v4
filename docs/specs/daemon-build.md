@@ -17,7 +17,57 @@ The **build ID** is the SHA-256 of the `kanna-daemon` binary, in hex.
 - **Why the binary and not the version and commit:** a dev rebuild with uncommitted changes has the same commit and different code, and a commit that doesn't touch the daemon needn't replace it. The hash changes exactly when the daemon does; an app-only rebuild keeps its daemon.
 - **Why not a stamp per build:** every rebuild would replace a daemon that hadn't changed.
 
-## 2. Hello from another build
+## 2. Where it lives
+
+Layers numbered as in [4.1](../kanna-spec.md#41-layers-and-processes); 1 and 2 take no part.
+
+```mermaid
+flowchart TB
+    subgraph CLIP["CLI process"]
+        CLI["kanna CLI<br/>on a failed command:<br/>compares the builds"]
+    end
+    subgraph APP["Kanna.app process"]
+        L3["3 · Mux UI<br/>DaemonLink: hello {build}<br/>DaemonStarter:<br/>starts its daemon"]
+    end
+    subgraph DAEMON["daemon process"]
+        L4["4 · kanna-mux<br/>knows its own build<br/>stops for another one"]
+    end
+    subgraph KEEPER["keeper process"]
+        L5["5 · Keeper<br/>holds the ptys"]
+    end
+    subgraph OS["6 · macOS"]
+        BIN["kanna-daemon binary<br/>Helpers/ or target/release"]
+        PTY["ptys<br/>shells, agents"]
+    end
+    CLI -->|"socket: capabilities"| L4
+    L3 <-->|"socket: app.hello"| L4
+    L4 <-->|"socket: adopt"| L5
+    L5 -->|"creates"| PTY
+    L4 <-->|"reads, writes"| PTY
+    CLI -.->|"hashes the one beside it"| BIN
+    L3 -.->|"hashes, starts"| BIN
+    L4 -.->|"hashed its own at start"| BIN
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef os fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class L5 kanna
+    class L3,L4 kmux
+    class BIN,PTY os
+    class CLI ext
+```
+
+Green: Kanna's code · blue: kmux's, as Kanna's · grey: macOS · brown: clients. Dashed: reads a file.
+
+| Layer | What it does with the build | Process |
+|---|---|---|
+| CLI (a client) | hashes the `kanna-daemon` beside it and asks the daemon's (`capabilities`), only after a command fails | CLI |
+| 3 · Mux UI | hashes `Helpers/kanna-daemon`, sends it in `app.hello`; on `other_build` starts that daemon at once | app |
+| 4 · kanna-mux | hashes its own binary at start; refuses a hello of another build when no app is attached, and stops | daemon |
+| 5 · Keeper | nothing: it keeps the ptys while one daemon stops and the next adopts them | keeper |
+| 6 · macOS | the binary on disk, and the ptys | — |
+
+## 3. Hello from another build
 
 ```mermaid
 sequenceDiagram
@@ -41,7 +91,7 @@ sequenceDiagram
 - **A hello without `build`** (an older app, the test apps) is accepted, as before.
 - **The app** answers `other_build` by retrying at once rather than backing off, and starts its daemon without the grace it gives a daemon restarted on purpose; at most one start every 10 s still holds, so an app whose bundle changed under it can't loop.
 
-## 3. The CLI meets another build
+## 4. The CLI meets another build
 
 The CLI never stops a daemon: the app attached to it may be the old build too. It talks to it as before, and when a command fails it asks the daemon its build (`capabilities` answers `build`) and, if it differs from its own, adds a line:
 
@@ -51,6 +101,6 @@ kanna: no pane "nosuch" [not_found]
 (the daemon on this socket is from another build than this kanna (a4cb40a16617 here, c9e6b91e5a5d there); quit and relaunch Kanna.app to replace it)
 ```
 
-## 4. Checked by
+## 5. Checked by
 
 `crates/kanna-daemon/tests/restart.rs` (a hello of the same build is accepted with the build in the reply; one of another build is refused with `other_build`, the daemon stops, the shell lives, and the next daemon has it with the same ID and pid), `crates/kanna-build` (the ID is the binary's SHA-256), and S61 of `scripts/e2e-kanna.sh`: a daemon re-signed as an older build, a terminal opened on it, the CLI's note; the app launched, the old daemon stops, the app's daemon takes over with the terminal's pid and screen, and the note is gone.
