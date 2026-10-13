@@ -392,6 +392,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         if item.action == #selector(goBack) { return !(focusedPane.flatMap { core.model.panes[$0]?.history?.back.isEmpty } ?? true) }
         if item.action == #selector(goForward) { return !(focusedPane.flatMap { core.model.panes[$0]?.history?.forward.isEmpty } ?? true) }
         if item.action == #selector(closePane) { return focusedPane.map { core.model.dockWindow($0) == nil } ?? false }
+        if item.action == #selector(movePaneToNewWindow) { return focusedPane.map { core.model.dockWindow($0)?.dock?.frozen != true } ?? false }
         if item.action == #selector(showTab(_:) as (NSMenuItem) -> Void) { return (keyWindow?.tabs.count ?? 0) >= item.tag }
         return true
     }
@@ -587,7 +588,8 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     /// What dropping pane `id` at `point` would do, shown by `hint`: onto
     /// another pane's edge docks beside it, its middle swaps; onto a tab moves
-    /// it there, onto + into a new tab; outside kmux into a new window.
+    /// it there, onto + into a new tab; outside kmux into a new window. Nothing
+    /// drops on a frozen docked pane.
     private func paneDrop(_ id: String, at point: NSPoint, hint: DropHint, size: NSSize) -> Drop? {
         guard let controller = controller(at: point, below: hint) else {
             hint.show(newWindowFrame(at: point, size: size), text: "new window", rounded: true)
@@ -607,6 +609,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         for view in host.views.values where view.window === window && view.superview != nil && view.id != id {
             let p = view.convert(inWindow, from: nil), b = view.bounds
             guard b.contains(p) else { continue }
+            if core.model.dockWindow(view.id)?.dock?.frozen == true {
+                hint.hide()
+                return nil
+            }
             let fx = p.x / b.width, fy = 1 - p.y / b.height
             var side = "swap"
             if core.model.dockWindow(view.id) == nil, !(fx > 0.3 && fx < 0.7 && fy > 0.3 && fy < 0.7) {
@@ -645,7 +651,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     @discardableResult
     private func dragPane(_ id: String) -> Task<Void, Never>? {
-        guard let size = host.views[id]?.window?.frame.size else { return nil }
+        guard let size = host.views[id]?.window?.frame.size, core.model.dockWindow(id)?.dock?.frozen != true else { return nil }
         let hint = DropHint()
         let end = trackMouse { _ = paneDrop(id, at: $0, hint: hint, size: size) }
         let drop = paneDrop(id, at: end, hint: hint, size: size)

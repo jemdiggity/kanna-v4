@@ -244,6 +244,22 @@ dt1tab="$(win "$dkw" tabs.0.id | tr -d '"')"
 "$cli" close --window "$dkw" >/dev/null
 [[ "$("$cli" list)" != *agent* ]] || fail "closing the window should close its docked pane"
 
+# 7c. A frozen docked pane doesn't move, and nothing drops on it.
+fzw="$(field window <<<"$("$cli" open --window new --name ft --cmd "printf 'FROZEN TAB\n'; exec sleep 600" --json)")"
+opened="$("$cli" open --window "$fzw" --name fagent --dock --frozen --cmd "printf 'FROZEN AGENT\n'; exec sleep 600")"
+[[ "$opened" == *"(fagent) docked left, frozen, in window $fzw: running" ]] || fail "open --dock --frozen should say it's frozen: $opened"
+[[ "$("$cli" list)" == *"(fagent)  left 2/5  frozen"* ]] || fail "list should show the dock frozen: $("$cli" list)"
+refused="$("$cli" move fagent --dock right 2>&1)" && fail "moving a frozen docked pane should fail"
+[[ "$refused" == *"frozen: fagent ("*") is frozen in its dock and doesn't move"* ]] || fail "moving a frozen docked pane should say why: $refused"
+refused="$("$cli" move ft --to fagent 2>&1)" && fail "swapping onto a frozen docked pane should fail"
+[[ "$refused" == *"is frozen in $fzw's dock; nothing drops on it"* ]] || fail "swapping onto a frozen docked pane should say why: $refused"
+[[ "$(field dropped <<<"$(raw '{"id":1,"cmd":"debug.drag","args":{"pane":"ft","to":{"pane":"fagent","x":0.5,"y":0.5}}}')")" == False ]] || fail "a drop on a frozen docked pane should do nothing"
+[[ "$(field dropped <<<"$(raw '{"id":1,"cmd":"debug.drag","args":{"pane":"fagent","to":{"pane":"ft","x":0.5,"y":0.5}}}')")" == False ]] || fail "a frozen docked pane shouldn't drag"
+[[ "$(win "$fzw" dock.pane)" == '"fagent"' && "$(win "$fzw" tabs.0.layout)" == '{"pane": "ft"}' ]] || fail "nothing should have moved: $(win "$fzw" dock) $(win "$fzw" tabs)"
+"$cli" resize fagent 1/3 >/dev/null || fail "a frozen docked pane should still resize"
+"$cli" close --window "$fzw" >/dev/null
+[[ "$("$cli" list)" != *fagent* ]] || fail "closing the window should close its frozen docked pane"
+
 # 8. Instances: a second kmux beside this one, with its own socket and
 # windows. kmux run inside one of its panes controls that instance.
 other="e2e$$"
