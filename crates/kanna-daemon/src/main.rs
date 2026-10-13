@@ -1,6 +1,7 @@
 mod agents;
 mod app_link;
 mod backlog;
+mod db;
 mod host;
 mod keeper;
 mod pty;

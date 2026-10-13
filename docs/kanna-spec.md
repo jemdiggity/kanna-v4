@@ -34,6 +34,7 @@
    - 4.20 [Code Tour](#420-code-tour)
    - 4.21 [The Build](#421-the-build)
    - 4.22 [Quiz](#422-quiz)
+   - 4.23 [The Database](#423-the-database)
 5. [Mux Backends](#5-mux-backends)
    - 5.1 [What Each Backend Supports](#51-what-each-backend-supports)
    - 5.2 [Choosing a Backend](#52-choosing-a-backend)
@@ -898,6 +899,87 @@ Changing the deployment target needs a clean cargo build. Cargo reruns the `cc` 
 ### 4.22 Quiz
 
 **[Planned]** Five multiple-choice questions about what landed on main in the last day, asked by an agent in a Quiz window of its own, each answer explained and a miss opening the code with `kanna comment`. It's a skill only, `kanna-quiz`: the planning agent offers a round when something has merged and opens the window with `kanna open`, and the quiz agent writes the questions itself; nothing is kept between rounds yet. Its own spec: [specs/quiz.md](specs/quiz.md); mockup `references/mockups/quiz.html`.
+
+### 4.23 The Database
+
+**[Proposed]** **The daemon keeps Kanna's records in one SQLite file, `kanna.db`, in its state folder; nothing else opens it.** Tasks move into it from `backlog.json`, and every change to a task's place or state is written as an event, so Kanna can show what happened over time (the Shelf's history first).
+
+```mermaid
+flowchart LR
+    CLI["kanna CLI, agents"] -->|"socket: backlog …"| D
+    subgraph APP["Kanna app"]
+        UI["Desk, Shelf, menus"] --> OWN["layout owner<br/>park · pull · hold · release"]
+    end
+    OWN -->|"moved: task, from, to, by"| D
+    subgraph DP["Kanna daemon (the only writer)"]
+        D["backlog.rs<br/>tasks · events"] --> DB["db.rs<br/>migrations · recovery"]
+    end
+    DB --> F[("kanna.db<br/>WAL")]
+    DB -. "first run" .-> J[("backlog.json")]
+    OWN --> L[("layout.json")]
+    classDef kanna fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
+    classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
+    classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
+    class UI,D,DB kanna
+    class OWN kmux
+    class CLI ext
+```
+
+```mermaid
+erDiagram
+    tasks ||--o{ task_events : "has"
+    tasks {
+        text id PK "t76"
+        text name
+        text message "first message"
+        text repo
+        text agent
+        text by "pane that made it"
+        real made_at
+        text place "backlog · shelf · desk · done"
+        text pane "its agent's pane, while it has one"
+        text folder "worktree"
+        text session "agent session to resume"
+    }
+    task_events {
+        integer id PK
+        text task FK
+        real at
+        text what "made · started · stopped · exited · shelved · parked · pulled · deferred · renamed · done"
+        text from_place
+        text to_place
+        text window "the Desk, for pulled and parked"
+        text by "a pane, user, or daemon"
+    }
+    meta {
+        text key PK "next_task"
+        text value
+    }
+```
+
+- **SQLite through `rusqlite` with its bundled SQLite** (`features = ["bundled"]`): one C file compiled by `cc` like the tree-sitter grammars, built for the app's macOS ([4.21](#421-the-build)), no server and no system library. WAL mode, `synchronous = NORMAL`, a busy timeout, foreign keys on; file mode 0600 as the rest of the state folder.
+- **The daemon is the only writer.** The CLI and agents keep asking the daemon (`backlog …` on its socket), and so does the app. Tests and people read it with `sqlite3 -readonly`.
+- **Migrations by a number:** `PRAGMA user_version` is the schema's version; on open the daemon runs each step above it in one transaction. A db from a newer Kanna (a higher version) isn't touched: the daemon moves it aside as `kanna.db.newer` and says so in its log, as settings files from a newer Kanna are skipped.
+- **One row per task, for its whole life.** Today a task is a backlog entry (`t76`) until it starts on the Shelf, then only its agent's pane (`p152`) with the entry kept apart in `running`. In the db a task keeps its `t` ID from made to done: `place` and `pane` say where it is and which pane is its agent. `kanna task done` sets `place = done` instead of deleting the row, so its events keep their task. The next ID is in `meta`, written in the same transaction as the task, so an ID is never handed out twice.
+- **Every change of place or state writes an event,** in the same transaction as the change. The daemon writes the ones it makes (made, started, stopped, shelved, deferred, renamed, done, and exited when an agent's pane exits on its own). The app's layout owner, the one place a task moves between a Desk and the Shelf (park, pull, closing a Desk window), returns what moved with each change; the app sends those to the daemon (`backlog moved`), with `by: user` for its own menus and keys, and for a CLI `park` or `pull` the daemon records them from the reply it forwarded, with the asking pane as `by`.
+- **A task the daemon didn't make** (an agent docked by hand) gets a `t` ID the first time it's seen as a task, as it does today when it's moved to the backlog.
+- **On first run** the daemon imports `backlog.json` (tasks, the running list, the counter) in one transaction, with a `made` event for each task at its `madeAt`, then renames the file `backlog.json.imported` and never reads it again.
+- **Recovery.** On open the daemon runs `PRAGMA quick_check`. A file it can't open or that fails the check is moved aside as `kanna.db.bad-TIME`, with its `-wal`; the daemon then restores the last good copy (`kanna.db.bak`, written with SQLite's backup API at each start once the db checks out) and logs what it did and that changes since that start are lost. With no good copy it imports `backlog.json.imported` if there is one, else starts empty, and says which in its log. A missing `kanna.db` with a `kanna.db.bak` beside it is restored the same way. A write that fails is logged and the command fails; the daemon never carries on with tasks only in memory.
+
+**What stays where it is.** `layout.json` stays the app's, in kmux's state file format, so kmux can read it and the reference model stays the reference ([4.7](#47-the-layout)). Doc threads stay beside their docs ([4.13](#413-doc-markup)), where an agent reads them. Settings stay JSON files people edit.
+
+**Later candidates,** not built: quiz rounds and answers ([4.22](#422-quiz)); agent session IDs per task over time; agent status history (how long a task waited on you); build timings.
+
+**Why not JSON files and an `events.jsonl`.** Both would work for the first table and one log. The db wins once anything reads history back: the Shelf's history is a query by repo and time, "how long did it wait on me" a join of status changes, and a JSON log means reading the whole file and writing its indexes by hand. A change to a task and its event are one transaction, so they can't disagree after a crash; with two files they can. `backlog.json` is rewritten whole on every change (71 KB today, growing with every first message); a row update is a page or two. Migrations have a number and run in a transaction rather than being guessed from what keys a file has. The cost is one C dependency, compiled in, and a file people can't open in an editor, which the CLI covers. Moving away from JSON is cheap now and dearer with every table.
+
+| | `backlog.json` + `events.jsonl` | `kanna.db` |
+|---|---|---|
+| Task and its event agree after a crash | no: two files | yes: one transaction |
+| Write on each change | the whole backlog | the changed rows |
+| Shelf history, waiting times | read every line, index by hand | a query with an index |
+| Schema changes | infer from keys | numbered migrations |
+| Dependency | none | `rusqlite` (bundled SQLite) |
+| Readable by hand | any editor | `sqlite3`, `kanna task list` |
 
 ---
 
