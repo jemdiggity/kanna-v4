@@ -623,6 +623,54 @@ mod tests {
     }
 
     #[test]
+    fn a_task_parks_and_pulls_with_its_zoom_and_the_shelf_keeps_its_own_across_a_relaunch() {
+        let dir = folder("shelf-zoom");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let command = |owner: &mut LayoutOwner, cmd: &str, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": cmd, "args": args } }));
+        let window = |owner: &LayoutOwner| owner.view()["windows"][0].clone();
+        let shown = |owner: &LayoutOwner| (window(owner)["focused"].clone(), window(owner)["zoomed"].clone());
+        command(&mut owner, "task", json!({ "action": "desk", "project": "/work/app" }));
+        place(&mut owner, "p1", json!({ "planner": true, "window": "w1" }));
+        place(&mut owner, "p2", json!({ "dock": "left", "shelf": true }));
+        command(&mut owner, "task", json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        place(&mut owner, "p3", json!({}));
+        place(&mut owner, "p4", json!({ "split": "right" }));
+        command(&mut owner, "focus", json!({ "pane": "p3" }));
+        assert_eq!(command(&mut owner, "zoom", json!({ "pane": "p3" }))["zoomed"], true);
+        assert_eq!(shown(&owner), (json!("p3"), json!("p3")));
+        assert_eq!(window(&owner)["root"], json!({ "pane": "p3", "type": "term" }));
+
+        command(&mut owner, "task", json!({ "action": "park" }));
+        assert_eq!(shown(&owner), (json!("p1"), Value::Null), "the Shelf view isn't zoomed");
+        assert_eq!(command(&mut owner, "zoom", json!({ "pane": "p1" }))["zoomed"], true);
+        assert_eq!(shown(&owner), (json!("p1"), json!("p1")));
+        let listed = owner.handle(&json!({ "call": "serve", "request": { "op": "windows" } }));
+        assert_eq!(listed["windows"][0]["zoomed"], "p1", "{listed}");
+
+        command(&mut owner, "task", json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        assert_eq!(shown(&owner), (json!("p3"), json!("p3")), "the task comes back zoomed where it was");
+        command(&mut owner, "task", json!({ "action": "park" }));
+        assert_eq!(shown(&owner), (json!("p1"), json!("p1")), "the Shelf view comes back zoomed");
+        command(&mut owner, "task", json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        owner.save().unwrap();
+
+        let (mut again, _) = LayoutOwner::open(Some(file), false);
+        again.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2", "p3", "p4"]) }));
+        assert_eq!(shown(&again), (json!("p3"), json!("p3")));
+        command(&mut again, "task", json!({ "action": "park" }));
+        assert_eq!(shown(&again), (json!("p1"), json!("p1")), "the Shelf's zoom survives a relaunch behind a task");
+        assert_eq!(command(&mut again, "zoom", json!({ "pane": "p1" }))["zoomed"], false);
+        command(&mut again, "task", json!({ "action": "pull", "task": "p2", "window": "w1" }));
+        assert_eq!(shown(&again), (json!("p3"), json!("p3")));
+        assert_eq!(command(&mut again, "zoom", json!({ "pane": "p3" }))["zoomed"], false);
+        command(&mut again, "task", json!({ "action": "park" }));
+        assert_eq!(shown(&again), (json!("p1"), Value::Null));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_desk_kanna_opens_with_nothing_has_no_folder_until_it_is_given_one() {
         let mut owner = LayoutOwner::new();
         owner.handle(&json!({ "call": "attach", "panes": [] }));

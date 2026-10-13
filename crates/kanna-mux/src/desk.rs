@@ -158,6 +158,7 @@ impl Model {
         parked.tabs = std::mem::take(&mut window.tabs);
         parked.active = window.active.take();
         parked.focused = window.focused.take();
+        parked.zoom = std::mem::take(&mut window.zoom);
         parked.tab_count = parked.tabs.len();
         parked.desk = true;
         parked.parked_at = Some(now());
@@ -241,6 +242,7 @@ impl Model {
                 target.tabs = parked.tabs;
                 target.active = parked.active;
                 target.focused = parked.focused;
+                target.zoom = parked.zoom;
                 target.tab_count = target.tab_count.max(target.tabs.len());
                 target.desk = true;
                 target.settle_focus();

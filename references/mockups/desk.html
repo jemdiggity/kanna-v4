@@ -149,6 +149,9 @@ body.picture .bar .wid { display: none; }
 .grip { flex: 0 0 5px; margin: 0 -2px; cursor: col-resize; position: relative; z-index: 2; }
 .grip:hover, .grip.drag { background: var(--tint); }
 .agent { border-right: 0; }
+.focused { box-shadow: inset 0 0 0 1px var(--accent); }
+body.picture .focused { box-shadow: none; }
+.content.zoomed .agent { flex: 1 1 auto !important; }
 .docs { border-left: 1px solid var(--line); }
 .cmd { display: flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin-top: 8px; }
 .cmd input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text); font: 12px var(--mono); }
@@ -204,7 +207,9 @@ body.picture .cmd input::placeholder { color: transparent; }
     <div class="keys">
       <span><kbd>⌘N</kbd> New Desk</span>
       <span><kbd>⌘1</kbd> <kbd>⌘2</kbd> <kbd>⌘3</kbd> pull the Shelf's 1st, 2nd, 3rd</span>
-      <span><kbd>⌘.</kbd> Park</span>
+      <span><kbd>⌘.</kbd> Park, or pull back the task parked last</span>
+      <span><kbd>⇧⌘↩</kbd> zoom what's showing: the task's focused pane, or the planning agent; each keeps its own</span>
+      <span><kbd>⌘]</kbd> <kbd>⌘[</kbd> next pane (or click one)</span>
       <span><kbd>⇧⌘A</kbd> the task waiting longest for you</span>
       <span><kbd>⌘F</kbd> search the backlog (empty Desk): <kbd>↑</kbd> <kbd>↓</kbd> pick, <kbd>↩</kbd> Move to Shelf, <kbd>esc</kbd> clear</span>
     </div>
@@ -226,11 +231,11 @@ const initial = () => {
     nextPane: 10,
     tasks: [
       { id: "p1", repo: "~/work/kanna-v4", worktree: false, title: "Doc markup reference model", branch: "main", agent: "claude", status: "working", parkedAt: null, width: 0.38,
-        tabs: ["docs/specs/doc-markup.md", "references/mockups/doc-markup.html", "docs/specs/doc-markup.png", "tests"], active: "docs/specs/doc-markup.md", log: [] },
+        tabs: ["docs/specs/doc-markup.md", "references/mockups/doc-markup.html", "docs/specs/doc-markup.png", "tests"], active: "docs/specs/doc-markup.md", focus: "docs", zoom: false, log: [] },
       { id: "p4", repo: "~/work/kanna-v4", worktree: true, title: "Tab bar follows light mode", branch: "kanna/p4", agent: "codex", status: "idle", parkedAt: now - 12 * MIN, width: 0.38,
-        tabs: ["localhost:5173", "target/tmp/s36-2-light.png"], active: "localhost:5173", log: [] },
+        tabs: ["localhost:5173", "target/tmp/s36-2-light.png"], active: "localhost:5173", focus: "agent", zoom: false, log: [] },
       { id: "p7", repo: "~/work/kmux", worktree: true, title: "Pinch zoom in web panes", branch: "kanna/p7", agent: "claude", status: "idle", parkedAt: now - 64 * MIN, width: 0.32,
-        tabs: ["docs/kanna-spec.md", "tests"], active: "tests", log: [] },
+        tabs: ["docs/kanna-spec.md", "tests"], active: "tests", focus: "docs", zoom: false, log: [] },
       { id: "p8", repo: "~/work/kanna-v4", backlog: true, title: "S40 status test is flaky", by: "p1", madeAt: now - 40 * MIN,
         prompt: "S40 waits 5s for 'working' after answering the mock agent, but work(1) lasts a second; make the wait follow the status, and run it 20 times" },
       { id: "p9", repo: "~/work/kanna-v4", backlog: true, title: "kanna open infers the pane type", by: "p4", madeAt: now - 25 * MIN,
@@ -275,7 +280,7 @@ function shelf(w = keyWin()) {
 function planners() {
   for (const w of s.windows) {
     if (w.desk || w.planner) continue;
-    w.planner = { id: "p" + s.nextPane++, planner: true, repo: repoOf(w), agent: null, width: 0.38, log: [] };
+    w.planner = { id: "p" + s.nextPane++, planner: true, repo: repoOf(w), agent: null, width: 0.38, zoom: false, log: [] };
   }
 }
 const plannerOf = id => s.windows.map(w => w.planner).find(p => p && p.id === id);
@@ -400,16 +405,17 @@ function viewHTML(f) {
 }
 
 function deskHTML(t) {
-  return `<div class="content" data-content="${t.id}">
-    <div class="agent" style="flex:0 0 ${(t.width * 100).toFixed(1)}%">
+  const only = t.zoom && t.focus, agent = only !== "docs", docs = only !== "agent";
+  return `<div class="content ${only ? "zoomed" : ""}" data-content="${t.id}">
+    ${agent ? `<div class="agent ${t.focus === "agent" && !only ? "focused" : ""}" data-focus="agent" data-task="${t.id}" style="flex:0 0 ${(t.width * 100).toFixed(1)}%">
       <div class="head">${esc(folderOf(t))} · ${esc(t.branch)}<span class="spacer"></span><span class="pill icon" data-park="${t.id}" title="Park"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5.5 5.5 8 8l2.5-2.5"/><path d="M5 11h6" stroke-width="2"/></svg></span></div>
       <div class="term">${agentTerm(t)}</div>
-    </div>
-    <div class="grip" data-grip="${t.id}" title="Drag to resize; the width is this task's"></div>
-    <div class="docs">
+    </div>` : ""}
+    ${agent && docs ? `<div class="grip" data-grip="${t.id}" title="Drag to resize; the width is this task's"></div>` : ""}
+    ${docs ? `<div class="docs ${t.focus === "docs" && !only ? "focused" : ""}" data-focus="docs" data-task="${t.id}">
       <div class="dtabs">${t.tabs.map(f => `<div class="dtab ${f === t.active ? "on" : ""}" data-tab="${esc(f)}" data-task="${t.id}"><span class="nm">${esc(label(f))}</span><span class="x" data-close="${esc(f)}" data-task="${t.id}">×</span></div>`).join("")}<span class="add" data-add="${t.id}" title="New tab">+</span></div>
       <div class="dbody"><div class="view">${viewHTML(t.active)}</div></div>
-    </div>
+    </div>` : ""}
   </div>`;
 }
 
@@ -425,13 +431,13 @@ let cheerAt = location.hash.includes("picture") ? 0 : Math.floor(Math.random() *
 
 function emptyHTML(w) {
   const p = w.planner;
-  return `<div class="content">
+  return `<div class="content ${p.zoom ? "zoomed" : ""}">
     <div class="agent" style="flex:0 0 ${(p.width * 100).toFixed(1)}%">
       <div class="head">Planning · ${esc(p.repo)}${p.repo === "~" ? "" : " · main"}</div>
       <div class="term">${agentTerm(p)}</div>
     </div>
-    <div class="grip" data-grip="${p.id}" title="Drag to resize"></div>
-    <div class="docs">${shelfPageHTML(w)}</div>
+    ${p.zoom ? "" : `<div class="grip" data-grip="${p.id}" title="Drag to resize"></div>
+    <div class="docs">${shelfPageHTML(w)}</div>`}
   </div>`;
 }
 
@@ -517,6 +523,32 @@ function park(id) {
   w.desk = null;
   s.key = w.id;
   cheerAt = (cheerAt + 1) % cheers.length;
+  render();
+}
+
+function toggleShelf() {
+  const w = keyWin();
+  if (!w) return;
+  if (w.desk) return park();
+  const last = shelf(w).slice().sort((x, y) => (y.parkedAt || 0) - (x.parkedAt || 0))[0];
+  if (last) pull(last.id, w.id);
+}
+
+function shown(w = keyWin()) {
+  return w && (task(w.desk) || w.planner);
+}
+
+function zoom() {
+  const v = shown();
+  if (!v) return;
+  v.zoom = !v.zoom;
+  render();
+}
+
+function nextPane() {
+  const t = task(keyWin() && keyWin().desk);
+  if (!t) return;
+  t.focus = t.focus === "agent" ? "docs" : "agent";
   render();
 }
 
@@ -655,6 +687,7 @@ document.addEventListener("click", e => {
   if (el("[data-tab]")) { const c = el("[data-tab]"); return openTab(task(c.dataset.task), c.dataset.tab); }
   if (el("[data-add]")) { const t = task(el("[data-add]").dataset.add); let n = 1; while (t.tabs.includes(n === 1 ? "shell" : "shell " + n)) n++; return openTab(t, n === 1 ? "shell" : "shell " + n); }
   if (el("[data-link]")) { const t = task(keyWin().desk); return t && openTab(t, el("[data-link]").dataset.link); }
+  if (el("[data-focus]")) { const f = el("[data-focus]"); task(f.dataset.task).focus = f.dataset.focus; }
   if (w) render();
 });
 
@@ -690,6 +723,7 @@ document.addEventListener("keydown", e => {
   const find = e.target.closest && e.target.closest("[data-find]");
   if (find && !e.metaKey) return findKey(e, find);
   const input = e.target.closest && e.target.closest("[data-cmd]");
+  if (e.metaKey && e.shiftKey && e.key === "Enter") { e.preventDefault(); return zoom(); }
   if (input && e.key === "Enter" && input.value.trim()) {
     const t = task(input.dataset.cmd) || plannerOf(input.dataset.cmd), line = input.value;
     s.key = deskOf(t.id) ? deskOf(t.id).id : s.key;
@@ -708,8 +742,9 @@ document.addEventListener("keydown", e => {
   if (!e.shiftKey && /^[1-9]$/.test(e.key)) {
     const t = shelf()[Number(e.key) - 1];
     if (t) { e.preventDefault(); pull(t.id); }
-  } else if (!e.shiftKey && e.key === ".") { e.preventDefault(); park(); }
+  } else if (!e.shiftKey && e.key === ".") { e.preventDefault(); toggleShelf(); }
   else if (e.shiftKey && e.key.toLowerCase() === "a") { e.preventDefault(); waitingLongest(); }
+  else if (!e.shiftKey && (e.key === "]" || e.key === "[")) { e.preventDefault(); nextPane(); }
 });
 
 let drag = null;
@@ -767,6 +802,7 @@ if (location.hash.includes("empty")) {
   Object.assign(s.windows[0].planner, { agent: "claude", log: [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``, `<span class="p">&gt;</span> what's waiting?`, `<span class="m">●</span> Two tasks run (Doc markup reference model, working; Tab bar follows light mode, idle), and ${backlog("~/work/kanna-v4").length} wait in the backlog. Want me to start one?`] });
 }
 if (location.hash.includes("fresh")) fresh();
+if (location.hash.includes("zoom")) { if (task(s.windows[0].desk)) task(s.windows[0].desk).zoom = true; else { planners(); s.windows[0].planner.zoom = true; } }
 const asked = location.hash.match(/q=([^&]*)/);
 if (asked) { s.windows[0].query = decodeURIComponent(asked[1]); s.finding = "w1"; }
 if (location.hash.includes("new")) { fresh(); s.windows[0].repo = "~"; }
