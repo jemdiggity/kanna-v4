@@ -4,7 +4,7 @@
 
 Agents write code faster than you can read it, and you lose track of how your own codebase works. The **quiz** is a short break between reading agent output that keeps you up with what they built: five multiple-choice questions about what landed on main in the last day, asked by an agent in its chat, each answer explained, with the code opened at the line. It's the same problem the `kanna-explain` skill addresses, from the other side: you're asked, rather than told.
 
-It's a skill, `kanna-quiz`, and nothing else: the agent writes the questions itself when you start, and uses the `kanna` commands that already exist to open its window and the code.
+It's a skill, `kanna-quiz`: the agent writes the questions itself when you start, and uses the `kanna` commands that already exist to open its window and the code. Kanna adds two small things: a line in the SessionStart hook for the quiz agent, and an `open` from a terminal in a plain window going beside that terminal rather than into the window in front.
 
 **Done when** the planning agent offers a round on this repo's recent changes, and the agent in the Quiz window plays it as in the mockup, in light and dark.
 
@@ -97,9 +97,11 @@ sequenceDiagram
 
 - `git log main --since=1.day`. With nothing new, say nothing.
 - Otherwise offer once, in a line: what landed, and "Quiz on today's changes? Five questions, about two minutes."
-- On yes: `kanna focus quiz` if it's open, else `kanna open --window new --name quiz --cwd REPO --cmd 'AGENT "/kanna-quiz"'`, with the agent you are (Claude or Codex).
+- On yes: `kanna focus quiz` if it's open, else `kanna open --window new --name quiz --cwd REPO --cmd 'KANNA_QUIZ=1 claude "Quiz me on what landed on main."'`, with the agent you are (Codex: `codex --no-daemon`).
 
-**Asking** (the quiz agent):
+**Asking** starts from the SessionStart hook ([agent setup](agent-setup.md)): with `$KANNA_QUIZ` set it prints "You're running in Kanna as a quiz, on main: use the kanna-quiz skill now.", so the agent doesn't take itself for a task's (and rename main).
+
+In the quiz agent:
 
 - **Read before asking:** the commit messages and diff of the last day, and the specs they touch; pick five topics, broadest first.
 - **One question at a time,** written just before you ask it: four choices (three for a drawing), one right, the wrong ones plausible. Read the lines you'll point to, so the line numbers are right.
