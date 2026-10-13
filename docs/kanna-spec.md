@@ -518,7 +518,7 @@ Kanna.app's windows behave as kmux's: any number of windows, each with a tab bar
 | Kind | Examples | Goes to |
 |---|---|---|
 | **Layout only** | select, rename, reorder or tear off a tab; focus, zoom, next or previous pane, tab or window; move a pane (Move Pane to New Window, a drag) | the app's own layout model, as the same `command` step the daemon would send (`focus`, `zoom`, `rename-tab`, `move`, `move-tab`) |
-| **A pane starts or ends** | Split Right / Down, New Tab, New Window, new web, markdown and iOS panes, Restart, Close Pane, × on a tab, Close Window, the red button | the daemon, as a client's request (`open`, `restart`, `close`), which then sends its layout steps back |
+| **A pane starts or ends** | Split Right / Down, New Tab, New Window, new web, markdown and iOS panes, Close Pane, × on a tab, Close Window, the red button | the daemon, as a client's request (`open`, `restart`, `close`), which then sends its layout steps back |
 | **What only the app knows** | a click focusing a pane, a divider dragged, a window moved, which panes are wide | the model's app-only calls (below) |
 
 Why layout-only actions don't go through the daemon: the app owns the layout and is its only writer; a round trip would make every tab click wait on the daemon (and fail while it restarts) and give the same answer. Why opening and closing do: panes are the daemon's ([4.2](#42-what-the-daemon-keeps-what-the-app-keeps)); its core gives the IDs, starts and stops terminals, and places the pane through the same steps as a CLI `open`.
@@ -591,7 +591,7 @@ sequenceDiagram
 | Kanna | Quit Kanna ⌘Q (no New Instance, unlike kmux) |
 | File | New Desk ⌘N ([tasks](specs/tasks.md#2-how-tasks-are-made)) |
 | Edit | Undo ⌘Z, Redo ⇧⌘Z, Cut ⌘X, Copy ⌘C, Paste ⌘V, Select All ⌘A (sent to whatever has focus) |
-| Pane | Split Right ⌘D, Split Down ⇧⌘D, New Web / iOS Pane Right and Below, New Markdown Pane Right… and Below…, Open URL… ⌘L, Back, Forward, Home ⇧⌘H, Next Pane ⌘], Previous Pane ⌘[, Zoom ⇧⌘↩, Move Pane to New Window, Restart ⌘R, Close Pane ⌘W |
+| Pane | Split Right ⌘D, Split Down ⇧⌘D, New Web / iOS Pane Right and Below, New Markdown Pane Right… and Below…, Open URL… ⌘L, Back, Forward, Home ⇧⌘H, Next Pane ⌘], Previous Pane ⌘[, Zoom ⇧⌘↩, Move Pane to New Window, Reload ⌘R (web panes only: reloads the page; terminals have no restart on a key, since it would end an agent or a shell's program without asking, and `kanna restart` is there for a command pane), Close Pane ⌘W |
 | View | New Tab ⌘T, Next Tab ⇧⌘], Previous Tab ⇧⌘[, Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 (a markdown or web pane's magnification, which scales the page without re-laying it out, or a terminal's font size; a pinch magnifies markdown and web panes too) |
 | Window | New Window (no shortcut: ⌘N is New Desk), Close Window ⇧⌘W, Move Tab to New Window, Next Window ⌘\`, Previous Window ⇧⌘\`, and the list of windows |
 

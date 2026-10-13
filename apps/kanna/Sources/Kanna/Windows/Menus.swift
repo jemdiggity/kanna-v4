@@ -74,7 +74,7 @@ extension AppController {
             ("Zoom", #selector(toggleZoom), "toggle_split_zoom", .shiftCmd("\r")),
             ("Move Pane to New Window", #selector(movePaneToNewWindow), nil, nil),
             nil,
-            ("Restart", #selector(restartPane), nil, .cmd("r")),
+            ("Reload", #selector(reloadPane), nil, .cmd("r")),
             ("Close Pane", #selector(closeFocusedPane), "close_surface", .cmd("w")),
         ])
         _ = menu("View", [
@@ -202,12 +202,12 @@ extension AppController {
         switch item.action {
         case #selector(zoomIn), #selector(zoomOut), #selector(actualSize): return panes.terminal(pane) != nil || contents.markdown(pane) != nil || contents.web(pane) != nil || contents.code(pane) != nil
         case #selector(pressHome): return contents.ios(pane)?.screen != nil
-        case #selector(openURL): return contents.web(pane) != nil
+        case #selector(openURL), #selector(reloadPane): return contents.web(pane) != nil
         case #selector(toggleComments):
             item.state = commentsOn(pane) ? .on : .off
             return contents.web(pane) != nil || contents.markdown(pane) != nil
         case #selector(goBack), #selector(goForward): return contents.web(pane) != nil || contents.markdown(pane) != nil || contents.code(pane) != nil
-        case #selector(nextPane), #selector(previousPane), #selector(toggleZoom), #selector(restartPane):
+        case #selector(nextPane), #selector(previousPane), #selector(toggleZoom):
             return focusedPane != nil
         case #selector(movePaneToNewWindow): return focusedPane.map { !frozen($0) } ?? false
         case #selector(closeFocusedPane): return focusedPane.map { !docked($0) } ?? false
@@ -270,9 +270,9 @@ extension AppController {
         layoutCommand("move-tab", ["tab": .string(tab), "window": "new"])
     }
 
-    @objc func restartPane() {
+    @objc func reloadPane() {
         guard let pane = focusedPane else { return }
-        request("restart", ["pane": .string(pane)])
+        contents.web(pane)?.webView.reload()
     }
 
     @objc func closeFocusedPane() {
