@@ -97,11 +97,12 @@ pub struct Window {
     /// The window's planning agent: shown docked on the left while no task is, never a task itself.
     pub planner: Option<Dock>,
     pub zoom: bool,
+    pub shelf_zoom: bool,
 }
 
 impl Window {
     pub(crate) fn new(id: String) -> Window {
-        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, backlog: false, project: None, planner: None, zoom: false }
+        Window { id, tabs: vec![], active: None, focused: None, frame: None, tab_count: 0, dock: None, desk: false, parked_at: None, backlog: false, project: None, planner: None, zoom: false, shelf_zoom: false }
     }
 
     pub fn shown_panes(&self) -> Vec<String> {
@@ -138,8 +139,16 @@ impl Window {
         }
     }
 
+    pub fn shows_shelf(&self) -> bool {
+        self.desk && self.dock.is_none()
+    }
+
+    pub(crate) fn zoom_mut(&mut self) -> &mut bool {
+        if self.shows_shelf() { &mut self.shelf_zoom } else { &mut self.zoom }
+    }
+
     pub fn zoomed(&self) -> Option<&String> {
-        self.focused.as_ref().filter(|_| self.zoom)
+        self.focused.as_ref().filter(|_| if self.shows_shelf() { self.shelf_zoom } else { self.zoom })
     }
 
     fn active_index(&self) -> Option<usize> {
@@ -429,6 +438,9 @@ impl Model {
 
     fn dock(&mut self, id: &str, w: usize, edge: Edge, frozen: bool) {
         let old = self.windows[w].dock.clone();
+        if self.windows[w].shows_shelf() {
+            self.windows[w].zoom = false;
+        }
         if let Some(old) = old.as_ref().filter(|old| old.pane != id) {
             let t = self.make_tab(w, false);
             self.append(&old.pane, (w, t));
@@ -668,9 +680,8 @@ impl Model {
         let w = self.window_containing(&id).ok_or_else(|| not_found(format!("no pane \"{id}\"")))?;
         let was = self.windows[w].zoomed() == Some(&id);
         self.focus_pane(&id);
-        let window = &mut self.windows[w];
-        window.zoom = !was;
-        Ok(reply([("zoomed", Value::Bool(window.zoom))]))
+        *self.windows[w].zoom_mut() = !was;
+        Ok(reply([("zoomed", Value::Bool(!was))]))
     }
 
     fn rename_tab(&mut self, args: &Value) -> Result<Map, KmuxError> {
@@ -1157,6 +1168,9 @@ impl LayoutHost for Model {
                 if window.desk {
                     out.insert("desk".into(), Value::Bool(true));
                 }
+                if window.shelf_zoom {
+                    out.insert("shelfZoom".into(), Value::Bool(true));
+                }
                 if let Some(at) = window.parked_at {
                     out.insert("parkedAt".into(), num(at));
                 }
@@ -1286,12 +1300,13 @@ impl LayoutHost for Model {
                 .or_else(|| window.active_tab().and_then(|t| t.last_focus.clone()))
                 .or(first)
                 .or_else(|| window.side_pane());
-            if let Some(zoomed) = string(item, "zoomed").filter(|z| shown.iter().any(|s| s == z)) {
-                window.zoom = true;
-                window.focused = Some(zoomed.into());
-            }
             window.tab_count = whole(item.get("tabCount")).unwrap_or(0).max(window.tabs.len());
             window.desk = item.get("desk").and_then(Value::as_bool).unwrap_or(false);
+            window.shelf_zoom = !parked && item.get("shelfZoom") == Some(&Value::Bool(true));
+            if let Some(zoomed) = string(item, "zoomed").filter(|z| shown.iter().any(|s| s == z)) {
+                *window.zoom_mut() = true;
+                window.focused = Some(zoomed.into());
+            }
             window.project = string(item, "project").map(String::from);
             window.parked_at = if parked { Some(item.get("parkedAt").and_then(Value::as_f64).unwrap_or(0.0)) } else { None };
             window.backlog = parked && item.get("backlog").and_then(Value::as_bool) == Some(true);

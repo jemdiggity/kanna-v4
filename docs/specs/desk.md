@@ -61,7 +61,12 @@ flowchart LR
 - **Each task's time shows beside its name** (pictured above): how long ago it was parked, or needs you, muted, kept current while it's shown. Its ⌘ key shows on hover. When the strip is too narrow, titles truncate first, each in proportion to its length, down to a short floor; then the backlog count gives way; then the times.
 - **Click to swap:** the clicked task comes onto this Desk and the current one goes to the Shelf, in one step. **⌘1 … ⌘3** swap in the Shelf's 1st … 3rd task the same way. **⇧⌘A** pulls the task that has needed you longest, and **⌘.** parks, or on an empty Desk pulls back the task parked last. They're in the Task menu.
 - **At most three tasks per project:** the one on the Desk and two on the Shelf (three on the full Shelf), running or stopped. Moving a fourth to the Shelf is refused until one goes back to the backlog or is Done; any number run in the backlog ([tasks](tasks.md#5-stop-done-or-back-to-the-backlog)).
-- **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one and scroll positions come back as they were.
+- **Parked means hidden, not stopped.** A parked task's terminals keep running in the daemon, and its tabs, the shown one, focus, [zoom](zoom.md#on-a-desk-the-tasks-zoom-and-the-shelfs) and scroll positions come back as they were.
+- **The Shelf view has its own zoom.** ⇧⌘↩ on it zooms the planner, and it stays zoomed (or not) whatever the tasks do:
+
+  | Task zoomed | ⌘. | Shelf view, zoomed earlier | ⌘. |
+  |---|---|---|---|
+  | ![The task's log fills the window](zoom-desk-task.png) | → | ![The planner fills the window](zoom-desk-planner.png) | → back to the task, zoomed |
 
 ## 4. The planning agent
 
@@ -97,7 +102,7 @@ flowchart TB
 
 - **The mux layer does the layout.** A Desk is an ordinary window with a [docked pane](docked-pane.md) and tabs. Nothing in the mux layer knows about tasks.
 - **The Desk layer is chrome and the Shelf.** The app keeps parked tasks (their dock with its width, their tabs, and when they were parked), saved with the windows ([4.7](../kanna-spec.md#47-the-layout)). The title bar, agent header and Shelf are app views around the window's content.
-- **Parking** moves the task's dock and tabs off the window; the panes keep their IDs, and their terminals never notice.
+- **Parking** moves the task's dock, tabs, focus and zoom off the window; the panes keep their IDs, and their terminals never notice. The window keeps the Shelf view's zoom ([zoom](zoom.md#4-how-its-built)).
 - **The planning terminal is the window's `planner`**: a pane the window holds beside its dock, shown on the left only while the dock is empty. Parking and pulling move the dock and tabs and leave it where it is. The app asks the daemon for one (`backlog` `plan`) when a Desk shows no task and has none; the daemon makes its command and opens it with the `planner` placement.
 - **`kanna task` commands** are layout commands: they go to the app like `open --split`, and start it if it's closed.
 

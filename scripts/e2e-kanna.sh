@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S57) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S58) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -35,7 +35,7 @@ through=M4 only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --through) through="$2"; shift ;;
-    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-7]) only+=("$1") ;;
+    S[1-9]|S1[0-9]|S2[0-2]|S3[0-9]|S4[0-9]|S5[0-8]) only+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     *) echo "e2e-kanna: unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -1972,10 +1972,59 @@ print(sum(1 for l in lines if l.get("turn") and sys.argv[2] in l["prompt"] and (
   stop_agents
 }
 
-due() {
-  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-7]) echo M4 ;; esac
+S58() {
+  local agent="$repo_root/tools/mock-agent/mock-agent" repo="$KANNA_STATE_DIR/repo" planner task shot
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S58 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  start_daemon || { echo "S58 line $LINENO"; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"w1\"}}" | field "$1"; }
+  check wait_for 10 eval '[[ "$(desk planner)" == p* ]]' || { echo "S58: no planning terminal"; kanna list; return 1; }
+  planner="$(desk planner)"
+  (cd "$repo" && kanna task new "Zoomed task" "hello" --agent "$agent") >/dev/null && kanna task shelve t1 >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  kanna task pull "Zoomed task" >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  task="$(win w1 dock.pane)"
+  KANNA_PANE="$task" kanna open --name log --cmd "printf 'GET / 200\n'; exec sleep 600" >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  kanna open --name tests --split right --cmd "printf 'test result: ok\n'; exec sleep 600" >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  kanna focus log >/dev/null && key cmd+shift+return || { echo "S58 line $LINENO"; return 1; }
+  check test "$(win w1 zoomed)" == log || { echo "S58: ⇧⌘↩ didn't zoom the task's pane"; kanna list; return 1; }
+  shown_alone() { shot="$(snap w1 "$1")"; python3 -c 'import json, sys; s = json.loads(sys.argv[1]); p = s["panes"]; assert len(p) == 1 and p[0]["width"] == s["width"], s' "$shot"; }
+  sleep 0.5; check shown_alone s58-task-zoomed || { echo "S58: the zoomed pane doesn't fill the window"; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock)" == None ]]' || { echo "S58: ⌘. didn't park the task"; return 1; }
+  check test "$(win w1 focused):$(win w1 zoomed)" == "$planner:None" || { echo "S58: the Shelf view came up zoomed"; kanna list; return 1; }
+  check test "$(desk page)" == True || { echo "S58: no full Shelf beside the planner"; return 1; }
+  key cmd+shift+return
+  check test "$(win w1 zoomed)" == "$planner" || { echo "S58: ⇧⌘↩ didn't zoom the planner"; kanna list; return 1; }
+  sleep 0.5; check shown_alone s58-planner-zoomed || { echo "S58: the zoomed planner doesn't fill the window"; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == "$task" ]]' || { echo "S58: ⌘. didn't pull the task back"; return 1; }
+  check test "$(win w1 focused):$(win w1 zoomed)" == "log:log" || { echo "S58: the task didn't come back zoomed where it was"; kanna list; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock)" == None ]]' || { echo "S58 line $LINENO"; return 1; }
+  check test "$(win w1 zoomed)" == "$planner" || { echo "S58: the Shelf view didn't come back zoomed"; kanna list; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock.pane)" == "$task" ]]' || { echo "S58 line $LINENO"; return 1; }
+  stop_app; start_app || { echo "S58 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(win w1 zoomed)" == log ]]' || { echo "S58: the task's zoom didn't survive a relaunch"; kanna list; return 1; }
+  sleep 0.5; check shown_alone s58-task-relaunched || { echo "S58 line $LINENO"; return 1; }
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 dock)" == None ]]' || { echo "S58 line $LINENO"; return 1; }
+  check test "$(win w1 zoomed)" == "$planner" || { echo "S58: the Shelf's zoom didn't survive a relaunch"; kanna list; return 1; }
+  kanna zoom "$planner" >/dev/null || { echo "S58 line $LINENO"; return 1; }
+  check test "$(win w1 zoomed)" == None || { echo "S58: kanna zoom didn't turn the Shelf's zoom off"; return 1; }
+  sleep 0.5; check drawn "$(snap w1 s58-shelf)" 1 || return 1
+  key "cmd+."
+  check wait_for 5 eval '[[ "$(win w1 zoomed)" == log ]]' || { echo "S58: the task lost its zoom to the Shelf's"; kanna list; return 1; }
+  stop_agents
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57)
+
+due() {
+  case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-8]) echo M4 ;; esac
+}
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
