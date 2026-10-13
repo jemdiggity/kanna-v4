@@ -63,7 +63,52 @@ flowchart LR
 
 **What stays where it is.** `layout.json` stays the app's, in kmux's state file format, so kmux can read it and the reference model stays the reference ([kanna spec 4.7](../kanna-spec.md#47-the-layout)). Doc threads stay beside their docs ([doc markup](doc-markup.md)), where an agent reads them. Settings stay JSON files people edit.
 
-**Later candidates,** not built: quiz rounds and answers ([quiz](quiz.md)); agent session IDs per task over time; agent status history (how long a task waited on you); build timings.
+## Quiz results
+
+**[Proposed]** Every [quiz](quiz.md) round and answer is kept, so misses can come back in a later round and a round can cover what's new since the last one.
+
+```mermaid
+sequenceDiagram
+    participant Q as quiz agent
+    participant K as kanna CLI
+    participant D as daemon
+    Q->>K: kanna quiz start
+    K->>D: quiz start (repo, main's commit)
+    D-->>Q: round r12
+    loop each answer
+        Q->>K: kanna quiz answer r12 --kind why --file F:L --right|--wrong --json {…}
+        K->>D: quiz answer
+    end
+    Q->>K: kanna quiz history [--misses]
+    D-->>Q: past answers, for picking the next round
+```
+
+**quiz_rounds**: one row per round.
+
+| Column | Type | Holds |
+|---|---|---|
+| `id` | integer, key | shown as `r12` |
+| `repo` | text | the repo's folder |
+| `at` | real | when it started |
+| `head` | text | main's commit it asked about |
+| `doc` | JSON | commits covered, agent, … |
+
+**quiz_answers**: one row per question answered.
+
+| Column | Type | Holds |
+|---|---|---|
+| `id` | integer, key | |
+| `round` | integer → `quiz_rounds.id` | |
+| `at` | real | when it was answered |
+| `kind` | text | `architecture`, `drawing`, `behaviour`, `where`, `why`, `bug` |
+| `file` | text | the file the question is about |
+| `right` | integer | 1 or 0 |
+| `doc` | JSON | question, choices, the pick, the right choice, explanation, lines, … |
+
+- **The quiz agent writes them** with `kanna quiz start`, `answer` and `history`, through the daemon like every other write. This replaces the quiz spec's "nothing is kept" rule and its rejected `kanna quiz` command.
+- **Still no score:** the end of a round says what you knew of these changes; `history` is for the agent picking questions, not a total shown to you.
+
+**Later candidates,** not built: agent session IDs per task over time; agent status history (how long a task waited on you); build timings.
 
 **Checked by** `db.rs`'s tests (a real `backlog.json` imported with every task and the counter; a held task; a change and its event together; unknown doc keys kept; a corrupt, missing or newer db; a `backlog.json` beside the db), the layout owner's tests (park and pull, a swap, report their moves) and e2e S58 (import, every event of a task's life with who did it, the app's park, a corrupt db at restart).
 
