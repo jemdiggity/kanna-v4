@@ -219,7 +219,7 @@ impl Model {
                     self.key = Some(window.clone());
                 }
                 match task {
-                    Some(task) => Ok(reply([("task", task.into()), ("window", window.into()), ("parked", Value::Bool(true))])),
+                    Some(task) => Ok(reply([("moves", moves(&[(&task, "desk", "shelf", &window)])), ("task", task.into()), ("window", window.into()), ("parked", Value::Bool(true))])),
                     None if args.get("close").and_then(Value::as_bool) == Some(true) => Ok(reply([("task", Value::Null), ("window", window.into()), ("parked", Value::Bool(false))])),
                     None => Err(not_found(format!("{window} has no task to park"))),
                 }
@@ -234,7 +234,7 @@ impl Model {
                 }
                 let w = self.desk_for(string("window"))?;
                 let window = self.windows[w].id.clone();
-                self.park_window(w);
+                let swapped = self.park_window(w);
                 let i = self.parked.iter().position(|p| p.id == task).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
                 let parked = self.parked.remove(i);
                 let target = &mut self.windows[w];
@@ -247,7 +247,9 @@ impl Model {
                 target.desk = true;
                 target.settle_focus();
                 self.key = Some(window.clone());
-                Ok(reply([("task", task.into()), ("window", window.into()), ("moved", Value::Bool(true))]))
+                let mut moved = swapped.iter().map(|p| (p.as_str(), "desk", "shelf", window.as_str())).collect::<Vec<_>>();
+                moved.push((&task, "shelf", "desk", &window));
+                Ok(reply([("moves", moves(&moved)), ("task", task.into()), ("window", window.into()), ("moved", Value::Bool(true))]))
             }
             "hold" => {
                 let reference = string("task").ok_or_else(|| bad_request("hold needs a task"))?;
@@ -316,4 +318,8 @@ fn without(node: Node, id: &str) -> Option<Node> {
             Some(normalize(Node::Split(Split { axis: split.axis, kids })))
         }
     }
+}
+
+fn moves(moved: &[(&str, &str, &str, &str)]) -> Value {
+    Value::Array(moved.iter().map(|(task, from, to, window)| crate::json::json!({ "task": task, "from": from, "to": to, "window": window })).collect())
 }

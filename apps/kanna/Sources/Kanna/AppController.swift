@@ -318,6 +318,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         if reply["ok"]?.bool != true {
             FileHandle.standardError.write(Data("kanna: \(cmd): \(reply["error"]?["message"]?.string ?? "failed")\n".utf8))
         }
+        if let moves = reply["moves"], case .array(let list) = moves, !list.isEmpty {
+            request("backlog", ["action": "moved", "moves": moves, "by": "user"])
+        }
         layoutChanged()
         return reply
     }

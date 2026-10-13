@@ -62,7 +62,7 @@ impl Place {
         }
     }
 
-    fn parse(text: &str) -> Option<Place> {
+    pub fn parse(text: &str) -> Option<Place> {
         [Place::Backlog, Place::Shelf, Place::Desk, Place::Done].into_iter().find(|p| p.as_str() == text)
     }
 }
@@ -325,6 +325,7 @@ impl Db {
         rows.collect()
     }
 
+    #[cfg(test)]
     pub fn counter(&self) -> rusqlite::Result<u64> {
         let value: Option<String> = self.conn.query_row("select value from meta where key = 'next_task'", [], |r| r.get(0)).optional()?;
         Ok(value.and_then(|v| v.parse().ok()).unwrap_or(0))
@@ -332,7 +333,7 @@ impl Db {
 
     pub fn next_task(&self) -> rusqlite::Result<String> {
         let tx = self.conn.unchecked_transaction()?;
-        let next = tx.query_row("select coalesce((select cast(value as integer) from meta where key = 'next_task'), 0) + 1", [], |r| r.get::<_, i64>(0))?;
+        let next = tx.query_row("select max(coalesce((select cast(value as integer) from meta where key = 'next_task'), 0), coalesce((select max(cast(substr(id, 2) as integer)) from tasks), 0)) + 1", [], |r| r.get::<_, i64>(0))?;
         tx.execute("insert or replace into meta (key, value) values ('next_task', ?1)", [next.to_string()])?;
         tx.commit()?;
         Ok(format!("t{next}"))
@@ -363,11 +364,6 @@ impl Db {
             Ok(Logged { task: r.get(0)?, at: r.get(1)?, what: r.get(2)?, from: place(3)?, to: place(4)?, by: r.get(5)?, doc: serde_json::from_str(&doc).unwrap_or(Value::Null) })
         })?;
         rows.collect()
-    }
-
-    pub fn place(&self, task: &str) -> rusqlite::Result<Option<Place>> {
-        let place: Option<String> = self.conn.query_row("select place from tasks where id = ?1", [task], |r| r.get(0)).optional()?;
-        Ok(place.as_deref().and_then(Place::parse))
     }
 }
 

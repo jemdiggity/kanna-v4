@@ -385,6 +385,11 @@ pub static COMMANDS: &[Command] = &[
             if let Some(window) = window {
                 out["window"] = json!(window);
             }
+            if ["start", "stop", "shelve", "defer", "done", "park", "pull"].contains(&action.as_str()) {
+                if let Some(by) = std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()) {
+                    out["by"] = json!(by);
+                }
+            }
             Ok(out)
         },
         show: output::task,

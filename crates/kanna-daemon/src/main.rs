@@ -174,9 +174,13 @@ fn run() -> Result<(), String> {
     let host = Rc::new(Host::new(terminals.clone()));
     core.set_host(Some(host.clone()));
     let on_change = Rc::downgrade(&terminals);
+    let tasks_changed = Rc::downgrade(&backlog);
     core.set_on_change(Some(Rc::new(move || {
         if let Some(terminals) = on_change.upgrade() {
             terminals.mark_changed();
+        }
+        if let Some(backlog) = tasks_changed.upgrade() {
+            backlog.mark_changed();
         }
     })));
     let adopted = match keeper.adopt() {
@@ -255,6 +259,7 @@ fn run() -> Result<(), String> {
         app.expire(Instant::now());
         let deadline = [core.poll(), app.next_deadline()].into_iter().flatten().min();
         terminals.save_if_changed();
+        backlog.sweep();
         let event = match deadline {
             Some(at) => inbox.recv_timeout(at.saturating_duration_since(Instant::now())),
             None => inbox.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -280,6 +285,16 @@ fn run() -> Result<(), String> {
                         reply(answer)
                     })
                 }
+                None if moves_tasks(&request) => {
+                    let by = request.get("args").and_then(|a| a.get("by")).and_then(Value::as_str).unwrap_or("user").to_string();
+                    let tasks = Rc::downgrade(&backlog);
+                    core.handle(request, move |answer| {
+                        if let Some(backlog) = tasks.upgrade() {
+                            backlog.moved(&answer, Some(&by));
+                        }
+                        reply(answer)
+                    })
+                }
                 None => core.handle(request, reply),
             },
             Event::Wake => {}
@@ -296,6 +311,7 @@ fn run() -> Result<(), String> {
             }
             Event::Drained { pane, serial } => {
                 if let Some(code) = terminals.drained(&pane, serial) {
+                    backlog.exited(&pane, code);
                     app.exited(&pane, code);
                     app.status(&pane, Some("exited"));
                 }
@@ -318,6 +334,7 @@ fn run() -> Result<(), String> {
                         for exit in exits {
                             let code = exit.status.shell_status();
                             if let Some((pane, code)) = terminals.exited(&exit.id, exit.pid, code) {
+                                backlog.exited(&pane, code);
                                 app.exited(&pane, code);
                                 app.status(&pane, Some("exited"));
                             }
@@ -423,4 +440,8 @@ mod tests {
         assert_eq!(name("/x/kanna-dev-task-3f9a1c2e/kanna.sock"), "task-3f9a1c2e");
         assert_eq!(name("/tmp/kanna-e2e.x/kanna.sock"), "default");
     }
+}
+
+fn moves_tasks(request: &Value) -> bool {
+    request.get("cmd").and_then(Value::as_str) == Some("task") && matches!(request.get("args").and_then(|a| a.get("action")).and_then(Value::as_str), Some("park" | "pull"))
 }
