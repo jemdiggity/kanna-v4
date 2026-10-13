@@ -911,6 +911,11 @@ impl Backlog {
             let mut ran = entry.clone();
             ran.folder = Some(folder.clone());
             ran.session = ran.session.or(session);
+            // The agent has started, so restarting its pane (kanna restart) resumes its session rather than starting
+            // it again: claude refuses a session ID that already has a conversation.
+            if let Some(core) = weak.upgrade() {
+                core.set_command(&pane, ran.command(None));
+            }
             if backlog {
                 return this.running_here(pane, ran, branch, by, responder);
             }

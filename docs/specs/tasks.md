@@ -87,7 +87,7 @@ stateDiagram-v2
 
 ### Which agents resume
 
-Kanna gives an agent a session ID of its own when it starts, if the agent takes one, and keeps it with the task; otherwise it resumes the latest session in the task's worktree, through the agent's own flag where that flag is the folder's, or by reading the agent's records by folder. Each task has its own worktree, so the folder's latest session is the task's.
+Kanna gives an agent a session ID of its own when it starts, if the agent takes one, and keeps it with the task; otherwise it resumes the latest session in the task's worktree, through the agent's own flag where that flag is the folder's, or by reading the agent's records by folder. Each task has its own worktree, so the folder's latest session is the task's. Once the agent has started, its pane's command is the resuming one, so `kanna restart` on it comes back to its conversation (claude refuses a session ID that already has one).
 
 | Agent | Started with | Resumed with | A task Kanna didn't start |
 |---|---|---|---|
