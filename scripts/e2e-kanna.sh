@@ -2448,7 +2448,7 @@ for t in tasks: print(t["id"], "running" if t.get("running") else "stopped:" + (
   check test "$(of t6 2)" == stopped:finished || { backlog; return 1; }
   check test "$(of t3 2)" == waiting || { echo "backlog_runners: the blocked task ran"; backlog; return 1; }
   local asks sid; asks="$(of t2 3)" sid="$(of t1 4)"
-  [[ "$sid" =~ ^[0-9a-f-]{36}$ ]] && shows "$(of t1 3)" "^session $sid" || { echo "backlog_runners: t1's session isn't the one it started ($sid)"; kanna read "$(of t1 3)"; return 1; }
+  [[ "$sid" =~ ^[0-9a-f-]{36}$ && "$(kanna read "$(of t1 3)")" == *$'\n'"session $sid"$'\n'* ]] || { echo "backlog_runners: t1's session isn't the one it started ($sid)"; kanna read "$(of t1 3)"; return 1; }
   sid="$(of t2 4)"
   [[ "$sid" =~ ^[0-9a-f-]{36}$ ]] && shows "$asks" "To continue this session, run: codex resume $sid" || { echo "backlog_runners: the session codex said as it quit wasn't recorded ($sid)"; backlog; kanna read "$asks"; return 1; }
   check is "$asks" state exited || { echo "backlog_runners: the stopped agent still runs"; return 1; }
