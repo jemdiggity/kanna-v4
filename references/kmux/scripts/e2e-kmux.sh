@@ -135,6 +135,21 @@ key "cmd+]"; [[ "$(field windows.0.zoomed <<<"$(state)")" == p9 ]] || fail "cmd+
 key "cmd+shift+return"; [[ "$(field windows.0.zoomed <<<"$(state)")" == None ]] || fail "cmd+shift+return should turn zoom off"
 sleep 1
 drawn three-panes "*" 3
+# ⌘R reloads a web pane in place; on a terminal Reload is greyed out and ⌘R goes to the program.
+reload_enabled() { raw '{"id":1,"cmd":"debug.menu"}' | python3 -c 'import json, sys
+print(next(i["enabled"] for i in json.load(sys.stdin)["items"] if i["item"] == "Reload"))'; }
+[[ "$(reload_enabled)" == False ]] || fail "Reload should be greyed out on a terminal"
+echo '<h1>BEFORE RELOAD</h1>' > "$out/site/reload.html"
+"$cli" open web "localhost:$port/reload.html" --name rl --tab >/dev/null
+rl() { raw '{"id":1,"cmd":"debug.web","args":{"pane":"rl"}}'; }
+for _ in $(seq 20); do [[ "$(field text <<<"$(rl)")" == *"BEFORE RELOAD"* ]] && break; sleep 0.25; done
+[[ "$(field text <<<"$(rl)")" == *"BEFORE RELOAD"* ]] || fail "the page to reload never loaded: $(rl)"
+[[ "$(reload_enabled)" == True ]] || fail "Reload should be enabled on a web pane"
+echo '<h1>AFTER RELOAD</h1>' > "$out/site/reload.html"
+key "cmd+r"
+for _ in $(seq 20); do [[ "$(field text <<<"$(rl)")" == *"AFTER RELOAD"* ]] && break; sleep 0.25; done
+[[ "$(field text <<<"$(rl)")" == *"AFTER RELOAD"* ]] || fail "cmd+r should reload the web pane: $(rl)"
+"$cli" close rl >/dev/null
 key "cmd+t"; [[ "$(field windows.0.tabs <<<"$(state)" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" == 2 ]] || fail "cmd+t should add a tab"
 key "cmd+shift+["; [[ "$(field windows.0.tabs.0.active <<<"$(state)")" == True ]] || fail "cmd+shift+[ should go to the first tab"
 key "cmd+shift+]"; [[ "$(field windows.0.tabs.1.active <<<"$(state)")" == True ]] || fail "cmd+shift+] should go to the second tab"
@@ -154,7 +169,7 @@ key "cmd+shift+w"
 
 # Menus: every action in the spec's table (§5) has a menu item.
 menus="$(raw '{"id":1,"cmd":"debug.menu"}')"
-for item in "Split Right" "Split Down" "Open URL…" "Zoom" "Move Pane to New Window" "Restart" "Close Pane" "New Tab" \
+for item in "Split Right" "Split Down" "Open URL…" "Zoom" "Move Pane to New Window" "Reload" "Close Pane" "New Tab" \
             "New Window" "Close Window" "Move Tab to New Window" "Next Window" "New Instance" "Copy" "Paste" "Select All"; do
   [[ "$menus" == *"\"item\": \"$item\""* || "$menus" == *"\"item\":\"$item\""* ]] || fail "no menu item \"$item\""
 done

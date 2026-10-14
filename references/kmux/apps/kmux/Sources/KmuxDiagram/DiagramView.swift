@@ -33,10 +33,17 @@ extension DiagramScene {
                 }
                 context.restoreGState()
             case .text(let label):
+                context.saveGState()
+                if label.angle != 0 {
+                    context.translateBy(x: label.rect.midX, y: label.rect.midY)
+                    context.rotate(by: label.angle)
+                    context.translateBy(x: -label.rect.midX, y: -label.rect.midY)
+                }
                 if LabelText.draw(label.text, in: label.rect, size: label.size, color: palette.resolve(label.color), bold: label.bold,
-                                  htmlLike: label.htmlLike, alignment: label.alignment, context: context) {
+                                  italic: label.italic, htmlLike: label.htmlLike, alignment: label.alignment, context: context) {
                     shrunk += 1
                 }
+                context.restoreGState()
             }
         }
         return shrunk
