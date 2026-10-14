@@ -20,12 +20,12 @@ stateDiagram-v2
     direction LR
     [*] --> blocked: kanna task new --after t4
     blocked --> startable: its last blocker is Done
-    blocked --> started: Start anyway
+    blocked --> started: --anyway
     startable --> started: start or Move to Shelf
 ```
 
-- **A blocked backlog row** has a dashed ring, an orange line naming what it waits for, and **Blocked · Start anyway** where Move to Shelf usually is. Clicking the row, ↩ in search, `kanna task start` or `kanna task shelve` is refused, and the note says what it waits for.
-- **Start anyway** (`--anyway`) starts it now. Blockers only hold back a task's first start: once it has started, they don't matter.
+- **A blocked backlog row** has a dashed ring, an orange line naming what it waits for, and **Blocked** where Move to Shelf usually is. Clicking the row, ↩ in search, `kanna task start` or `kanna task shelve` is refused, and the note says what it waits for.
+- **`--anyway` starts it now,** from the CLI only: `kanna task start TASK --anyway`, which the planning agent runs when you ask it to. The app has no Start anyway. Blockers only hold back a task's first start: once it has started, they don't matter.
 - **Done means Done in Kanna** (`kanna task done`, Done in the app, or its agent's pane closed), not merged. Kanna doesn't watch git for this.
 - **When the last blocker is Done, the task becomes startable,** and nothing starts by itself. The row loses its badge, and `kanna task done` says which tasks it freed (`t14 "Release notes for 0.9" can start now`), so the planning agent can offer to start them.
 - **A task can't wait for itself,** directly or through others: making that loop is refused.
@@ -39,7 +39,7 @@ stateDiagram-v2
 
 ## Setting them
 
-Only the planning agent, an agent, or you in a terminal set them, with the CLI. The app shows them and offers Start anyway, but has no form.
+Only the planning agent, an agent, or you in a terminal set them, with the CLI. The app only shows them.
 
 ```sh
 kanna task new "Diff viewer" "…" --on t12

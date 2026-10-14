@@ -192,8 +192,6 @@ body.picture .cmd input::placeholder { color: transparent; }
 .row.blocked .dot { border-style: dashed; }
 .row .wait { color: var(--warn); }
 .row .on { color: var(--text); font: 11px var(--mono); }
-.row .go .anyway { cursor: pointer; }
-.row .go .anyway:hover { color: var(--accent); text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -205,7 +203,7 @@ body.picture .cmd input::placeholder { color: transparent; }
       <button id="theme">Light / dark</button>
       <button id="newwin">File › New Desk ⌘N</button>
       <button id="ring" title="A parked task's agent stops to ask you something: it moves to the front of the Shelf, needs you">Simulate: a parked agent needs you</button>
-      <button id="stacked" title="A task stacked on another's branch, and one waiting for two others: Start anyway, or finish its blockers">Simulate: stacked tasks</button>
+      <button id="stacked" title="A task stacked on another's branch, and one waiting for two others: finish its blockers, or kanna task start --anyway">Simulate: stacked tasks</button>
       <button id="long" title="An empty Desk with a dozen tasks in the backlog: search it">Simulate: a long backlog</button>
       <button id="fresh" title="A window with nothing in it: its planning terminal runs the planner script">Simulate: no tasks</button>
       <button id="first" title="Kanna's first launch: the planner script asks about Kanna's skills before the agent">Simulate: first launch</button>
@@ -572,7 +570,7 @@ function shelfPageHTML(w) {
 function backlogRow(t, picked, q, full) {
   const waits = blockers(t), on = onText(t);
   const why = (waits.length ? `<span class="wait">waits for ${waits.map(id => esc(nameOf(id))).join(", ")}</span> · ` : "") + (on ? on + " · " : "");
-  const go = waits.length ? `<span class="go off">Blocked · <span class="anyway" data-anyway="${t.id}">Start anyway</span></span>`
+  const go = waits.length ? `<span class="go off">Blocked</span>`
     : `<span class="go ${full ? "off" : ""}">${full ? "Shelf full" : picked ? "↩ Move to Shelf" : "Move to Shelf →"}</span>`;
   return `<div class="row waiting ${waits.length ? "blocked" : ""} ${picked ? "sel" : ""}" data-promote="${t.id}"><span class="dot"></span><div class="t"><div class="n">${t.title ? marked(t.title, q) : titleOf(t)}</div><div class="s">${why}${marked(t.prompt, q)} · from ${esc(makerOf(t))}, ${ago({ parkedAt: t.madeAt })} ago</div></div>${go}</div>`;
 }
@@ -593,7 +591,7 @@ const newOnBase = t => { const b = task(t.on); return b ? (b.commits || 0) - (t.
 
 function cantStart(t, anyway) {
   const waits = blockers(t), b = baseOf(t);
-  if (waits.length && !anyway) return `${t.title} waits for ${waits.map(nameOf).join(", ")}: finish ${waits.length > 1 ? "them" : "it"} first, or Start anyway`;
+  if (waits.length && !anyway) return `${t.title} waits for ${waits.map(nameOf).join(", ")}: finish ${waits.length > 1 ? "them" : "it"} first, or ask the planning agent to start it anyway`;
   if (b && b.backlog) return `${t.title} stacks on ${nameOf(t.on)}, which hasn't started: it has no branch yet`;
   return "";
 }
@@ -819,7 +817,7 @@ function run(t, line) {
     const x = task(arg);
     if (!x || !x.backlog) { say(`kanna: no backlog task "${arg || ""}"`); return render(); }
     const why = cantStart(x, words.includes("--anyway"));
-    if (why) { say(`kanna: ${why.replace("Start anyway", `kanna task ${sub} ${arg} --anyway`)}`); return render(); }
+    if (why) { say(`kanna: ${why.replace("ask the planning agent to start it anyway", `kanna task ${sub} ${arg} --anyway`)}`); return render(); }
     say(`started ${arg}` + (x.on ? ` on a branch from ${baseOf(x).branch}` : "") + (blockers(x).length ? `, though it waits for ${blockers(x).join(", ")}` : ""));
     return promote(arg, true);
   }
@@ -856,7 +854,6 @@ document.addEventListener("click", e => {
   const w = el("[data-win]");
   if (w && w.dataset.win !== s.key && !el("[data-closewin]")) { s.key = w.dataset.win; }
   if (el("[data-clear]")) { e.preventDefault(); const c = win(el("[data-clear]").dataset.clear); c.query = ""; c.sel = 0; s.finding = c.id; return render(); }
-  if (el("[data-anyway]")) return promote(el("[data-anyway]").dataset.anyway, true);
   if (el("[data-promote]")) return promote(el("[data-promote]").dataset.promote);
   if (el("[data-closewin]")) return closeWindow(el("[data-closewin]").dataset.closewin);
   if (el("[data-park]")) return park(el("[data-park]").dataset.park);

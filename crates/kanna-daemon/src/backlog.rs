@@ -625,7 +625,7 @@ impl Backlog {
         if !waits.is_empty() && args.get("anyway") != Some(&Value::Bool(true)) {
             let names: Vec<String> = waits.iter().map(|id| self.label(id)).collect();
             let them = if waits.len() > 1 { "they're" } else { "it's" };
-            return Err(KmuxError::new("blocked", format!("{} waits for {}: it can start once {them} done, or start it anyway", entry.id, names.join(", "))));
+            return Err(KmuxError::new("blocked", format!("{} waits for {}: it can start once {them} done", entry.id, names.join(", "))));
         }
         if let Some(on) = &entry.on {
             if self.known(on).is_some_and(|base| base.folder.is_none()) {
