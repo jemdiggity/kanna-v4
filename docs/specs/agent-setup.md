@@ -2,9 +2,9 @@
 
 **Status:** built · **Part of:** [tasks](tasks.md)
 
-Kanna's skills teach an agent how to work in Kanna: name its task, plan, answer review comments. They live in this repo (`.agents/kanna-skills`), so today only agents working on Kanna itself have them. **Agent setup** puts them where Claude and Codex find them in any repo, once you agree.
+Kanna's skills teach an agent how to work in Kanna: name its branch, add tasks to the backlog, plan, answer review comments. They live in this repo (`.agents/kanna-skills`), so today only agents working on Kanna itself have them. **Agent setup** puts them where Claude and Codex find them in any repo, once you agree.
 
-**Done when** an agent that Kanna starts as a task in another repo names its task, with Claude and with Codex.
+**Done when** an agent that Kanna starts as a task in another repo uses the kanna-tasks skill (names its branch, adds follow-up work to the backlog), with Claude and with Codex.
 
 ## Contents
 

@@ -5,7 +5,7 @@ description: Use when running in a Kanna terminal ($KANNA_PANE is set), as soon 
 
 # Kanna tasks
 
-In Kanna, each agent's work is a **task**: one agent in one repo, shown on a Desk. A task you start in is "New task" until you name it, and its name is what the user sees in the title bar, on the Shelf and in the backlog.
+In Kanna, each agent's work is a **task**: one agent in one repo, shown on a Desk. Every task is made with a name (`kanna task new NAME`), and that name is what the user sees in the title bar, on the Shelf and in the backlog: keep it.
 
 ## One project, one Desk
 
@@ -15,19 +15,7 @@ A project (a repo) has **one Desk**: its window. The Desk shows one task at a ti
 - `kanna task pull TASK` swaps a task onto the Desk, parking the one there; `kanna task park` moves the Desk's task to the Shelf. Only when the user asks.
 - Never make another Desk for a project (`--window new`): there's one.
 
-If `$KANNA_PLANNER` is set, you're a window's **planning agent**, not a task: use the `kanna-planning` skill instead, and skip naming your task and branch.
-
-## Name your task
-
-Once you know what the work is (from the first message, or the user's first reply), name it:
-
-```sh
-kanna task name "Fix login redirect"
-```
-
-- **Short:** two to five words, what the work is, like a branch name in plain English.
-- **Once,** then again only if the work turns into something else.
-- **Not for a task that was started with a name:** if it has one (`kanna task list` shows it), keep it.
+If `$KANNA_PLANNER` is set, you're a window's **planning agent**, not a task: use the `kanna-planning` skill instead, and skip naming a branch.
 
 ## Name your branch
 
@@ -56,7 +44,7 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 
 | Command | Does |
 |---|---|
-| `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
+| `kanna task name [TASK] NAME` | Rename a task (only when the user asks) |
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog |
 | `kanna task list [QUERY]` | Every task: ID, name, where (a Desk, the Shelf, the backlog), state (working, idle, needs you, or stopped), repo; QUERY keeps those whose name or first message has every word |
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, branch and agent with the first message, and stays in the backlog; a stopped task resumes its conversation |

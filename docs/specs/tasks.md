@@ -67,12 +67,10 @@ stateDiagram-v2
 
 ## 4. Naming
 
-- **The agent names its task** with `kanna task name "NAME"` once it knows what the work is. Until then it shows its agent's terminal title as is, status glyph and all (`◑ Claude Code`), or "New task" when there isn't one.
-- **It learns how from Kanna's skills.** [`kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md) names the task and its branch, writes backlog first messages that stand alone and leaves starting tasks to you. The planning agent has its own, keyed on `$KANNA_PLANNER`: [`kanna-planning`](../../.agents/kanna-skills/skills/kanna-planning/SKILL.md) (say what's running and waiting, plan with you, make backlog tasks, start or end them only when you ask, never write code), and [`kanna-new-project`](../../.agents/kanna-skills/skills/kanna-new-project/SKILL.md) for a folder that's empty or not a repo yet (decide what it's for, `git init` and a first commit only when you agree, then the first tasks). [`kanna-markup`](../../.agents/kanna-skills/skills/kanna-markup/SKILL.md) answers [review comments](doc-markup.md).
+- **A task's name is the one its maker gave it** with `kanna task new`, kept when it starts. Every task is made by an agent or with the CLI, so every task has a name from the start, and its agent doesn't name it. `kanna task name` renames one when you ask.
+- **It learns how from Kanna's skills.** [`kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md) names its branch, writes backlog first messages that stand alone and leaves starting tasks to you. The planning agent has its own, keyed on `$KANNA_PLANNER`: [`kanna-planning`](../../.agents/kanna-skills/skills/kanna-planning/SKILL.md) (say what's running and waiting, plan with you, make backlog tasks, start or end them only when you ask, never write code), and [`kanna-new-project`](../../.agents/kanna-skills/skills/kanna-new-project/SKILL.md) for a folder that's empty or not a repo yet (decide what it's for, `git init` and a first commit only when you agree, then the first tasks). [`kanna-markup`](../../.agents/kanna-skills/skills/kanna-markup/SKILL.md) answers [review comments](doc-markup.md).
 - **Agents in any repo have the skills** once you agree to [agent setup](agent-setup.md).
-
-- **A backlog task's name** is the one its maker gave it, kept when it starts.
-- **The agent renames its branch** too, with `git branch -m NEW` in its worktree, from `task-3f9a1c2e` to a short name for the work. The worktree's folder keeps its name: the agent and its terminals are in it.
+- **The agent renames its branch** with `git branch -m NEW` in its worktree, from `task-3f9a1c2e` to a short name for the work. The worktree's folder keeps its name: the agent and its terminals are in it.
 
 ## 5. Stop, Done, or back to the backlog
 
@@ -111,7 +109,7 @@ An agent not in the table starts again with its first message, its conversation 
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, agent and first message and stays in the backlog; a stopped task's agent comes back, resuming its conversation |
 | `kanna task stop [TASK]` | End a task's agent and tabs, leaving it where it is (default: the one you're in) |
 | `kanna task shelve TASK [--window WINDOW]` | Move a backlog task to the Shelf (or onto that Desk), starting it if it's stopped; refused when the Shelf holds three |
-| `kanna task name [TASK] NAME` | Name a task (default: the one you're in) |
+| `kanna task name [TASK] NAME` | Rename a task (default: the one you're in) |
 | `kanna task list [QUERY]` | Every task: ID, name, where (a Desk, the Shelf, the backlog), state (working, idle, needs you, or stopped), repo; with QUERY, only those whose name or first message has every word ([backlog search](backlog-search.md#cli)) |
 | `kanna task defer [TASK]` | Move a task back to the backlog as it is, running or stopped (default: the one you're in) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
