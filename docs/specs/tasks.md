@@ -4,7 +4,7 @@
 
 A **task** is one agent's work in one repo. Agents make tasks: they add them to the repo's **backlog**, and you move the ones you want to the Shelf, where each gets its own agent, branch and worktree. There's no form: you tell the window's [planning agent](planning-agent.md) what you want, and it makes the tasks.
 
-![A window with nothing in it: the planning terminal prints how to start](task-start.png)
+![A new Desk: the planning terminal asks which agent plans](task-start.png)
 
 ![An empty Desk: the planning agent, and the Shelf's tasks above the backlog](task-backlog.png)
 
@@ -46,11 +46,11 @@ stateDiagram-v2
 
 ## 2. How tasks are made
 
-- **By an agent:** `kanna task new "NAME" "FIRST MESSAGE"` adds a task to the backlog of the repo it runs in. The **planning agent**, the one you start in a window's [planning terminal](planning-agent.md) (`$KANNA_PLANNER` is set there), makes them as you plan with it, and a task's agent splitting off its own work does too.
+- **By an agent:** `kanna task new "NAME" "FIRST MESSAGE"` adds a task to the backlog of the repo it runs in. The **planning agent**, the one Kanna starts in a window's [planning terminal](planning-agent.md), makes them as you plan with it, and a task's agent splitting off its own work does too.
 - **By you, by hand:** the same `kanna task new` in the repo, in any terminal.
 - **Only these two.** The app never starts a blank task: every task is made with the CLI or by an agent, and started from the backlog (Move to Shelf, or `kanna task start` to run it there). There's no Start a task button or menu item.
-- **A window with nothing in it** starts on the Shelf with its planning terminal (pictured above): in the folder Kanna was started in when Kanna opens with nothing, and in your home folder for File → New Desk. It prints how to start ([`getting-started.md`](../../apps/kanna/Resources/getting-started.md)); you start your agent there.
-- **File → New Desk (⌘N) opens a Desk for another project:** a new Desk window in the same Kanna, with nothing docked and its planning terminal in `~`, as `kanna ~` would. `cd` it into the project and the Shelf follows; then start your agent. There's no folder picker, and the title bar says Shelf as on any empty Desk. ⌘N always means New Desk; New Window (a plain terminal window) keeps its menu item, without a shortcut.
+- **A window with nothing in it** starts on the Shelf with its planning terminal (pictured above): in the folder Kanna was started in when Kanna opens with nothing, and in your home folder for File → New Desk. Kanna starts the planning agent there ([planning agent](planning-agent.md#2-what-it-is)).
+- **File → New Desk (⌘N) opens a Desk for another project:** a new Desk window in the same Kanna, with nothing docked and its planning terminal in `~`, as `kanna ~` would. `cd` it into the project and the Shelf follows; `kanna plan` there starts a planner for it. There's no folder picker, and the title bar says Shelf as on any empty Desk. ⌘N always means New Desk; New Window (a plain terminal window) keeps its menu item, without a shortcut.
 
   ![File → New Desk: a Desk in ~, nothing on its Shelf yet](desk-new.png)
 - **No New Instance.** kmux's Kanna → New Instance (a whole second Kanna with its own daemon, keeper and state) isn't in Kanna's menu: working on another project is what a Desk is for. Instances stay as a developer and testing tool (dev builds, `kanna --instance`), not a user feature ([build channels](build-channels.md)).
@@ -68,7 +68,7 @@ stateDiagram-v2
 ## 4. Naming
 
 - **A task's name is the one its maker gave it** with `kanna task new`, kept when it starts. Every task is made by an agent or with the CLI, so every task has a name from the start, and its agent doesn't name it. `kanna task name` renames one when you ask.
-- **It learns how from Kanna's skills.** [`kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md) names its branch, writes backlog first messages that stand alone and leaves starting tasks to you. The planning agent has its own, keyed on `$KANNA_PLANNER`: [`kanna-planning`](../../.agents/kanna-skills/skills/kanna-planning/SKILL.md) (say what's running and waiting, plan with you, make backlog tasks, start or end them only when you ask, never write code), and [`kanna-new-project`](../../.agents/kanna-skills/skills/kanna-new-project/SKILL.md) for a folder that's empty or not a repo yet (decide what it's for, `git init` and a first commit only when you agree, then the first tasks). [`kanna-markup`](../../.agents/kanna-skills/skills/kanna-markup/SKILL.md) answers [review comments](doc-markup.md).
+- **It learns how from Kanna's skills.** [`kanna-tasks`](../../.agents/kanna-skills/skills/kanna-tasks/SKILL.md) names its branch, writes backlog first messages that stand alone and leaves starting tasks to you. The planning agent has its own, keyed on being told it's the planner ([agent setup](agent-setup.md#2-how-an-agent-knows-its-in-kanna)): [`kanna-planning`](../../.agents/kanna-skills/skills/kanna-planning/SKILL.md) (say what's running and waiting, plan with you, make backlog tasks, start or end them only when you ask, never write code), and [`kanna-new-project`](../../.agents/kanna-skills/skills/kanna-new-project/SKILL.md) for a folder that's empty or not a repo yet (decide what it's for, `git init` and a first commit only when you agree, then the first tasks). [`kanna-markup`](../../.agents/kanna-skills/skills/kanna-markup/SKILL.md) answers [review comments](doc-markup.md).
 - **Agents in any repo have the skills** once you agree to [agent setup](agent-setup.md).
 - **The agent renames its branch** with `git branch -m NEW` in its worktree, from `task-3f9a1c2e` to a short name for the work. The worktree's folder keeps its name: the agent and its terminals are in it.
 
@@ -114,7 +114,7 @@ An agent not in the table starts again with its first message, its conversation 
 | `kanna task defer [TASK]` | Move a task back to the backlog as it is, running or stopped (default: the one you're in) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
 | `kanna agents [status]` | Whether your agents are set up for Kanna, and whether this Kanna has newer skills ([agent setup](agent-setup.md)) |
-| `kanna agents setup [--ask]` | Install Kanna's skills, hooks and Claude's sandbox entry (`--ask`: say what and ask first) |
+| `kanna agents setup [--ask]` | Install Kanna's skills and Claude's sandbox entry (`--ask`: say what and ask first) |
 | `kanna agents update [--ask] [--force]` | Bring the skills up to this Kanna's, merging your changes (`--force`: Kanna's over yours) |
 | `kanna agents remove` | Take back what Kanna installed |
 
@@ -131,7 +131,7 @@ flowchart TB
 ```
 
 - **The daemon keeps the backlog** in `kanna.db` ([database](database.md)), with every task from made to done and each change of its place or state as an event, so agents add tasks with or without the app.
-- **The daemon opens planning terminals** (`backlog` `plan`): it makes the command (`KANNA_PLANNER`, the context limit, the getting-started text, then your shell) and opens it as the window's planner in its folder ([planning agent](planning-agent.md#7-how-its-built)).
+- **The daemon opens planning terminals** (`backlog` `plan`): it makes the script (`KANNA_PLANNER`, the context limit, agent setup, `kanna plan`, then your shell) and opens it as the window's planner in its folder ([planning agent](planning-agent.md#5-how-its-built)).
 - **A running task is its docked agent pane**, as on the [Desk](desk.md): its name is the pane's name, its repo the pane's folder.
 - **Only a task's agent docks.** `kanna move PANE --dock` refuses any pane that isn't docked (`not_a_task`), so a task starts only by starting one and the limit holds.
 - **A task's agent is frozen** ([docked pane](docked-pane.md#2-rules)): the daemon opens it with `open --dock --frozen`, so it stays in its dock, and nothing is dropped, swapped or docked in its place, which would make another pane the task.
@@ -158,5 +158,5 @@ flowchart TB
 | **Running / stopped** | Whether a task's agent is alive; separate from where the task is |
 | **Repo** | The git repository a task belongs to |
 | **Worktree** | A second checkout of the repo, in `.kanna-worktrees/`, on the task's own branch |
-| **Agent setup** | Kanna's skills in your home folder for Claude and Codex, a hook that tells an agent it's in Kanna, and Claude's sandbox letting agents reach Kanna; installed and updated when you agree ([agent setup](agent-setup.md)) |
+| **Agent setup** | Kanna's skills in your home folder for Claude and Codex, and Claude's sandbox letting agents reach Kanna; installed and updated when you agree ([agent setup](agent-setup.md)) |
 | **First message** | What the agent is told when its task starts |
