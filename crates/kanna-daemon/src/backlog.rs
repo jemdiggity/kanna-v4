@@ -617,12 +617,12 @@ impl Backlog {
         Ok((after, on))
     }
 
-    fn ready(&self, entry: &Entry, args: &Value) -> Result<(), KmuxError> {
+    fn ready(&self, entry: &Entry) -> Result<(), KmuxError> {
         if entry.folder.is_some() || entry.held.is_some() {
             return Ok(());
         }
         let waits = self.waits(entry);
-        if !waits.is_empty() && args.get("anyway") != Some(&Value::Bool(true)) {
+        if !waits.is_empty() {
             let names: Vec<String> = waits.iter().map(|id| self.label(id)).collect();
             let them = if waits.len() > 1 { "they're" } else { "it's" };
             return Err(KmuxError::new("blocked", format!("{} waits for {}: it can start once {them} done", entry.id, names.join(", "))));
@@ -930,7 +930,7 @@ impl Backlog {
         if self.pending.borrow().values().any(|p| p.entry.id == entry.id) {
             return responder.reply(Err(bad(format!("{id} is starting"))));
         }
-        if let Err(error) = self.ready(&entry, args) {
+        if let Err(error) = self.ready(&entry) {
             return responder.reply(Err(error));
         }
         self.room(entry, string(args, "window").map(String::from), who(args).map(String::from), responder);
@@ -945,7 +945,7 @@ impl Backlog {
             if self.pending.borrow().values().any(|p| p.entry.id == entry.id) {
                 return responder.reply(Err(bad(format!("{reference} is starting"))));
             }
-            if let Err(error) = self.ready(&entry, args) {
+            if let Err(error) = self.ready(&entry) {
                 return responder.reply(Err(error));
             }
             let id = entry.id.clone();
@@ -1712,14 +1712,15 @@ mod tests {
         let second = made(json!({ "repo": repo, "name": "Second", "after": [first] })).unwrap();
         let third = made(json!({ "repo": repo, "name": "Third", "after": [second], "on": first })).unwrap();
         let entry = |id: &str| backlog.entries.borrow().iter().find(|e| e.id == id).cloned().unwrap();
-        assert_eq!(backlog.ready(&entry(&second), &json!({})).unwrap_err().code, "blocked");
-        assert!(backlog.ready(&entry(&second), &json!({ "anyway": true })).is_ok(), "Start anyway");
-        assert_eq!(backlog.ready(&entry(&third), &json!({ "anyway": true })).unwrap_err().code, "base_not_started", "a base with no branch yet");
+        assert_eq!(backlog.ready(&entry(&second)).unwrap_err().code, "blocked");
+        backlog.edit(&json!({ "task": third, "after": [] })).unwrap();
+        assert_eq!(backlog.ready(&entry(&third)).unwrap_err().code, "base_not_started", "a base with no branch yet");
+        backlog.edit(&json!({ "task": third, "after": [second] })).unwrap();
         assert_eq!(backlog.edit(&json!({ "task": first, "after": [third] })).unwrap_err().code, "cycle");
         assert!(made(json!({ "repo": repo, "name": "Fourth", "after": ["t99"] })).is_err(), "an unknown blocker");
         let gone = backlog.take(&first).unwrap();
         backlog.store(&gone, Place::Done, None, None).unwrap();
-        assert!(backlog.ready(&entry(&second), &json!({})).is_ok(), "its blocker is done");
+        assert!(backlog.ready(&entry(&second)).is_ok(), "its blocker is done");
         assert!(made(json!({ "repo": repo, "name": "Fifth", "after": [first] })).is_err(), "a done task holds nothing back");
         backlog.edit(&json!({ "task": third, "after": [], "on": null })).unwrap();
         assert_eq!((entry(&third).after, entry(&third).on), (vec![], None));

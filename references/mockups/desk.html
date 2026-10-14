@@ -203,7 +203,7 @@ body.picture .cmd input::placeholder { color: transparent; }
       <button id="theme">Light / dark</button>
       <button id="newwin">File › New Desk ⌘N</button>
       <button id="ring" title="A parked task's agent stops to ask you something: it moves to the front of the Shelf, needs you">Simulate: a parked agent needs you</button>
-      <button id="stacked" title="A task stacked on another's branch, and one waiting for two others: finish its blockers, or kanna task start --anyway">Simulate: stacked tasks</button>
+      <button id="stacked" title="A task stacked on another's branch, and one waiting for two others: it starts once its blockers are done, or kanna task edit takes them off">Simulate: stacked tasks</button>
       <button id="long" title="An empty Desk with a dozen tasks in the backlog: search it">Simulate: a long backlog</button>
       <button id="fresh" title="A window with nothing in it: its planning terminal runs the planner script">Simulate: no tasks</button>
       <button id="first" title="Kanna's first launch: the planner script asks about Kanna's skills before the agent">Simulate: first launch</button>
@@ -589,9 +589,9 @@ function agentNames(t, text) {
 
 const newOnBase = t => { const b = task(t.on); return b ? (b.commits || 0) - (t.baseAt || 0) : 0; };
 
-function cantStart(t, anyway) {
+function cantStart(t) {
   const waits = blockers(t), b = baseOf(t);
-  if (waits.length && !anyway) return `${t.title} waits for ${waits.map(nameOf).join(", ")}: finish ${waits.length > 1 ? "them" : "it"} first, or ask the planning agent to start it anyway`;
+  if (waits.length) return `${t.title} waits for ${waits.map(nameOf).join(", ")}: it can start once ${waits.length > 1 ? "they're" : "it's"} done`;
   if (b && b.backlog) return `${t.title} stacks on ${nameOf(t.on)}, which hasn't started: it has no branch yet`;
   return "";
 }
@@ -603,10 +603,10 @@ function start(t, worktree) {
     parkedAt: Date.now(), width: 0.38, tabs: ["shell"], active: "shell", log: [], fresh: true });
 }
 
-function promote(id, anyway) {
+function promote(id) {
   const t = task(id);
   if (!t || !t.backlog) return;
-  const why = cantStart(t, anyway);
+  const why = cantStart(t);
   if (why) { s.note = why; return render(); }
   if (inRepo(t.repo).length >= LIMIT) { s.note = `The Shelf is full: finish a task first`; return render(); }
   start(t, t.worktree !== false);
@@ -816,8 +816,8 @@ function run(t, line) {
   if (cmd === "task" && (sub === "start" || sub === "shelve")) {
     const x = task(arg);
     if (!x || !x.backlog) { say(`kanna: no backlog task "${arg || ""}"`); return render(); }
-    const why = cantStart(x, words.includes("--anyway"));
-    if (why) { say(`kanna: ${why.replace("ask the planning agent to start it anyway", `kanna task ${sub} ${arg} --anyway`)}`); return render(); }
+    const why = cantStart(x);
+    if (why) { say(`kanna: ${why}`); return render(); }
     say(`started ${arg}` + (x.on ? ` on a branch from ${baseOf(x).branch}` : "") + (blockers(x).length ? `, though it waits for ${blockers(x).join(", ")}` : ""));
     return promote(arg, true);
   }

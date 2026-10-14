@@ -20,12 +20,13 @@ stateDiagram-v2
     direction LR
     [*] --> blocked: kanna task new --after t4
     blocked --> startable: its last blocker is Done
-    blocked --> started: --anyway
+    startable --> blocked: kanna task edit --after t9
+    blocked --> startable: kanna task edit --after none
     startable --> started: start or Move to Shelf
 ```
 
 - **A blocked backlog row** has a dashed ring, an orange line naming what it waits for, and **Blocked** where Move to Shelf usually is. Clicking the row, ↩ in search, `kanna task start` or `kanna task shelve` is refused, and the note says what it waits for.
-- **`--anyway` starts it now,** from the CLI only: `kanna task start TASK --anyway`, which the planning agent runs when you ask it to. The app has no Start anyway. Blockers only hold back a task's first start: once it has started, they don't matter.
+- **A blocked task can't start,** from the app or the CLI. To start it before its blockers are Done, take them off: `kanna task edit TASK --after none` (or name fewer), which the planning agent runs when you ask it to.
 - **Done means Done in Kanna** (`kanna task done`, Done in the app, or its agent's pane closed), not merged. Kanna doesn't watch git for this.
 - **When the last blocker is Done, the task becomes startable,** and nothing starts by itself. The row loses its badge, and `kanna task done` says which tasks it freed (`t14 "Release notes for 0.9" can start now`), so the planning agent can offer to start them.
 - **A task can't wait for itself,** directly or through others: making that loop is refused.
@@ -58,8 +59,7 @@ kanna task edit t13 --on none           # back to the repo's checkout
 |---|---|
 | `kanna task new NAME [MSG] [--after TASK,…] [--on TASK]` | Make a task that waits for others, stacks on another, or both |
 | `kanna task edit TASK [--after TASK,…\|none] [--on TASK\|none]` | Change a backlog task's blockers or base |
-| `kanna task start TASK [--anyway]` | Start a task where it is; `--anyway` starts a blocked one |
-| `kanna task shelve TASK [--anyway]` | Move a backlog task to the Shelf; `--anyway` starts a blocked one |
+| `kanna task start TASK`, `kanna task shelve TASK` | Refused for a blocked task, saying what it waits for |
 | `kanna task list` | STATE is `blocked` for a blocked backlog task, and each task with either gets a last part: `waits for t8, t12` and `on t12 screenshot-command (3 new)` |
 | `kanna task done TASK` | Also names the tasks that can start now because of it |
 
@@ -75,7 +75,7 @@ flowchart LR
 
 - **Kept in the task's row** in `kanna.db` ([database](database.md)): `after` (a list of task IDs) and `on` (a task ID) in its JSON doc, so no new table or migration. An `edited` event records each change.
 - **A blocker is open** while the daemon still has it, in the backlog or running; any other task is Done. So a task freed by Done needs no event: the next backlog push shows it startable.
-- **Start and Move to Shelf check blockers first** (error `blocked`, with what it waits for), unless the request says `anyway`. Neither applies to a task that has a worktree already.
+- **Start and Move to Shelf check blockers first** (error `blocked`, with what it waits for). Neither applies to a task that has a worktree already, since blockers can't change once it has started.
 - **The base's branch** is `git branch --show-current` in the base's worktree (its `folder`, which a Done task's row keeps), passed to `git worktree add` as the start point. The task records the base's folder as it starts.
 - **The backlog push to the app** gives each backlog task its open blockers' IDs and names and its base's name and branch, and each running stacked task its base's folder. The app reads the base's branch and counts the commits the task lacks (`git rev-list --count HEAD..BASE`) with the git it already runs for a task's branch.
 - **`kanna task list`** gets the same from the daemon, which counts with git as it lists. **`kanna task done`** reads the backlog after the task is Done and names the tasks whose last blocker it was.

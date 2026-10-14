@@ -60,7 +60,7 @@ stateDiagram-v2
 - **`kanna task start` runs a task where it is**: a backlog task gets its worktree and agent and stays in the backlog, running, so you can start several and move them to the Shelf later. `kanna task list` shows each one's state: working, idle, needs you, or stopped.
 - **Oldest first.** A Desk's Shelf strip shows how many wait.
 - **Search it** with ⌘F on an empty Desk, by name or first message: [backlog search](backlog-search.md).
-- **A task can wait for others, or stack on another's branch:** blocked, it can't start until they're Done (or it's started with `--anyway`); stacked, its branch is made from the other task's branch ([blocked and stacked tasks](task-dependencies.md)).
+- **A task can wait for others, or stack on another's branch:** blocked, it can't start until they're Done; stacked, its branch is made from the other task's branch ([blocked and stacked tasks](task-dependencies.md)).
 
 ## 4. Naming
 
