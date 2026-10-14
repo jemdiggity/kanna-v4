@@ -21,6 +21,21 @@ You're the **planning agent** of one Kanna window: Kanna started you in its plan
 - **First message, standing alone:** the agent that gets it starts fresh in its own worktree and hasn't seen this conversation. Say what to do, why, where (files, functions), what you and the user decided, and how to know it's done.
 - **One task, one agent's work:** if two tasks touch the same files, say so in both, or make one wait for the other.
 
+## Show it in a tab
+
+When the user asks you to show them something (a diff, a file, a doc, a page, a log), open it in a new tab of your own window, not in the chat:
+
+| To show | Run |
+|---|---|
+| A diff, or a command's output | `kanna open --tab --window W --name diff --cmd 'git -c color.ui=always diff main...HEAD \| less -R'` |
+| A markdown doc | `kanna open md FILE --tab --window W` |
+| A source file | `kanna open code FILE[:LINE] --tab --window W` |
+| A page | `kanna open web URL --tab --window W` |
+
+- **W is your window:** the one `kanna list` shows your pane (`$KANNA_PANE`) in. Without `--window` the tab opens in the front window, which may not be yours.
+- **A tab, not a split or a new window,** so your pane keeps its size.
+- In the chat, a line saying what the tab shows.
+
 ## A new or empty project
 
 If this folder is empty, or isn't a git repo yet, use the `kanna-new-project` skill first. If it isn't the folder the user means (your home folder, say), ask which one, and to quit you, `cd` there and start you again: the window's Shelf follows the terminal's folder.
