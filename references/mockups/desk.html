@@ -968,7 +968,7 @@ const blocked = () => {
   planners();
   const p = s.windows[0].planner;
   s.tasks.filter(t => t.by === "planner").forEach(t => { t.by = p.id; });
-  Object.assign(p, { agent: "claude", log: [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``,
+  Object.assign(p, { agent: "claude", ask: null, chosen: "claude", log: [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``,
     `<span class="p">&gt;</span> the diff viewer needs the screenshot command; release notes once the S40 fix and screenshots are in`,
     `<span class="m">●</span> kanna task new "Diff viewer" "…" --after p12`,
     `  <span class="out">added p13 "Diff viewer"; waits for p12</span>`,
@@ -1004,8 +1004,6 @@ if (location.hash.includes("fresh")) fresh();
 if (location.hash.includes("plan")) { parkTask(task("p1")); s.windows[0].desk = null; }
 if (location.hash.includes("save")) { planners(); const p = s.windows[0].planner; plannerAnswer(p, "2"); }
 if (location.hash.includes("quit")) { planners(); const p = s.windows[0].planner; if (p.ask) { plannerAnswer(p, "2"); plannerAnswer(p, "y"); } p.log.push(``, `<span class="p">&gt;</span> /exit`); plannerQuit(p); }
-if (location.hash.includes("stacked")) stacked();
-if (location.hash.includes("stacked-started")) { promote("p13"); task("p12").commits += 3; }
 if (location.hash.includes("blocked")) blocked();
 if (location.hash.includes("freed")) freed();
 if (location.hash.includes("zoom")) { if (task(s.windows[0].desk)) task(s.windows[0].desk).zoom = true; else { planners(); s.windows[0].planner.zoom = true; } }
