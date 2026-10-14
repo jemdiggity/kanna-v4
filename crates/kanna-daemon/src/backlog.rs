@@ -85,10 +85,10 @@ impl Entry {
     fn command(&self, session: Option<&str>) -> String {
         let command = in_its_terminal(&unprompted(&self.agent));
         let agent = agent(&self.agent);
-        let first = |command: String| match (&self.message, agent.and_then(|a| a.prompt)) {
-            (Some(message), Some(flag)) => format!("{command} {flag} {}", quote(message)),
-            (Some(message), None) => format!("{command} {}", quote(message)),
-            (None, _) => command,
+        let told = told_task(self.message.as_deref());
+        let first = |command: String| match agent.and_then(|a| a.prompt) {
+            Some(flag) => format!("{command} {flag} {told}"),
+            None => format!("{command} {told}"),
         };
         let Some(agent) = agent else { return first(command) };
         match (&self.session, &self.folder, session.zip(agent.named), agent.latest) {
@@ -143,17 +143,61 @@ pub fn planning_context(files: &[PathBuf]) -> Option<u64> {
     Some(PLANNING_CONTEXT)
 }
 
-/// The planning terminal's command line: it marks the terminal as the window's planning terminal for the agent you
-/// start there, keeps a claude agent's context to `context` tokens, asks about agent setup with `cli`, prints how to start,
-/// and hands over to your shell.
+/// The planning agent's first message, which tells it it's the planner.
+pub const PLANNER_ROLE: &str = "You are the Kanna planning agent.";
+
+/// A task's agent's first message, as a shell word: who it is (its pane from `$KANNA_PANE` as it starts), then its task.
+fn told_task(message: Option<&str>) -> String {
+    let after = match message {
+        Some(message) => format!("), in your task's worktree. Your task: {message}"),
+        None => "), in your task's worktree.".to_string(),
+    };
+    format!("{}\"$KANNA_PANE\"{}", quote("You're a task's agent in Kanna (pane "), quote(&after))
+}
+
+/// How a planning agent starts: as you'd start it yourself, with its first message saying it's the planner.
+fn planner_start(program: &str) -> String {
+    let command = in_its_terminal(&unprompted(program));
+    match agent(program).and_then(|a| a.prompt) {
+        Some(flag) => format!("{command} {flag} {}", quote(PLANNER_ROLE)),
+        None => format!("{command} {}", quote(PLANNER_ROLE)),
+    }
+}
+
+/// The agents a planning terminal may start, each a name and the command that starts it as the planner: every agent
+/// Kanna knows, or for tests the programs in `KANNA_PLANNING_AGENTS`.
+pub fn planner_agents() -> Vec<(String, String)> {
+    let programs: Vec<String> = match std::env::var("KANNA_PLANNING_AGENTS") {
+        Ok(list) => list.split_whitespace().map(String::from).collect(),
+        Err(_) => AGENTS.iter().map(|a| a.names[0].to_string()).collect(),
+    };
+    programs.iter().map(|p| (program(p).to_string(), planner_start(p))).collect()
+}
+
+/// The planning terminal's command line: it keeps a claude agent's context to `context` tokens, then runs the planner
+/// `script` (agent setup with `cli`, where to work when it's in `~`, which agent, the agent), which ends in your shell.
+/// Without the script, it asks about agent setup and hands over to your shell.
 /// Kanna's zsh integration (`zsh`, its folder) hands ZDOTDIR back to yours while the command runs, so the shell it
 /// hands over to gets it again, as every Kanna terminal's does.
-pub fn planner_command(guide: Option<&str>, context: Option<u64>, zsh: Option<&str>, cli: Option<&str>) -> String {
-    let integrate = zsh.map_or(String::new(), |dir| format!("case \"${{SHELL##*/}}\" in zsh) [ -z \"${{ZDOTDIR+x}}\" ] || export KANNA_ZSH_ZDOTDIR=\"$ZDOTDIR\"; export ZDOTDIR={};; esac; ", quote(dir)));
+pub fn planner_command(script: Option<&str>, context: Option<u64>, zsh: Option<&str>, cli: Option<&str>, repos: &Path, agents: &[(String, String)]) -> String {
     let limit = context.map_or(String::new(), |tokens| format!("[ -n \"$CLAUDE_CODE_AUTO_COMPACT_WINDOW\" ] || export CLAUDE_CODE_AUTO_COMPACT_WINDOW={tokens}; "));
-    let show = guide.map_or(String::new(), |g| format!("if command -v glow >/dev/null 2>&1; then glow -w 0 {g}; else cat {g}; fi; echo; ", g = quote(g)));
+    if let Some(script) = script {
+        let mut command = format!("{limit}exec {}", quote(script));
+        if let Some(cli) = cli {
+            command += &format!(" --kanna {}", quote(cli));
+        }
+        if let Some(zsh) = zsh {
+            command += &format!(" --zsh {}", quote(zsh));
+        }
+        command += &format!(" --repos {} --", quote(&repos.to_string_lossy()));
+        for (name, start) in agents {
+            command += &format!(" {} {}", quote(name), quote(start));
+        }
+        return command;
+    }
+    let integrate = zsh.map_or(String::new(), |dir| format!("case \"${{SHELL##*/}}\" in zsh) [ -z \"${{ZDOTDIR+x}}\" ] || export KANNA_ZSH_ZDOTDIR=\"$ZDOTDIR\"; export ZDOTDIR={};; esac; ", quote(dir)));
     let ask = cli.map_or(String::new(), |cli| format!("{cli} agents setup --ask; {cli} agents update --ask; ", cli = quote(cli)));
-    format!("export KANNA_PLANNER=1; {limit}{ask}{show}{integrate}exec \"${{SHELL:-/bin/sh}}\" -l")
+    format!("{limit}{ask}{integrate}exec \"${{SHELL:-/bin/sh}}\" -l")
 }
 
 fn cli() -> Option<PathBuf> {
@@ -178,9 +222,9 @@ struct Agent {
 const AGENTS: &[Agent] = &[
     Agent { names: &["claude"], unprompted: Some("--dangerously-skip-permissions"), prompt: None, named: Some("--session-id"), resume: "--resume", latest: Some("--continue"), find: None },
     Agent { names: &["codex"], unprompted: Some("--yolo"), prompt: None, named: None, resume: "resume", latest: Some("resume --last"), find: None },
-    Agent { names: &["copilot"], unprompted: None, prompt: Some("-i"), named: Some("--session-id"), resume: "--session-id", latest: None, find: Some(copilot_session) },
+    Agent { names: &["copilot"], unprompted: Some("--yolo"), prompt: Some("-i"), named: Some("--session-id"), resume: "--session-id", latest: None, find: Some(copilot_session) },
     Agent { names: &["opencode"], unprompted: None, prompt: Some("--prompt"), named: None, resume: "--session", latest: None, find: Some(opencode_session) },
-    Agent { names: &["agy", "antigravity"], unprompted: None, prompt: Some("-i"), named: None, resume: "--conversation", latest: Some("--continue"), find: None },
+    Agent { names: &["agy", "antigravity"], unprompted: Some("--dangerously-skip-permissions"), prompt: Some("-i"), named: None, resume: "--conversation", latest: Some("--continue"), find: None },
 ];
 
 fn agent(command: &str) -> Option<&'static Agent> {
@@ -233,7 +277,7 @@ fn latest_opencode_session(db: &Path, folder: &Path) -> Option<String> {
     rows.as_array()?.iter().find(|row| string(row, "directory").is_some_and(|dir| same_folder(Path::new(dir), folder))).and_then(|row| string(row, "id")).map(String::from)
 }
 
-const ASKING: &[&str] = &["--dangerously-skip-permissions", "--yolo", "--permission-mode", "--ask-for-approval", "-a"];
+const ASKING: &[&str] = &["--dangerously-skip-permissions", "--yolo", "--permission-mode", "--ask-for-approval", "-a", "--allow-all", "--allow-all-tools", "--mode"];
 
 fn unprompted(agent: &str) -> String {
     let agent = agent.trim();
@@ -665,7 +709,9 @@ impl Backlog {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
         let folder = string(args, "folder").filter(|f| Path::new(f).is_absolute() && Path::new(f).is_dir()).unwrap_or(&home);
         let zsh = Some(self.state.join("shell/zsh")).filter(|dir| dir.join(".zshenv").is_file());
-        let cmd = planner_command(string(args, "guide"), planning_context(&config_files(Path::new(folder))), zsh.as_deref().and_then(Path::to_str), cli().as_deref().and_then(Path::to_str));
+        let script = string(args, "script").filter(|s| Path::new(s).is_file());
+        let repos = crate::agents::home().join(".kanna-v4/repos");
+        let cmd = planner_command(script, planning_context(&config_files(Path::new(folder))), zsh.as_deref().and_then(Path::to_str), cli().as_deref().and_then(Path::to_str), &repos, &planner_agents());
         let open = json!({ "type": "term", "planner": true, "window": window, "cwd": folder, "cmd": cmd, "wait": false });
         core.handle(json!({ "cmd": "open", "args": open }), move |reply| match failed(&reply) {
             Some(error) => responder.reply(Err(error)),
@@ -1001,12 +1047,19 @@ impl Backlog {
 mod tests {
     use super::*;
 
+    fn said(word: &str) -> String {
+        let out = Command::new("/bin/sh").arg("-c").arg(format!("printf %s {word}")).env("KANNA_PANE", "p9").output().unwrap();
+        String::from_utf8(out.stdout).unwrap()
+    }
+
     #[test]
-    fn a_first_message_is_quoted_for_the_shell() {
+    fn a_task_s_agent_is_told_it_s_a_task_s_agent_ahead_of_its_first_message() {
         let mut entry = Entry { id: "t1".into(), name: None, message: Some("don't stop".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "codex".into(), folder: None, session: None, held: None };
-        assert_eq!(entry.command(None), "codex --yolo --no-daemon 'don'\\''t stop'");
+        let command = entry.command(None);
+        assert_eq!(said(command.strip_prefix("codex --yolo --no-daemon ").unwrap()), "You're a task's agent in Kanna (pane p9), in your task's worktree. Your task: don't stop");
         entry.message = None;
-        assert_eq!(entry.command(None), "codex --yolo --no-daemon");
+        let command = entry.command(None);
+        assert_eq!(said(command.strip_prefix("codex --yolo --no-daemon ").unwrap()), "You're a task's agent in Kanna (pane p9), in your task's worktree.");
     }
 
     #[test]
@@ -1014,7 +1067,7 @@ mod tests {
         let mut entry = Entry { id: "t1".into(), name: None, message: Some("go".into()), repo: "/r".into(), by: None, made_at: 0.0, agent: "/bin/claude".into(), folder: None, session: None, held: None };
         let id = uuid().unwrap();
         assert!(id.len() == 36 && id.chars().nth(14) == Some('4'), "{id}");
-        assert_eq!(entry.command(Some(&id)), format!("/bin/claude --dangerously-skip-permissions --session-id {id} 'go'"));
+        assert_eq!(entry.command(Some(&id)), format!("/bin/claude --dangerously-skip-permissions --session-id {id} {}", told_task(Some("go"))));
         entry.folder = Some("/r/.kanna-worktrees/task-1".into());
         assert_eq!(entry.command(None), "/bin/claude --dangerously-skip-permissions --continue", "a task Kanna didn't start resumes the folder's latest session");
         entry.session = Some(id.clone());
@@ -1028,7 +1081,7 @@ mod tests {
     #[test]
     fn a_codex_task_resumes_the_latest_session_in_its_worktree() {
         let mut entry = started("codex");
-        assert_eq!(entry.command(Some("u")), "codex --yolo --no-daemon 'go'", "codex can't be given a session ID");
+        assert_eq!(entry.command(Some("u")), format!("codex --yolo --no-daemon {}", told_task(Some("go"))), "codex can't be given a session ID");
         entry.folder = Some("/r/.kanna-worktrees/task-1".into());
         assert_eq!(entry.command(None), "codex --yolo --no-daemon resume --last");
         entry.session = Some("019f".into());
@@ -1039,19 +1092,19 @@ mod tests {
     fn a_copilot_task_gets_a_session_and_resumes_it() {
         let mut entry = started("copilot");
         let id = uuid().unwrap();
-        assert_eq!(entry.command(Some(&id)), format!("copilot --session-id {id} -i 'go'"));
+        assert_eq!(entry.command(Some(&id)), format!("copilot --yolo --session-id {id} -i {}", told_task(Some("go"))));
         entry.folder = Some("/r/.kanna-worktrees/task-1".into());
-        assert_eq!(entry.command(None), "copilot -i 'go'", "copilot's --continue isn't the folder's: without a session it starts again");
+        assert_eq!(entry.command(None), format!("copilot --yolo -i {}", told_task(Some("go"))), "copilot's --continue isn't the folder's: without a session it starts again");
         entry.session = Some(id.clone());
-        assert_eq!(entry.command(None), format!("copilot --session-id '{id}'"));
+        assert_eq!(entry.command(None), format!("copilot --yolo --session-id '{id}'"));
     }
 
     #[test]
     fn an_opencode_task_resumes_the_session_found_for_its_worktree() {
         let mut entry = started("opencode");
-        assert_eq!(entry.command(Some("u")), "opencode --prompt 'go'");
+        assert_eq!(entry.command(Some("u")), format!("opencode --prompt {}", told_task(Some("go"))));
         entry.folder = Some("/r/.kanna-worktrees/task-1".into());
-        assert_eq!(entry.command(None), "opencode --prompt 'go'");
+        assert_eq!(entry.command(None), format!("opencode --prompt {}", told_task(Some("go"))));
         entry.session = Some("ses_1".into());
         assert_eq!(entry.command(None), "opencode --session 'ses_1'");
     }
@@ -1059,18 +1112,18 @@ mod tests {
     #[test]
     fn an_antigravity_task_continues_its_worktree_s_conversation() {
         let mut entry = started("/usr/local/bin/agy");
-        assert_eq!(entry.command(Some("u")), "/usr/local/bin/agy -i 'go'");
+        assert_eq!(entry.command(Some("u")), format!("/usr/local/bin/agy --dangerously-skip-permissions -i {}", told_task(Some("go"))));
         entry.folder = Some("/r/.kanna-worktrees/task-1".into());
-        assert_eq!(entry.command(None), "/usr/local/bin/agy --continue");
+        assert_eq!(entry.command(None), "/usr/local/bin/agy --dangerously-skip-permissions --continue");
         entry.session = Some("c1".into());
-        assert_eq!(entry.command(None), "/usr/local/bin/agy --conversation 'c1'");
+        assert_eq!(entry.command(None), "/usr/local/bin/agy --dangerously-skip-permissions --conversation 'c1'");
     }
 
     #[test]
     fn an_agent_kanna_doesn_t_know_starts_again_with_its_first_message() {
         let mut entry = started("aider");
         entry.folder = Some("/r/.kanna-worktrees/task-1".into());
-        assert_eq!(entry.command(Some("u")), "aider 'go'");
+        assert_eq!(entry.command(Some("u")), format!("aider {}", told_task(Some("go"))));
     }
 
     #[test]
@@ -1098,21 +1151,203 @@ mod tests {
     }
 
     #[test]
-    fn the_planning_terminal_is_marked_keeps_claude_to_its_context_shows_the_guide_and_is_your_shell() {
-        let command = planner_command(Some("/K/getting started.md"), Some(300_000), None, None);
-        assert_eq!(command, "export KANNA_PLANNER=1; [ -n \"$CLAUDE_CODE_AUTO_COMPACT_WINDOW\" ] || export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000; if command -v glow >/dev/null 2>&1; then glow -w 0 '/K/getting started.md'; else cat '/K/getting started.md'; fi; echo; exec \"${SHELL:-/bin/sh}\" -l");
-        assert_eq!(planner_command(None, None, None, None), "export KANNA_PLANNER=1; exec \"${SHELL:-/bin/sh}\" -l");
-        assert_eq!(planner_command(None, None, None, Some("/A/kanna")), "export KANNA_PLANNER=1; '/A/kanna' agents setup --ask; '/A/kanna' agents update --ask; exec \"${SHELL:-/bin/sh}\" -l");
-        let zsh = planner_command(None, None, Some("/S/shell/zsh"), None);
-        assert!(zsh.ends_with("case \"${SHELL##*/}\" in zsh) [ -z \"${ZDOTDIR+x}\" ] || export KANNA_ZSH_ZDOTDIR=\"$ZDOTDIR\"; export ZDOTDIR='/S/shell/zsh';; esac; exec \"${SHELL:-/bin/sh}\" -l"), "{zsh}");
+    fn each_agent_starts_as_the_planner_as_you_d_start_it_with_its_first_message() {
+        let agents = planner_agents();
+        let names: Vec<&str> = agents.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["claude", "codex", "copilot", "opencode", "agy"]);
+        let start = |name: &str| agents.iter().find(|(n, _)| n == name).unwrap().1.clone();
+        assert_eq!(start("claude"), "claude --dangerously-skip-permissions 'You are the Kanna planning agent.'", "no session; no permission prompts, as a task's agent");
+        assert_eq!(start("codex"), "codex --yolo --no-daemon 'You are the Kanna planning agent.'");
+        assert_eq!(start("copilot"), "copilot --yolo -i 'You are the Kanna planning agent.'");
+        assert_eq!(start("opencode"), "opencode --prompt 'You are the Kanna planning agent.'");
+        assert_eq!(start("agy"), "agy --dangerously-skip-permissions -i 'You are the Kanna planning agent.'");
+        assert_eq!(planner_start("/opt/bin/codex"), "/opt/bin/codex --yolo --no-daemon 'You are the Kanna planning agent.'");
+        assert_eq!(planner_start("/x/mock-agent"), "/x/mock-agent 'You are the Kanna planning agent.'");
+    }
+
+    #[test]
+    fn the_planning_terminal_keeps_claude_to_its_context_and_runs_the_planner_script() {
+        let agents = [("claude".to_string(), "claude 'You are the Kanna planning agent.'".to_string())];
+        let command = planner_command(Some("/K/planner.sh"), Some(300_000), Some("/S/shell/zsh"), Some("/A/kanna"), Path::new("/H/.kanna-v4/repos"), &agents);
+        assert_eq!(command, r#"[ -n "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" ] || export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000; exec '/K/planner.sh' --kanna '/A/kanna' --zsh '/S/shell/zsh' --repos '/H/.kanna-v4/repos' -- 'claude' 'claude '\''You are the Kanna planning agent.'\'''"#);
+        assert!(!command.contains("KANNA_PLANNER"));
+        assert_eq!(planner_command(None, None, None, None, Path::new("/r"), &agents), "exec \"${SHELL:-/bin/sh}\" -l");
+        assert_eq!(planner_command(None, None, None, Some("/A/kanna"), Path::new("/r"), &agents), "'/A/kanna' agents setup --ask; '/A/kanna' agents update --ask; exec \"${SHELL:-/bin/sh}\" -l");
         let run = |extra: &[(&str, &str)]| {
             let mut sh = Command::new("/bin/sh");
-            sh.arg("-c").arg(planner_command(Some("/dev/null"), Some(300_000), None, None).replace("exec \"${SHELL:-/bin/sh}\" -l", "echo \"P=$KANNA_PLANNER C=$CLAUDE_CODE_AUTO_COMPACT_WINDOW\"")).env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+            sh.arg("-c").arg(planner_command(None, Some(300_000), None, None, Path::new("/r"), &[]).replace("exec \"${SHELL:-/bin/sh}\" -l", "echo \"C=$CLAUDE_CODE_AUTO_COMPACT_WINDOW\"")).env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
             sh.envs(extra.iter().copied());
             String::from_utf8_lossy(&sh.output().unwrap().stdout).trim().to_string()
         };
-        assert_eq!(run(&[]), "P=1 C=300000");
-        assert_eq!(run(&[("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "500000")]), "P=1 C=500000", "your own setting wins");
+        assert_eq!(run(&[]), "C=300000");
+        assert_eq!(run(&[("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "500000")]), "C=500000", "your own setting wins");
+    }
+
+    struct Planner {
+        root: PathBuf,
+        home: PathBuf,
+        bin: PathBuf,
+    }
+
+    impl Drop for Planner {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn stub(file: &Path, body: &str) {
+        fs::write(file, format!("#!/bin/sh\n{body}\n")).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fn planner(name: &str, installed: &[&str]) -> Planner {
+        let root = std::env::temp_dir().join(format!("kanna-planner-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (home, bin) = (root.join("home"), root.join("bin"));
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        for agent in installed {
+            stub(&bin.join(agent), "echo \"$(basename \"$0\") in $(pwd -P): $*\"");
+        }
+        stub(&bin.join("shell"), "echo \"shell in $(pwd -P)\"");
+        let root = root.canonicalize().unwrap();
+        Planner { home: root.join("home"), bin: root.join("bin"), root }
+    }
+
+    impl Planner {
+        fn repo(&self, name: &str) -> PathBuf {
+            let repo = self.root.join(name);
+            fs::create_dir_all(&repo).unwrap();
+            assert!(Command::new("git").args(["init", "-q"]).current_dir(&repo).status().unwrap().success());
+            repo
+        }
+
+        fn run(&self, folder: &Path, input: &str) -> String {
+            let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/kanna/Resources/planner.sh");
+            let mut args = vec!["--repos".to_string(), self.home.join(".kanna-v4/repos").to_string_lossy().into_owned(), "--".to_string()];
+            for agent in ["claude", "codex", "copilot"] {
+                args.push(agent.to_string());
+                args.push(planner_start(agent));
+            }
+            let mut child = Command::new(&script)
+                .args(&args)
+                .current_dir(folder)
+                .env_clear()
+                .env("HOME", &self.home)
+                .env("PATH", format!("{}:/usr/bin:/bin", self.bin.display()))
+                .env("SHELL", self.bin.join("shell"))
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+            let out = String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap();
+            out.replace(self.root.to_str().unwrap(), "ROOT")
+        }
+    }
+
+    #[test]
+    fn the_planner_script_asks_which_agent_offers_to_make_it_the_project_s_and_starts_it() {
+        let p = planner("ask", &["claude", "codex"]);
+        let repo = p.repo("app");
+        let out = p.run(&repo, "2\ny\n");
+        assert!(out.contains("Choose an agent for planning and task creation\n\n  1  claude\n  2  codex\n\nChoose [1]: Make codex the planning agent for app? [y/N] codex plans app from now on (planning.agent in .kanna/config.json).\n"), "{out}");
+        assert!(out.contains("codex in ROOT/app: --yolo --no-daemon You are the Kanna planning agent.\n"), "{out}");
+        assert!(out.contains("The planning agent quit. Start it again: codex --yolo --no-daemon 'You are the Kanna planning agent.'\nshell in ROOT/app\n"), "{out}");
+        let config: Value = serde_json::from_str(&fs::read_to_string(repo.join(".kanna/config.json")).unwrap()).unwrap();
+        assert_eq!(config, json!({ "version": 1, "planning": { "agent": "codex" } }));
+        assert_eq!(planning_context(&[repo.join(".kanna/config.json")]), Some(PLANNING_CONTEXT), "the daemon still reads the file");
+
+        let out = p.run(&repo, "");
+        assert!(!out.contains("Choose"), "the project's planner starts without asking: {out}");
+        assert!(out.contains("codex in ROOT/app: --yolo --no-daemon You are the Kanna planning agent."), "{out}");
+
+        let other = p.repo("other");
+        let out = p.run(&other, "\nn\n");
+        assert!(out.contains("claude in ROOT/other: --dangerously-skip-permissions You are the Kanna planning agent."), "Return takes the first: {out}");
+        assert!(!other.join(".kanna").exists(), "no saves nothing");
+    }
+
+    #[test]
+    fn the_planner_script_keeps_the_rest_of_the_project_s_settings() {
+        let p = planner("keep", &["claude", "codex"]);
+        let repo = p.repo("app");
+        fs::create_dir_all(repo.join(".kanna")).unwrap();
+        fs::write(repo.join(".kanna/config.json"), r#"{"$schema": "x", "version": 1, "planning": {"context": 400000}}"#).unwrap();
+        p.run(&repo, "1\ny\n");
+        let config: Value = serde_json::from_str(&fs::read_to_string(repo.join(".kanna/config.json")).unwrap()).unwrap();
+        assert_eq!(config, json!({ "$schema": "x", "version": 1, "planning": { "context": 400000, "agent": "claude" } }));
+
+        let cloned = p.repo("cloned");
+        fs::create_dir_all(cloned.join(".kanna")).unwrap();
+        std::os::unix::fs::symlink(p.home.join("elsewhere"), cloned.join(".kanna/config.json")).unwrap();
+        let out = p.run(&cloned, "1\ny\n");
+        assert!(out.contains("Couldn't write ROOT/cloned/.kanna/config.json."), "a repo's symlink isn't followed: {out}");
+        assert!(!p.home.join("elsewhere").exists());
+        fs::write(cloned.join(".kanna/config.json.real"), "{\"version\": 1, \"planning\": {\"agent\": \"evil\\u001b]0;x\\u0007\"}}").unwrap();
+        fs::remove_file(cloned.join(".kanna/config.json")).unwrap();
+        fs::rename(cloned.join(".kanna/config.json.real"), cloned.join(".kanna/config.json")).unwrap();
+        let out = p.run(&cloned, "1\nn\n");
+        assert!(out.contains("planning.agent is evil]0;x, which isn't installed.") && !out.contains('\u{7}'), "a repo's text can't drive the terminal: {out:?}");
+    }
+
+    #[test]
+    fn the_planner_script_doesn_t_ask_with_one_agent_and_says_so_with_none() {
+        let p = planner("one", &["claude"]);
+        let repo = p.repo("app");
+        let out = p.run(&repo, "");
+        assert!(!out.contains("Choose") && out.contains("claude in ROOT/app: --dangerously-skip-permissions You are the Kanna planning agent."), "{out}");
+        let p = planner("none", &[]);
+        let repo = p.repo("app");
+        let out = p.run(&repo, "");
+        assert_eq!(out, "No agent Kanna knows is installed (claude, codex, copilot, opencode or agy). Install one, then start it here.\nshell in ROOT/app\n");
+    }
+
+    #[test]
+    fn in_home_the_planner_script_asks_where_first() {
+        let p = planner("where", &["claude", "codex"]);
+        let out = p.run(&p.home, "recipe-box\n2\n");
+        assert!(out.contains("Folder, repo or name: Made ~/.kanna-v4/repos/recipe-box\n"), "{out}");
+        assert!(out.contains("\u{1b}]7;file://localhostROOT/home/.kanna-v4/repos/recipe-box\u{1b}\\"), "the window follows: {out}");
+        assert!(!out.contains("Make codex"), "a new project isn't a repo, so nothing is offered: {out}");
+        assert!(out.contains("codex in ROOT/home/.kanna-v4/repos/recipe-box: --yolo --no-daemon You are the Kanna planning agent.") && out.ends_with("shell in ROOT/home/.kanna-v4/repos/recipe-box\n"), "{out}");
+        let out = p.run(&p.home, "recipe-box\n1\n");
+        assert!(out.contains("Opened ~/.kanna-v4/repos/recipe-box\n"), "{out}");
+
+        let repo = p.repo("work/app");
+        let out = p.run(&p.home, "~/nowhere\nbad name!\n../work/app\n1\nn\n");
+        assert!(out.contains("No folder ~/nowhere.") && out.contains("A project's name is letters, digits"), "{out}");
+        assert!(out.contains(&format!("claude in ROOT/work/app: --dangerously-skip-permissions You are")), "a folder is moved to: {out}");
+        let out = p.run(&p.home, &format!("{}\n1\nn\n", repo.display()));
+        assert!(out.contains("claude in ROOT/work/app: --dangerously-skip-permissions You are"), "{out}");
+        let out = p.run(&repo, "1\nn\n");
+        assert!(!out.contains("Folder, repo or name"), "only in ~: {out}");
+    }
+
+    #[test]
+    fn in_home_the_planner_script_clones_a_url_or_owner_repo() {
+        let p = planner("clone", &["claude", "codex"]);
+        let source = p.repo("source");
+        assert!(Command::new("git").args(["-c", "user.email=e@e", "-c", "user.name=e", "commit", "-q", "--allow-empty", "-m", "first"]).current_dir(&source).status().unwrap().success());
+        let bare = p.root.join("remote/kojo.git");
+        assert!(Command::new("git").args(["clone", "-q", "--bare"]).arg(&source).arg(&bare).status().unwrap().success());
+        let url = format!("file://{}", bare.display());
+        let out = p.run(&p.home, &format!("{url}\n2\nn\n"));
+        assert!(out.contains("Cloning file://ROOT/remote/kojo.git into ~/.kanna-v4/repos/kojo…"), "{out}");
+        assert!(out.contains("Make codex the planning agent for kojo? [y/N]"), "a clone is a repo: {out}");
+        assert!(out.contains("codex in ROOT/home/.kanna-v4/repos/kojo: --yolo --no-daemon"), "{out}");
+        let out = p.run(&p.home, &format!("{url}\n2\nn\n"));
+        assert!(out.contains("Opened ~/.kanna-v4/repos/kojo (already cloned)"), "{out}");
+
+        let out = p.run(&p.home, "someone/tool\nrecipe\n1\n");
+        assert!(out.contains("gh isn't installed: give the repo's URL.") && out.contains("Made ~/.kanna-v4/repos/recipe"), "{out}");
+        stub(&p.bin.join("gh"), &format!("[ \"$1 $2 $3\" = \"repo clone someone/tool\" ] && git clone -q {url} \"$4\""));
+        let out = p.run(&p.home, "someone/tool\n1\nn\n");
+        assert!(out.contains("Cloning someone/tool into ~/.kanna-v4/repos/tool…") && out.contains("claude in ROOT/home/.kanna-v4/repos/tool: --dangerously-skip-permissions You are"), "{out}");
+        let out = p.run(&p.home, "other/kojo\n1\nn\n");
+        assert!(out.contains("~/.kanna-v4/repos/kojo is already there, and isn't a clone of other/kojo."), "{out}");
     }
 
     #[test]
@@ -1125,7 +1360,9 @@ mod tests {
         assert_eq!(schema["properties"]["version"]["const"], json!(CONFIG_VERSION));
         assert!(schema["$id"].as_str().unwrap().ends_with(&format!("/v{CONFIG_VERSION}.schema.json")));
         let keys: Vec<&String> = schema["properties"]["planning"]["properties"].as_object().unwrap().keys().collect();
-        assert_eq!(keys, ["context"], "a key in the schema the daemon doesn't read, or the other way round");
+        assert_eq!(keys, ["agent", "context"], "a key in the schema Kanna doesn't read, or the other way round");
+        let names: Vec<&str> = AGENTS.iter().map(|a| a.names[0]).collect();
+        assert_eq!(schema["properties"]["planning"]["properties"]["agent"]["enum"], json!(names), "planning.agent names the agents a planning terminal offers");
     }
 
     #[test]
@@ -1166,6 +1403,10 @@ mod tests {
         assert_eq!(unprompted("claude --permission-mode plan"), "claude --permission-mode plan");
         assert_eq!(unprompted("codex --ask-for-approval=untrusted"), "codex --ask-for-approval=untrusted");
         assert_eq!(unprompted("codex -a untrusted"), "codex -a untrusted");
+        assert_eq!(unprompted("copilot"), "copilot --yolo");
+        assert_eq!(unprompted("copilot --allow-all-tools"), "copilot --allow-all-tools");
+        assert_eq!(unprompted("agy"), "agy --dangerously-skip-permissions");
+        assert_eq!(unprompted("agy --mode plan"), "agy --mode plan");
         assert_eq!(unprompted("opencode"), "opencode");
     }
 

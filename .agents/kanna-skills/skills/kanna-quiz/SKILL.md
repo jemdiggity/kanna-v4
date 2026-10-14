@@ -1,13 +1,13 @@
 ---
 name: kanna-quiz
-description: Use in Kanna when $KANNA_QUIZ is set (you're the agent of a Quiz window), or as a planning agent offering the user a quiz on what landed on main: five multiple-choice questions about the codebase, asked one at a time, each answer explained with the code opened at the line.
+description: Use when you've been told you're the Kanna quiz agent (the agent of a Quiz window), or as the Kanna planning agent offering the user a quiz on what landed on main: five multiple-choice questions about the codebase, asked one at a time, each answer explained with the code opened at the line.
 ---
 
 # Kanna quiz
 
 Agents write code faster than the user can read it. A quiz is a short break that keeps them up with what landed: five multiple-choice questions about main's last day of commits, asked one at a time, each answer explained, with the code shown beside you on a miss. About two minutes. No score to protect.
 
-Two parts: the planning agent **offers** a round and opens the Quiz window; the agent there (`$KANNA_QUIZ` is set) **asks** it.
+Two parts: the planning agent **offers** a round and opens the Quiz window; the agent there, told it's the Kanna quiz agent in its first message, **asks** it.
 
 ## Offering (the planning agent)
 
@@ -19,10 +19,10 @@ When your session starts (once per session):
 
    ```sh
    kanna open --window new --name quiz --cwd "$(git rev-parse --show-toplevel)" \
-     --cmd 'KANNA_QUIZ=1 claude "Quiz me on what landed on main."'
+     --cmd 'claude --dangerously-skip-permissions "You are the Kanna quiz agent, on main: quiz me on what landed on main."'
    ```
 
-   For Codex, the command is `KANNA_QUIZ=1 codex --no-daemon "Quiz me on what landed on main."`. Say it's open, and carry on.
+   For Codex, the command is `codex --yolo --no-daemon "You are the Kanna quiz agent, on main: quiz me on what landed on main."`. Say it's open, and carry on.
 
 ## Asking (the quiz agent)
 

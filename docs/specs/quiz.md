@@ -4,7 +4,7 @@
 
 Agents write code faster than you can read it, and you lose track of how your own codebase works. The **quiz** is a short break between reading agent output that keeps you up with what they built: five multiple-choice questions about what landed on main in the last day, asked by an agent in its chat, each answer explained, with the code opened at the line. It's the same problem the `kanna-explain` skill addresses, from the other side: you're asked, rather than told.
 
-It's a skill, `kanna-quiz`: the agent writes the questions itself when you start, and uses the `kanna` commands that already exist to open its window and the code. Kanna adds three small things: a line in the SessionStart hook for the quiz agent, an `open` from a terminal in a plain window going beside that terminal rather than into the window in front, and `kanna quiz`, which keeps every round and answer in [the database](database.md#quiz-results).
+It's a skill, `kanna-quiz`: the agent writes the questions itself when you start, and uses the `kanna` commands that already exist to open its window and the code. Kanna adds three small things: the quiz agent's first message telling it it's the quiz, an `open` from a terminal in a plain window going beside that terminal rather than into the window in front, and `kanna quiz`, which keeps every round and answer in [the database](database.md#quiz-results).
 
 **Done when** the planning agent offers a round on this repo's recent changes, and the agent in the Quiz window plays it as in the mockup, in light and dark.
 
@@ -101,9 +101,9 @@ sequenceDiagram
 
 - `git log main --since=1.day`. With nothing new, say nothing.
 - Otherwise offer once, in a line: what landed, and "Quiz on today's changes? Five questions, about two minutes."
-- On yes: `kanna focus quiz` if it's open, else `kanna open --window new --name quiz --cwd REPO --cmd 'KANNA_QUIZ=1 claude "Quiz me on what landed on main."'`, with the agent you are (Codex: `codex --no-daemon`).
+- On yes: `kanna focus quiz` if it's open, else `kanna open --window new --name quiz --cwd REPO --cmd 'claude --dangerously-skip-permissions "You are the Kanna quiz agent, on main: quiz me on what landed on main."'`, with the agent you are (Codex: `codex --yolo --no-daemon`).
 
-**Asking** starts from the SessionStart hook ([agent setup](agent-setup.md)): with `$KANNA_QUIZ` set it prints "You're running in Kanna as a quiz, on main: use the kanna-quiz skill now.", so the agent doesn't take itself for a task's (and rename main).
+**Asking** starts from that first message ([agent setup](agent-setup.md#2-how-an-agent-knows-its-in-kanna)), which says it's the quiz agent, on main, so the agent doesn't take itself for a task's (and rename main).
 
 In the quiz agent:
 

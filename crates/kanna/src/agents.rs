@@ -12,8 +12,6 @@ review comments.
 
   ~/.agents/skills/kanna-*      the skills (Codex)
   ~/.claude/skills/kanna-*      links to them (Claude)
-  hooks in ~/.claude/settings.json and ~/.codex/hooks.json
-                                that tell an agent it's in Kanna
   ~/.claude/settings.json       Kanna's socket in Claude's sandbox, which lets
                                 sandboxed agents control Kanna's terminals
 

@@ -1,6 +1,6 @@
 ---
 name: kanna-explain
-description: Use in a Kanna terminal ($KANNA_PANE is set) when the user asks how some code works, wants to understand code you wrote or changed, or seems to be losing track of the code; and whenever the user asks you to explain or teach anything (a tool, a git workflow, a concept, a design), since the terminal doesn't render diagrams.
+description: Use when you've been told you're in Kanna (a task's agent or the Kanna planning agent) when the user asks how some code works, wants to understand code you wrote or changed, or seems to be losing track of the code; and whenever the user asks you to explain or teach anything (a tool, a git workflow, a concept, a design), since the terminal doesn't render diagrams.
 ---
 
 # Kanna explain

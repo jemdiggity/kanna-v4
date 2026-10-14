@@ -1,6 +1,6 @@
 ---
 name: kanna-tasks
-description: Use when running in a Kanna terminal ($KANNA_PANE is set), as soon as you know what the work in this session is, and whenever the user plans work with you or you split off work for later.
+description: Use when you've been told you're a task's agent in Kanna, as soon as you know what the work in this session is, and whenever the user plans work with you or you split off work for later.
 ---
 
 # Kanna tasks
@@ -15,7 +15,7 @@ A project (a repo) has **one Desk**: its window. The Desk shows one task at a ti
 - `kanna task pull TASK` swaps a task onto the Desk, parking the one there; `kanna task park` moves the Desk's task to the Shelf. Only when the user asks.
 - Never make another Desk for a project (`--window new`): there's one.
 
-If `$KANNA_PLANNER` is set, you're a window's **planning agent**, not a task: use the `kanna-planning` skill instead, and skip naming a branch.
+If you've been told you're the Kanna planning agent, you're a window's **planning agent**, not a task: use the `kanna-planning` skill instead, and skip naming a branch.
 
 ## Name your branch
 

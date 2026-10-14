@@ -228,7 +228,7 @@ extension AppController {
         starting.insert(window)
         var args: [String: JSON] = ["action": "plan", "window": .string(window)]
         if let folder = self.window(window)?["project"]?.string ?? controller.projectRoot { args["folder"] = .string(folder) }
-        if let guide = Bundle.main.url(forResource: "getting-started", withExtension: "md") { args["guide"] = .string(guide.path) }
+        if let script = Bundle.main.url(forResource: "planner", withExtension: "sh") { args["script"] = .string(script.path) }
         request("backlog", args) { [weak self] reply in
             guard let self else { return }
             if reply["ok"]?.bool == true { starting.remove(window) }

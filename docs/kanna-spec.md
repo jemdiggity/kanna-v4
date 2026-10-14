@@ -852,7 +852,7 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 ### 4.15 Desk
 
-**[Built]** A window that shows one task: its agent docked on the left as the single chat, everything else it opens as the window's tabs, every other task parked on the Shelf below with its agent still running; the look of kanna v3's Desk. Its own spec: [specs/desk.md](specs/desk.md), with its planning terminal in [specs/planning-agent.md](specs/planning-agent.md) and Kanna's settings in [specs/settings.md](specs/settings.md), and a mockup in [references/mockups/desk.html](../references/mockups/desk.html).
+**[Built]** A window that shows one task: its agent docked on the left as the single chat, everything else it opens as the window's tabs, every other task parked on the Shelf below with its agent still running; the look of kanna v3's Desk. Its own spec: [specs/desk.md](specs/desk.md), with its planning terminal in [specs/planning-agent.md](specs/planning-agent.md) (and how a new Desk starts it in [specs/new-desk.md](specs/new-desk.md)) and Kanna's settings in [specs/settings.md](specs/settings.md), and a mockup in [references/mockups/desk.html](../references/mockups/desk.html).
 
 ### 4.16 Docked Pane
 

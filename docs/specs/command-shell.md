@@ -17,8 +17,6 @@ A command Kanna runs in a pane (`kanna open --cmd`, a task's agent) starts with 
 flowchart LR
     K[keeper] -->|zsh| Z["$SHELL -l -i +m -c CMD"]
     K -->|bash, sh, others| B["$SHELL -l -i -c CMD"]
-    K -->|planning terminal| H["$SHELL -l -c CMD"]
-    H -->|"exec $SHELL -l"| R[the user's shell, which reads them]
     Z --> P[".zshenv, .zprofile, .zshrc, .zlogin"]
     B --> Q[".bash_profile (which reads .bashrc)"]
     P --> C[CMD]
@@ -35,7 +33,7 @@ The keeper builds the argv (`command_argv` in `crates/kanna-keeper/src/pty.rs`) 
 | **zsh gets `+m`** (no job control). | `-i` turns job control on, which puts each program of a compound command in a process group of its own. With `+m` the command runs as it did before `-i`: one process group, `SIGWINCH` reaching the shell's traps, no job notices. bash ignores `+m` on its command line, so bash commands have job control. |
 | **zsh still `exec`s a lone command.** | The agent is the pane's process, so status detection and `close` see it directly. |
 | **Closing a pane ends its whole session.** | The keeper sends `SIGHUP` to every process group in the pty's session, and `SIGKILL` after the grace period ([keeper spec](../keeper.md)). Under bash's job control a background job has a group of its own, and a script ignoring `SIGHUP` would otherwise leave it running. Tabs get the same. |
-| **A planning terminal's command skips them** (`-l -c`). | It shows the greeting and `exec`s the user's shell, which reads them. Reading them first as well doubled the start-up time (nvm alone takes about a second), and text sent while it started was lost (S46). The pane is marked `hands_over` when it opens (`handsOver` in the daemon's saved panes), and the keeper's spawn request says `"rc": false`. |
+| **A planning terminal's command reads them too.** | Its [planner script](new-desk.md) looks for the agents your shell finds (nvm's codex) and starts one, so it needs them; it reads them again when it hands over to your shell. The keeper still takes `"rc": false` (`-l -c`) from an older daemon. |
 | **A restored pane knows its command** from argv `[shell, -l, (-i), (+m), -c, CMD]`. | A keeper from an older build still holds `-l -c` panes. |
 
 ## 3. What it changes
@@ -44,7 +42,7 @@ The keeper builds the argv (`command_argv` in `crates/kanna-keeper/src/pty.rs`) 
 - **bash says `logout`** when the command ends with the `exit` builtin, and prints job notices (`[1] 1234`) for `&`, as in a tab.
 - **bash waits at exit until its last output is read.** The daemon always reads, so this only shows while no daemon runs: the exit is reported once the next daemon takes the pane back.
 
-Checked by the keeper's unit and integration tests and e2e S63 (a test `ZDOTDIR` whose `.zshrc` alone puts a mock `codex` on `PATH`; a `--cmd` pane sees its variable and a `--agent codex` task starts).
+Checked by the keeper's unit and integration tests, e2e S63 (a test `ZDOTDIR` whose `.zshrc` alone puts a mock `codex` on `PATH`; a `--cmd` pane sees its variable and a `--agent codex` task starts), and S65 (a planning terminal finds codex the way your shell does).
 
 ## 4. Glossary
 
