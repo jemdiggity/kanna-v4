@@ -59,7 +59,7 @@ stateDiagram-v2
 - **Oldest first.** A Desk's Shelf strip shows how many wait.
 - **Search it** with ⌘F on an empty Desk, by name or first message: [backlog search](backlog-search.md).
 - **A task can wait for others:** blocked, it can't start until they're Done ([blocked tasks](task-dependencies.md)).
-- **Backlog tasks run by themselves,** a few at a time, and stop when their agent's turn ends ([backlog runners](backlog-runners.md)).
+- **Backlog tasks run by themselves,** a few at a time, and Kanna stops each when its agent's turn ends ([backlog runners](backlog-runners.md)).
 
 ## 4. Naming
 
