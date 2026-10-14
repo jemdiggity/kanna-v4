@@ -147,6 +147,7 @@ impl Spawner for Keeper {
             Some(command) => SpawnRequest::command(&spec.id, command),
             None => SpawnRequest::shell(&spec.id),
         };
+        request.skip_rc = spec.hands_over;
         request.cwd = spec.cwd.as_ref().map(PathBuf::from);
         request.env = spec.env.iter().cloned().collect();
         (request.cols, request.rows) = (spec.cols, spec.rows);

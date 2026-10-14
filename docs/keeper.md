@@ -113,7 +113,7 @@ sequenceDiagram
 
 | Request | Runs | argv[0] |
 |---|---|---|
-| `command: CMD` | `/bin/sh -c CMD` | `/bin/sh` |
+| `command: CMD` | the user's login shell (as below) with `-l -i -c CMD`, zsh with `-l -i +m -c CMD`; with `rc: false`, `-l -c CMD` ([why](specs/command-shell.md)) | the shell's path |
 | `shell: PATH` | `PATH`, interactive; a bare name is looked up in the absolute directories on `PATH` only, and not finding it is an error (never a file of that name in the cwd) | `-name` (login-shell convention) |
 | neither | the user's login shell (passwd, else `$SHELL`, else `/bin/sh`) | `-name` |
 
@@ -134,8 +134,8 @@ stateDiagram-v2
 ```
 
 - **Exit:** reaped with `waitpid`; reported as `code` or `signal`. The keeper keeps the exited pty (and its master, so the last output can still be read) until it is acknowledged, and tells every new connection about it.
-- **Close:** `SIGHUP` to the process group and the pty's foreground group, `SIGKILL` to both after the grace period (1 s). A closed process's exit isn't reported.
-- **No signal reaches a reused pid:** the keeper reaps only the pids it spawned (`waitpid(pid)`, never `-1`), and a closed process isn't reaped until its `SIGKILL` has gone, so until then its zombie holds the pid and the process group id. The foreground group is killed only if it still belongs to the closed process's session (`getsid`).
+- **Close:** `SIGHUP` to every process group in the pty's session (the processes whose `getsid` is the spawned pid), `SIGKILL` to every one after the grace period (1 s), so a job-control shell's background jobs end too. A closed process's exit isn't reported.
+- **No signal reaches a reused pid:** the keeper reaps only the pids it spawned (`waitpid(pid)`, never `-1`), and a closed process isn't reaped until its `SIGKILL` has gone, so until then its zombie holds the pid and the process group id. Groups are found by `getsid` at the moment of each signal, so only groups still in the closed process's session are signalled.
 
 ## 7. Life of the Keeper
 

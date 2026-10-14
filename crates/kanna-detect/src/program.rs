@@ -298,6 +298,7 @@ mod tests {
         assert_eq!(found(proc("/bin/zsh", &["-zsh"])), None);
         assert_eq!(found(proc("/bin/zsh", &["zsh", "-l"])), None);
         assert_eq!(found(proc("/bin/zsh", &["zsh", "-l", "-c", "/t/mock-agent"])), None);
+        assert_eq!(found(proc("/bin/zsh", &["zsh", "-l", "-i", "-c", "/t/mock-agent"])), None);
         assert_eq!(found(proc("/usr/bin/vim", &["vim", "claude.md"])), None);
         assert_eq!(found(proc("/x/kanna-keeper", &["claude"])), None);
         assert_eq!(found(proc("/usr/bin/evil", &["evil"])), None);

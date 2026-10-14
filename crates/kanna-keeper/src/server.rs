@@ -1,5 +1,5 @@
 use crate::pty::{self, What};
-use crate::{fdpass, paths, sig, ExitStatus, PROTOCOL_VERSION};
+use crate::{fdpass, paths, session, sig, ExitStatus, PROTOCOL_VERSION};
 use anyhow::{Context, Result};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, VecDeque};
@@ -57,11 +57,6 @@ struct Pty {
 }
 
 impl Pty {
-    fn foreground(&self) -> Option<i32> {
-        let fg = unsafe { libc::tcgetpgrp(self.master.as_raw_fd()) };
-        (fg > 0 && fg != self.pid).then_some(fg)
-    }
-
     fn describe(&self, id: &str) -> Value {
         let mut v = json!({"id": id, "pid": self.pid, "cmd": self.cmd, "cwd": self.cwd});
         if let Some(exit) = self.exit {
@@ -140,7 +135,6 @@ struct Pending {
 
 struct Closed {
     pid: i32,
-    foreground: Option<i32>,
     kill_at: Option<Instant>,
 }
 
@@ -357,9 +351,8 @@ impl Keeper {
             if c.kill_at.is_none_or(|at| at > now) {
                 continue;
             }
-            unsafe { libc::killpg(c.pid, libc::SIGKILL) };
-            if let Some(fg) = c.foreground.filter(|&fg| unsafe { libc::getsid(fg) } == c.pid) {
-                unsafe { libc::killpg(fg, libc::SIGKILL) };
+            for group in session::groups(c.pid) {
+                unsafe { libc::killpg(group, libc::SIGKILL) };
             }
             c.kill_at = None;
             killed = true;
@@ -497,6 +490,7 @@ impl Keeper {
         }
         let what = match (req["command"].as_str(), req["shell"].as_str()) {
             (Some(_), Some(_)) => return Err("give command or shell, not both".into()),
+            (Some(command), None) if req["rc"] == Value::Bool(false) => What::LoginCommand(command),
             (Some(command), None) => What::Command(command),
             (None, shell) => What::Shell(shell),
         };
@@ -551,7 +545,7 @@ impl Keeper {
 
     fn spawn_failed(&mut self, p: Pending, error: String) {
         if p.exit.is_none() {
-            self.closed.push(Closed { pid: p.pid, foreground: None, kill_at: None });
+            self.closed.push(Closed { pid: p.pid, kill_at: None });
         }
         let mut reply = json!({"ok": false, "error": error});
         if !p.tag.is_null() {
@@ -589,11 +583,10 @@ impl Keeper {
             return Err(format!("no pty {id:?}"));
         };
         if p.exit.is_none() {
-            let foreground = p.foreground();
-            for pg in std::iter::once(p.pid).chain(foreground) {
-                unsafe { libc::killpg(pg, libc::SIGHUP) };
+            for group in session::groups(p.pid) {
+                unsafe { libc::killpg(group, libc::SIGHUP) };
             }
-            self.closed.push(Closed { pid: p.pid, foreground, kill_at: Some(Instant::now() + self.settings.close_grace) });
+            self.closed.push(Closed { pid: p.pid, kill_at: Some(Instant::now() + self.settings.close_grace) });
         }
         Ok((json!({}), vec![]))
     }

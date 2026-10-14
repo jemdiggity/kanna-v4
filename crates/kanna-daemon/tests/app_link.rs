@@ -155,7 +155,7 @@ fn exited_comes_after_the_last_output() {
     let instance = Instance::start();
     for round in 0..5 {
         let name = format!("burst{round}");
-        let pane = instance.open(&name, Some("sleep 0.3; head -c 2000000 /dev/zero | tr '\\0' x; printf END; exit 7"));
+        let pane = instance.open(&name, Some("sleep 0.3; head -c 2000000 /dev/zero | tr '\\0' x; printf END; (exit 7)"));
         let mut app = instance.app();
         app.tell("attach", json!({"pane": pane}));
         let mut seen = Vec::new();

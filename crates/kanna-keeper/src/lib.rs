@@ -4,6 +4,7 @@ mod ghostty_env;
 pub mod paths;
 mod pty;
 pub mod server;
+mod session;
 mod sig;
 
 use serde_json::{json, Value};

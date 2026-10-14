@@ -4,6 +4,7 @@ use std::os::fd::{AsRawFd, OwnedFd};
 pub struct Spec {
     pub id: String,
     pub command: Option<String>,
+    pub hands_over: bool,
     pub cwd: Option<String>,
     pub env: Vec<(String, Option<String>)>,
     pub cols: u16,

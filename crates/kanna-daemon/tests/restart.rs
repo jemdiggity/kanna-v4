@@ -48,7 +48,7 @@ fn a_restart_keeps_a_running_shell_its_screen_and_what_it_wrote_meanwhile() {
 #[test]
 fn a_full_screen_program_redraws_after_a_restart() {
     let mut instance = Instance::start();
-    let script = r#"printf '\033[?1049h\033[Hfull screen'; n=0; trap 'n=$((n+1)); printf "\033[2J\033[Hredrawn %s" $n' WINCH; while :; do sleep 0.1; done"#;
+    let script = r#"exec /bin/sh -c 'printf "\033[?1049h\033[Hfull screen"; n=0; trap "n=\$((n+1)); printf \"\033[2J\033[Hredrawn %s\" \$n" WINCH; while :; do sleep 0.1; done'"#;
     let pane = instance.open("full", Some(script));
     wait_for("the program to draw", || shows(&instance, &pane, "full screen"));
     std::thread::sleep(Duration::from_millis(1500));
