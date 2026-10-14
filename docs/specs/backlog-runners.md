@@ -10,8 +10,7 @@ The backlog looks the same as before: rows show nothing about how far a task got
 
 1. [What runs](#1-what-runs)
 2. [How it's built](#2-how-its-built)
-3. [Open questions](#3-open-questions)
-4. [Glossary](#4-glossary)
+3. [Glossary](#3-glossary)
 
 ## 1. What runs
 
@@ -34,6 +33,7 @@ stateDiagram-v2
 - **So tasks are written to be done in one go:** the [planning agent](planning-agent.md#2-what-it-is) reads the code, asks you until the outcome, scope, decisions and how to judge it done are settled, writes a first message that says all of it and what to do when stuck, and reads it back to you before it makes the task (the `kanna-planning` skill).
 - **A runner frees when a turn ends:** the agent's [status](agent-status.md) goes from working to needs you or idle and stays there 3s. Kanna quits the agent, keeps its session, and starts the next.
 - **Nothing shows it:** backlog rows and `kanna task list` look as they do for any backlog task, and the Shelf isn't re-sorted. Why a task stopped (needs you, finished) is kept in its events only (`backlog events`).
+- **Moved to the backlog running, a task counts as a runner,** and Kanna stops it when its turn ends, at once if it arrives idle. That can leave more running than `backlog.runners` for a while: Kanna stops none to make room, and starts no more until fewer run.
 - **Resume on the Shelf:** Move to Shelf (or `kanna task start`) resumes a stopped task's session where it stopped.
 
 ## 2. How it's built
@@ -54,11 +54,7 @@ stateDiagram-v2
 - **The quit files are bundled only:** the rules site and your overrides can't change which keys Kanna types into an agent.
 - **Tested** by e2e S68 with the mock agent as codex: with runners 0 nothing runs; with 3, five tasks run three at a time in order, skipping a blocked one until its blocker is Done; one that asks is stopped as needs you (in its events), its session read from what it said as it quit; Move to Shelf resumes it there; moved back to the backlog idle, it's stopped as finished.
 
-## 3. Open questions
-
-1. **A task moved to the backlog running counts as a runner** and is stopped when its turn ends, idle when it arrives included. Moving a task back to the backlog to keep it running there, outside the Shelf, would need a way to say so.
-
-## 4. Glossary
+## 3. Glossary
 
 | Term | Meaning |
 |---|---|
