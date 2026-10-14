@@ -1,6 +1,6 @@
 # Blocked tasks
 
-**Status:** proposed · **Mockup:** [`references/mockups/blocked-tasks.html`](../../references/mockups/blocked-tasks.html) (Screenshot command is done; or `#freed`) · **Builds on:** [tasks](tasks.md), [planning agent](planning-agent.md)
+**Status:** built · **Tested:** e2e S66 · **Mockup:** [`references/mockups/blocked-tasks.html`](../../references/mockups/blocked-tasks.html) (Screenshot command is done; or `#freed`) · **Builds on:** [tasks](tasks.md), [planning agent](planning-agent.md)
 
 A task can wait for other tasks: it's **blocked**, and can't start until they're all Done.
 
