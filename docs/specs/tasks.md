@@ -39,7 +39,7 @@ stateDiagram-v2
 - **One repo.** A task belongs to the repo it was made in, so it can later be sent to another machine or person with that repo.
 - **A name and a first message.** In the backlog, that's all a task is.
 - **Running and place are separate.** A task is in one place (the backlog, the Shelf, a Desk) and either **running** (its agent and tabs alive) or **stopped** (no agent; a new backlog task, or one stopped, its worktree, branch and conversation kept). `kanna task start` and `kanna task stop` change only whether it runs; Move to Shelf, Move to Backlog and pull change only where it is, except that Move to Shelf starts a stopped task.
-- **Started, it runs in its own worktree `<repo>/.kanna-worktrees/<NAME>` on branch `<NAME>`, made from the repo's checked-out commit (or from another task's branch, for a [stacked](task-dependencies.md#stacked) task), and an agent there that gets the first message. NAME is `task-` and the first 32 bits of a fresh random UUID in hex (`task-3f9a1c2e`), so it never collides with another worktree or branch; the agent renames the branch once it knows the work ([4](#4-naming)). The repo's `info/exclude` keeps `.kanna-worktrees/` and each worktree's `.kanna/tmp/` (an agent's scratch files, such as [code tour](code-tour.md) docs) out of git.
+- **Started, it runs in its own worktree `<repo>/.kanna-worktrees/<NAME>` on branch `<NAME>`, made from the repo's checked-out commit, and an agent there that gets the first message. NAME is `task-` and the first 32 bits of a fresh random UUID in hex (`task-3f9a1c2e`), so it never collides with another worktree or branch; the agent renames the branch once it knows the work ([4](#4-naming)). The repo's `info/exclude` keeps `.kanna-worktrees/` and each worktree's `.kanna/tmp/` (an agent's scratch files, such as [code tour](code-tour.md) docs) out of git.
 - **Every task works in a worktree.** All development happens in one, never in the repo's own checkout.
 - **Kanna is git-based: a task needs a git repo.** In a folder that isn't one, making a task is refused; Kanna never runs `git init` itself. An agent sets the repo up with you (in a new, empty project, the planning agent does), and a repo with no commits yet works: its first task's branch starts empty (`git worktree add --orphan`), so the task's first commit is the project's. Kanna never commits for you.
 - **The Shelf holds three per repo**: the one on the Desk and two on the Shelf, running or stopped. Any number run in the backlog.
@@ -60,7 +60,7 @@ stateDiagram-v2
 - **`kanna task start` runs a task where it is**: a backlog task gets its worktree and agent and stays in the backlog, running, so you can start several and move them to the Shelf later. `kanna task list` shows each one's state: working, idle, needs you, or stopped.
 - **Oldest first.** A Desk's Shelf strip shows how many wait.
 - **Search it** with ⌘F on an empty Desk, by name or first message: [backlog search](backlog-search.md).
-- **A task can wait for others, or stack on another's branch:** blocked, it can't start until they're Done; stacked, its branch is made from the other task's branch ([blocked and stacked tasks](task-dependencies.md)).
+- **A task can wait for others:** blocked, it can't start until they're Done ([blocked tasks](task-dependencies.md)).
 
 ## 4. Naming
 
@@ -102,8 +102,8 @@ An agent not in the table starts again with its first message, its conversation 
 
 | Command | Does |
 |---|---|
-| `kanna task new NAME [FIRST-MESSAGE] [--agent CMD] [--after TASK,…] [--on TASK]` | Add a task to this repo's backlog (the agent defaults to `$KANNA_AGENT`, else `claude`, and starts without asking permission); `--after` and `--on` make it wait for others or stack on another's branch ([blocked and stacked tasks](task-dependencies.md)) |
-| `kanna task edit TASK [--after TASK,…\|none] [--on TASK\|none]` | Change a backlog task's blockers or base |
+| `kanna task new NAME [FIRST-MESSAGE] [--agent CMD] [--after TASK,…]` | Add a task to this repo's backlog (the agent defaults to `$KANNA_AGENT`, else `claude`, and starts without asking permission); `--after` makes it wait for others ([blocked tasks](task-dependencies.md)) |
+| `kanna task edit TASK --after TASK,…\|none` | Change what a backlog task waits for |
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, agent and first message and stays in the backlog; a stopped task's agent comes back, resuming its conversation |
 | `kanna task stop [TASK]` | End a task's agent and tabs, leaving it where it is (default: the one you're in) |
 | `kanna task shelve TASK [--window WINDOW]` | Move a backlog task to the Shelf (or onto that Desk), starting it if it's stopped; refused when the Shelf holds three |

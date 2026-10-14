@@ -42,6 +42,7 @@ stateDiagram-v2
 - **Not a task.** It isn't on the Shelf, the strip or in `kanna task list`, doesn't take one of the repo's three running slots, can't be parked, pulled, moved or docked elsewhere, and has no Park button. Its header says **Planning**, the terminal's folder and branch.
 - **In the window's folder, the repo's main checkout,** not a worktree.
 - **It says how tasks depend on each other** when it makes them: `--after` for a task that has to wait until others are Done, `--on` for one that builds on another's branch before it's merged ([blocked and stacked tasks](task-dependencies.md)). When `kanna task done` frees a task, it offers to start it.
+- **It says what a task waits for** when it makes it: `--after` for a task that has to wait until others are Done ([blocked tasks](task-dependencies.md)). When `kanna task done` frees a task, it offers to start it.
 
 ## 3. Getting started
 
