@@ -363,7 +363,7 @@ pub fn agents(args: &Value, reply: &Value) -> String {
             conflicts,
         ].into_iter().flatten().collect::<Vec<_>>().join("\n"),
         Some("remove") => [
-            Some("took Kanna's skills, hooks and sandbox entry back out; Kanna won't ask again (kanna agents setup to set them up again)".to_string()),
+            Some("took Kanna's skills and sandbox entry back out; Kanna won't ask again (kanna agents setup to set them up again)".to_string()),
             lines("kept", "left alone (changed since Kanna installed them)"),
         ].into_iter().flatten().collect::<Vec<_>>().join("\n"),
         _ => {
