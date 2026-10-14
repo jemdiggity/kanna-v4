@@ -189,6 +189,15 @@ body.picture .cmd input::placeholder { color: transparent; }
 .row.sel { background: var(--panel); }
 .row.waiting.sel .go:not(.off) { color: var(--accent); }
 .nohit { color: var(--muted); padding: 8px 0; }
+.row.waiting.running .dot { background: var(--accent); border-color: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+.row.waiting.needs .dot { background: var(--warn); border-color: var(--warn); }
+.row.waiting.finished .dot { background: var(--ok); border-color: var(--ok); }
+@keyframes pulse { 50% { opacity: .35; } }
+body.picture .row.waiting.running .dot { animation: none; }
+.row .state { font-weight: 500; }
+.row .state.running { color: var(--accent); }
+.row .state.needs { color: var(--warn); }
+.row .state.finished { color: var(--ok); }
 </style>
 </head>
 <body>
@@ -201,6 +210,8 @@ body.picture .cmd input::placeholder { color: transparent; }
       <button id="newwin">File › New Desk ⌘N</button>
       <button id="ring" title="A parked task's agent stops to ask you something: it moves to the front of the Shelf, needs you">Simulate: a parked agent needs you</button>
       <button id="long" title="An empty Desk with a dozen tasks in the backlog: search it">Simulate: a long backlog</button>
+      <button id="runs" title="Backlog tasks start by themselves, a few at a time, oldest first, and stop when their agent's turn ends: it asks you something or it's finished">Simulate: the backlog runs tasks</button>
+      <button id="runners" title="backlog.runners in your settings: how many backlog tasks run at once (0: none)">backlog.runners: 3</button>
       <button id="fresh" title="A window with nothing in it: its planning terminal runs the planner script">Simulate: no tasks</button>
       <button id="first" title="Kanna's first launch: the planner script asks about Kanna's skills before the agent">Simulate: first launch</button>
       <button id="onlyone" title="Which agents your shell finds: with one, the script doesn't ask">Installed: claude, codex</button>
@@ -254,6 +265,9 @@ const initial = () => {
 };
 let s = initial();
 const statusText = { working: "working", needs: "needs you", idle: "idle", exited: "exited" };
+const runText = { running: "running", needs: "stopped: needs you", finished: "stopped: finished" };
+const runOf = t => t.run === "running" ? "running" : t.run === "stopped" ? t.why : "";
+let runners = 3;
 const task = id => s.tasks.find(t => t.id === id);
 const win = id => s.windows.find(w => w.id === id);
 const deskOf = id => s.windows.find(w => w.desk === id);
@@ -554,7 +568,7 @@ function shelfPageHTML(w) {
     <div class="group"><div class="gh"><span><b>Shelf</b> · ${esc(repo)}</span><span>${count} of ${LIMIT} tasks</span></div>
       ${list.map((t, i) => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${titleOf(t)}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${ago(t)} · ${esc(t.branch)}</div></div><span class="go">⌘${i + 1} · Pull →</span></div>`).join("") || `<div class="s" style="color:var(--muted)">Nothing on the Shelf.</div>`}</div>
     <div class="group"><div class="gh"><span><b>Backlog</b></span>${waiting.length ? `<label class="find"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><input data-find="${w.id}" value="${esc(q)}" placeholder="Search the backlog" spellcheck="false" autocomplete="off">${q ? `<span class="clear" data-clear="${w.id}" title="Clear">✕</span>` : `<kbd>⌘F</kbd>`}</label>` : ""}<span class="count"><span>${q ? `${found.length} of ${waiting.length}` : `${waiting.length} waiting`}</span><span>${waiting.length} waiting</span><span>${waiting.length} of ${waiting.length}</span></span></div>
-      ${found.map((t, i) => `<div class="row waiting ${q && i === sel ? "sel" : ""}" data-promote="${t.id}"><span class="dot"></span><div class="t"><div class="n">${t.title ? marked(t.title, q) : titleOf(t)}</div><div class="s">${marked(t.prompt, q)} · from ${esc(makerOf(t))}, ${ago({ parkedAt: t.madeAt })} ago</div></div><span class="go ${full ? "off" : ""}">${full ? "Shelf full" : q && i === sel ? "↩ Move to Shelf" : "Move to Shelf →"}</span></div>`).join("") || (q ? `<div class="nohit">No backlog task matches “${esc(q)}”.</div>` : `<div class="s" style="color:var(--muted)">Empty. Ask the planning agent for tasks.</div>`)}
+      ${found.map((t, i) => `<div class="row waiting ${runOf(t)} ${q && i === sel ? "sel" : ""}" data-promote="${t.id}"><span class="dot"></span><div class="t"><div class="n">${t.title ? marked(t.title, q) : titleOf(t)}</div><div class="s">${runOf(t) ? `<span class="state ${runOf(t)}">${runText[runOf(t)]}</span> · ` : ""}${marked(t.prompt, q)} · from ${esc(makerOf(t))}, ${ago({ parkedAt: t.madeAt })} ago</div></div><span class="go ${full ? "off" : ""}">${full ? "Shelf full" : q && i === sel ? "↩ Move to Shelf" : "Move to Shelf →"}</span></div>`).join("") || (q ? `<div class="nohit">No backlog task matches “${esc(q)}”.</div>` : `<div class="s" style="color:var(--muted)">Empty. Ask the planning agent for tasks.</div>`)}
       <p class="note">${esc(s.note)}</p></div></div>`;
 }
 
@@ -579,7 +593,11 @@ function promote(id) {
   const t = task(id);
   if (!t || !t.backlog) return;
   if (inRepo(t.repo).length >= LIMIT) { s.note = `The Shelf is full: finish a task first`; return render(); }
+  const resumed = t.run === "stopped", running = t.run === "running";
+  delete t.run; delete t.why;
   start(t, t.worktree !== false);
+  if (resumed) t.log.push(`<span class="out">resumed its session where it stopped</span>`);
+  if (running) t.log.push(`<span class="out">still running: moved as it is</span>`);
   s.order.unshift(t.id);
   s.note = "";
   s.windows.forEach(w => { if (repoOf(w) === t.repo) { w.query = ""; w.sel = 0; } });
@@ -897,6 +915,27 @@ const long = () => {
   ].forEach(([title, prompt], i) => s.tasks.push({ id: "t" + (2 + i * 4), repo: "~/work/kanna-v4", backlog: true, title, prompt, by: by[i % 4], madeAt: now - (12 - i) * 37 * MIN }));
 };
 document.getElementById("long").onclick = () => { s = initial(); long(); render(); };
+const ASKS = ["Swap keeps the task", "Native diff viewer", "Ink markup with arrows"];
+function runTick() {
+  for (const t of s.tasks) {
+    if (!t.backlog || t.run !== "running" || --t.left > 0) continue;
+    t.run = "stopped"; t.why = ASKS.includes(t.title) ? "needs" : "finished";
+  }
+  for (const repo of s.repos) {
+    const b = backlog(repo);
+    let free = runners - b.filter(t => t.run === "running").length;
+    for (const t of b) {
+      if (free <= 0) break;
+      if (t.run) continue;
+      t.run = "running"; t.left = 3 + (b.indexOf(t) % 3) * 2; free--;
+    }
+  }
+}
+let ticking = null;
+const runs = () => { s = initial(); long(); s.runs = true; runTick(); };
+const tick = () => { if (s.runs && !document.activeElement?.closest?.("[data-cmd]")) { runTick(); render(); } };
+document.getElementById("runs").onclick = () => { runs(); render(); if (!ticking) ticking = setInterval(tick, 1000); };
+document.getElementById("runners").onclick = e => { runners = runners === 3 ? 1 : runners === 1 ? 0 : 3; e.target.textContent = "backlog.runners: " + runners; if (s.runs) { runTick(); render(); } };
 const fresh = () => { s.tasks = []; s.order = []; s.windows.forEach(w => { w.desk = null; w.planner = null; w.repo = "~/work/kanna-v4"; }); };
 document.getElementById("fresh").onclick = () => { fresh(); render(); };
 document.getElementById("first").onclick = () => { s.skills = false; fresh(); render(); };
@@ -905,6 +944,7 @@ document.getElementById("forget").onclick = () => { s.config = {}; s.note = "pla
 if (location.hash.includes("picture")) document.body.classList.add("picture");
 if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
 if (location.hash.includes("long")) long();
+if (location.hash.includes("runs")) { runs(); for (let i = 0; i < 9; i++) runTick(); if (!location.hash.includes("picture")) ticking = setInterval(tick, 1000); }
 if (location.hash.includes("empty")) {
   parkTask(task("p1"));
   s.windows[0].desk = null;
