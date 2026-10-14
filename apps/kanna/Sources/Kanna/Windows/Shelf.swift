@@ -31,8 +31,11 @@ struct BacklogTask: Equatable {
     let message: String?
     let from: String?
     let madeAt: Double?
+    var waits: [String] = []
 
-    var sub: String { [message, after].compactMap { $0 }.joined(separator: " · ") }
+    var blocked: Bool { !waits.isEmpty }
+
+    var sub: String { [waits.isEmpty ? nil : "waits for " + waits.joined(separator: ", "), message, after].compactMap { $0 }.joined(separator: " · ") }
 
     var after: String {
         let made = "made " + ShelfTask.ago(madeAt).replacingOccurrences(of: "now", with: "just now")
@@ -337,6 +340,10 @@ final class ShelfPage: NSView, NSSearchFieldDelegate {
         document.subviews.compactMap { $0 as? BacklogRow }.map { ($0.task.id, $0.convert(NSPoint(x: 20, y: $0.bounds.midY), to: nil)) }
     }
 
+    var blockedBacklog: [JSON] {
+        document.subviews.compactMap { $0 as? BacklogRow }.filter(\.task.blocked).map { ["task": .string($0.task.id), "waits": .array($0.task.waits.map { .string($0) }), "go": .string($0.label)] }
+    }
+
     var visibleBacklog: [String] {
         let seen = document.visibleRect
         return document.subviews.compactMap { $0 as? BacklogRow }.filter { seen.contains($0.frame) }.map(\.task.id)
@@ -536,7 +543,7 @@ private final class BacklogRow: NSView {
         self.task = task
         self.full = full
         self.selected = selected
-        go = NSTextField(labelWithString: full ? "Shelf full" : selected ? "↩ Move to Shelf" : "Move to Shelf →")
+        go = NSTextField(labelWithString: task.blocked ? "Blocked" : full ? "Shelf full" : selected ? "↩ Move to Shelf" : "Move to Shelf →")
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: 52))
         wantsLayer = true
         layer?.cornerRadius = 8
@@ -544,7 +551,8 @@ private final class BacklogRow: NSView {
         name.lineBreakMode = .byTruncatingTail
         name.frame = NSRect(x: 30, y: 8, width: width - 160, height: 18)
         let small = NSFont.systemFont(ofSize: 12)
-        let detail = BacklogTask.marked(task.message.map { $0 + " · " } ?? "", query, font: small, color: .secondaryLabelColor)
+        let detail = NSMutableAttributedString(string: task.waits.isEmpty ? "" : "waits for " + task.waits.joined(separator: ", ") + " · ", attributes: [.font: small, .foregroundColor: NSColor.systemOrange])
+        detail.append(BacklogTask.marked(task.message.map { $0 + " · " } ?? "", query, font: small, color: .secondaryLabelColor))
         detail.append(NSAttributedString(string: task.after, attributes: [.font: small, .foregroundColor: NSColor.secondaryLabelColor]))
         let sub = NSTextField(labelWithAttributedString: detail)
         sub.lineBreakMode = .byTruncatingTail
@@ -558,10 +566,13 @@ private final class BacklogRow: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    var label: String { go.stringValue }
+
     override func draw(_ dirtyRect: NSRect) {
         NSColor.tertiaryLabelColor.setStroke()
         let ring = NSBezierPath(ovalIn: NSRect(x: 10.5, y: bounds.midY - 4, width: 8, height: 8))
         ring.lineWidth = 1.4
+        if task.blocked { ring.setLineDash([2, 2], count: 2, phase: 0) }
         ring.stroke()
     }
 
@@ -569,7 +580,7 @@ private final class BacklogRow: NSView {
 
     private func paint() {
         layer?.backgroundColor = hover || selected ? resolved(.quaternaryLabelColor) : nil
-        go.textColor = (hover || selected) && !full ? .controlAccentColor : .tertiaryLabelColor
+        go.textColor = (hover || selected) && !full && !task.blocked ? .controlAccentColor : .tertiaryLabelColor
     }
 
     override func viewDidMoveToWindow() { paint() }
