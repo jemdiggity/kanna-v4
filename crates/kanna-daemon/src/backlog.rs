@@ -1279,6 +1279,18 @@ mod tests {
         p.run(&repo, "1\ny\n");
         let config: Value = serde_json::from_str(&fs::read_to_string(repo.join(".kanna/config.json")).unwrap()).unwrap();
         assert_eq!(config, json!({ "$schema": "x", "version": 1, "planning": { "context": 400000, "agent": "claude" } }));
+
+        let cloned = p.repo("cloned");
+        fs::create_dir_all(cloned.join(".kanna")).unwrap();
+        std::os::unix::fs::symlink(p.home.join("elsewhere"), cloned.join(".kanna/config.json")).unwrap();
+        let out = p.run(&cloned, "1\ny\n");
+        assert!(out.contains("Couldn't write ROOT/cloned/.kanna/config.json."), "a repo's symlink isn't followed: {out}");
+        assert!(!p.home.join("elsewhere").exists());
+        fs::write(cloned.join(".kanna/config.json.real"), "{\"version\": 1, \"planning\": {\"agent\": \"evil\\u001b]0;x\\u0007\"}}").unwrap();
+        fs::remove_file(cloned.join(".kanna/config.json")).unwrap();
+        fs::rename(cloned.join(".kanna/config.json.real"), cloned.join(".kanna/config.json")).unwrap();
+        let out = p.run(&cloned, "1\nn\n");
+        assert!(out.contains("planning.agent is evil]0;x, which isn't installed.") && !out.contains('\u{7}'), "a repo's text can't drive the terminal: {out:?}");
     }
 
     #[test]

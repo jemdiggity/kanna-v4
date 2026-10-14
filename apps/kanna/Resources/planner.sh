@@ -22,6 +22,10 @@ shell() {
 }
 trap 'echo; shell' INT
 
+say() {
+  printf '%s\n' "$*" | tr -d '\000-\010\013-\037\177'
+}
+
 tilde() {
   case $1 in
     "$HOME") echo "~" ;;
@@ -31,7 +35,7 @@ tilde() {
 }
 
 ask() {
-  printf '%s ' "$1"
+  printf '%s ' "$1" | tr -d '\000-\010\013-\037\177'
   read -r answer || { echo; shell; }
 }
 
@@ -53,25 +57,25 @@ clone() {
   dest="$repos/$name"
   if [ -e "$dest" ]; then
     if origin_is "$dest" "$from"; then
-      echo "Opened $(tilde "$dest") (already cloned)"
+      say "Opened $(tilde "$dest") (already cloned)"
       cd "$dest" && return 0
     fi
-    echo "$(tilde "$dest") is already there, and isn't a clone of $from."
+    say "$(tilde "$dest") is already there, and isn't a clone of $from."
     return 1
   fi
   mkdir -p "$repos" || return 1
-  echo "Cloning $from into $(tilde "$dest")…"
+  say "Cloning $from into $(tilde "$dest")…"
   case $how in
     gh)
       command -v gh >/dev/null 2>&1 || { echo "gh isn't installed: give the repo's URL."; return 1; }
       gh repo clone "$from" "$dest" ;;
     *) git clone -- "$from" "$dest" ;;
-  esac || { echo "Couldn't clone $from."; return 1; }
+  esac || { say "Couldn't clone $from."; return 1; }
   cd "$dest"
 }
 
 where() {
-  echo "Open a folder, clone a repo (a URL or owner/repo), or name a new project. Clones and new projects go in $(tilde "$repos")."
+  say "Open a folder, clone a repo (a URL or owner/repo), or name a new project. Clones and new projects go in $(tilde "$repos")."
   echo
   while :; do
     ask "Folder, repo or name:"
@@ -92,20 +96,20 @@ where() {
       cd "$folder" && break
     fi
     case $answer in
-      '~'*|.*|/*) echo "No folder $answer." ;;
+      '~'*|.*|/*) say "No folder $answer." ;;
       */*)
         case $answer in
-          */*/*|*[!A-Za-z0-9._/-]*) echo "No folder $answer." ;;
+          */*/*|*[!A-Za-z0-9._/-]*) say "No folder $answer." ;;
           *) clone gh "$answer" "${answer#*/}" && break ;;
         esac ;;
       *[!A-Za-z0-9._-]*|[!A-Za-z0-9]*) echo "A project's name is letters, digits, '.', '-' and '_'." ;;
       *)
         dest="$repos/$answer"
         if [ -d "$dest" ]; then
-          echo "Opened $(tilde "$dest")"
+          say "Opened $(tilde "$dest")"
         else
           mkdir -p "$dest" || continue
-          echo "Made $(tilde "$dest")"
+          say "Made $(tilde "$dest")"
         fi
         cd "$dest" && break ;;
     esac
@@ -129,6 +133,7 @@ setting() {
 
 save() {
   file="$1/.kanna/config.json"
+  [ -L "$1/.kanna" ] || [ -L "$file" ] && return 1
   mkdir -p "$1/.kanna" || return 1
   if [ ! -s "$file" ]; then
     printf '{\n  "version": 1,\n  "planning": {\n    "agent": "%s"\n  }\n}\n' "$2" >"$file"
@@ -164,7 +169,7 @@ chosen=
 wanted=$(setting)
 if [ -n "$wanted" ]; then
   chosen=$(printf '%s' "$installed" | awk -F '\t' -v n="$wanted" '$1 == n { print; exit }')
-  [ -n "$chosen" ] || echo "planning.agent is $wanted, which isn't installed."
+  [ -n "$chosen" ] || say "planning.agent is $wanted, which isn't installed."
 fi
 if [ -z "$chosen" ] && [ "$count" -eq 1 ]; then
   chosen=$installed
@@ -181,7 +186,7 @@ if [ -z "$chosen" ]; then
       *[!0-9]*) ;;
       *) [ "$answer" -ge 1 ] && [ "$answer" -le "$count" ] && break ;;
     esac
-    echo "Choose 1 to $count."
+    say "Choose 1 to $count."
   done
   chosen=$(printf '%s' "$installed" | sed -n "${answer}p")
   name=${chosen%%	*}
@@ -191,9 +196,9 @@ if [ -z "$chosen" ]; then
     case $answer in
       [yY]*)
         if save "$top" "$name"; then
-          echo "$name plans $(basename "$top") from now on (planning.agent in .kanna/config.json)."
+          say "$name plans $(basename "$top") from now on (planning.agent in .kanna/config.json)."
         else
-          echo "Couldn't write $top/.kanna/config.json."
+          say "Couldn't write $top/.kanna/config.json."
         fi ;;
     esac
   fi
@@ -205,5 +210,5 @@ command=${command%"$nl"}
 trap : INT
 eval "$command"
 echo
-echo "The planning agent quit. Start it again: $command"
+say "The planning agent quit. Start it again: $command"
 shell

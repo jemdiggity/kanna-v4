@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S63) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S65) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -20,8 +20,9 @@ Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app (or $
   KANNA_STATE_DIR  where the daemon, keeper and app keep their files
                    (the keeper writes keeper.pid there)
   KANNA_KEEPER     the keeper binary the daemon starts (once it uses one)
-S57 runs the real claude and codex (on PATH, or $KANNA_E2E_CLAUDE / $KANNA_E2E_CODEX)
-against tools/agent-harness's mock model, each in a HOME of its own.
+S57 and S65 run the real claude and codex (on PATH, or $KANNA_E2E_CLAUDE / $KANNA_E2E_CODEX)
+against tools/agent-harness's mock model, each in a HOME of its own. A planning terminal
+offers no agent (KANNA_PLANNING_AGENTS=none) unless a scenario gives it some.
 USAGE
 }
 
@@ -57,6 +58,7 @@ export KANNA_DEBUG=1
 export KANNA_NO_INITIAL_WINDOW=1
 export KANNA_AGENT_RULES_URL=none
 export KANNA_AGENT="$repo_root/tools/mock-agent/mock-agent"
+export KANNA_PLANNING_AGENTS=none
 export KANNA_AGENT_SKILLS="${app%/MacOS/Kanna}/Resources/kanna-skills"
 daemon_pid="" app_pid=""
 
@@ -1461,16 +1463,18 @@ S45() {
   check wait_for 10 shows "$planner" "Install Kanna's skills? \[Y/n\]" || { echo "S45: the planning terminal didn't ask to install Kanna's skills"; kanna read "$planner"; return 1; }
   check shows "$planner" "Kanna needs its skills installed" || { kanna read "$planner"; return 1; }
   kanna send "$planner" "y" >/dev/null || { echo "S45 line $LINENO"; return 1; }
-  check wait_for 10 shows "$planner" "This terminal is for planning" || { kanna read "$planner"; return 1; }
+  check wait_for 10 shows "$planner" "Folder, repo or name:" || { echo "S45: the planning terminal in ~ didn't ask where"; kanna read "$planner"; return 1; }
   check shows "$planner" "Kanna's skills are installed" || { kanna read "$planner"; return 1; }
   check test -f "$KANNA_AGENTS_HOME/.agents/skills/kanna-tasks/SKILL.md" || { echo "S45: answering yes didn't install the skills"; return 1; }
-  check grep -q "kanna-planning skill" "$KANNA_AGENTS_HOME/.claude/settings.json" || return 1
+  check grep -q "$KANNA_SOCKET" "$KANNA_AGENTS_HOME/.claude/settings.json" || return 1
+  ! grep -q SessionStart "$KANNA_AGENTS_HOME/.claude/settings.json" || { echo "S45: setup installed a SessionStart hook"; return 1; }
   check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "S45: Kanna started from no folder should plan in ~"; return 1; }
   check test "$(kanna task list | grep -c "$planner")" == 0 || { echo "S45: the planning terminal is listed as a task"; kanna task list; return 1; }
-  kanna send "$planner" "cd '$repo'" >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  kanna send "$planner" "$repo" >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 10 eval '[[ "$(desk header)" == "Planning · "*"${repo#/private} · main" ]]' || { desk header; return 1; }
-  kanna send "$planner" 'echo "planner=$KANNA_PLANNER context=$CLAUDE_CODE_AUTO_COMPACT_WINDOW"' >/dev/null || { echo "S45 line $LINENO"; return 1; }
-  check wait_for 5 shows "$planner" "planner=1 context=300000" || { kanna read "$planner"; return 1; }
+  check wait_for 5 shows "$planner" "No agent Kanna knows is installed" || { kanna read "$planner"; return 1; }
+  kanna send "$planner" 'echo "planner=${KANNA_PLANNER-none} context=$CLAUDE_CODE_AUTO_COMPACT_WINDOW"' >/dev/null || { echo "S45 line $LINENO"; return 1; }
+  check wait_for 5 shows "$planner" "planner=none context=300000" || { kanna read "$planner"; return 1; }
   (cd "$repo" && KANNA_PANE="$planner" kanna task new "First" "hello" && KANNA_PANE="$planner" kanna task new "Second") >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(desk backlog)" == "[\"t1\", \"t2\"]" && "$(desk page)" == True ]]' || { desk backlog; return 1; }
   sleep 0.5; snap w1 s45-planner >/dev/null
@@ -1484,7 +1488,7 @@ S45() {
   is "$planner" state running || { echo "S45: the hidden planning terminal stopped"; return 1; }
   kanna task park First >/dev/null || { echo "S45 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(desk planner)" == "$planner" && "$(desk page)" == True && "$(desk strip)" == False ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}'; return 1; }
-  check shows "$planner" "planner=1 context=300000" || { echo "S45: the planning terminal lost its scrollback"; return 1; }
+  check shows "$planner" "planner=none context=300000" || { echo "S45: the planning terminal lost its scrollback"; return 1; }
   [[ "$(desk header)" == "Planning · "*"${repo#/private} · main" ]] || { desk header; return 1; }
   kanna task shelve t2 >/dev/null || { echo "S45 line $LINENO"; return 1; }
   (cd "$repo" && kanna task new "Third" && kanna task new "Fourth") >/dev/null || { echo "S45 line $LINENO"; return 1; }
@@ -1534,7 +1538,7 @@ S46() {
   check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}"; kanna list; return 1; }
   planner="$(desk planner "$w")"
   check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$fresh" || { echo "S46: the planning terminal isn't in the empty project"; kanna list --json; return 1; }
-  check wait_for 10 shows "$planner" "This terminal is for planning" || { kanna read "$planner"; return 1; }
+  check wait_for 10 shows "$planner" "No agent Kanna knows is installed" || { kanna read "$planner"; return 1; }
 }
 
 S47() {
@@ -1710,10 +1714,10 @@ S52() {
   check test "$(desk window.tabs w2)" == "[]" || { echo "S52: the new Desk has tabs"; return 1; }
   check wait_for 5 is "$planner" state running || { echo "S52: the planning terminal isn't running"; kanna list; return 1; }
   check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "S52: the planning terminal isn't in ~"; return 1; }
-  check wait_for 10 shows "$planner" "This terminal is for planning" || { kanna read "$planner"; return 1; }
+  check wait_for 10 shows "$planner" "Folder, repo or name:" || { kanna read "$planner"; return 1; }
   check test "$(kanna task list | grep -c "$planner")" == 0 || { echo "S52: the planning terminal is listed as a task"; return 1; }
   check test "$(raw '{"id":1,"cmd":"debug.stats"}' | field pid)" == "$app_pid" || { echo "S52: the new Desk is in another instance"; return 1; }
-  kanna send "$planner" "cd '$repo'" >/dev/null || { echo "S52 line $LINENO"; return 1; }
+  kanna send "$planner" "$repo" >/dev/null || { echo "S52 line $LINENO"; return 1; }
   check wait_for 10 eval '[[ "$(desk header w2)" == "Planning · "*"${repo#/private} · main" ]]' || { desk header w2; return 1; }
   (cd "$repo" && KANNA_PANE="$planner" kanna task new "Here") >/dev/null || { echo "S52 line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(desk backlog w2)" == "[\"t1\"]" ]]' || { echo "S52: the Shelf didn't follow the planning terminal"; desk backlog w2; return 1; }
@@ -2017,6 +2021,7 @@ print(sum(1 for l in lines if l.get("turn") and sys.argv[2] in l["prompt"] and (
     [[ "$id" =~ ^t[0-9]+$ ]] || { echo "S57: $agent's task wasn't added"; return 1; }
     kanna task start "$id" >/dev/null || { echo "S57: $agent's task didn't start"; return 1; }
     check wait_for 60 eval '[[ "$(asked "$first")" == 1 ]]' || { echo "S57: $agent's first message didn't reach the mock model"; kanna read "$agent task"; return 1; }
+    [[ "$(asked "You're a task's agent in Kanna (pane $(pane "$agent task" id)), in your task's worktree. Your task: $first")" == 1 ]] || { echo "S57: $agent wasn't told it's a task's agent"; tail -1 "$agents/mock.jsonl" | cut -c1-300; return 1; }
     check wait_for 30 shows "$agent task" "Agent status probe" || { echo "S57: $agent didn't show the mock's answer"; kanna read "$agent task"; return 1; }
     check wait_for 10 grep -rqs "Agent status probe" "$agents/$agent-home" || { echo "S57: $agent didn't save its answer"; return 1; }
     kanna restart "$agent task" >/dev/null || { echo "S57: $agent's pane didn't restart"; return 1; }
@@ -2198,10 +2203,86 @@ S63() {
   return 0
 }
 
+S64() {
+  local bin="$KANNA_STATE_DIR/bin" repo="$KANNA_STATE_DIR/repo"
+  mkdir -p "$bin" "$repo" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$bin/claude" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$bin/codex" || { echo "S64 line $LINENO"; return 1; }
+  git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S64 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  KANNA_PLANNING_AGENTS="$bin/claude $bin/codex" start_daemon || { echo "S64 line $LINENO"; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$2\"}}" | field "$1"; }
+  check wait_for 10 eval '[[ "$(desk planner w1)" == p* ]]' || { echo "S64: no planning terminal"; kanna list; return 1; }
+  local planner; planner="$(desk planner w1)"
+  check wait_for 10 shows "$planner" "Choose an agent for planning and task creation" || { echo "S64: the first Desk didn't ask which agent"; kanna read "$planner"; return 1; }
+  check shows "$planner" "1  claude" && check shows "$planner" "2  codex" || { kanna read "$planner"; return 1; }
+  ! shows "$planner" "Folder, repo or name" || { echo "S64: a Desk on a repo asked where"; return 1; }
+  kanna send "$planner" 2 >/dev/null || { echo "S64 line $LINENO"; return 1; }
+  check wait_for 5 shows "$planner" "Make codex the planning agent for repo? \[y/N\]" || { kanna read "$planner"; return 1; }
+  kanna send "$planner" y >/dev/null || { echo "S64 line $LINENO"; return 1; }
+  check wait_for 5 shows "$planner" "codex plans repo from now on" || { kanna read "$planner"; return 1; }
+  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna planning agent." || { echo "S64: codex didn't start as the planner"; kanna read "$planner"; return 1; }
+  check grep -q '"agent" : "codex"' "$repo/.kanna/config.json" || { cat "$repo/.kanna/config.json"; return 1; }
+  kanna send "$planner" exit >/dev/null || { echo "S64 line $LINENO"; return 1; }
+  check wait_for 5 shows "$planner" "The planning agent quit. Start it again: .*codex --no-daemon 'You are the Kanna planning agent.'" || { kanna read "$planner"; return 1; }
+  check is "$planner" state running || { echo "S64: quitting the agent ended the planning terminal"; return 1; }
+  local opened w; opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "S64 line $LINENO: $opened"; return 1; }
+  w="${BASH_REMATCH[1]}"
+  check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "S64: the next Desk has no planning terminal"; return 1; }
+  planner="$(desk planner "$w")"
+  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna planning agent." || { echo "S64: the next Desk didn't start the project's planner"; kanna read "$planner"; return 1; }
+  ! shows "$planner" "Choose an agent" || { echo "S64: the next Desk asked again"; return 1; }
+  key cmd+n
+  check wait_for 10 eval '[[ "$(desk planner w3)" == p* ]]' || { echo "S64: ⌘N opened no Desk"; kanna list; return 1; }
+  planner="$(desk planner w3)"
+  check wait_for 10 shows "$planner" "Folder, repo or name:" || { echo "S64: a Desk in ~ didn't ask where"; kanna read "$planner"; return 1; }
+  kanna send "$planner" "$repo" >/dev/null || { echo "S64 line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk header w3)" == "Planning · "*"${repo#/private} · main" ]]' || { echo "S64: the Desk didn't follow to the folder"; desk header w3; return 1; }
+  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna planning agent." || { echo "S64: the Desk didn't start the folder's planner"; kanna read "$planner"; return 1; }
+}
+
+S65() {
+  local claude="${KANNA_E2E_CLAUDE:-$(command -v claude)}" codex="${KANNA_E2E_CODEX:-$(command -v codex)}"
+  [[ -x "$claude" ]] || { echo "S65: claude isn't installed (or set KANNA_E2E_CLAUDE)"; return 1; }
+  [[ -x "$codex" ]] || { echo "S65: codex isn't installed (or set KANNA_E2E_CODEX)"; return 1; }
+  local agents="$KANNA_STATE_DIR/agents" repo="$KANNA_STATE_DIR/repo" harness="$repo_root/tools/agent-harness"
+  mkdir -p "$agents" "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S65 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  python3 -I "$harness/mock_server.py" --log "$agents/mock.jsonl" >"$agents/port" 2>"$agents/mock.log" &
+  check wait_for 10 eval '[[ -s "$agents/port" ]]' || { echo "S65: the mock model didn't start"; return 1; }
+  local port agent real; port="$(cat "$agents/port")"
+  for agent in claude codex; do
+    [[ $agent == claude ]] && real="$claude" || real="$codex"
+    python3 -I "$harness/isolate.py" --agent $agent --real "$real" --home "$agents/$agent-home" --port "$port" --trust "$repo" --out "$agents/bin/$agent" || { echo "S65 line $LINENO"; return 1; }
+  done
+  told() { python3 -c 'import json, sys
+lines = [json.loads(l) for l in open(sys.argv[1])]
+print(sum(1 for l in lines if l.get("turn") and l["path"].startswith(sys.argv[2]) and l["prompt"] == "You are the Kanna planning agent."))' "$agents/mock.jsonl" "$1"; }
+  KANNA_PLANNING_AGENTS="$agents/bin/claude $agents/bin/codex" start_daemon || { echo "S65 line $LINENO"; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$2\"}}" | field "$1"; }
+  local w=w1 choice path planner opened
+  for agent in claude codex; do
+    [[ $agent == claude ]] && choice=1 path=/v1/messages || choice=2 path=/v1/responses
+    check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "S65: no planning terminal"; kanna list; return 1; }
+    planner="$(desk planner "$w")"
+    check wait_for 10 shows "$planner" "Choose \[1\]:" || { kanna read "$planner"; return 1; }
+    kanna send "$planner" "$choice" >/dev/null && check wait_for 5 shows "$planner" "\[y/N\]" && kanna send "$planner" n >/dev/null || { echo "S65 line $LINENO"; kanna read "$planner"; return 1; }
+    check wait_for 60 eval '[[ "$(told "$path")" == 1 ]]' || { echo "S65: $agent wasn't told it's the planning agent"; kanna read "$planner"; tail -3 "$agents/mock.jsonl" | cut -c1-300; return 1; }
+    check wait_for 30 shows "$planner" "Agent status probe" || { echo "S65: $agent didn't show the mock's answer"; kanna read "$planner"; return 1; }
+    opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "S65 line $LINENO: $opened"; return 1; }
+    w="${BASH_REMATCH[1]}"
+  done
+  stop_agents
+}
+
 due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]|S6[0-9]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61 S62 S63)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61 S62 S63 S64 S65)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
