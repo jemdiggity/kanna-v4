@@ -24,6 +24,8 @@ Iterate this process while comparing behaviour against the reference model.
 
 ## Keeping the model
 
+**One model per feature.** A new feature gets its own small mockup (`references/mockups/<feature>.html`) that copies only the look it needs from the others, rather than more scenes and buttons in an existing mockup, which grows hard to follow.
+
 Models live in the repo's `references/` folder, never in `docs/`: mockups in `references/mockups/`, prototypes in `references/prototypes/<name>/`, and reference implementations (another codebase the product follows) in `references/<name>/`. Specs link to them there.
 
 The model is never retired once the product implements it; it stays the reference the product is compared against. When a behaviour or rendering fix lands in the product, port it to the model so both keep behaving alike.
