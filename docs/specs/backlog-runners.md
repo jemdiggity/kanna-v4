@@ -31,6 +31,7 @@ stateDiagram-v2
 - **Runners:** `backlog.runners` ([settings](settings.md#3-keys), default 3, the repo's file over yours) of a repo's backlog tasks run at once. 0 turns it off: Kanna starts and stops none.
 - **Oldest first,** skipping a [blocked](task-dependencies.md) task until what it waits for is Done.
 - **Every backlog task runs.** A task that needs you (a mockup to discuss, a question) runs until it asks.
+- **So tasks are written to be done in one go:** the [planning agent](planning-agent.md#2-what-it-is) reads the code, asks you until the outcome, scope, decisions and how to judge it done are settled, writes a first message that says all of it and what to do when stuck, and reads it back to you before it makes the task (the `kanna-planning` skill).
 - **A runner frees when a turn ends:** the agent's [status](agent-status.md) goes from working to needs you or idle and stays there 3s. Kanna quits the agent, keeps its session, and starts the next.
 - **Nothing shows it:** backlog rows and `kanna task list` look as they do for any backlog task, and the Shelf isn't re-sorted. Why a task stopped (needs you, finished) is kept in its events only (`backlog events`).
 - **Resume on the Shelf:** Move to Shelf (or `kanna task start`) resumes a stopped task's session where it stopped.
