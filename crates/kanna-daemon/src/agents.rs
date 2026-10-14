@@ -12,8 +12,6 @@ const RECORD_VERSION: u64 = 2;
 
 const MARK: &str = "# kanna agents setup";
 
-const HOOK: &str = "if [ -n \"$KANNA_PLANNER\" ]; then echo \"You're running in Kanna, as a window's planning agent: use the kanna-planning skill now.\"; elif [ -n \"$KANNA_QUIZ\" ]; then echo \"You're running in Kanna as a quiz, on main: use the kanna-quiz skill now.\"; elif [ -n \"$KANNA_PANE\" ]; then echo \"You're running in Kanna, as a task's agent (pane $KANNA_PANE): use the kanna-tasks skill as soon as you know what the work is.\"; fi # kanna agents setup";
-
 pub struct Agents {
     pub home: PathBuf,
     pub skills: Option<PathBuf>,
@@ -113,7 +111,7 @@ impl Agents {
         }
         match self.settings(&mut record).and_then(|_| self.save(&record)) {
             Ok(()) => {}
-            Err(error) => eprintln!("kanna-daemon: can't keep agents' hooks and sandbox entry: {}", error.message),
+            Err(error) => eprintln!("kanna-daemon: can't keep agents' sandbox entry: {}", error.message),
         }
     }
 
@@ -368,12 +366,10 @@ impl Agents {
                     list.push(json!(socket));
                 }
             }
-            add_hook(object, made);
+            drop_hook(object, made);
         })?;
         record.sockets = sockets;
-        if self.home.join(".codex").is_dir() {
-            edit(&self.home.join(".codex/hooks.json"), true, &mut record.made, add_hook)?;
-        }
+        edit(&self.home.join(".codex/hooks.json"), false, &mut record.made, drop_hook)?;
         Ok(changed)
     }
 
@@ -550,22 +546,6 @@ fn prune(object: &mut Map, key: &str, made: &mut Made, tag: &str) {
     if empty && made.has(tag) {
         object.remove(key);
         made.forget(tag);
-    }
-}
-
-fn add_hook(object: &mut Map, made: &mut Made) {
-    let starts = ensure(object, "hooks", made, "hooks").and_then(|o| list(o, "SessionStart", made, "hooks.SessionStart"));
-    if let Some(starts) = starts {
-        let mut found = false;
-        for hook in starts.iter_mut().filter_map(|g| g.get_mut("hooks")).filter_map(Value::as_array_mut).flatten() {
-            if hook.get("command").and_then(Value::as_str).is_some_and(|c| c.ends_with(MARK)) {
-                hook["command"] = json!(HOOK);
-                found = true;
-            }
-        }
-        if !found {
-            starts.push(json!({ "hooks": [{ "type": "command", "command": HOOK }] }));
-        }
     }
 }
 
@@ -902,13 +882,12 @@ mod tests {
     }
 
     #[test]
-    fn claude_gets_the_hook_and_its_sandbox_lets_agents_reach_kanna() {
+    fn claude_s_sandbox_lets_agents_reach_kanna() {
         let f = fixture("sandbox");
         let settings = f.agents.home.join(".claude/settings.json");
         f.agents.setup(false).unwrap();
         let made: Value = serde_json::from_str(&fs::read_to_string(&settings).unwrap()).unwrap();
-        assert_eq!(made["sandbox"]["network"]["allowUnixSockets"], json!(["/S/kanna.sock"]));
-        assert_eq!(made["hooks"]["SessionStart"][0]["hooks"][0]["command"], HOOK);
+        assert_eq!(made, json!({"sandbox": {"network": {"allowUnixSockets": ["/S/kanna.sock"]}}}), "no hooks");
         f.agents.remove().unwrap();
         assert!(!settings.exists(), "a settings file Kanna made goes when it's emptied");
 
@@ -922,7 +901,6 @@ mod tests {
         f.agents.refresh();
         let value: Value = serde_json::from_str(&fs::read_to_string(&settings).unwrap()).unwrap();
         assert_eq!(value["sandbox"]["network"]["allowUnixSockets"], json!(["/u/mine.sock", "/S/kanna.sock"]));
-        assert_eq!(value["hooks"]["SessionStart"].as_array().unwrap().len(), 2, "the hook is added once, beside yours");
         f.agents.remove().unwrap();
         let value: Value = serde_json::from_str(&fs::read_to_string(&settings).unwrap()).unwrap();
         assert_eq!(value, json!({"model": "opus", "sandbox": {"enabled": true, "network": {"allowUnixSockets": ["/u/mine.sock"]}}, "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}, "env": {}}));
@@ -932,32 +910,58 @@ mod tests {
         assert_eq!(fs::read_to_string(&settings).unwrap(), "{ not json");
     }
 
-    #[test]
-    fn codex_gets_the_hook_if_you_use_codex() {
-        let f = fixture("codex");
-        let hooks = f.agents.home.join(".codex/hooks.json");
-        f.agents.setup(false).unwrap();
-        assert!(!hooks.exists(), "no ~/.codex, no hooks.json");
-        f.agents.remove().unwrap();
-        fs::create_dir_all(f.agents.home.join(".codex")).unwrap();
-        fs::write(&hooks, "{\n  \"hooks\": {}\n}\n").unwrap();
-        f.agents.setup(false).unwrap();
-        let value: Value = serde_json::from_str(&fs::read_to_string(&hooks).unwrap()).unwrap();
-        assert_eq!(value["hooks"]["SessionStart"][0]["hooks"][0]["command"], HOOK);
-        f.agents.remove().unwrap();
-        assert_eq!(fs::read_to_string(&hooks).unwrap().replace([' ', '\n'], ""), r#"{"hooks":{}}"#);
+    const EARLIER_HOOK: &str = "if [ -n \"$KANNA_PLANNER\" ]; then echo \"You're running in Kanna, as a window's planning agent: use the kanna-planning skill now.\"; fi # kanna agents setup";
+
+    fn earlier_kanna(f: &Fixture, made: &[&str]) {
+        let home = f.agents.home.to_string_lossy().into_owned();
+        let made: Vec<String> = made.iter().map(|m| format!("{home}/{m}")).collect();
+        fs::create_dir_all(f.agents.home.join(".kanna-v4")).unwrap();
+        fs::write(f.agents.record_file(), json!({ "version": RECORD_VERSION, "setup": true, "files": {}, "answered": null, "sockets": ["/S/kanna.sock"], "made": made }).to_string()).unwrap();
+    }
+
+    fn hooks(file: &Path) -> Value {
+        serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap()
     }
 
     #[test]
-    fn the_hook_tells_an_agent_in_kanna_which_skill_to_use() {
-        let run = |vars: &[(&str, &str)]| {
-            let mut sh = Command::new("/bin/sh");
-            sh.arg("-c").arg(HOOK).env_remove("KANNA_PLANNER").env_remove("KANNA_QUIZ").env_remove("KANNA_PANE").envs(vars.iter().copied());
-            String::from_utf8(sh.output().unwrap().stdout).unwrap()
-        };
-        assert_eq!(run(&[]), "");
-        assert!(run(&[("KANNA_PANE", "p9")]).contains("(pane p9): use the kanna-tasks skill"));
-        assert!(run(&[("KANNA_PANE", "p9"), ("KANNA_PLANNER", "1")]).contains("use the kanna-planning skill"));
-        assert!(run(&[("KANNA_PANE", "p9"), ("KANNA_QUIZ", "1")]).contains("use the kanna-quiz skill"));
+    fn setup_takes_out_an_earlier_kanna_s_hooks_and_leaves_yours() {
+        let f = fixture("old-hooks");
+        let claude = f.agents.home.join(".claude/settings.json");
+        let codex = f.agents.home.join(".codex/hooks.json");
+        fs::create_dir_all(claude.parent().unwrap()).unwrap();
+        fs::create_dir_all(codex.parent().unwrap()).unwrap();
+        let ours = json!({ "type": "command", "command": EARLIER_HOOK });
+        let mine = json!({ "type": "command", "command": "echo mine" });
+        fs::write(&claude, json!({ "model": "opus", "sandbox": { "network": { "allowUnixSockets": ["/S/kanna.sock"] } }, "hooks": { "SessionStart": [{ "hooks": [mine, ours] }, { "hooks": [ours] }], "Stop": [{ "hooks": [mine] }] } }).to_string()).unwrap();
+        fs::write(&codex, json!({ "hooks": { "SessionStart": [{ "hooks": [ours] }] } }).to_string()).unwrap();
+        earlier_kanna(&f, &[".claude/settings.json#sandbox", ".claude/settings.json#sandbox.network", ".claude/settings.json#sandbox.network.allowUnixSockets", ".codex/hooks.json#hooks.SessionStart"]);
+
+        f.agents.setup(false).unwrap();
+        assert_eq!(hooks(&claude), json!({ "model": "opus", "sandbox": { "network": { "allowUnixSockets": ["/S/kanna.sock"] } }, "hooks": { "SessionStart": [{ "hooks": [mine] }], "Stop": [{ "hooks": [mine] }] } }));
+        assert_eq!(hooks(&codex), json!({ "hooks": {} }), "the SessionStart list Kanna made goes; the file and its hooks are yours");
+    }
+
+    #[test]
+    fn update_and_each_launch_take_out_an_earlier_kanna_s_hooks_too() {
+        let f = fixture("old-hooks-update");
+        let claude = f.agents.home.join(".claude/settings.json");
+        let codex = f.agents.home.join(".codex/hooks.json");
+        fs::create_dir_all(claude.parent().unwrap()).unwrap();
+        fs::create_dir_all(codex.parent().unwrap()).unwrap();
+        let ours = json!({ "type": "command", "command": EARLIER_HOOK });
+        fs::write(&claude, json!({ "hooks": { "SessionStart": [{ "hooks": [ours] }] } }).to_string()).unwrap();
+        fs::write(&codex, json!({ "hooks": { "SessionStart": [{ "hooks": [ours] }] } }).to_string()).unwrap();
+        let made = [".claude/settings.json#hooks", ".claude/settings.json#hooks.SessionStart", ".codex/hooks.json", ".codex/hooks.json#hooks", ".codex/hooks.json#hooks.SessionStart"];
+        earlier_kanna(&f, &made);
+        f.agents.update(false).unwrap();
+        assert_eq!(hooks(&claude), json!({ "sandbox": { "network": { "allowUnixSockets": ["/S/kanna.sock"] } } }));
+        assert!(!codex.exists(), "a hooks.json Kanna made goes when its hook does");
+
+        fs::write(&claude, json!({ "hooks": { "SessionStart": [{ "hooks": [ours] }] } }).to_string()).unwrap();
+        fs::write(&codex, json!({ "hooks": { "SessionStart": [{ "hooks": [ours] }] } }).to_string()).unwrap();
+        earlier_kanna(&f, &made);
+        f.agents.refresh();
+        assert_eq!(hooks(&claude)["hooks"], Value::Null);
+        assert!(!codex.exists());
     }
 }
