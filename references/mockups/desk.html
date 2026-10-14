@@ -230,6 +230,7 @@ const initial = () => {
     windows: [{ id: "w1", desk: "p1", repo: "~/work/kanna-v4" }],
     note: "",
     installed: ["claude", "codex"],
+    made: [],
     config: {},
     skills: true,
     order: ["p4", "p7"],
@@ -354,7 +355,7 @@ function agentTerm(t) {
     ``,
     `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : t.id === "p4" ? "Done. S36 passes; screenshots in light and dark attached." : "Found it: the query answers before the theme loads."}`,
   ];
-  const ph = t.planner && t.ask ? (t.ask === "project" ? projects().map((_, i) => i + 1).concat(projects().length + 1).join(" · ") + " · or a folder" : t.ask === "choose" ? s.installed.map((_, i) => i + 1).join(" · ") : t.ask === "save" ? "y · n" : "y · n") : t.planner && !t.agent ? (t.repo === "~" ? `cd work/kanna-v4 · claude '${ROLE}'` : `claude · codex '${ROLE}' · cd kmux`) : t.planner ? "split the login work into three tasks · what's waiting? · start the first one · /exit" : t.agent ? `kanna task new &quot;Fix the S39 pinch&quot; &quot;the mark drifts…&quot; · kanna task list · kanna task park` : "claude · codex · or any shell command";
+  const ph = t.planner && t.ask ? (t.ask === "project" ? "~/work/kmux · recipe-box" : t.ask === "choose" ? s.installed.map((_, i) => i + 1).join(" · ") : t.ask === "save" ? "y · n" : "y · n") : t.planner && !t.agent ? (t.repo === "~" ? `cd work/kanna-v4 · claude '${ROLE}'` : `claude · codex '${ROLE}' · cd kmux`) : t.planner ? "split the login work into three tasks · what's waiting? · start the first one · /exit" : t.agent ? `kanna task new &quot;Fix the S39 pinch&quot; &quot;the mark drifts…&quot; · kanna task list · kanna task park` : "claude · codex · or any shell command";
   const lead = t.planner && t.ask ? esc(t.ask === "save" ? saveQuestion(t) : questions[t.ask]) : t.planner && !t.agent ? `<span class="c">${esc(short(t.repo))}</span>&nbsp;<span class="p">❯</span>` : `<span class="p">&gt;</span>`;
   return (t.planner ? plannerHead(t) : head).concat(t.log).join("\n") + `<div class="cmd">${lead}<input data-cmd="${t.id}" placeholder="${esc(ph).replace(/&amp;quot;/g, "&quot;")}" spellcheck="false" autocomplete="off"></div>`;
 }
@@ -378,8 +379,7 @@ const setupText = [
   `Undo it any time with kanna agents remove.`,
   ``,
 ];
-const questions = { setup: "Install Kanna's skills? [Y/n]", project: "Choose [1]:", choose: "Choose [1]:", save: null };
-const projects = () => s.repos.filter(r => r !== "~");
+const questions = { setup: "Install Kanna's skills? [Y/n]", project: "Folder or project:", choose: "Choose [1]:", save: null };
 function plannerHead(t) { return []; }
 
 function plannerStart(t) {
@@ -387,10 +387,10 @@ function plannerStart(t) {
   if (!s.skills) { t.log.push(...setupText.map(l => esc(l))); t.ask = "setup"; return; }
   plannerWhere(t);
 }
+const REPOS = "~/.kanna-v4/repos";
 function plannerWhere(t) {
   if (t.repo !== "~") return plannerChoose(t);
-  const list = projects();
-  t.log.push(`Choose a project`, ``, ...list.map((r, i) => `  ${i + 1}  ${esc(r)}`), `  ${list.length + 1}  here (~), for a new project`, ``);
+  t.log.push(`Open a folder, or name a new project (made in ${REPOS})`, ``);
   t.ask = "project";
 }
 function plannerMove(t, repo) {
@@ -411,7 +411,7 @@ function plannerRun(t, agent, greet) {
   if (!greet) return;
   const r = inRepo(t.repo), b = backlog(t.repo);
   t.log.push(`<span class="p">&gt;</span> ${ROLE}`, ``,
-    `<span class="m">●</span> ${t.repo === "~" ? "You're in your home folder, not a project. Which project are we planning, or shall we start a new one?" : `In ${esc(short(t.repo))}: ${r.length ? `${r.length} running (${r.map(x => esc(x.title || "New task") + ", " + statusText[x.status]).join("; ")})` : "nothing running"}, ${b.length} waiting in the backlog. What are we working on?`}`);
+    `<span class="m">●</span> ${s.made.includes(t.repo) ? `${esc(short(t.repo).split("/").pop())} is a new, empty project. What are we making? Once we agree on it, I'll set it up (git init and a first commit) and make the first tasks.` : t.repo === "~" ? "You're in your home folder, not a project. Which project are we planning, or shall we start a new one?" : `In ${esc(short(t.repo))}: ${r.length ? `${r.length} running (${r.map(x => esc(x.title || "New task") + ", " + statusText[x.status]).join("; ")})` : "nothing running"}, ${b.length} waiting in the backlog. What are we working on?`}`);
 }
 function plannerAnswer(t, line) {
   const a = line.trim();
@@ -423,11 +423,20 @@ function plannerAnswer(t, line) {
     return plannerWhere(t);
   }
   if (t.ask === "project") {
-    const list = projects(), n = a === "" ? 1 : Number(a);
     t.log.push(`${esc(questions.project)} ${esc(a)}`);
-    const repo = n >= 1 && n <= list.length ? list[n - 1] : n === list.length + 1 ? "~" : /^[~\/]|^work\//.test(a) ? (a.startsWith("work/") ? "~/" + a : a) : null;
-    if (!repo) { t.log.push(out(`Choose 1 to ${list.length + 1}, or type a folder.`)); return; }
-    t.log.push(``);
+    if (!a) return;
+    if (/^[~./]/.test(a) || a.includes("/")) {
+      const repo = a.replace(/\/$/, "");
+      if (!s.repos.includes(repo) && !repo.startsWith("~/work/")) { t.log.push(out(`No folder ${repo}.`), ``); return; }
+      t.log.push(``);
+      t.ask = null;
+      plannerMove(t, repo);
+      return plannerChoose(t);
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(a)) { t.log.push(out(`A project's name is letters, digits, . - and _.`), ``); return; }
+    const repo = `${REPOS}/${a}`, made = !s.repos.includes(repo);
+    if (made) s.made.push(repo);
+    t.log.push(out(`${made ? "Made" : "Opened"} ${repo}`), ``);
     t.ask = null;
     plannerMove(t, repo);
     return plannerChoose(t);
@@ -437,7 +446,7 @@ function plannerAnswer(t, line) {
     t.log.push(`${esc(questions.choose)} ${esc(a)}`);
     if (!agent) { t.log.push(out(`Choose 1 to ${s.installed.length}.`)); return; }
     t.chosen = agent;
-    if (t.repo === "~") { t.log.push(``); return plannerRun(t, agent, true); }
+    if (t.repo === "~" || s.made.includes(t.repo)) { t.log.push(``); return plannerRun(t, agent, true); }
     t.ask = "save";
     return;
   }
@@ -520,7 +529,7 @@ function emptyHTML(w) {
   const p = w.planner;
   return `<div class="content ${p.zoom ? "zoomed" : ""}">
     <div class="agent" style="flex:0 0 ${(p.width * 100).toFixed(1)}%">
-      <div class="head">Planning · ${esc(p.repo)}${p.repo === "~" ? "" : " · main"}</div>
+      <div class="head">Planning · ${esc(p.repo)}${p.repo === "~" || s.made.includes(p.repo) ? "" : " · main"}</div>
       <div class="term">${agentTerm(p)}</div>
     </div>
     ${p.zoom ? "" : `<div class="grip" data-grip="${p.id}" title="Drag to resize"></div>
@@ -901,8 +910,8 @@ if (location.hash.includes("quit")) { planners(); const p = s.windows[0].planner
 if (location.hash.includes("zoom")) { if (task(s.windows[0].desk)) task(s.windows[0].desk).zoom = true; else { planners(); s.windows[0].planner.zoom = true; } }
 const asked = location.hash.match(/q=([^&]*)/);
 if (asked) { s.windows[0].query = decodeURIComponent(asked[1]); s.finding = "w1"; }
-if (location.hash.includes("new")) { fresh(); s.windows[0].repo = "~"; if (location.hash.includes("pick")) { planners(); plannerAnswer(s.windows[0].planner, "1"); } }
-if (location.hash.includes("finder")) { parkTask(task("p1")); s.windows[0].desk = null; s.windows[0].repo = "~"; planners(); if (location.hash.includes("pick")) plannerAnswer(s.windows[0].planner, "1"); }
+if (location.hash.includes("new")) { fresh(); s.windows[0].repo = "~"; }
+if (location.hash.includes("finder")) { parkTask(task("p1")); s.windows[0].desk = null; s.windows[0].repo = "~"; planners(); if (location.hash.includes("pick")) plannerAnswer(s.windows[0].planner, "~/work/kanna-v4"); if (location.hash.includes("name")) { plannerAnswer(s.windows[0].planner, "recipe-box"); plannerAnswer(s.windows[0].planner, "1"); } }
 if (location.hash.includes("needs")) { task("p4").status = "needs"; task("p4").needsAt = Date.now(); }
 setInterval(() => { if (!drag && !document.activeElement?.closest?.("[data-cmd]")) render(); }, 30000);
 render();
