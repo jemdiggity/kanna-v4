@@ -73,7 +73,7 @@ body.picture .cmd input::placeholder { color: transparent; }
     <p>An empty Desk: the planning agent on the left, the project's Shelf and backlog on the right. A blocked row shows what it waits for and can't be moved to the Shelf; clicking it says why. Type a <code>kanna</code> command in the planning pane as the agent would: <code>kanna task new "NAME" "MESSAGE" --after t12</code>, <code>kanna task edit t14 --after none</code>, <code>kanna task done t12</code>, <code>kanna task start t13</code>, <code>kanna task list</code>.</p>
     <div class="controls">
       <button id="theme">Light / dark</button>
-      <button id="finish" title="kanna task done t12: Diff viewer can start, Release notes still waits for S40">Screenshot command is done</button>
+      <button id="finish" title="kanna task done t12: Diff viewer can start, Release notes still waits for the status fix">Screenshot command is done</button>
       <button id="reset">Reset</button>
     </div>
   </div>
@@ -101,8 +101,8 @@ const initial = () => {
     tasks: [
       { id: "t12", name: "Screenshot command", place: "shelf", agent: "claude", status: "working", branch: "screenshot-command", at: now - 8 * MIN },
       { id: "t4", name: "Tab bar follows light mode", place: "shelf", agent: "codex", status: "idle", branch: "tab-bar-light", at: now - 12 * MIN },
-      { id: "t8", name: "S40 status test is flaky", place: "backlog", at: now - 40 * MIN, by: "Doc markup", after: [],
-        message: "S40 waits 5s for 'working' after answering the mock agent; make the wait follow the status" },
+      { id: "t8", name: "agent_status e2e is flaky", place: "backlog", at: now - 40 * MIN, by: "Doc markup", after: [],
+        message: "agent_status waits 5s for 'working' after answering the mock agent; make the wait follow the status" },
       { id: "t11", name: "Rename a task from the Shelf", place: "backlog", at: now - 5 * MIN, by: "Doc markup", after: [],
         message: "Double-click a Shelf item to rename its task, as tabs rename" },
       { id: "t13", name: "Diff viewer", place: "backlog", at: now - 2 * MIN, by: "the planning agent", after: ["t12"],
@@ -112,12 +112,12 @@ const initial = () => {
     ],
     log: [
       `<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``,
-      `<span class="p">&gt;</span> the diff viewer needs the screenshot command; release notes once the S40 fix and screenshots are in`,
+      `<span class="p">&gt;</span> the diff viewer needs the screenshot command; release notes once the status fix and screenshots are in`,
       `<span class="m">●</span> kanna task new "Diff viewer" "…" --after t12`,
       `  <span class="out">added t13 "Diff viewer" to the backlog of ~/work/kanna-v4; it waits for t12</span>`,
       `<span class="m">●</span> kanna task new "Release notes for 0.9" "…" --after t8,t12`,
       `  <span class="out">added t14 "Release notes for 0.9" to the backlog of ~/work/kanna-v4; it waits for t8, t12</span>`,
-      `<span class="m">●</span> Both wait in the backlog. Diff viewer can start once Screenshot command is done; Release notes once S40 is done too.`,
+      `<span class="m">●</span> Both wait in the backlog. Diff viewer can start once Screenshot command is done; Release notes once the status fix is done too.`,
     ],
   };
 };
@@ -213,7 +213,7 @@ document.getElementById("cmd").addEventListener("keydown", e => {
 const finish = () => {
   s.log.push(``, `<span class="p">&gt;</span> screenshot command is merged, it's done`);
   run("kanna task done t12");
-  s.log.push(`<span class="m">●</span> Screenshot command is done, so Diff viewer can start now. Start it? Release notes still waits for S40.`);
+  s.log.push(`<span class="m">●</span> Screenshot command is done, so Diff viewer can start now. Start it? Release notes still waits for the status fix.`);
   render();
 };
 document.getElementById("finish").onclick = finish;

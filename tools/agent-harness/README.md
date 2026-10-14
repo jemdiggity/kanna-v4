@@ -46,7 +46,7 @@ Codex starts a detached `codex app-server --managed-daemon` from its CODEX_HOME 
 |---|---|
 | `mock_server.py` | Anthropic Messages, OpenAI Responses and Chat Completions, answering from `scenarios/status.json` |
 | `record.py` | Runs one argv in a pty from a JSON script of steps (`wait`, `expect`, `type`, `key`, `focus_in`, `focus_out`, `mark`) |
-| `isolate.py` | An agent's isolated HOME and config pointed at the mock; as a command, writes an executable that runs the agent that way (Kanna's e2e S57 runs real claude and codex tasks with it) |
+| `isolate.py` | An agent's isolated HOME and config pointed at the mock; as a command, writes an executable that runs the agent that way (Kanna's e2e `real_agent_tasks` runs real claude and codex tasks with it) |
 | `run.py` | Prepares each run's isolated config and runs the matrix |
 | `signals.py` | Lists the status signals in recordings |
 
@@ -58,4 +58,4 @@ Codex starts a detached `codex app-server --managed-daemon` from its CODEX_HOME 
 python3 tools/agent-harness/isolate.py --agent codex --home /tmp/h --port 8123 --trust ~/repo --out /tmp/bin/codex
 ```
 
-The executable is named after the agent, so Kanna treats it as one. An agent installed as a script for an interpreter beside it but not on PATH (codex from nvm, `#!/usr/bin/env node`) gets that folder on its PATH, so it runs from a terminal whose PATH has no nvm. `scripts/e2e-kanna.sh S57` uses it to check that claude and codex tasks come back to their conversation after Move to Backlog, Stop and Start: the mock's log shows the next message carrying the first.
+The executable is named after the agent, so Kanna treats it as one. An agent installed as a script for an interpreter beside it but not on PATH (codex from nvm, `#!/usr/bin/env node`) gets that folder on its PATH, so it runs from a terminal whose PATH has no nvm. `scripts/e2e-kanna.sh real_agent_tasks` uses it to check that claude and codex tasks come back to their conversation after Move to Backlog, Stop and Start: the mock's log shows the next message carrying the first.

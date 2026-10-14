@@ -159,7 +159,7 @@ flowchart TB
 - **One source for a line's marks.** The text view answers each line's marks (selection, find matches, current, comment, changed, flash); the text view, the gutter and the pinned lines all draw from it with the same drawing code, and the pinned lines are redrawn whenever a mark changes, not only on scroll.
 - **The theme is Swift's**, a table from capture name to colour for light and dark beside `MarkdownTheme`; the Rust side never knows colours.
 - **A reload reparses the whole file** off the main thread, then swaps in the new text and spans at the same scroll position. Changed lines come from a line diff with the previous text.
-- **Checks:** `kanna-syntax` tests per language (a fixture file, its expected captures and scopes); `crates/kanna-daemon/tests/panes.rs` for the record, `open code` and `navigate`; an e2e scenario that opens a file at a line, reads `debug.code`, changes the file and sees it reload with the line marked, and relaunches; S55 marks a scope's opening line changed, finds and selects text on it, pins it and checks the pinned line keeps all three.
+- **Checks:** `kanna-syntax` tests per language (a fixture file, its expected captures and scopes); `crates/kanna-daemon/tests/panes.rs` for the record, `open code` and `navigate`; an e2e scenario that opens a file at a line, reads `debug.code`, changes the file and sees it reload with the line marked, and relaunches; `code_pinned_line` marks a scope's opening line changed, finds and selects text on it, pins it and checks the pinned line keeps all three.
 
 ## 6. Glossary
 

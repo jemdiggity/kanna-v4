@@ -53,4 +53,4 @@ kanna: no pane "nosuch" [not_found]
 
 ## 4. Checked by
 
-`crates/kanna-daemon/tests/restart.rs` (a hello of the same build is accepted with the build in the reply; one of another build is refused with `other_build`, the daemon stops, the shell lives, and the next daemon has it with the same ID and pid), `crates/kanna-build` (the ID is the binary's SHA-256), and S61 of `scripts/e2e-kanna.sh`: a daemon re-signed as an older build, a terminal opened on it, the CLI's note; the app launched, the old daemon stops, the app's daemon takes over with the terminal's pid and screen, and the note is gone.
+`crates/kanna-daemon/tests/restart.rs` (a hello of the same build is accepted with the build in the reply; one of another build is refused with `other_build`, the daemon stops, the shell lives, and the next daemon has it with the same ID and pid), `crates/kanna-build` (the ID is the binary's SHA-256), and `daemon_upgrade` of `scripts/e2e-kanna.sh`: a daemon re-signed as an older build, a terminal opened on it, the CLI's note; the app launched, the old daemon stops, the app's daemon takes over with the terminal's pid and screen, and the note is gone.

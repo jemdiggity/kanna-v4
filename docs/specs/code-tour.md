@@ -117,7 +117,7 @@ flowchart TB
 - **A new comment restarts the pane**, as `navigate` does, at the comment's first line.
 - **The box** is a view laid into the text view's space above the comment's first line (as a gap in the line layout), so the code below it moves down and the line numbers stay with their lines.
 - **Dimming** is drawn over the text view (the background colour, partly transparent, over the lines outside the comment), so the highlighting keeps its colours.
-- **Checks:** `crates/kanna-daemon/tests/panes.rs` for `comment` (opening, reusing a tab, another file, a placement, the records, bad requests), with the test app answering `app.snap`; the CLI's parsing and `block_at` unit tests in `crates/kanna`; `CodeScopesTests` for snapping; e2e S50: comments on a scope, a range and another file, read back through `debug.code` (lines, text, the box in view), a missing file and a line past the end, two comments on a doc through `debug.md` (the thread, its mark, the agent, which is selected), and a relaunch.
+- **Checks:** `crates/kanna-daemon/tests/panes.rs` for `comment` (opening, reusing a tab, another file, a placement, the records, bad requests), with the test app answering `app.snap`; the CLI's parsing and `block_at` unit tests in `crates/kanna`; `CodeScopesTests` for snapping; e2e `code_tour`: comments on a scope, a range and another file, read back through `debug.code` (lines, text, the box in view), a missing file and a line past the end, two comments on a doc through `debug.md` (the thread, its mark, the agent, which is selected), and a relaunch.
 
 ## 6. Glossary
 
