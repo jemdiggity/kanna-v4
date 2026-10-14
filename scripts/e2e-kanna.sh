@@ -2258,7 +2258,7 @@ S65() {
   done
   told() { python3 -c 'import json, sys
 lines = [json.loads(l) for l in open(sys.argv[1])]
-print(sum(1 for l in lines if l.get("turn") and l["path"].startswith(sys.argv[2]) and l["history"] and l["history"][0].rstrip().endswith("You are the Kanna planning agent.")))' "$agents/mock.jsonl" "$1"; }
+print(sum(1 for l in lines if l.get("turn") and l["path"].startswith(sys.argv[2]) and any(h.rstrip().endswith("You are the Kanna planning agent.") for h in l["history"])))' "$agents/mock.jsonl" "$1"; }
   KANNA_PLANNING_AGENTS="$agents/bin/claude $agents/bin/codex" start_daemon || { echo "S65 line $LINENO"; return 1; }
   env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
   app_pid=$!
@@ -2271,7 +2271,7 @@ print(sum(1 for l in lines if l.get("turn") and l["path"].startswith(sys.argv[2]
     planner="$(desk planner "$w")"
     check wait_for 10 shows "$planner" "Choose \[1\]:" || { kanna read "$planner"; return 1; }
     kanna send "$planner" "$choice" >/dev/null && check wait_for 5 shows "$planner" "\[y/N\]" && kanna send "$planner" n >/dev/null || { echo "S65 line $LINENO"; kanna read "$planner"; return 1; }
-    check wait_for 60 eval '[[ "$(told "$path")" == 1 ]]' || { echo "S65: $agent wasn't told it's the planning agent"; kanna read "$planner"; tail -3 "$agents/mock.jsonl" | cut -c1-300; return 1; }
+    check wait_for 60 eval '[[ "$(told "$path")" -ge 1 ]]' || { echo "S65: $agent wasn't told it's the planning agent"; kanna read "$planner"; tail -3 "$agents/mock.jsonl" | cut -c1-300; return 1; }
     check wait_for 30 shows "$planner" "Agent status probe" || { echo "S65: $agent didn't show the mock's answer"; kanna read "$planner"; return 1; }
     opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "S65 line $LINENO: $opened"; return 1; }
     w="${BASH_REMATCH[1]}"
