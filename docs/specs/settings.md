@@ -42,13 +42,13 @@ flowchart LR
 | Key | Default | Does |
 |---|---|---|
 | `version` | `1` | The settings format the file is written for |
-| `planning.agent` | none: asked | The agent `kanna plan` starts as a [planning agent](planning-agent.md#2-what-it-is), a name from the agents Kanna knows (`claude`, `codex`, …). Unset, each new planner asks (unless one agent is installed) and offers to write your answer to the repo's file. |
+| `planning.agent` | none: asked | The agent a new Desk's planning terminal starts as a [planning agent](planning-agent.md#2-what-it-is), a name from the agents Kanna knows (`claude`, `codex`, …). Unset, each new Desk asks (unless one agent is installed) and offers to write your answer to the repo's file. |
 | `planning.context` | `300000` | Tokens a claude agent's context grows to in a [planning terminal](planning-agent.md) before it compacts, from 100000 to 1000000, or `"auto"` for claude's own. A long-lived agent works better kept small (context rot). The terminal sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, unless your environment already does. Other agents keep their own limit (codex's is already shorter); each gets this setting as Kanna supports it. |
 
 ## 4. How it's built
 
 - **The daemon reads them** when it needs a setting, for a folder: the repo of that folder's `.kanna/config.json`, then `~/.kanna-v4/config.json` (each at most 64 KB).
-- **`planning.agent`** is read by `kanna plan` as it starts a new planner, for its folder.
+- **`planning.agent`** is read as the daemon builds a planning terminal's command, for the folder it opens in, and passed to `planner.sh`, which writes it to the repo's file when you say yes.
 - **`planning.context`** is read as the daemon builds a planning terminal's command, for the folder it opens in, and becomes an `export` in that command.
 
 ## 5. Rejected

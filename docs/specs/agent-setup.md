@@ -106,7 +106,7 @@ An agent picks a skill by its description, from what's in its context, so it has
 ## 6. How it's built
 
 - **The daemon does it** (`agents` command, `crates/kanna-daemon/src/agents.rs`): it plans each update file by file against the copy it installed, merges with `git merge-file`, and writes. Each launch it only keeps this instance's socket entry in place (and takes out an earlier Kanna's hooks), once you've agreed; skills change only when you say yes.
-- **The planning terminal asks** by running `kanna agents setup --ask; kanna agents update --ask` before `kanna plan`, with the `kanna` beside the daemon (Kanna.app carries it in `Contents/Helpers`). Each asks at most once per launch, in the first planning terminal that opens, and says nothing when there's nothing to ask.
+- **The planning terminal asks** by running `kanna agents setup --ask; kanna agents update --ask` before it asks which agent plans (`planner.sh`), with the `kanna` beside the daemon (Kanna.app carries it in `Contents/Helpers`). Each asks at most once per launch, in the first planning terminal that opens, and says nothing when there's nothing to ask.
 - **The merge editor runs in that terminal:** `kanna` makes a scratch git repo with the three versions as a real merge conflict and runs `git mergetool` on it, so any tool git knows works; what you save is copied over your file.
 - **The skills come from the app bundle,** copied there from `.agents/kanna-skills` by `scripts/build-kanna-app.sh`.
 - **For tests only:** `KANNA_AGENTS_HOME` stands in for your home folder and `KANNA_AGENT_SKILLS` for the bundle's skills; unset, Kanna uses yours. The end-to-end tests (S10, S45) set both, so they never touch your home; the app passes `KANNA_AGENTS_HOME` on to the daemon it starts.
