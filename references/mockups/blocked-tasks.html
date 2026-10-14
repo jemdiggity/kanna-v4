@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blocked Tasks</title>
+<style>
+:root {
+  --bg: #14161a; --panel: #1b1e24; --panel2: #22262d; --line: #2c313a; --text: #e6e8eb; --muted: #8b93a0;
+  --accent: #7aa2ff; --ok: #5fcf93; --warn: #f0b35a; --machine: #b48cff; --term: #16181c;
+  --page: #0d0e10; --shadow: 0 20px 50px rgba(0,0,0,.5);
+  --mono: "SF Mono", ui-monospace, Menlo, monospace; --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+:root[data-theme="light"] {
+  --bg: #ffffff; --panel: #f4f5f7; --panel2: #eaecf0; --line: #d8dce2; --text: #1d2026; --muted: #6b7280;
+  --accent: #2f63d8; --ok: #1f9d5c; --warn: #b7791f; --machine: #7c4dcc; --term: #fbfbfc;
+  --page: #dfe2e7; --shadow: 0 20px 50px rgba(0,0,0,.18);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 var(--sans); }
+main { padding: 20px; max-width: 1340px; margin: 0 auto; }
+body.picture main { padding: 0; max-width: none; }
+body.picture .intro { display: none; }
+.intro h1 { font-size: 15px; margin: 0 0 4px; }
+.intro p { color: var(--muted); margin: 0 0 12px; max-width: 920px; }
+.intro code { font: 12px var(--mono); }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+button { font: 12px var(--sans); color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+.window { border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: var(--shadow); background: var(--bg); height: 680px; display: flex; flex-direction: column; }
+body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 100vh; }
+.bar { height: 36px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.lights { display: flex; gap: 6px; }
+.lights i { width: 11px; height: 11px; border-radius: 50%; background: var(--line); display: block; }
+.content { flex: 1; display: flex; min-height: 0; }
+.agent { flex: 0 0 38%; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--term); }
+.head { height: 32px; flex: none; display: flex; align-items: center; padding: 0 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+.term { flex: 1; overflow: auto; padding: 10px 12px; font: 12px/1.6 var(--mono); white-space: pre-wrap; }
+.term .p { color: var(--warn); }
+.term .c { color: var(--accent); }
+.term .m { color: var(--machine); }
+.term .out { color: var(--muted); }
+.cmd { display: flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin: 8px 12px 12px; }
+.cmd input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text); font: 12px var(--mono); }
+.cmd input::placeholder { color: var(--muted); }
+body.picture .cmd input::placeholder { color: transparent; }
+.page { flex: 1; overflow: auto; padding: 40px 48px; }
+.sub { color: var(--muted); margin: 0 0 22px; }
+.group { margin-bottom: 28px; max-width: 760px; }
+.gh { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.gh span:last-child { color: var(--muted); }
+.row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; margin: 0 -10px; border-radius: 8px; cursor: pointer; }
+.row:hover { background: var(--panel); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
+.dot.working { background: var(--accent); }
+.dot.idle { background: var(--ok); }
+.row.waiting .dot { background: transparent; border: 1.5px solid var(--muted); width: 9px; height: 9px; }
+.row.blocked .dot { border-style: dashed; }
+.row .t { flex: 1; min-width: 0; }
+.row .n { font-weight: 600; }
+.row.waiting .n { font-weight: 500; }
+.row .s { color: var(--muted); font-size: 12px; }
+.row .wait { color: var(--warn); }
+.row .go { color: var(--muted); white-space: nowrap; font-size: 12px; }
+.row.waiting:not(.blocked):hover .go { color: var(--accent); }
+.note { color: var(--warn); font-size: 12px; min-height: 16px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <div class="intro">
+    <h1>Blocked tasks: a backlog task waits until its blockers are Done</h1>
+    <p>An empty Desk: the planning agent on the left, the project's Shelf and backlog on the right. A blocked row shows what it waits for and can't be moved to the Shelf; clicking it says why. Type a <code>kanna</code> command in the planning pane as the agent would: <code>kanna task new "NAME" "MESSAGE" --after t12</code>, <code>kanna task edit t14 --after none</code>, <code>kanna task done t12</code>, <code>kanna task start t13</code>, <code>kanna task list</code>.</p>
+    <div class="controls">
+      <button id="theme">Light / dark</button>
+      <button id="finish" title="kanna task done t12: Diff viewer can start, Release notes still waits for S40">Screenshot command is done</button>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+  <div class="window">
+    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><b>Shelf</b></div>
+    <div class="content">
+      <div class="agent">
+        <div class="head">Planning · ~/work/kanna-v4 · main</div>
+        <div class="term" id="term"></div>
+        <label class="cmd"><input id="cmd" placeholder="kanna task edit t14 --after none · kanna task done t12 · kanna task list" spellcheck="false" autocomplete="off"></label>
+      </div>
+      <div class="page" id="page"></div>
+    </div>
+  </div>
+</main>
+<script>
+const MIN = 60000, LIMIT = 3;
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ago = at => { const m = Math.round((Date.now() - at) / MIN); return m < 1 ? "now" : m < 60 ? m + "m" : Math.round(m / 60) + "h"; };
+const initial = () => {
+  const now = Date.now();
+  return {
+    next: 15,
+    note: "",
+    tasks: [
+      { id: "t12", name: "Screenshot command", place: "shelf", agent: "claude", status: "working", branch: "screenshot-command", at: now - 8 * MIN },
+      { id: "t4", name: "Tab bar follows light mode", place: "shelf", agent: "codex", status: "idle", branch: "tab-bar-light", at: now - 12 * MIN },
+      { id: "t8", name: "S40 status test is flaky", place: "backlog", at: now - 40 * MIN, by: "Doc markup", after: [],
+        message: "S40 waits 5s for 'working' after answering the mock agent; make the wait follow the status" },
+      { id: "t11", name: "Rename a task from the Shelf", place: "backlog", at: now - 5 * MIN, by: "Doc markup", after: [],
+        message: "Double-click a Shelf item to rename its task, as tabs rename" },
+      { id: "t13", name: "Diff viewer", place: "backlog", at: now - 2 * MIN, by: "the planning agent", after: ["t12"],
+        message: "Show a task's branch diff in a tab, using kanna screenshot to snapshot each side" },
+      { id: "t14", name: "Release notes for 0.9", place: "backlog", at: now - 1 * MIN, by: "the planning agent", after: ["t8", "t12"],
+        message: "Write the 0.9 release notes once the flaky test and the screenshot command are in" },
+    ],
+    log: [
+      `<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``,
+      `<span class="p">&gt;</span> the diff viewer needs the screenshot command; release notes once the S40 fix and screenshots are in`,
+      `<span class="m">●</span> kanna task new "Diff viewer" "…" --after t12`,
+      `  <span class="out">added t13 "Diff viewer" to the backlog of ~/work/kanna-v4; it waits for t12</span>`,
+      `<span class="m">●</span> kanna task new "Release notes for 0.9" "…" --after t8,t12`,
+      `  <span class="out">added t14 "Release notes for 0.9" to the backlog of ~/work/kanna-v4; it waits for t8, t12</span>`,
+      `<span class="m">●</span> Both wait in the backlog. Diff viewer can start once Screenshot command is done; Release notes once S40 is done too.`,
+    ],
+  };
+};
+let s = initial();
+const task = id => s.tasks.find(t => t.id === id);
+const waits = t => (t.after || []).filter(id => task(id));
+const label = id => `${id} "${task(id).name}"`;
+const why = t => { const w = waits(t); return w.length ? `${t.id} waits for ${w.map(label).join(", ")}: it can start once ${w.length > 1 ? "they're" : "it's"} done` : ""; };
+
+function render() {
+  const shelf = s.tasks.filter(t => t.place === "shelf"), backlog = s.tasks.filter(t => t.place === "backlog"), full = shelf.length >= LIMIT;
+  document.getElementById("page").innerHTML = `<p class="sub">Clear desk, clear mind. Pick what's next.</p>
+    <div class="group"><div class="gh"><span><b>Shelf</b> · ~/work/kanna-v4</span><span>${shelf.length} of ${LIMIT} tasks</span></div>
+      ${shelf.map(t => `<div class="row"><span class="dot ${t.status}"></span><div class="t"><div class="n">${esc(t.name)}</div><div class="s">${t.agent} · ${t.status} · parked ${ago(t.at)} · ${esc(t.branch)}</div></div></div>`).join("") || `<div class="s">Nothing on the Shelf.</div>`}</div>
+    <div class="group"><div class="gh"><span><b>Backlog</b></span><span>${backlog.length} waiting</span></div>
+      ${backlog.map(t => {
+        const w = waits(t);
+        const line = w.length ? `<span class="wait">waits for ${w.map(id => esc(task(id).name)).join(", ")}</span> · ` : "";
+        const go = w.length ? "Blocked" : full ? "Shelf full" : "Move to Shelf →";
+        return `<div class="row waiting ${w.length ? "blocked" : ""}" data-shelve="${t.id}"><span class="dot"></span><div class="t"><div class="n">${esc(t.name)}</div><div class="s">${line}${esc(t.message)} · from ${esc(t.by)}, ${ago(t.at)} ago</div></div><span class="go">${go}</span></div>`;
+      }).join("") || `<div class="s">Empty. Ask the planning agent for tasks.</div>`}
+      <p class="note">${esc(s.note)}</p></div>`;
+  const term = document.getElementById("term");
+  term.innerHTML = s.log.join("\n");
+  term.scrollTop = term.scrollHeight;
+}
+
+function shelve(id) {
+  const t = task(id);
+  if (!t || t.place !== "backlog") return `no backlog task "${id}"`;
+  if (why(t)) return why(t);
+  if (s.tasks.filter(x => x.place === "shelf").length >= LIMIT) return `~/work/kanna-v4 has ${LIMIT} tasks on the Shelf: move one to the backlog first`;
+  Object.assign(t, { place: "shelf", agent: "claude", status: "working", branch: "task-" + Math.random().toString(16).slice(2, 10), at: Date.now() });
+  return "";
+}
+
+function run(line) {
+  const words = line.trim().split(/\s+/), say = text => s.log.push(...text.split("\n").map(l => `  <span class="out">${esc(l)}</span>`));
+  s.log.push(`<span class="m">●</span> ${esc(line.trim())}`);
+  const [kanna, cmd, sub, arg] = words;
+  const after = () => { const at = words.indexOf("--after"); if (at < 0) return undefined; const v = words[at + 1] || ""; return v === "none" ? [] : v.split(",").filter(Boolean); };
+  if (kanna !== "kanna" || cmd !== "task") { say("(typed to the agent)"); return render(); }
+  if (sub === "new") {
+    const quoted = [...line.matchAll(/"([^"]*)"/g)].map(m => m[1]);
+    if (!quoted.length) { say(`kanna: task new NAME [FIRST-MESSAGE] [--after TASK,...]`); return render(); }
+    const ids = after() || [], bad = ids.find(id => !task(id));
+    if (bad) { say(`kanna: no task "${bad}"`); return render(); }
+    const t = { id: "t" + s.next++, name: quoted[0], message: quoted[1] || quoted[0], place: "backlog", at: Date.now(), by: "the planning agent", after: ids };
+    s.tasks.push(t);
+    say(`added ${t.id} "${t.name}" to the backlog of ~/work/kanna-v4${ids.length ? `; it waits for ${ids.join(", ")}` : ""}`);
+  } else if (sub === "edit") {
+    const t = task(arg), ids = after();
+    if (!t || t.place !== "backlog") say(`kanna: no backlog task "${arg || ""}"`);
+    else if (!ids) say(`kanna: task: edit needs --after TASK,... or --after none`);
+    else {
+      const bad = ids.find(id => !task(id));
+      const loops = (id, seen = new Set()) => id === t.id || (!seen.has(id) && (seen.add(id), (task(id).after || []).some(n => task(n) && loops(n, seen))));
+      const cycle = !bad && ids.find(id => loops(id));
+      if (bad) say(`kanna: no task "${bad}"`);
+      else if (cycle) say(`kanna: ${cycle} waits for ${t.id}: they'd wait for each other`);
+      else { t.after = ids; say(waits(t).length ? `${t.id} waits for ${waits(t).join(", ")}` : `${t.id} waits for nothing: it can start`); }
+    }
+  } else if (sub === "start" || sub === "shelve") {
+    const error = shelve(arg);
+    say(error ? `kanna: ${error}` : `moved ${arg} to the Shelf`);
+  } else if (sub === "done") {
+    const t = task(arg);
+    if (!t) say(`kanna: no task "${arg || ""}"`);
+    else {
+      const freed = s.tasks.filter(x => x.place === "backlog" && waits(x).length === 1 && waits(x)[0] === arg);
+      s.tasks = s.tasks.filter(x => x !== t);
+      say((t.place === "backlog" ? `took ${arg} off the backlog` : `${arg} is done: closed its agent and tabs`) + freed.map(x => `\n${x.id} "${x.name}" can start now: nothing it waits for is left`).join(""));
+    }
+  } else if (sub === "list") {
+    const rows = s.tasks.map(t => [t.id, t.name, t.place === "shelf" ? "Shelf" : "Backlog", t.place === "shelf" ? t.status : waits(t).length ? "blocked" : "stopped", waits(t).length ? "waits for " + waits(t).join(", ") : ""]);
+    const head = ["TASK", "NAME", "WHERE", "STATE", ""], w = i => Math.max(head[i].length, ...rows.map(r => r[i].length));
+    say([head, ...rows].map(r => r.map((c, i) => i < 4 ? c.padEnd(w(i)) : c).join("  ").trimEnd()).join("\n"));
+  } else say(`kanna: task new|edit|start|shelve|done|list`);
+  render();
+}
+
+document.addEventListener("click", e => {
+  const row = e.target.closest("[data-shelve]");
+  if (!row) return;
+  s.note = shelve(row.dataset.shelve);
+  render();
+});
+document.getElementById("cmd").addEventListener("keydown", e => {
+  if (e.key !== "Enter" || !e.target.value.trim()) return;
+  run(e.target.value);
+  e.target.value = "";
+});
+const finish = () => {
+  s.log.push(``, `<span class="p">&gt;</span> screenshot command is merged, it's done`);
+  run("kanna task done t12");
+  s.log.push(`<span class="m">●</span> Screenshot command is done, so Diff viewer can start now. Start it? Release notes still waits for S40.`);
+  render();
+};
+document.getElementById("finish").onclick = finish;
+document.getElementById("theme").onclick = () => { const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "" : "light"; };
+document.getElementById("reset").onclick = () => { s = initial(); render(); };
+if (location.hash.includes("picture")) document.body.classList.add("picture");
+if (location.hash.includes("light")) document.documentElement.dataset.theme = "light";
+render();
+if (location.hash.includes("freed")) finish();
+</script>
+</body>
+</html>

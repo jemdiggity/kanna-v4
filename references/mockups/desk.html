@@ -189,8 +189,6 @@ body.picture .cmd input::placeholder { color: transparent; }
 .row.sel { background: var(--panel); }
 .row.waiting.sel .go:not(.off) { color: var(--accent); }
 .nohit { color: var(--muted); padding: 8px 0; }
-.row.blocked .dot { border-style: dashed; }
-.row .wait { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -202,7 +200,6 @@ body.picture .cmd input::placeholder { color: transparent; }
       <button id="theme">Light / dark</button>
       <button id="newwin">File › New Desk ⌘N</button>
       <button id="ring" title="A parked task's agent stops to ask you something: it moves to the front of the Shelf, needs you">Simulate: a parked agent needs you</button>
-      <button id="blocked" title="Two tasks waiting for others: each starts once its blockers are done, or kanna task edit takes them off">Simulate: blocked tasks</button>
       <button id="long" title="An empty Desk with a dozen tasks in the backlog: search it">Simulate: a long backlog</button>
       <button id="fresh" title="A window with nothing in it: its planning terminal runs the planner script">Simulate: no tasks</button>
       <button id="first" title="Kanna's first launch: the planner script asks about Kanna's skills before the agent">Simulate: first launch</button>
@@ -238,8 +235,7 @@ const initial = () => {
     skills: true,
     order: ["p4", "p7"],
     nextWindow: 2,
-    nextPane: 15,
-    gone: {},
+    nextPane: 10,
     tasks: [
       { id: "p1", repo: "~/work/kanna-v4", worktree: false, title: "Doc markup reference model", branch: "main", agent: "claude", status: "working", parkedAt: null, width: 0.38,
         tabs: ["docs/specs/doc-markup.md", "references/mockups/doc-markup.html", "docs/specs/doc-markup.png", "tests"], active: "docs/specs/doc-markup.md", focus: "docs", zoom: false, log: [] },
@@ -268,8 +264,6 @@ const ago = t => { const m = Math.max(0, Math.round((Date.now() - t.parkedAt) / 
 const repoOf = w => (w && task(w.desk) ? task(w.desk).repo : w && w.repo) || s.repos[0];
 const folderOf = t => t.worktree ? `${t.repo}/.kanna-worktrees/${t.id}` : t.repo;
 const titleOf = t => t.title ? esc(t.title) : `<span class="unnamed">New task</span>`;
-const blockers = t => (t.after || []).filter(id => task(id));
-const nameOf = id => { const b = task(id) || s.gone[id]; return b ? b.title || id : id; };
 const inRepo = repo => s.tasks.filter(t => t.repo === repo && !t.backlog);
 const backlog = repo => s.tasks.filter(t => t.repo === repo && t.backlog);
 const makerOf = t => plannerOf(t.by) ? "the planning agent" : task(t.by) && task(t.by).title ? task(t.by).title : t.by;
@@ -560,16 +554,8 @@ function shelfPageHTML(w) {
     <div class="group"><div class="gh"><span><b>Shelf</b> · ${esc(repo)}</span><span>${count} of ${LIMIT} tasks</span></div>
       ${list.map((t, i) => `<div class="row" data-pull="${t.id}"><span class="dot ${t.status}"></span><div class="t"><div class="n">${titleOf(t)}</div><div class="s">${t.agent} · ${statusText[t.status]} · parked ${ago(t)} · ${esc(t.branch)}</div></div><span class="go">⌘${i + 1} · Pull →</span></div>`).join("") || `<div class="s" style="color:var(--muted)">Nothing on the Shelf.</div>`}</div>
     <div class="group"><div class="gh"><span><b>Backlog</b></span>${waiting.length ? `<label class="find"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><input data-find="${w.id}" value="${esc(q)}" placeholder="Search the backlog" spellcheck="false" autocomplete="off">${q ? `<span class="clear" data-clear="${w.id}" title="Clear">✕</span>` : `<kbd>⌘F</kbd>`}</label>` : ""}<span class="count"><span>${q ? `${found.length} of ${waiting.length}` : `${waiting.length} waiting`}</span><span>${waiting.length} waiting</span><span>${waiting.length} of ${waiting.length}</span></span></div>
-      ${found.map((t, i) => backlogRow(t, q && i === sel, q, full)).join("") || (q ? `<div class="nohit">No backlog task matches “${esc(q)}”.</div>` : `<div class="s" style="color:var(--muted)">Empty. Ask the planning agent for tasks.</div>`)}
+      ${found.map((t, i) => `<div class="row waiting ${q && i === sel ? "sel" : ""}" data-promote="${t.id}"><span class="dot"></span><div class="t"><div class="n">${t.title ? marked(t.title, q) : titleOf(t)}</div><div class="s">${marked(t.prompt, q)} · from ${esc(makerOf(t))}, ${ago({ parkedAt: t.madeAt })} ago</div></div><span class="go ${full ? "off" : ""}">${full ? "Shelf full" : q && i === sel ? "↩ Move to Shelf" : "Move to Shelf →"}</span></div>`).join("") || (q ? `<div class="nohit">No backlog task matches “${esc(q)}”.</div>` : `<div class="s" style="color:var(--muted)">Empty. Ask the planning agent for tasks.</div>`)}
       <p class="note">${esc(s.note)}</p></div></div>`;
-}
-
-function backlogRow(t, picked, q, full) {
-  const waits = blockers(t);
-  const why = waits.length ? `<span class="wait">waits for ${waits.map(id => esc(nameOf(id))).join(", ")}</span> · ` : "";
-  const go = waits.length ? `<span class="go off">Blocked</span>`
-    : `<span class="go ${full ? "off" : ""}">${full ? "Shelf full" : picked ? "↩ Move to Shelf" : "Move to Shelf →"}</span>`;
-  return `<div class="row waiting ${waits.length ? "blocked" : ""} ${picked ? "sel" : ""}" data-promote="${t.id}"><span class="dot"></span><div class="t"><div class="n">${t.title ? marked(t.title, q) : titleOf(t)}</div><div class="s">${why}${marked(t.prompt, q)} · from ${esc(makerOf(t))}, ${ago({ parkedAt: t.madeAt })} ago</div></div>${go}</div>`;
 }
 
 function nameFrom(text) {
@@ -584,12 +570,6 @@ function agentNames(t, text) {
   render();
 }
 
-function cantStart(t) {
-  const waits = blockers(t);
-  if (waits.length) return `${t.title} waits for ${waits.map(nameOf).join(", ")}: it can start once ${waits.length > 1 ? "they're" : "it's"} done`;
-  return "";
-}
-
 function start(t, worktree) {
   Object.assign(t, { backlog: false, worktree, branch: worktree ? "kanna/" + t.id : "main", agent: t.agent || "claude", status: t.prompt ? "working" : "idle",
     parkedAt: Date.now(), width: 0.38, tabs: ["shell"], active: "shell", log: [], fresh: true });
@@ -598,8 +578,6 @@ function start(t, worktree) {
 function promote(id) {
   const t = task(id);
   if (!t || !t.backlog) return;
-  const why = cantStart(t);
-  if (why) { s.note = why; return render(); }
   if (inRepo(t.repo).length >= LIMIT) { s.note = `The Shelf is full: finish a task first`; return render(); }
   start(t, t.worktree !== false);
   s.order.unshift(t.id);
@@ -680,13 +658,7 @@ function nextPane() {
   render();
 }
 
-function unblocks(id) {
-  return s.tasks.filter(x => x.backlog && (x.after || []).includes(id) && blockers(x).length === 1);
-}
-
 function done(id) {
-  const d = task(id);
-  if (d) s.gone[id] = { title: d.title, branch: d.branch, done: true };
   const w = deskOf(id);
   if (w) w.desk = null;
   s.tasks = s.tasks.filter(t => t.id !== id);
@@ -766,14 +738,10 @@ function run(t, line) {
     if (!quoted.length) { say(`kanna: task new "NAME" ["FIRST MESSAGE"] [--no-worktree] [--repo PATH]`); return render(); }
     const repoAt = words.indexOf("--repo");
     const repo = repoAt > 0 ? words[repoAt + 1] : t.repo;
-    const flag = f => { const at = words.indexOf(f); return at > 0 ? words[at + 1] : null; };
-    const after = (flag("--after") || "").split(",").filter(Boolean);
-    const missing = after.find(id => !task(id));
-    if (missing) { say(`kanna: no task "${missing}"`); return render(); }
-    const made = { id: "p" + s.nextPane++, repo, backlog: true, title: quoted[0], prompt: quoted[1] || quoted[0], by: t.id, madeAt: Date.now(), worktree: !words.includes("--no-worktree"), after };
+    const made = { id: "p" + s.nextPane++, repo, backlog: true, title: quoted[0], prompt: quoted[1] || quoted[0], by: t.id, madeAt: Date.now(), worktree: !words.includes("--no-worktree") };
     s.tasks.push(made);
     if (!s.repos.includes(repo)) s.repos.push(repo);
-    say(`added ${made.id} "${made.title}" to ${repo}'s backlog (${backlog(repo).length} waiting)` + (after.length ? `; waits for ${after.join(", ")}` : ""));
+    say(`added ${made.id} "${made.title}" to ${repo}'s backlog (${backlog(repo).length} waiting)`);
     return render();
   }
   if (cmd === "task" && sub === "name") {
@@ -783,33 +751,8 @@ function run(t, line) {
     return render();
   }
   if (cmd === "task" && sub === "list") {
-    const deps = x => blockers(x).length ? "waits for " + blockers(x).join(", ") : "";
-    say(["ID   WHERE   STATUS     REPO              NAME"].concat(s.tasks.filter(x => matches(x, words.slice(3).join(" "))).map(x => `${x.id.padEnd(4)} ${(x.backlog ? "Backlog" : deskOf(x.id) ? deskOf(x.id).id : "Shelf").padEnd(7)} ${(x.backlog ? (blockers(x).length ? "blocked" : "stopped") : statusText[x.status]).padEnd(10)} ${x.repo.replace("~/work/", "").padEnd(17)} ${x.title || "(unnamed)"}${deps(x) ? "  [" + deps(x) + "]" : ""}`)).join("\n"));
+    say(["ID   WHERE   STATUS     REPO              NAME"].concat(s.tasks.filter(x => matches(x, words.slice(3).join(" "))).map(x => `${x.id.padEnd(4)} ${(x.backlog ? "Backlog" : deskOf(x.id) ? deskOf(x.id).id : "Shelf").padEnd(7)} ${(x.backlog ? "waiting" : statusText[x.status]).padEnd(10)} ${x.repo.replace("~/work/", "").padEnd(17)} ${x.title || "(unnamed)"}`)).join("\n"));
     return render();
-  }
-  if (cmd === "task" && sub === "edit") {
-    const x = task(arg);
-    if (!x || !x.backlog) { say(`kanna: no backlog task "${arg || ""}"`); return render(); }
-    const flag = f => { const at = words.indexOf(f); return at > 0 ? words[at + 1] : undefined; };
-    const after = flag("--after");
-    if (after === undefined) { say(`kanna: task edit TASK --after TASK,…|none`); return render(); }
-    const ids = after === "none" ? [] : after.split(",").filter(Boolean);
-    const missing = ids.find(id => !task(id));
-    if (missing) { say(`kanna: no task "${missing}"`); return render(); }
-    const loop = (id, seen) => id === x.id || (!seen.has(id) && (seen.add(id), ((task(id) || {}).after || []).some(n => loop(n, seen))));
-    const cycle = ids.find(id => loop(id, new Set()));
-    if (cycle) { say(`kanna: ${cycle} already waits for ${x.id}: they'd wait for each other`); return render(); }
-    x.after = ids;
-    say(`${x.id} ${ids.length ? `waits for ${ids.join(", ")}` : "waits for nothing: it can start"}`);
-    return render();
-  }
-  if (cmd === "task" && (sub === "start" || sub === "shelve")) {
-    const x = task(arg);
-    if (!x || !x.backlog) { say(`kanna: no backlog task "${arg || ""}"`); return render(); }
-    const why = cantStart(x);
-    if (why) { say(`kanna: ${why}`); return render(); }
-    say(`started ${arg}`);
-    return promote(arg);
   }
   if (cmd === "task" && sub === "pull") {
     if (!task(arg)) { say(`kanna: no task "${arg || ""}"`); return render(); }
@@ -827,8 +770,7 @@ function run(t, line) {
     const id = arg || t.id;
     if (!task(id)) { say(`kanna: no task "${id}"`); return render(); }
     const d = task(id);
-    const freed = unblocks(id).map(x => `\n${x.id} "${x.title}" can start now: nothing it waits for is left`).join("");
-    say((d.backlog ? `done: took ${id} off the backlog` : `done: closed ${id}'s panes${d.worktree ? `; kept its worktree ${folderOf(d)} and branch ${d.branch}` : ""}`) + freed);
+    say(d.backlog ? `done: took ${id} off the backlog` : `done: closed ${id}'s panes${d.worktree ? `; kept its worktree ${folderOf(d)} and branch ${d.branch}` : ""}`);
     return done(id);
   }
   if (cmd === "open" && (sub === "md" || sub === "web") && arg) {
@@ -954,35 +896,6 @@ const long = () => {
     ["kanna send presses Enter", "kanna send types text into a pane but leaves it unsent; add --enter"],
   ].forEach(([title, prompt], i) => s.tasks.push({ id: "t" + (2 + i * 4), repo: "~/work/kanna-v4", backlog: true, title, prompt, by: by[i % 4], madeAt: now - (12 - i) * 37 * MIN }));
 };
-const blocked = () => {
-  const now = Date.now();
-  done("p1");
-  s.tasks.push(
-    { id: "p12", repo: "~/work/kanna-v4", worktree: true, title: "Screenshot command", branch: "screenshot-command", agent: "claude", status: "working", parkedAt: now - 8 * MIN, width: 0.38,
-      tabs: ["shell"], active: "shell", focus: "agent", zoom: false, log: [] },
-    { id: "p13", repo: "~/work/kanna-v4", backlog: true, title: "Diff viewer", by: "planner", madeAt: now - 2 * MIN, after: ["p12"],
-      prompt: "Show a task's branch diff in a tab, using kanna screenshot to snapshot each side" },
-    { id: "p14", repo: "~/work/kanna-v4", backlog: true, title: "Release notes for 0.9", by: "planner", madeAt: now - 1 * MIN, after: ["p8", "p12"],
-      prompt: "Write the 0.9 release notes once the flaky test and the screenshot command are in" });
-  s.order.unshift("p12");
-  planners();
-  const p = s.windows[0].planner;
-  s.tasks.filter(t => t.by === "planner").forEach(t => { t.by = p.id; });
-  Object.assign(p, { agent: "claude", ask: null, chosen: "claude", log: [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude`, ``,
-    `<span class="p">&gt;</span> the diff viewer needs the screenshot command; release notes once the S40 fix and screenshots are in`,
-    `<span class="m">●</span> kanna task new "Diff viewer" "…" --after p12`,
-    `  <span class="out">added p13 "Diff viewer"; waits for p12</span>`,
-    `<span class="m">●</span> kanna task new "Release notes for 0.9" "…" --after p8,p12`,
-    `  <span class="out">added p14 "Release notes for 0.9"; waits for p8, p12</span>`,
-    `<span class="m">●</span> Both wait in the backlog. Diff viewer can start once Screenshot command is done; Release notes once S40 is done too.`] });
-};
-const freed = () => {
-  const p = s.windows[0].planner;
-  p.log.push(``, `<span class="p">&gt;</span> screenshot command is merged, it's done`);
-  run(p, "kanna task done p12");
-  p.log.push(`<span class="m">●</span> Screenshot command is done, so Diff viewer can start now. Start it? Release notes still waits for S40.`);
-};
-document.getElementById("blocked").onclick = () => { s = initial(); blocked(); render(); };
 document.getElementById("long").onclick = () => { s = initial(); long(); render(); };
 const fresh = () => { s.tasks = []; s.order = []; s.windows.forEach(w => { w.desk = null; w.planner = null; w.repo = "~/work/kanna-v4"; }); };
 document.getElementById("fresh").onclick = () => { fresh(); render(); };
@@ -1004,8 +917,6 @@ if (location.hash.includes("fresh")) fresh();
 if (location.hash.includes("plan")) { parkTask(task("p1")); s.windows[0].desk = null; }
 if (location.hash.includes("save")) { planners(); const p = s.windows[0].planner; plannerAnswer(p, "2"); }
 if (location.hash.includes("quit")) { planners(); const p = s.windows[0].planner; if (p.ask) { plannerAnswer(p, "2"); plannerAnswer(p, "y"); } p.log.push(``, `<span class="p">&gt;</span> /exit`); plannerQuit(p); }
-if (location.hash.includes("blocked")) blocked();
-if (location.hash.includes("freed")) freed();
 if (location.hash.includes("zoom")) { if (task(s.windows[0].desk)) task(s.windows[0].desk).zoom = true; else { planners(); s.windows[0].planner.zoom = true; } }
 const asked = location.hash.match(/q=([^&]*)/);
 if (asked) { s.windows[0].query = decodeURIComponent(asked[1]); s.finding = "w1"; }
