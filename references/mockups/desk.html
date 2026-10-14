@@ -920,7 +920,7 @@ if (location.hash.includes("zoom")) { if (task(s.windows[0].desk)) task(s.window
 const asked = location.hash.match(/q=([^&]*)/);
 if (asked) { s.windows[0].query = decodeURIComponent(asked[1]); s.finding = "w1"; }
 if (location.hash.includes("new")) { fresh(); s.windows[0].repo = "~"; }
-if (location.hash.includes("finder")) { parkTask(task("p1")); s.windows[0].desk = null; s.windows[0].repo = "~"; planners(); if (location.hash.includes("pick")) plannerAnswer(s.windows[0].planner, "~/work/kanna-v4"); if (location.hash.includes("clone")) { plannerAnswer(s.windows[0].planner, "https://github.com/jemdiggity/kojo-data"); } if (location.hash.includes("name")) { plannerAnswer(s.windows[0].planner, "recipe-box"); plannerAnswer(s.windows[0].planner, "1"); } }
+if (location.hash.includes("finder")) { parkTask(task("p1")); s.windows[0].desk = null; s.windows[0].repo = "~"; planners(); if (location.hash.includes("pick")) plannerAnswer(s.windows[0].planner, "~/work/kanna-v4"); if (location.hash.includes("setup")) { const p = s.windows[0].planner; plannerAnswer(p, "~/work/kanna-v4"); plannerAnswer(p, "2"); plannerAnswer(p, "y"); } if (location.hash.includes("clone")) { plannerAnswer(s.windows[0].planner, "https://github.com/jemdiggity/kojo-data"); } if (location.hash.includes("name")) { plannerAnswer(s.windows[0].planner, "recipe-box"); plannerAnswer(s.windows[0].planner, "1"); } }
 if (location.hash.includes("needs")) { task("p4").status = "needs"; task("p4").needsAt = Date.now(); }
 setInterval(() => { if (!drag && !document.activeElement?.closest?.("[data-cmd]")) render(); }, 30000);
 render();

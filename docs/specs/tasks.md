@@ -4,7 +4,7 @@
 
 A **task** is one agent's work in one repo. Agents make tasks: they add them to the repo's **backlog**, and you move the ones you want to the Shelf, where each gets its own agent, branch and worktree. There's no form: you tell the window's [planning agent](planning-agent.md) what you want, and it makes the tasks.
 
-![A new Desk: the planning terminal asks which agent plans](task-start.png)
+![A new Desk in ~: where, which agent, the project's planner, then the agent](desk-new.png)
 
 ![An empty Desk: the planning agent, and the Shelf's tasks above the backlog](task-backlog.png)
 

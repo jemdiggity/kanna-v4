@@ -4,19 +4,7 @@
 
 What happens when a Desk window opens with nothing in it: where it opens, and how its planning terminal gets you to a planning agent, in the right project.
 
-![A new Desk: its planning terminal asks which agent plans and makes tasks](task-start.png)
-
-![Then it offers to make that agent the project's](planner-save.png)
-
-![The planning agent starts and greets you beside the Shelf](desk-empty.png)
-
-![Quit it and you're in your shell, with how to start it again](planner-quit.png)
-
-![File → New Desk opens in ~: it asks for a folder, a repo to clone, or a new project's name](desk-new.png)
-
-![A repo is cloned into ~/.kanna-v4/repos and the Desk moves there](desk-new-clone.png)
-
-![A name makes the project in ~/.kanna-v4/repos; the terminal and Shelf move there, and the agent starts it with you](desk-new-project.png)
+![A new Desk in ~: where, which agent, the project's planner, then the agent](desk-new.png)
 
 **Done when** a new Desk in `~` asks where, and moves to the folder, clones the repo or makes the named project; a new Desk on a repo asks which agent, starts the agent you pick, and that agent uses the kanna-planning skill, with Claude and with Codex; and a new Desk on a project whose planner is set starts it without asking.
 
