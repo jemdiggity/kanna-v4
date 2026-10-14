@@ -126,7 +126,7 @@ impl Window {
         self.planner.as_ref().is_some_and(|p| p.pane == pane)
     }
 
-    fn side_pane(&self) -> Option<String> {
+    pub(crate) fn side_pane(&self) -> Option<String> {
         self.dock.as_ref().or(self.planner.as_ref()).map(|d| d.pane.clone())
     }
 
@@ -172,13 +172,14 @@ pub struct Model {
     pub(crate) windows: Vec<Window>,
     pub(crate) parked: Vec<Window>,
     pub key: Option<String>,
+    pub(crate) used: Vec<String>,
     pub(crate) counters: (usize, usize),
     pub pane_is_wide: Box<dyn Fn(&str) -> bool + Send>,
 }
 
 impl Default for Model {
     fn default() -> Model {
-        Model { windows: vec![], parked: vec![], key: None, counters: (0, 0), pane_is_wide: Box::new(|_| true) }
+        Model { windows: vec![], parked: vec![], key: None, used: vec![], counters: (0, 0), pane_is_wide: Box::new(|_| true) }
     }
 }
 
@@ -393,10 +394,19 @@ impl Model {
         self.tab_index(tab).map(|(w, _)| &self.windows[w])
     }
 
+    pub(crate) fn set_key(&mut self, key: Option<String>) {
+        if let Some(id) = &key {
+            self.used.retain(|u| u != id);
+            self.used.insert(0, id.clone());
+        }
+        self.key = key;
+    }
+
     pub(crate) fn make_window(&mut self) -> usize {
         self.counters.1 += 1;
         let window = Window::new(format!("w{}", self.counters.1));
-        self.key = Some(window.id.clone());
+        let key = window.id.clone();
+        self.set_key(Some(key));
         self.windows.push(window);
         self.windows.len() - 1
     }
@@ -600,7 +610,7 @@ impl Model {
         self.clear_shelves();
         self.settle_shelf();
         if self.key_window().is_none() {
-            self.key = self.windows.last().map(|w| w.id.clone());
+            self.set_key(self.windows.last().map(|w| w.id.clone()));
         }
     }
 
@@ -628,7 +638,8 @@ impl Model {
             window.tabs[location.tab].last_focus = Some(id.into());
         }
         window.focused = Some(id.into());
-        self.key = Some(window.id.clone());
+        let key = window.id.clone();
+        self.set_key(Some(key));
     }
 
     pub fn tree(&self, node: Option<&Node>, size: Option<f64>, panes: &Panes) -> Value {
@@ -665,10 +676,11 @@ impl Model {
             let ids = pane_ids(window.tabs[t].root.as_ref());
             window.active = Some(window.tabs[t].id.clone());
             window.focused = window.tabs[t].last_focus.clone().filter(|l| ids.contains(l)).or_else(|| ids.first().cloned());
-            self.key = Some(window.id.clone());
+            let key = window.id.clone();
+            self.set_key(Some(key));
         } else if args.get("window").is_some() {
             let w = self.target_window(string(args, "window"))?;
-            self.key = Some(self.windows[w].id.clone());
+            self.set_key(Some(self.windows[w].id.clone()));
         } else {
             return Err(bad_request("focus needs a pane, tab or window"));
         }
@@ -814,7 +826,7 @@ impl Model {
         window.active = Some(tab.clone());
         window.focused = window.tabs[t].last_focus.clone().filter(|l| ids.contains(l)).or_else(|| ids.first().cloned());
         let id = window.id.clone();
-        self.key = Some(id.clone());
+        self.set_key(Some(id.clone()));
         self.drop_empty();
         let tabs = self.window(&id).map(|w| w.tabs.iter().map(|t| Value::String(t.id.clone())).collect()).unwrap_or_default();
         Ok(reply([("window", id.into()), ("tabs", Value::Array(tabs))]))
@@ -936,7 +948,7 @@ impl Model {
             window.focused = used.first().cloned();
         }
         let id = window.id.clone();
-        self.key = Some(id.clone());
+        self.set_key(Some(id.clone()));
         self.drop_empty();
         Ok(reply([("window", id.into()), ("layout", self.tab_tree(&tab, panes))]))
     }
@@ -1007,8 +1019,9 @@ impl LayoutHost for Model {
             self.dock(pane, w, edge, at.frozen);
             let window = &mut self.windows[w];
             window.focused = Some(pane.into());
-            self.key = Some(window.id.clone());
-            return Ok(Some(window.id.clone()));
+            let key = window.id.clone();
+            self.set_key(Some(key.clone()));
+            return Ok(Some(key));
         }
         let beside_tab = beside.is_some();
         let t = match &beside {
@@ -1041,8 +1054,9 @@ impl LayoutHost for Model {
         if let Some(active) = window.active_index() {
             window.tabs[active].last_focus = Some(pane.into());
         }
-        self.key = Some(window.id.clone());
-        Ok(Some(window.id.clone()))
+        let key = window.id.clone();
+        self.set_key(Some(key.clone()));
+        Ok(Some(key))
     }
 
     fn location(&self, pane: &str) -> Option<Spot> {
@@ -1333,7 +1347,7 @@ impl LayoutHost for Model {
         let Ok(restored) = saved.layout.downcast::<Restored>() else { return };
         self.windows = restored.windows;
         self.parked = restored.parked;
-        self.key = restored.key;
+        self.set_key(restored.key);
         self.counters = (self.counters.0.max(restored.counters.0), self.counters.1.max(restored.counters.1));
         self.drop_empty();
     }

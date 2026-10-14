@@ -165,7 +165,7 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     Ok(())
 }
 
-/// `kanna PATH`: a word that isn't a command but is a folder opens a Desk on its project.
+/// `kanna PATH`: a word that isn't a command but is a folder brings forward its project's Desk, or opens one.
 fn project_folder(name: &str) -> Option<String> {
     if commands::find(name).is_some() {
         return None;
@@ -356,7 +356,7 @@ fn overview(target: &Target) -> String {
         "kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\
          \n\
          usage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n\
-         \x20      kanna PATH                           (a new Desk on the project in folder PATH)\n",
+         \x20      kanna PATH                           (the Desk on folder PATH's project, opening one if none is open)\n",
     );
     for group in GROUPS {
         out += &format!("\n{group}:\n");

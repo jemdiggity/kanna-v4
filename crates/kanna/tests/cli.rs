@@ -246,7 +246,7 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     let dir = scratch("help");
     let nowhere = dir.join("nothing.sock");
     let overview = kanna_at(&dir, Some(&nowhere), &[]).ok();
-    assert!(overview.starts_with("kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\nusage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n       kanna PATH                           (a new Desk on the project in folder PATH)\n\nPanes:\n  open "), "{overview}");
+    assert!(overview.starts_with("kanna — control the Kanna terminal multiplexer (windows → tabs → split panes).\n\nusage: kanna [--mux kanna|kmux] [--instance NAME] [--bg] [--fresh] COMMAND [ARGS] [--json] [-- TEXT]\n       kanna PATH                           (the Desk on folder PATH's project, opening one if none is open)\n\nPanes:\n  open "), "{overview}");
     assert!(overview.contains("Kanna isn't running, so help can't check which commands it supports."), "{overview}");
     assert!(overview.contains(&format!("Instance: default of {} at {}", kanna_build::Build::current().app_name(), nowhere.display())), "{overview}");
     assert!(overview.contains("6 needs Kanna.app, which isn't attached and wasn't started."), "{overview}");
@@ -411,6 +411,7 @@ fn a_folder_for_a_command_opens_a_desk_on_its_project_without_a_task() {
     std::fs::create_dir_all(daemon.dir.join("project")).unwrap();
     let project = daemon.dir.join("project").to_string_lossy().to_string();
     assert_eq!(daemon.kanna(&["project"]).ok(), format!("opened w1 on {project}"));
+    assert_eq!(daemon.kanna(&["project"]).ok(), format!("brought forward w1 on {project}"));
     let list = daemon.kanna(&["list", "--json"]).json();
     assert_eq!(list["panes"], json!([]), "a Desk on a project docks nothing, so it uses none of its tasks: {list}");
     assert_eq!(list["windows"][0]["id"], json!("w1"), "{list}");

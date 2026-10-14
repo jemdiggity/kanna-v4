@@ -220,7 +220,7 @@ extension AppController {
     }
 
     func newDesk() {
-        layoutCommand("task", ["action": "desk", "project": .string(NSHomeDirectory())])
+        layoutCommand("task", ["action": "desk", "project": .string(NSHomeDirectory()), "new": true])
     }
 
     func openPlanner(in window: String) {

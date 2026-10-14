@@ -602,6 +602,66 @@ mod tests {
     }
 
     #[test]
+    fn a_desk_on_a_project_already_open_is_brought_forward_instead_of_opening_another() {
+        let dir = folder("desk-reuse").canonicalize().unwrap();
+        let at = |name: &str| dir.join(name).to_string_lossy().into_owned();
+        for repo in ["app", "other", "third", "fourth", "fifth"] {
+            std::fs::create_dir_all(dir.join(repo).join(".git")).unwrap();
+        }
+        std::fs::create_dir_all(dir.join("app/.git/worktrees/wt")).unwrap();
+        std::fs::create_dir_all(dir.join("app/sub")).unwrap();
+        std::fs::create_dir_all(dir.join("wt/deep")).unwrap();
+        std::fs::create_dir_all(dir.join("fourth/sub")).unwrap();
+        std::fs::write(dir.join("wt/.git"), format!("gitdir: {}\n", at("app/.git/worktrees/wt"))).unwrap();
+        let (mut owner, _) = LayoutOwner::open(None, false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let task = |owner: &mut LayoutOwner, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "task", "args": args } }));
+        let desk = |owner: &mut LayoutOwner, project: &str| {
+            let reply = task(owner, json!({ "action": "desk", "project": project }));
+            (reply["window"].as_str().unwrap_or("?").to_string(), reply["new"].clone())
+        };
+        let put = |owner: &mut LayoutOwner, id: &str, cwd: &str, at: Value| {
+            let reply = owner.handle(&json!({ "call": "serve", "request": { "op": "place", "pane": { "id": id, "name": null, "type": "term", "cwd": cwd }, "at": at } }));
+            assert_eq!(reply["ok"], true, "{reply}");
+        };
+        let key = |owner: &LayoutOwner| owner.view()["key"].clone();
+
+        assert_eq!(desk(&mut owner, &at("app")), ("w1".into(), json!(true)));
+        let again = task(&mut owner, json!({ "action": "desk", "project": at("app") }));
+        assert_eq!((again["window"].clone(), again["new"].clone(), again["project"].clone()), (json!("w1"), json!(false), json!(at("app"))), "{again}");
+        assert_eq!(desk(&mut owner, &at("app/sub")), ("w1".into(), json!(false)), "a subfolder is in the project");
+        assert_eq!(desk(&mut owner, &at("wt/deep")), ("w1".into(), json!(false)), "a worktree's project is its main repo");
+        assert_eq!(desk(&mut owner, &at("other")), ("w2".into(), json!(true)));
+        assert_eq!(key(&owner), "w2");
+        assert_eq!(desk(&mut owner, &at("app")), ("w1".into(), json!(false)));
+        assert_eq!(key(&owner), "w1");
+        assert_eq!(owner.view()["windows"].as_array().unwrap().len(), 2);
+
+        put(&mut owner, "p1", &at("third"), json!({ "window": "new" }));
+        assert_eq!(desk(&mut owner, &at("third")), ("w4".into(), json!(true)), "a plain terminal window isn't a Desk");
+
+        task(&mut owner, json!({ "action": "desk" }));
+        put(&mut owner, "p2", &at("fourth/sub"), json!({ "planner": true, "window": "w5" }));
+        task(&mut owner, json!({ "action": "desk", "project": at("app") }));
+        assert_eq!(desk(&mut owner, &at("fourth")), ("w5".into(), json!(false)), "a Desk with no project is on its planning terminal's");
+        assert_eq!(owner.view()["windows"][4]["focused"], "p2");
+        put(&mut owner, "p3", &at("fifth"), json!({ "dock": "left", "shelf": true }));
+        task(&mut owner, json!({ "action": "pull", "task": "p3", "window": "w5" }));
+        task(&mut owner, json!({ "action": "desk", "project": at("app") }));
+        assert_eq!(desk(&mut owner, &at("fifth")), ("w5".into(), json!(false)), "a Desk is on its docked task's project");
+        assert_eq!(owner.view()["windows"][4]["focused"], "p3");
+        assert_eq!(desk(&mut owner, &at("fourth")).1, json!(true), "and no longer on its planning terminal's");
+
+        let fresh = task(&mut owner, json!({ "action": "desk", "project": at("app"), "new": true }));
+        assert_eq!((fresh["window"].clone(), fresh["new"].clone()), (json!("w7"), json!(true)), "{fresh}");
+        assert_eq!(desk(&mut owner, &at("other")).0, "w2");
+        assert_eq!(desk(&mut owner, &at("app")).0, "w7", "of two Desks on a project, the one used last");
+        owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "focus", "args": { "window": "w1" } } }));
+        assert_eq!(desk(&mut owner, &at("app")).0, "w1", "the key one first");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_pull_onto_a_desk_with_a_task_says_both_moved() {
         let (mut owner, _) = LayoutOwner::open(None, false);
         owner.handle(&json!({ "call": "attach", "panes": [] }));
