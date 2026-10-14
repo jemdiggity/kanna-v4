@@ -539,6 +539,20 @@ PY
   printf "python3 %s '%s' '%s' %s; exec cat" "$KANNA_STATE_DIR/probe.py" "$1" "${2:-\\007}" "${3:-1}"
 }
 count() { python3 -c 'import json, sys; print(len(json.load(sys.stdin)))'; }
+long_comment="A long comment that runs on for a while, so that it wraps over many lines in the comment box and then some more past its cap. "
+long_comment="$long_comment$long_comment$long_comment$long_comment$long_comment$long_comment"
+box_fits() { python3 -c 'import json, sys
+r = json.load(sys.stdin)
+p = {k: (x, y, x + w, y + h) for k, (x, y, w, h) in r["box_parts"].items()}
+box, f = p["box"], p["field"]
+inside = lambda a: a[0] >= box[0] and a[1] >= box[1] and a[2] <= box[2] and a[3] <= box[3]
+assert f[3] - f[1] == 160, ("the field should grow to its cap", r["box_parts"])
+assert p["text"][3] - p["text"][1] > 160, ("past its cap the text should scroll inside the field", r["box_parts"])
+for k in ("box", "field", "hint", "post"):
+    if k in p: assert inside(p[k]), (k, "is outside the box", r["box_parts"])
+for k in ("hint", "post"):
+    if k in p: assert p[k][1] >= f[3], (k, "overlaps the field", r["box_parts"])
+assert r["box_shown"], ("the box should stay in view", r["box_parts"])'; }
 snap() {
   local shot
   shot="$(raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"window\":\"$1\",\"path\":\"$2.png\",\"marker\":\"*\"}}")"
@@ -985,7 +999,20 @@ print(len(v) if isinstance(v, list) else v)' "$1" "$2"; }
   xy="$(md_comments_md ',"mark":"c3"')"
   raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"pane\":\"doc\",\"command\":true,\"at\":[$(echo "$xy" | field x),$(echo "$xy" | field y)]}}" >/dev/null
   check test "$(md_comments_md | field box)" == new || return 1
+  raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$long_comment\"}}" >/dev/null
+  check eval 'md_comments_md | box_fits' || return 1
+  sleep 0.3; md_comments_shot md_comments-long
   key escape; check test "$(md_comments_md | field box)" == None || return 1
+  for _ in 1 2 3 4 5; do md_comments_md ',"zoom":1' >/dev/null; done
+  check test "$(md_comments_md | field zoom)" == 2 || return 1
+  xy="$(md_comments_md ',"mark":"c3"')"
+  raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"pane\":\"doc\",\"command\":true,\"at\":[$(echo "$xy" | field x),$(echo "$xy" | field y)]}}" >/dev/null
+  check test "$(md_comments_md | field box)" == new || return 1
+  raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$long_comment\"}}" >/dev/null
+  check eval 'md_comments_md | box_fits' || return 1
+  sleep 0.3; md_comments_shot md_comments-long-zoomed
+  key escape; check test "$(md_comments_md | field box)" == None || return 1
+  for _ in 1 2 3 4 5; do md_comments_md ',"zoom":-1' >/dev/null; done
   check test "$(md_comments_count)" == 4 || return 1
   kanna markup reply c4 --doc "$dir/review.md" "Fixed the wording." >/dev/null || return 1
   check wait_for 5 eval '[[ "$(md_comments_thread c4 messages)" == 2 ]]' || return 1
@@ -1152,6 +1179,12 @@ print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
   page_comments_click "\"command\":true,\"at\":$xy"
   check wait_for 5 eval '[[ "$(page_comments_web | field box)" == new ]]' || { page_comments_web; return 1; }
   sleep 0.3; page_comments_shot page_comments-composer
+  raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$long_comment\"}}" >/dev/null
+  check eval 'page_comments_web | box_fits' || return 1
+  sleep 0.3; page_comments_shot page_comments-long
+  key escape; check wait_for 5 eval '[[ "$(page_comments_web | field box)" == None ]]' || return 1
+  page_comments_click "\"command\":true,\"at\":$xy"
+  check wait_for 5 eval '[[ "$(page_comments_web | field box)" == new ]]' || { page_comments_web; return 1; }
   raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Bigger"}}' >/dev/null
   key cmd+return
   check wait_for 5 eval '[[ "$(page_comments_thread c1 status)" == sent ]]' || { page_comments_web; return 1; }
