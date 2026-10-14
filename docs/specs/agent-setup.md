@@ -1,6 +1,6 @@
 # Agent Setup
 
-**Status:** built; telling agents in their first message instead of a hook is planned ([2](#2-how-an-agent-knows-its-in-kanna)) · **Part of:** [tasks](tasks.md)
+**Status:** built; agents are told in their first message, not a hook (2026-10-14) · **Tests:** `crates/kanna-daemon/src/agents.rs` and `backlog.rs` (unit), `scripts/e2e-kanna.sh` S45, S57, S65 · **Part of:** [tasks](tasks.md)
 
 Kanna's skills teach an agent how to work in Kanna: name its branch, add tasks to the backlog, plan, answer review comments. They live in this repo (`.agents/kanna-skills`), so today only agents working on Kanna itself have them. **Agent setup** puts them where Claude and Codex find them in any repo, once you agree.
 
