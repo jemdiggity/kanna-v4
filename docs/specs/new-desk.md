@@ -1,6 +1,6 @@
 # New Desk
 
-**Status:** built (2026-10-14) · **Tests:** `crates/kanna-daemon/src/backlog.rs` (unit), `scripts/e2e-kanna.sh` S45, S46, S52, S64, S65 · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: no tasks, first launch, Installed, Forget the project's planner; ⌘N) · **Part of:** [Desk](desk.md), [planning terminal](planning-agent.md) · **Builds on:** [agent setup](agent-setup.md), [settings](settings.md), [tasks](tasks.md#which-agents-resume)
+**Status:** built (2026-10-14) · **Tests:** `crates/kanna-daemon/src/backlog.rs` (unit), `scripts/e2e-kanna.sh` `desk_backlog`, `desk_by_path`, `new_desk`, `planner_choice`, `real_agent_planners`, `path_reuses_desk` · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: no tasks, first launch, Installed, Forget the project's planner; ⌘N) · **Part of:** [Desk](desk.md), [planning terminal](planning-agent.md) · **Builds on:** [agent setup](agent-setup.md), [settings](settings.md), [tasks](tasks.md#which-agents-resume)
 
 What happens when a Desk window opens with nothing in it: where it opens, and how its planning terminal gets you to a planning agent, in the right project.
 
@@ -22,7 +22,7 @@ What happens when a Desk window opens with nothing in it: where it opens, and ho
 |---|---|
 | Kanna opens with nothing | the shell's folder Kanna was started from (`kanna …`, passed as `KANNA_START_DIR`), else `~` (started from Finder), which asks where ([2](#2-its-planning-terminal)) |
 | File → New Desk (⌘N) | `~`, as `kanna ~` would, and its planning terminal asks where ([2](#2-its-planning-terminal)) |
-| `kanna PATH` | PATH; the window keeps that project across a relaunch, until a task from another project is pulled onto it |
+| `kanna PATH` | PATH, unless a Desk is on PATH's project already: then that Desk comes forward and nothing opens. The window keeps that project across a relaunch, until a task from another project is pulled onto it |
 
 - **It shows the Shelf:** the planning terminal on the left, the full Shelf of the folder's repo on the right ([planning terminal](planning-agent.md#1-when-it-shows)). The title bar says Shelf; there's no folder picker.
 - **⌘N always means New Desk.** New Window (a plain terminal window) keeps its menu item, without a shortcut. There's no New Instance: another project is what a Desk is for.
@@ -60,6 +60,7 @@ flowchart LR
 
 ## 3. How it's built
 
+- **`task desk` finds the project's Desk first,** in the layout (`desk_on` in `kanna-mux/src/desk.rs`), which has every window and its panes' live folders: PATH's project root (the main repo for a worktree, symlinks resolved; `project()` in `kanna-mux/src/core.rs`) against each Desk's, which is its docked task's folder, else its planning terminal's, else the folder it was opened on, as the Shelf decides. Of several, the key one, else the one used last. A plain terminal window isn't a Desk. It replies with the window and `new`; the found one becomes key, so the app brings it to the front. New Desk (⌘N) passes `new` to always open one.
 - **The app asks for a planning terminal** (`backlog` `plan`) with the window's folder and the bundle's `planner.sh`; `task desk` makes the window, with a folder or none (started from Finder).
 - **`planner.sh`, in `Kanna.app/Contents/Resources`,** copied there by `scripts/build-kanna-app.sh`. It replaces `getting-started.md`.
 - **The daemon passes it what it needs** (`planner_command` in `backlog.rs`): the `kanna` beside the daemon, the repos folder, and each agent Kanna knows as a name and the command that starts it with the planner's first message, built from the `AGENTS` table as a task's agent is (its flag for not asking permission, its first-message flag, `--no-daemon` for Codex; no session). The script knows no agent itself.
@@ -72,10 +73,12 @@ flowchart LR
 ## 4. Tests
 
 - **Unit (`backlog.rs`):** the planning terminal's command for each agent; `planner.sh` run with stand-in agents: asks where only in `~`, moves to a folder, clones a URL (a local bare repo) and `owner/repo` (a stand-in `gh`), makes a named project, all under a stand-in `~/.kanna-v4/repos`, refuses a missing folder, asks which agent with two, not with one or with `planning.agent` set, writes the setting on yes and keeps the file's other keys, says so with none.
-- **e2e (`scripts/e2e-kanna.sh`):** S64: a new Desk asks, yes makes the agent the project's, the next new Desk starts it straight away, quitting leaves the shell, and a ⌘N Desk in `~` moves to a folder and starts it there. S65: the real claude and codex against the mock model (`tools/agent-harness`) each receive `You are the Kanna planning agent.` as their first message. S45, S46, S52: setup, then where, in `~`.
+- **e2e (`scripts/e2e-kanna.sh`):** `planner_choice`: a new Desk asks, yes makes the agent the project's, the next new Desk starts it straight away, quitting leaves the shell, and a ⌘N Desk in `~` moves to a folder and starts it there. `real_agent_planners`: the real claude and codex against the mock model (`tools/agent-harness`) each receive `You are the Kanna planning agent.` as their first message. `desk_backlog`, `desk_by_path`, `new_desk`: setup, then where, in `~`. `path_reuses_desk`: `kanna PATH` twice gives one window, a subfolder and a folder in a worktree find it, another project opens another, and the found Desk is key.
+- **Unit (`kanna-mux/src/owner.rs`):** a Desk on a project already open is brought forward: by its folder, planning terminal or docked task; not a plain window; the key one, else the one used last; `new` always opens.
 
 ## 5. Rejected
 
+- **`kanna PATH --new`** for a second Desk on a project: a project has one Desk.
 - **A `kanna plan` command:** it only makes sense inside a planning terminal, not as a general command.
 - **Resuming the planner's conversation:** it'd need a session kept per window; the planner reads the Shelf and backlog when it starts, so a new conversation loses little.
 - **Telling it in launch instructions** (`claude --append-system-prompt`, `codex -c developer_instructions`): started without a message, an agent waits silently, and each agent needs its own flag.

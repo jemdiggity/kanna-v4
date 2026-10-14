@@ -39,8 +39,23 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 
 - **The first message stands alone.** The agent that gets it starts fresh in its own worktree and hasn't seen this conversation: say what to do, why, where (files, functions), and how to know it's done.
 - **It starts by itself.** Backlog tasks run unattended, a few at a time (`backlog.runners`, 3 by default), oldest first, so write a first message an agent can do in one go: settle the open decisions with the user before you make it, name the files and how to test it, and say what to do when stuck. When it needs the user, it asks and ends its turn: Kanna stops it there, and the user resumes it on the Shelf.
-- **Say what it waits for.** If it can't start until other tasks are done (it builds on their merged work), add `--after TASK,...` (IDs from `kanna task list`, yours too: your pane works). It's **blocked**: it can't start until those tasks are done, and the Shelf shows it so. It starts from main, so it gets their work only once they're merged and done.
+- **Say what it waits for.** If it can't start until other tasks are done (it builds on their merged work), add `--after TASK,...` (IDs from `kanna task list`, yours too: your pane works). It's **blocked**: it can't start until those tasks are done, and its backlog row shows it so. It starts from main, so it gets their work only once they're merged and done.
 - **Start or shelve one only when the user asks, or shelve when there's room.** `kanna task shelve` puts it on the Shelf if the project has fewer than three tasks out (the Desk's and the Shelf's); otherwise leave it in the backlog, unless the user asks, and then make room by deferring a Shelf task they're not using. `kanna task start` runs it in the backlog instead, with no limit.
+
+## Show it in a tab
+
+When the user asks you to show them something (a diff, a file, a doc, a page, a log), open it in a new tab of your own window, not in the chat:
+
+| To show | Run |
+|---|---|
+| A diff, or a command's output | `kanna open --tab --window W --name diff --cmd 'git -c color.ui=always diff main...HEAD \| less -R'` |
+| A markdown doc | `kanna open md FILE --tab --window W` |
+| A source file | `kanna open code FILE[:LINE] --tab --window W` |
+| A page | `kanna open web URL --tab --window W` |
+
+- **W is your window:** the one `kanna list` shows your pane (`$KANNA_PANE`) in. Without `--window` the tab opens in the front window, which may not be yours.
+- **A tab, not a split or a new window,** so your pane keeps its size.
+- In the chat, a line saying what the tab shows.
 
 ## Commands
 

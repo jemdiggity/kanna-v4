@@ -59,7 +59,7 @@ Write each question just before you ask it:
 - **Ask it with your multiple-choice tool** (Claude's AskUserQuestion: the question, choices as options with a short description; header `Quiz N/5`). An agent without one: a numbered list, and the user answers with a number.
 - Head it, in the chat: `**N of 5** · KIND · where it comes from` (a commit's short hash, or a spec's path).
 - **Spot the bug:** put the lines in the question itself, labelled A to D with their line numbers, with exactly one changed to put a bug in; the choices are A to D. Not only in the chat before it: the question tool can cover what you wrote.
-- **Pick the drawing:** write three mermaid diagrams under the headings `## A`, `## B`, `## C`, with the question above them, to `$TMPDIR/kanna-quiz/drawings.md`, and open it beside you: `kanna open md "$TMPDIR/kanna-quiz/drawings.md"`. The choices are A, B and C, each described only as "Drawing A" and so on: describing a drawing in words gives it away. Close it (`kanna close PANE`) when you move on.
+- **Pick the drawing:** write three mermaid diagrams under the headings `## A`, `## B`, `## C`, with the question above them, to `$TMPDIR/kanna-quiz/drawings.md`, and open it in a tab: `kanna open md "$TMPDIR/kanna-quiz/drawings.md" --tab`. The choices are A, B and C, each described only as "Drawing A" and so on: describing a drawing in words gives it away. Leave it open until the round ends, like the code you open.
 - **Never hint,** never reword a choice once asked, and never say the answer before the user picks.
 
 ### Answering
@@ -76,10 +76,10 @@ Write each question just before you ask it:
 - **On a miss,** open the code straight away, with the why on its lines:
 
   ```sh
-  kanna comment crates/kanna-daemon/src/agents.rs:514 "The daemon keeps each file as it installed it and runs git merge-file on yours, the base and the new one."
+  kanna comment crates/kanna-daemon/src/agents.rs:514 --tab "The daemon keeps each file as it installed it and runs git merge-file on yours, the base and the new one."
   ```
 
-  It splits beside you (`FILE:LINE` takes the whole scope at that line; `FILE:FIRST-LAST` takes just those lines). A comment on the same file reuses that pane; before one on another file, close the last code pane you opened (`kanna close PANE`; `kanna comment` printed its ID).
+  It opens in a tab of its own, so your pane stays whole (`FILE:LINE` takes the whole scope at that line; `FILE:FIRST-LAST` takes just those lines). A comment on the same file reuses that tab. Leave the panes you open there until the round ends: the user may still be reading one when you ask the next question.
 - **On a right answer,** offer to open the code; open it if asked.
 - **Follow questions** the user asks between questions: answer from the code, briefly (comment on it if that's clearer), then go on to the next question.
 

@@ -42,7 +42,7 @@ The keeper builds the argv (`command_argv` in `crates/kanna-keeper/src/pty.rs`) 
 - **bash says `logout`** when the command ends with the `exit` builtin, and prints job notices (`[1] 1234`) for `&`, as in a tab.
 - **bash waits at exit until its last output is read.** The daemon always reads, so this only shows while no daemon runs: the exit is reported once the next daemon takes the pane back.
 
-Checked by the keeper's unit and integration tests, e2e S63 (a test `ZDOTDIR` whose `.zshrc` alone puts a mock `codex` on `PATH`; a `--cmd` pane sees its variable and a `--agent codex` task starts), and S65 (a planning terminal finds codex the way your shell does).
+Checked by the keeper's unit and integration tests, e2e `login_shell` (a test `ZDOTDIR` whose `.zshrc` alone puts a mock `codex` on `PATH`; a `--cmd` pane sees its variable and a `--agent codex` task starts), and `real_agent_planners` (a planning terminal finds codex the way your shell does).
 
 ## 4. Glossary
 

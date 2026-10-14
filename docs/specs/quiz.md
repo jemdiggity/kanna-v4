@@ -59,7 +59,7 @@ sequenceDiagram
 ## 2. Rules
 
 - **The planning agent offers, the quiz agent asks.** The planning agent checks what's merged into main in the last day when its session starts, and offers a round once per session if anything has. It never asks the questions itself.
-- **The Quiz window** is a plain window, not a Desk, with an agent running in the repo's own folder on main, started with the skill. What it opens (`kanna open`, `kanna comment`, with no placement) splits beside it in that window, wherever you are. There's no task and no worktree, since a quiz changes nothing, and it takes no place on the Shelf. If a pane named `quiz` is already open, the planning agent brings it forward (`kanna focus quiz`) instead of opening another.
+- **The Quiz window** is laid out like a Desk: the quiz agent docked on the left, running in the repo's own folder on main, and what it opens (`kanna comment`, `kanna open md`) as tabs on the right, wherever you are. **The docked agent isn't a task,** like the [planning terminal](planning-agent.md#2-what-it-is): it's not on the Shelf or in `kanna task list`, takes none of the project's three places, and can't be parked, pulled or deferred. There's no worktree, since a quiz changes nothing. (Planned: today the agent is the window's only tab pane and what it opens splits beside it.) If a pane named `quiz` is already open, the planning agent brings it forward (`kanna focus quiz`) instead of opening another.
 - **Written when you start,** by the quiz agent, from what's on main: no background agent, nothing runs between quizzes. It asks the first question as soon as it's written, and writes each next one while you read the explanation.
 - **A round is five questions, one at a time,** about two minutes once started. The quiz agent asks each with its multiple-choice tool: Claude's question tool, or a numbered list for an agent without one.
 - **Every answer gets a short explanation** and an offer to open the code. **A miss opens it straight away:** `kanna comment FILE:LINE "why"`, so the code shows beside the agent with the explanation on its lines ([code tour](code-tour.md)). A comment on the same file reuses that pane; before one on another file, the agent closes the last.
@@ -137,7 +137,7 @@ flowchart LR
 - **A quiz pane** (its own pane type, with buttons): the quiz is a conversation, and the agent can answer your follow-up questions; a pane can't.
 - **An offer on the Desk page:** the planning agent offers it in its chat.
 - **A quiz task:** a quiz changes nothing, so it needs no worktree, branch or place on the Shelf.
-- **Docking the quiz agent:** a docked pane is a task in Kanna, counted against the project's three; the agent is the window's only tab pane instead, and what it opens splits beside it.
+- **The quiz agent as the window's only tab pane,** with what it opens split beside it (before): the code got squeezed into a split, and the window didn't look like the rest of Kanna. Docking it as the planning terminal is docked, outside the task rules, keeps it off the Shelf and out of the project's three.
 - **Stepping aside when a task needs you:** the Shelf already shows it; the quiz never interrupts.
 - **Preparing questions in the background after main moves:** it costs agent runs for quizzes you never take, and needs something watching every repo.
 - **A question writer in the daemon,** writing rounds ahead for `kanna quiz` to hand out: the quiz agent writes better questions from what it just read, and answers follow questions. `kanna quiz` only keeps rounds and answers, which the agent writes; it was rejected at first, when nothing read them back, and came back once misses had to return ([quiz results](database.md#quiz-results)).
@@ -147,6 +147,6 @@ flowchart LR
 | Term | Meaning |
 |---|---|
 | **Round** | Five questions, asked one at a time, ending with what you knew |
-| **Quiz window** | The plain window the planning agent opens: an agent on main, and the code it opens |
+| **Quiz window** | The window the planning agent opens: the quiz agent docked on the left, on main, and the code it opens as tabs |
 | **Quiz agent** | The agent in the Quiz window, running the `kanna-quiz` skill |
 | **Level** | How broad a question is: architecture, module, or a line's detail |

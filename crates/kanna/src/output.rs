@@ -184,7 +184,12 @@ pub fn task(request: &Value, reply: &Value) -> String {
             reply["branch"].as_str().map_or(String::new(), |b| format!(" ({b})"))
         ),
         Some("done") if reply.get("closed").is_none() => format!("took {} off the backlog{}", reply["task"]["id"].as_str().unwrap_or("?"), freed_lines(reply)),
-        Some("desk") => format!("opened {} on {}", reply["window"].as_str().unwrap_or("?"), tilde(reply["project"].as_str().unwrap_or("?"))),
+        Some("desk") => format!(
+            "{} {} on {}",
+            if reply["new"] == Value::Bool(false) { "brought forward" } else { "opened" },
+            reply["window"].as_str().unwrap_or("?"),
+            tilde(reply["project"].as_str().unwrap_or("?"))
+        ),
         Some("defer") => format!(
             "moved {} to the backlog as {}, {}: shelve it to bring it back",
             reply["pane"].as_str().unwrap_or("?"),

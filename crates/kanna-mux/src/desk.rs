@@ -85,8 +85,9 @@ impl Model {
             window.tabs[t].root = Some(Node::Pane(pane.into()));
             window.tabs[t].last_focus = Some(pane.into());
             window.focused = Some(pane.into());
-            self.key = Some(window.id.clone());
-            return Some(Some(window.id.clone()));
+            let key = window.id.clone();
+            self.set_key(Some(key.clone()));
+            return Some(Some(key));
         }
         let at = self.parked.iter().position(|p| p.dock.as_ref().is_some_and(|d| d.pane == from))?;
         self.counters.0 += 1;
@@ -140,7 +141,7 @@ impl Model {
             window.active = active;
             window.settle_focus();
             self.windows[w].settle_focus();
-            self.key = key;
+            self.set_key(key);
         }
     }
 
@@ -178,6 +179,21 @@ impl Model {
         Ok((task, Some(w)))
     }
 
+    fn desk_on(&self, project: &str, panes: &Panes) -> Option<usize> {
+        let root = crate::core::project(Some(project));
+        let on = |w: &Window| {
+            let mut folders = w.dock.iter().chain(w.planner.iter()).filter_map(|d| panes.get(&d.pane)?.cwd.as_deref());
+            let folder = folders.next().or(w.project.as_deref());
+            folder.is_some() && crate::core::project(folder) == root
+        };
+        let rank = |w: &Window| match self.used.iter().position(|u| *u == w.id) {
+            _ if self.key.as_ref() == Some(&w.id) => 0,
+            Some(at) => at + 1,
+            None => usize::MAX,
+        };
+        (0..self.windows.len()).filter(|&w| self.is_desk(w) && on(&self.windows[w])).min_by_key(|&w| rank(&self.windows[w]))
+    }
+
     fn desk_for(&mut self, window: Option<&str>) -> Result<usize, KmuxError> {
         if let Some(reference) = window.filter(|r| *r != "new") {
             let w = self.window_index(reference).ok_or_else(|| not_found(format!("no window \"{reference}\"")))?;
@@ -213,10 +229,10 @@ impl Model {
                 if args.get("close").and_then(Value::as_bool) == Some(true) {
                     self.windows.remove(w);
                     if self.key.as_deref() == Some(window.as_str()) {
-                        self.key = self.windows.last().map(|w| w.id.clone());
+                        self.set_key(self.windows.last().map(|w| w.id.clone()));
                     }
                 } else {
-                    self.key = Some(window.clone());
+                    self.set_key(Some(window.clone()));
                 }
                 match task {
                     Some(task) => Ok(reply([("moves", moves(&[(&task, "desk", "shelf", &window)])), ("task", task.into()), ("window", window.into()), ("parked", Value::Bool(true))])),
@@ -229,7 +245,7 @@ impl Model {
                 let (task, at) = self.task_window(reference, panes)?;
                 if let Some(w) = at {
                     let window = self.windows[w].id.clone();
-                    self.key = Some(window.clone());
+                    self.set_key(Some(window.clone()));
                     return Ok(reply([("task", task.into()), ("window", window.into()), ("moved", Value::Bool(false))]));
                 }
                 let w = self.desk_for(string("window"))?;
@@ -246,7 +262,7 @@ impl Model {
                 target.tab_count = target.tab_count.max(target.tabs.len());
                 target.desk = true;
                 target.settle_focus();
-                self.key = Some(window.clone());
+                self.set_key(Some(window.clone()));
                 let mut moved = swapped.iter().map(|p| (p.as_str(), "desk", "shelf", window.as_str())).collect::<Vec<_>>();
                 moved.push((&task, "shelf", "desk", &window));
                 Ok(reply([("moves", moves(&moved)), ("task", task.into()), ("window", window.into()), ("moved", Value::Bool(true))]))
@@ -276,13 +292,29 @@ impl Model {
                     None => None,
                     Some(_) => return Err(bad_request("desk needs a project: an absolute path to a folder")),
                 };
-                let w = self.make_window();
-                let window = &mut self.windows[w];
-                window.desk = true;
-                window.project = project.clone();
-                let id = window.id.clone();
-                self.key = Some(id.clone());
-                Ok(reply([("window", id.into()), ("project", project.map_or(Value::Null, Value::String))]))
+                let fresh = args.get("new").and_then(Value::as_bool) == Some(true);
+                let found = project.as_deref().filter(|_| !fresh).and_then(|p| self.desk_on(p, panes));
+                let w = match found {
+                    Some(w) => {
+                        if let Some(side) = self.windows[w].side_pane() {
+                            self.windows[w].focused = Some(side);
+                        }
+                        w
+                    }
+                    None => {
+                        let w = self.make_window();
+                        self.windows[w].desk = true;
+                        self.windows[w].project = project.clone();
+                        w
+                    }
+                };
+                let id = self.windows[w].id.clone();
+                let project = match found {
+                    Some(_) => project.as_deref().and_then(|p| crate::core::project(Some(p))).map(|root| root.to_string_lossy().into_owned()),
+                    None => project,
+                };
+                self.set_key(Some(id.clone()));
+                Ok(reply([("window", id.into()), ("project", project.map_or(Value::Null, Value::String)), ("new", Value::Bool(found.is_none()))]))
             }
             other => Err(bad_request(format!("unknown task action \"{other}\" (list, park, pull, hold, release or desk)"))),
         }
