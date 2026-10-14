@@ -159,8 +159,12 @@ public final class Core {
         if dock != nil, args["split"] != nil || args["size"] != nil || args["tab"]?.bool == true {
             throw KmuxError("bad_request", "a docked pane takes no split, size or tab")
         }
+        if let frozen = args["frozen"], frozen != .null, frozen.bool == nil { throw KmuxError("bad_request", "frozen must be true or false") }
+        let frozen = args["frozen"]?.bool ?? false
+        if frozen, dock == nil { throw KmuxError("bad_request", "only a docked pane is frozen") }
 
         let window = try targetWindow(args["window"])
+        if dock != nil { try refuseFrozen(window) }
         let pane = model.makePane(type: type, name: name)
         pane.command = args["cmd"]?.string
         pane.cwd = args["cwd"]?.string
@@ -170,7 +174,7 @@ public final class Core {
         pane.path = args["path"]?.string
         if (type == .web && args["history"] == true) || type == .md { pane.history = History() }
         if let dock {
-            model.dock(pane.id, in: window, edge: dock)
+            model.dock(pane.id, in: window, edge: dock, frozen: frozen)
         } else {
             place(pane.id, in: window, split: split, size: size, newTab: args["tab"]?.bool ?? false)
             window.activeTab?.lastFocus = pane.id
@@ -341,6 +345,14 @@ public final class Core {
     }
 
     static func docked(_ message: String) -> KmuxError { KmuxError("docked", "docked: \(message)") }
+
+    static func frozen(_ message: String) -> KmuxError { KmuxError("frozen", "frozen: \(message)") }
+
+    /// Nothing drops on a frozen docked pane: not a pane beside or in place of it, nor another docked pane.
+    func refuseFrozen(_ window: Window?) throws {
+        guard let window, let dock = window.dock, dock.frozen else { return }
+        throw Self.frozen("\(model.panes[dock.pane]?.label ?? dock.pane) is frozen in \(window.id)'s dock; nothing drops on it")
+    }
 
     func fraction(_ value: JSON) throws -> Double {
         guard let result = Fraction.parse(value) else { throw KmuxError("bad_request", "\"\(value)\" is not a fraction") }

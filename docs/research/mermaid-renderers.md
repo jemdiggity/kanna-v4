@@ -203,7 +203,7 @@ flowchart LR
 | C bridge | `crates/kmux-merman` | One call: source in, layout JSON out. Panics are caught there and returned as errors. |
 | Build | `scripts/build-merman.sh` | Builds the bridge with Rust 1.95 (`--locked`, merman pinned to `=0.8.0`) into `target/merman/KmuxMerman.xcframework`. `build-kmux.sh` runs it; it's a no-op when nothing changed. |
 | Text measurement | `KmuxDiagram/Text.swift` | merman's host measurer calls back into Core Text, so boxes are sized for the font kmux draws with. Drawing wraps and spaces lines with the same code. |
-| Drawing | `KmuxDiagram/Flowchart.swift`, `Sequence.swift`, `State.swift` | Shapes, edges and arrowheads, subgraphs, `classDef`/`style` colours; actors, messages, notes, frames (`alt`, `loop`, …), activations, autonumbers; states, start/end, composites. |
+| Drawing | `KmuxDiagram/Flowchart.swift`, `Sequence.swift`, `State.swift`, `Class.swift`, `GitGraph.swift` | Shapes, edges and arrowheads, subgraphs, `classDef`/`style` colours; actors, messages, notes, frames (`alt`, `loop`, …), activations, autonumbers; states, start/end, composites; classes with annotations, members and methods, namespaces, notes, relation ends and cardinalities; branches, commits of each type, merges, cherry-picks and tags, left to right or top to bottom. |
 | View | `KmuxDiagram/DiagramView.swift` | An `NSView` that sizes itself to the diagram × zoom and redraws as vectors. Unsupported types and errors show a message and the source. |
 | Checks | `kmux-diagram` tool, `KmuxDiagramTests`, `debug.diagram`, e2e §8b | Render the corpus to PNG; label, size and fit checks; the same path inside the app. |
 
@@ -211,25 +211,27 @@ flowchart LR
 
 | Measure | Result |
 |---------|--------|
-| Drawn | 40/40 flowchart, sequence and state diagrams (all 38 from our docs, plus 2 feature samples). The 10 other types report themselves as unsupported, as intended. |
+| Drawn | 40/40 flowchart, sequence and state diagrams (all 38 from our docs, plus 2 feature samples). The 10 other types report themselves as unsupported, as intended. Class diagrams and git graphs came later: 7/7 more samples, every label present except git's generated commit ids, which are random in both. |
 | Labels present | 100% in every diagram |
 | Size vs mermaid.js | within 25% in all 40 |
 | Labels shrunk to fit their box | 0 (every label fits at the size merman measured) |
 | Layout, warm | median 1.3 ms, p90 2.2 ms, max 4.1 ms |
 | Drawing, warm (2× bitmap, no encoding) | median 1.4 ms, p90 3.0 ms, max 3.9 ms |
-| Size added to kmux | 7.6 MB stripped (merman, its dependencies and the bridge) |
+| Size added to kmux | 7.6 MB stripped (merman, its dependencies and the bridge); 8.6 MB with class diagrams and git graphs |
 
 ![mermaid.js and kmux native, flowcharts](img/mermaid/native-flowcharts.png)
 
 ![mermaid.js and kmux native, state and sequence diagrams](img/mermaid/native-state-sequence.png)
 
+![mermaid.js and kmux native, class diagrams and a git graph](img/mermaid/native-class-git.png)
+
 ### 7.2 Differences and open problems
 
-- **Colours.** Mermaid 12's default theme gives each sequence actor and subgraph its own pastel colour. kmux draws them neutral (white, light grey), matching the rest of the page in light and dark. `classDef` and `style` colours are honoured.
+- **Colours.** Mermaid 12's default theme gives each sequence actor and subgraph its own pastel colour. kmux draws them neutral (white, light grey), matching the rest of the page in light and dark. `classDef` and `style` colours are honoured. Class diagrams and git graphs keep Mermaid's colours (one per class, one per branch), since they tell the classes and branches apart; in dark, class fills are darkened and branch colours lightened.
 - **Wrapping.** Core Text text is narrower than the browser's, so a few labels wrap differently (e.g. "term panes (Ghostty)" fits on one line natively). Diamonds sometimes wrap where mermaid doesn't.
 - **ELK.** merman's default flowchart look routes edges with ELK, the same as mermaid 12. Dropping ELK would save 1.3 MB (6.3 MB instead of 7.6 MB) but change how flowchart edges are routed, so we keep it.
 - **Bounds.** merman's layout bounds are computed before the host measurer widens boxes, so kmux sizes the scene from what it draws instead. Worth reporting upstream.
-- **Not yet.** Other diagram types (class, ER, Gantt, pie, …), clickable nodes (`click`), icons and images in nodes, markdown inside labels beyond bold/italic/code, and themes from `%%{init}%%`.
+- **Not yet.** Other diagram types (ER, Gantt, pie, …), clickable nodes (`click`), icons and images in nodes, markdown inside labels beyond bold/italic/code, and themes from `%%{init}%%`.
 
 ## 8. Recommendation
 

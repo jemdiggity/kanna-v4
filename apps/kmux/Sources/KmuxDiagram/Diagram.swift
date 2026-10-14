@@ -4,8 +4,8 @@ import KmuxMerman
 /// Mermaid diagrams laid out by merman (no web view, no JavaScript) and drawn
 /// natively by `DiagramView`.
 public enum Diagram {
-    /// Lays out `source` (flowchart, sequence or state diagrams; other types
-    /// come back `.unsupported`). Throws `DiagramError` for invalid source.
+    /// Lays out `source` (flowchart, sequence, state, class and git graph
+    /// diagrams; other types come back `.unsupported`). Throws `DiagramError` for invalid source.
     public static func layout(source: String) throws -> DiagramLayout {
         let log = MeasureLog()
         let json = try layoutJSON(source: source, log: log)
@@ -17,6 +17,8 @@ public enum Diagram {
         case "flowchart-v2", "flowchart": scene = Flowchart.scene(semantic: semantic, layout: layout["FlowchartV2"] as? [String: Any] ?? [:])
         case "sequence": scene = Sequence.scene(semantic: semantic, layout: layout["SequenceDiagram"] as? [String: Any] ?? [:])
         case "stateDiagram", "state": scene = State.scene(semantic: semantic, layout: layout["StateDiagramV2"] as? [String: Any] ?? [:])
+        case "classDiagram", "class": scene = Class.scene(semantic: semantic, layout: layout["ClassDiagramV2"] as? [String: Any] ?? [:])
+        case "gitGraph": scene = GitGraph.scene(semantic: semantic, layout: layout["GitGraphDiagram"] as? [String: Any] ?? [:])
         default: scene = nil
         }
         return DiagramLayout(type: type, scene: scene.map { scene in

@@ -16,9 +16,11 @@ extension Core {
         let pane = try needPane(args["pane"]?.string)
         guard let fromWindow = model.window(containing: pane.id) else { throw KmuxError("not_found", "no pane \"\(pane.id)\"") }
         let from = model.locate(pane.id)
+        if model.dockWindow(pane.id)?.dock?.frozen == true { throw Self.frozen("\(pane.label) is frozen in its dock and doesn't move") }
         if let edge = try Self.edge(args["dock"]) {
             if args["to"] != nil || args["tab"] != nil { throw KmuxError("bad_request", "move takes one of to + side, tab, window or dock") }
             let window = args["window"] != nil ? try targetWindow(args["window"]) : fromWindow
+            try refuseFrozen(window)
             if window.dock?.pane == pane.id {
                 window.dock?.edge = edge
             } else {
@@ -37,6 +39,7 @@ extension Core {
                 throw KmuxError("bad_request", "side must be left, right, top, bottom or swap")
             }
             if target.id == pane.id { return ["window": .string(fromWindow.id)] }
+            try refuseFrozen(model.dockWindow(target.id))
             if side != "swap", model.dockWindow(target.id) != nil {
                 throw Self.docked("\(target.label) is docked and holds one pane; drop on its middle to swap")
             }
