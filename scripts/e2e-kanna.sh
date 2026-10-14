@@ -1745,6 +1745,47 @@ code_tour() {
   check wait_for 5 eval '[[ "$(code $id comment_first)" == 40 && "$(code $id comment_text)" == "Each step." ]]' || return 1
 }
 
+scenario code_comment_box M4
+code_comment_box() {
+  start_daemon && start_app || return 1
+  local link="$KANNA_STATE_DIR/app_link.rs" backlog="$KANNA_STATE_DIR/backlog.rs" said id other
+  cp "$repo_root/crates/kanna-daemon/src/app_link.rs" "$link" && cp "$repo_root/crates/kanna-daemon/src/backlog.rs" "$backlog" || return 1
+  local long="The handshake: the app says hello with its version and instance, the daemon checks both against its own, and only then does it hand the link to the router; anything else closes the socket so a stale app from another build can never drive this daemon."
+  code() { raw "{\"id\":1,\"cmd\":\"debug.code\",\"args\":{\"pane\":\"$1\"${3:-}}}" | field "$2"; }
+  fits() {
+    raw "{\"id\":1,\"cmd\":\"debug.code\",\"args\":{\"pane\":\"$1\"}}" | python3 -c 'import json, sys
+d = json.load(sys.stdin)
+ok = d["comment_gap"] > 0 and d["comment_gap_top"] <= d["comment_box_top"] and d["comment_box_bottom"] <= d["comment_line_top"] and d["comment_line_top"] - d["comment_gap_top"] == d["comment_gap"]
+if not ok: print("box %s–%s, gap %s–%s" % (d["comment_box_top"], d["comment_box_bottom"], d["comment_gap_top"], d["comment_line_top"]), file=sys.stderr)
+sys.exit(0 if ok else 1)'
+  }
+  code_comment_box_shot() { raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"path\":\"$1.png\"}}" >/dev/null; cp "$KANNA_STATE_DIR/$1.png" "$out/$1.png" 2>/dev/null; }
+  id="$(kanna open code "$link" | awk '{print $2}')"
+  check wait_for 5 eval '(( $(code $id scopes) > 0 ))' || return 1
+  said="$(kanna comment "$link:196-205" "$long")" || return 1
+  [[ "$said" == "$id · app_link.rs:196–205" ]] || { echo "said: $said"; return 1; }
+  check wait_for 5 eval '[[ "$(code $id comment_first)" == 196 && "$(code $id scopes)" -gt 0 ]]' || return 1
+  sleep 0.5
+  check wait_for 5 eval 'fits $id' || { fits $id; return 1; }
+  check wait_for 5 eval '(( $(code $id pinned) > 0 ))' || { echo "pinned $(code $id pinned)"; return 1; }
+  code_comment_box_shot code_comment_box-open
+  raw "{\"id\":1,\"cmd\":\"debug.code\",\"args\":{\"pane\":\"$id\",\"reveal\":400}}" >/dev/null
+  raw "{\"id\":1,\"cmd\":\"debug.code\",\"args\":{\"pane\":\"$id\",\"pick\":198}}" >/dev/null
+  check wait_for 5 eval 'fits $id' || { fits $id; return 1; }
+  said="$(kanna comment "$backlog:473" "$long")" || return 1
+  [[ "$said" == "opened p"*" · backlog.rs:473" ]] || { echo "said: $said"; return 1; }
+  other="$(awk '{print $2}' <<<"$said")"
+  check wait_for 5 eval '[[ "$(code $other comment_first)" == 473 && "$(code $other scopes)" -gt 0 ]]' || return 1
+  sleep 0.5
+  check wait_for 5 eval 'fits $other' || { fits $other; return 1; }
+  check wait_for 5 eval '[[ "$(code $other comment_box_visible)" == 1 ]]' || return 1
+  code_comment_box_shot code_comment_box-new
+  raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
+  sleep 0.5
+  check wait_for 5 eval 'fits $other' || { fits $other; return 1; }
+  code_comment_box_shot code_comment_box-dark
+}
+
 scenario new_desk M4
 new_desk() {
   local repo="$KANNA_STATE_DIR/repo"
