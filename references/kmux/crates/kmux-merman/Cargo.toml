@@ -13,7 +13,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 # Pinned exactly; Cargo.lock records the checksums.
-merman = { version = "=0.8.0", default-features = false, features = ["svg", "layout-elk", "diagram-flowchart", "diagram-sequence", "diagram-state"] }
+merman = { version = "=0.8.0", default-features = false, features = ["svg", "layout-elk", "diagram-flowchart", "diagram-sequence", "diagram-state", "diagram-class", "diagram-git-graph"] }
 serde_json = "1"
 
 [profile.release]

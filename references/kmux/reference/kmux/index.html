@@ -64,7 +64,7 @@
   .drop-hint[hidden], .drag-tip[hidden] { display: none; }
 
   .win-body { flex: 1; display: flex; min-height: 0; min-width: 0; }
-  .win-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .win-side { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .win-body > .pane.docked { flex: none; }
   .dock-divider { flex: 0 0 4px; cursor: col-resize; background: var(--border); touch-action: none; }
   .dock-divider:hover, .dock-divider.dragging { background: var(--accent); }
@@ -602,6 +602,9 @@ async function splitFrom(p, dir, type) {
   if (type === 'web' && res.ok) { S.urlEdit = res.pane.id; render(); }
 }
 function editUrl(p) { if (p?.type === 'web') { S.urlEdit = p.id; render(); } }
+// ⌘R reloads a web pane's page in place. Nothing else has a restart on a key:
+// in a terminal it would end its program without asking (`kmux restart` does).
+function reloadPage(p) { if (p?.type === 'web') { log('info', `${p.name || p.id}: the page reloads`); render(); } }
 const focusedPane = () => S.panes[keyWin()?.focused];
 function paneMenu(p) {
   if (!p) return [
@@ -631,7 +634,7 @@ function paneMenu(p) {
     p.history ? ['Forward', () => ui({ cmd: 'navigate', args: { pane: p.id, forward: true } })] : null,
     [zoomed ? 'Unzoom' : 'Zoom', () => ui({ cmd: 'zoom', args: { pane: p.id } }), '⇧⌘↩'],
     ['Move to new window', () => ui({ cmd: 'move', args: { pane: p.id, window: 'new' } })],
-    ['Restart', () => ui({ cmd: 'restart', args: { pane: p.id } }), '⌘R'],
+    p.type === 'web' ? ['Reload', () => reloadPage(p), '⌘R'] : null,
     docked ? null : ['Close', () => ui({ cmd: 'close', args: { pane: p.id } }), '⌘W'],
   ].filter(Boolean);
 }
@@ -675,7 +678,7 @@ function renderPane(p, w) {
   const body = h('div', { class: 'pane-body' });
   if (p.state === 'failed') {
     body.append(h('div', { class: 'fail' }, h('b', {}, 'Failed to start'), h('pre', {}, p.error),
-      h('button', { onclick: () => ui({ cmd: 'restart', args: { pane: p.id } }) }, 'Restart')));
+      h('small', {}, `kmux restart ${p.name || p.id} to try again`)));
   } else body.append({ term: termView, web: webView, ios: iosView, md: mdView }[p.type](p));
   el.append(body, h('div', {
     class: 'pane-grip', title: `Drag to move ${p.name || p.id}`,
@@ -690,7 +693,7 @@ function termView(p) {
   if (p.state === 'starting') lines.append(h('div', { class: 'term-line' }, 'starting shell…'));
   wrap.append(lines);
   if (p.state === 'exited') {
-    wrap.append(h('div', { class: 'banner' }, `[process exited with code ${p.exitCode}] — ⌘R to restart, ⌘W to close`));
+    wrap.append(h('div', { class: 'banner' }, `[process exited with code ${p.exitCode}] — kmux restart ${p.name || p.id} to start it again, ⌘W to close`));
   } else if (p.state === 'running') {
     const input = h('input', { value: p.draft, dataset: { keep: 'term:' + p.id }, spellcheck: 'false' });
     input.addEventListener('input', () => { p.draft = input.value; });
@@ -1057,7 +1060,7 @@ document.addEventListener('keydown', e => {
     KeyT: newTab,
     KeyN: newWindow,
     KeyW: () => e.shiftKey ? keyWin() && ui({ cmd: 'close', args: { window: S.key } }) : p && !dockOf(p.id) && ui({ cmd: 'close', args: { pane: p.id } }),
-    KeyR: () => p && ui({ cmd: 'restart', args: { pane: p.id } }),
+    KeyR: () => reloadPage(p),
     KeyL: () => editUrl(p),
     Enter: () => e.shiftKey && p && ui({ cmd: 'zoom', args: { pane: p.id } }),
     BracketLeft: () => e.shiftKey ? cycleTab(-1) : cyclePane(-1),
@@ -1095,7 +1098,7 @@ function reset(withShell = true) {
   }
   render();
   log('info', 'kmux mockup ready. Type help, or press "Run demo".');
-  log('info', 'In kmux: menus in the menu bar, right-click a pane or tab. ⌘D / ⇧⌘D split · ⌘[ ⌘] panes · ⇧⌘[ ⇧⌘] tabs · ⌘` windows · ⌘T tab · ⌘N window · ⌘W close pane · ⇧⌘W close window · ⌘R restart · ⇧⌘↩ zoom · ⌘1…⌘9 show a tab · ⌘L open URL · ⌘= ⌘− ⌘0 magnify a markdown pane (or pinch). ⌥ works in place of ⌘.');
+  log('info', 'In kmux: menus in the menu bar, right-click a pane or tab. ⌘D / ⇧⌘D split · ⌘[ ⌘] panes · ⇧⌘[ ⇧⌘] tabs · ⌘` windows · ⌘T tab · ⌘N window · ⌘W close pane · ⇧⌘W close window · ⌘R reload a web page · ⇧⌘↩ zoom · ⌘1…⌘9 show a tab · ⌘L open URL · ⌘= ⌘− ⌘0 magnify a markdown pane (or pinch). ⌥ works in place of ⌘.');
   log('info', 'Drag a window by its title bar, resize from its corner. Drag tabs within or between windows, or onto the desktop. Drag a pane by the ⋯ handle at its top onto a pane edge, a pane centre (swap), a tab, + or the desktop.');
 }
 

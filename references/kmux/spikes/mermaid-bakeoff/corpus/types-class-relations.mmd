@@ -1,0 +1,10 @@
+classDiagram
+    class A["Label A"]
+    class B:::hot
+    classDef hot fill:#f96,stroke:#333
+    A --() Iface
+    A ..|> B
+    B "0..1" o-- "*" C
+    class C{
+      <<service>>
+    }

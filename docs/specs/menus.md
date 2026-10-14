@@ -31,7 +31,7 @@ Kanna's menus and shortcuts are kmux's ([its spec](../../references/kmux/docs/km
 
 ## 3. Reload, not Restart
 
-kmux's Pane menu has Restart ⌘R, which ends a pane's program and runs its command again. Kanna's has **Reload ⌘R** instead, for web panes only: it calls the page's own reload, so the pane stays on the page it's on.
+The Pane menu has **Reload ⌘R**, for web panes only: it calls the page's own reload, so the pane stays on the page it's on. It replaced Restart ⌘R, which ended a pane's program and ran its command again; Kanna decided this first, and kmux followed (its PR #1).
 
 ```mermaid
 flowchart LR

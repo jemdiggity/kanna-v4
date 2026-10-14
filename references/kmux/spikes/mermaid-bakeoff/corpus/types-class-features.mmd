@@ -1,0 +1,33 @@
+classDiagram
+    direction TB
+    namespace Shapes {
+        class Shape {
+            <<abstract>>
+            +String name
+            -int id$
+            #List~Point~ points
+            +area()* double
+            +move(int dx, int dy) void
+        }
+        class Circle {
+            +double radius
+        }
+    }
+    class Drawable {
+        <<interface>>
+        +draw(Canvas c)
+    }
+    class Canvas~T~ {
+        +add(T item)
+    }
+    Shape <|-- Circle : inherits
+    Drawable <|.. Shape
+    Canvas "1" *-- "many" Shape : contains
+    Canvas o-- Layer
+    Circle --> Point : center
+    Shape ..> Canvas : uses
+    Layer -- Group
+    Group .. Note2
+    Layer <--> Group2
+    note "A free note" 
+    note for Circle "Round"

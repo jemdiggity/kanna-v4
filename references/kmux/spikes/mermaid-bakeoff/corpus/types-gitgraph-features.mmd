@@ -1,0 +1,19 @@
+gitGraph
+    commit id: "init"
+    commit id: "base" tag: "v1.0"
+    branch develop
+    checkout develop
+    commit id: "feat1"
+    commit id: "rev" type: REVERSE
+    branch feature
+    checkout feature
+    commit id: "hl" type: HIGHLIGHT
+    commit
+    checkout main
+    commit id: "hotfix"
+    checkout develop
+    merge feature tag: "rc1"
+    checkout main
+    cherry-pick id: "feat1"
+    merge develop id: "release" tag: "v2.0" type: HIGHLIGHT
+    commit

@@ -1,0 +1,22 @@
+classDiagram
+    direction LR
+    class Animal {
+        +int age
+        +String gender
+        +isMammal() bool
+        +mate()
+    }
+    class Duck {
+        +String beakColor
+        +swim()
+        +quack()
+    }
+    class Fish {
+        -int sizeInFeet
+        -canEat()
+    }
+    Animal <|-- Duck
+    Animal <|-- Fish
+    Duck "1" --> "*" Egg : lays
+    class Egg
+    style Fish fill:#f9f,stroke:#333

@@ -146,13 +146,15 @@ final class AppController: NSObject, NSApplicationDelegate {
             }
             return ["zooms": .array(zooms), "render_ms": .array(renders)]
         }
-        core.extraCommands["debug.menu"] = { _ in
+        core.extraCommands["debug.menu"] = { [weak self] _ in
+            guard let self else { return [:] }
             let items = (NSApp.mainMenu?.items ?? []).flatMap { top in
                 (top.submenu?.items ?? []).filter { !$0.isSeparatorItem }.map { item -> JSON in
                     let mods = item.keyEquivalentModifierMask
                     let shortcut = (mods.contains(.control) ? "⌃" : "") + (mods.contains(.option) ? "⌥" : "") + (mods.contains(.shift) ? "⇧" : "")
                         + (mods.contains(.command) ? "⌘" : "") + item.keyEquivalent.replacingOccurrences(of: "\r", with: "↩")
-                    return ["menu": .string(top.submenu?.title ?? ""), "item": .string(item.title), "shortcut": .string(item.keyEquivalent.isEmpty ? "" : shortcut)]
+                    return ["menu": .string(top.submenu?.title ?? ""), "item": .string(item.title), "shortcut": .string(item.keyEquivalent.isEmpty ? "" : shortcut),
+                            "enabled": .bool(item.target === self ? validateMenuItem(item) : true)]
                 }
             }
             return ["items": .array(items)]
@@ -388,7 +390,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             return focusedPane.map { host.terminal($0) != nil || host.markdown($0) != nil } ?? false
         }
         if item.action == #selector(pressHome) { return focusedPane.flatMap { host.ios($0)?.screen } != nil }
-        if item.action == #selector(openURL) { return focusedPane.flatMap { host.web($0) } != nil }
+        if item.action == #selector(openURL) || item.action == #selector(reloadPane) { return focusedPane.flatMap { host.web($0) } != nil }
         if item.action == #selector(goBack) { return !(focusedPane.flatMap { core.model.panes[$0]?.history?.back.isEmpty } ?? true) }
         if item.action == #selector(goForward) { return !(focusedPane.flatMap { core.model.panes[$0]?.history?.forward.isEmpty } ?? true) }
         if item.action == #selector(closePane) { return focusedPane.map { core.model.dockWindow($0) == nil } ?? false }
@@ -446,9 +448,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         request(["cmd": "move-tab", "args": ["tab": .string(tab), "window": "new"]])
     }
 
-    @objc func restartPane() {
+    /// ⌘R: the focused web pane's page reloads in place.
+    @objc func reloadPane() {
         guard let pane = focusedPane else { return }
-        request(["cmd": "restart", "args": ["pane": .string(pane)]])
+        host.web(pane)?.webView.reload()
     }
 
     @objc func closePane() {
@@ -839,7 +842,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             ("Zoom", #selector(toggleZoom), "toggle_split_zoom", .shiftCmd("\r")),
             ("Move Pane to New Window", #selector(movePaneToNewWindow), nil, nil),
             nil,
-            ("Restart", #selector(restartPane), nil, .cmd("r")),
+            ("Reload", #selector(reloadPane), nil, .cmd("r")),
             ("Close Pane", #selector(closePane), "close_surface", .cmd("w")),
         ])
         let view = menu("View", [
