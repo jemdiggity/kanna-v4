@@ -1348,7 +1348,9 @@ mod tests {
         assert_eq!(schema["properties"]["version"]["const"], json!(CONFIG_VERSION));
         assert!(schema["$id"].as_str().unwrap().ends_with(&format!("/v{CONFIG_VERSION}.schema.json")));
         let keys: Vec<&String> = schema["properties"]["planning"]["properties"].as_object().unwrap().keys().collect();
-        assert_eq!(keys, ["context"], "a key in the schema the daemon doesn't read, or the other way round");
+        assert_eq!(keys, ["agent", "context"], "a key in the schema Kanna doesn't read, or the other way round");
+        let names: Vec<&str> = AGENTS.iter().map(|a| a.names[0]).collect();
+        assert_eq!(schema["properties"]["planning"]["properties"]["agent"]["enum"], json!(names), "planning.agent names the agents a planning terminal offers");
     }
 
     #[test]

@@ -18,6 +18,10 @@
       "description": "The planning terminal: the terminal docked beside the full Shelf while no task is on a Desk.",
       "type": "object",
       "properties": {
+        "agent": {
+          "description": "The agent a new Desk's planning terminal starts as the planning agent. Unset, it asks which (unless one agent is installed) and offers to write the answer to the repo's .kanna/config.json. Read by the planning terminal when it starts.",
+          "enum": ["claude", "codex", "copilot", "opencode", "agy"]
+        },
         "context": {
           "description": "Tokens a claude agent's context grows to in the planning terminal before it compacts (CLAUDE_CODE_AUTO_COMPACT_WINDOW), or \"auto\" for claude's own. Read when a planning terminal is made.",
           "default": 300000,
