@@ -124,11 +124,7 @@ pub fn task(request: &Value, reply: &Value) -> String {
             }
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
             let state = |t: &Value| match (t["running"].as_bool(), t["status"].as_str()) {
-                (Some(false), _) => match t["stopped"].as_str() {
-                    Some("needs-you") => "stopped: needs you".to_string(),
-                    Some(why) => format!("stopped: {why}"),
-                    None => "stopped".to_string(),
-                },
+                (Some(false), _) => "stopped".to_string(),
                 (_, Some("needs-you")) => "needs you".to_string(),
                 (_, Some(status)) if status != "exited" => status.to_string(),
                 _ => "running".to_string(),
@@ -557,17 +553,5 @@ mod blocked_tests {
         let done = task(&json!({ "action": "done", "task": "p40" }), &json!({ "closed": ["p40"], "freed": freed(&backlog, "p40") }));
         assert_eq!(done, "p40 is done: closed p40\nt13 \"Diff viewer\" can start now: nothing it waits for is left");
         assert_eq!(task(&json!({ "action": "edit" }), &json!({ "task": { "id": "t14", "waits": [] } })), "t14 waits for nothing: it can start");
-    }
-    #[test]
-    fn a_backlog_task_stopped_by_its_runner_says_why() {
-        let backlog = json!([
-            { "id": "t1", "name": "Asks", "repo": "/r", "running": false, "stopped": "needs-you", "waits": [] },
-            { "id": "t2", "name": "Done", "repo": "/r", "running": false, "stopped": "finished", "waits": [] },
-            { "id": "t3", "name": "Runs", "repo": "/r", "running": true, "status": "working", "waits": [] }
-        ]);
-        let text = task(&json!({ "action": "list" }), &json!({ "tasks": [], "backlog": backlog }));
-        assert!(text.contains("t1    Asks  Backlog  stopped: needs you"), "{text}");
-        assert!(text.contains("t2    Done  Backlog  stopped: finished"), "{text}");
-        assert!(text.contains("t3    Runs  Backlog  working"), "{text}");
     }
 }

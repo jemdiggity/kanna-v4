@@ -1,10 +1,10 @@
 # Backlog runners
 
-**Status:** built · **Tested:** e2e S68, `cargo test -p kanna-detect` (turn, quit files), `-p kanna-daemon` (settings) · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: the backlog runs tasks; backlog.runners cycles 3, 1, 0; or `#runs`) · **Builds on:** [tasks](tasks.md), [blocked tasks](task-dependencies.md), [agent status](agent-status.md), [which agents resume](tasks.md#which-agents-resume)
+**Status:** built · **Tested:** e2e S68, `cargo test -p kanna-detect` (turn, quit files), `-p kanna-daemon` (settings) · **Builds on:** [tasks](tasks.md), [blocked tasks](task-dependencies.md), [agent status](agent-status.md), [which agents resume](tasks.md#which-agents-resume)
 
-Backlog tasks start by themselves, a few at a time, and work until they're blocked or done, then stop. By the time you move one to the Shelf, it has already done something, and it resumes there.
+Backlog tasks start by themselves, a few at a time, and work until they're blocked or done, then stop. By the time you move one to the Shelf, it has already done what it could, and it resumes there.
 
-![Backlog tasks run three at a time, oldest first, and stop when their agent's turn ends: stopped: needs you, stopped: finished](task-runners.png)
+The backlog looks the same as before: rows show nothing about how far a task got, so you pick what to pull by what matters, not by progress. A task that's done when you pull it is a happy surprise.
 
 ## Contents
 
@@ -32,7 +32,7 @@ stateDiagram-v2
 - **Oldest first,** skipping a [blocked](task-dependencies.md) task until what it waits for is Done.
 - **Every backlog task runs.** A task that needs you (a mockup to discuss, a question) runs until it asks.
 - **A runner frees when a turn ends:** the agent's [status](agent-status.md) goes from working to needs you or idle and stays there 3s. Kanna quits the agent, keeps its session, and starts the next.
-- **Rows show only state:** running, stopped: needs you, stopped: finished (`kanna task list` too). The Shelf isn't re-sorted.
+- **Nothing shows it:** backlog rows and `kanna task list` look as they do for any backlog task, and the Shelf isn't re-sorted. Why a task stopped (needs you, finished) is kept in its events only (`backlog events`).
 - **Resume on the Shelf:** Move to Shelf (or `kanna task start`) resumes a stopped task's session where it stopped.
 
 ## 2. How it's built
@@ -50,7 +50,7 @@ stateDiagram-v2
 
 - **Stopping one:** Kanna closes the task's tabs, sends the keys, hangs up after 5s if it hasn't quit, reads the session from its screen, and saves the task stopped, with why (`stopped` and `why` in its events).
 - **The quit files are bundled only:** the rules site and your overrides can't change which keys Kanna types into an agent.
-- **Tested** by e2e S68 with the mock agent as codex: with runners 0 nothing runs; with 3, five tasks run three at a time in order, skipping a blocked one until its blocker is Done; one that asks stops as needs you, its session read from what it said as it quit; Move to Shelf resumes it there; moved back to the backlog idle, it stops as finished.
+- **Tested** by e2e S68 with the mock agent as codex: with runners 0 nothing runs; with 3, five tasks run three at a time in order, skipping a blocked one until its blocker is Done; one that asks stops as needs you (in its events), its session read from what it said as it quit; Move to Shelf resumes it there; moved back to the backlog idle, it stops as finished.
 
 ## 3. Open questions
 

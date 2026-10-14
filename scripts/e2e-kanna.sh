@@ -2364,12 +2364,12 @@ for t in tasks: print(t["id"], "running" if t.get("running") else "stopped:" + (
   sid="$(of t2 4)"
   [[ "$sid" =~ ^[0-9a-f-]{36}$ ]] && shows "$asks" "To continue this session, run: codex resume $sid" || { echo "S68: the session codex said as it quit wasn't recorded ($sid)"; backlog; kanna read "$asks"; return 1; }
   check is "$asks" state exited || { echo "S68: the stopped agent still runs"; return 1; }
-  in_repo task list | grep -qE '^t2 +Asks +Backlog +stopped: needs you ' || { in_repo task list; return 1; }
+  in_repo task list | grep -qE '^t2 +Asks +Backlog +stopped +made ' || { echo "S68: task list shows how far a backlog task got"; in_repo task list; return 1; }
+  raw '{"id":1,"cmd":"backlog","args":{"action":"events","task":"t2"}}' | grep -q '"why": *"needs-you"' || { echo "S68: why t2 stopped isn't in its events"; return 1; }
   local opened w; opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "S68 line $LINENO: $opened"; return 1; }
   w="${BASH_REMATCH[1]}"
   desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}" | field "$1"; }
-  check wait_for 10 eval '[[ "$(desk scroll.states.1.state)" == "stopped: needs you" && "$(desk scroll.states.0.state)" == "stopped: finished" && "$(desk scroll.states.2.state)" == None ]]' || { echo "S68: the rows don't say why"; desk scroll.states; return 1; }
-  sleep 0.5; snap "$w" s68-runners >/dev/null
+  check wait_for 10 eval '[[ "$(desk backlog)" == "[\"t1\", \"t2\", \"t3\", \"t4\", \"t5\", \"t6\"]" ]]' || { echo "S68: the rows aren't oldest first"; desk backlog; return 1; }
   in_repo task done t1 >/dev/null || { echo "S68 line $LINENO"; return 1; }
   check wait_for 10 eval '[[ "$(of t3 2)" != waiting ]]' || { echo "S68: the blocked task didn't run once it was free"; backlog; return 1; }
   [[ "$(kanna task shelve t2)" == "moved t2 to the Shelf: "* ]] || { echo "S68: the stopped task didn't move to the Shelf"; return 1; }

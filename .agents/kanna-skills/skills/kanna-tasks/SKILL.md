@@ -49,7 +49,7 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 | `kanna task name [TASK] NAME` | Rename a task (only when the user asks) |
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD] [--after TASK,...]` | Add a task to this repo's backlog; `--after`: it can't start until those tasks are done |
 | `kanna task edit TASK --after TASK,...\|none` | Change what a backlog task waits for (only when the user asks to unblock it) |
-| `kanna task list [QUERY]` | Every task: ID, name, where (a Desk, the Shelf, the backlog), state (working, idle, needs you, stopped, stopped: needs you, stopped: finished, or blocked, with what it waits for), repo; QUERY keeps those whose name or first message has every word |
+| `kanna task list [QUERY]` | Every task: ID, name, where (a Desk, the Shelf, the backlog), state (working, idle, needs you, stopped, or blocked, with what it waits for), repo; QUERY keeps those whose name or first message has every word |
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, branch and agent with the first message, and stays in the backlog; a stopped task resumes its conversation |
 | `kanna task stop [TASK]` | End a task's agent and tabs, leaving it where it is (only when the user asks) |
 | `kanna task shelve TASK` | Move a backlog task to the Shelf, starting it if it's stopped (three per project) |
