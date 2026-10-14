@@ -6,6 +6,7 @@ import termios
 import threading
 import time
 import tty
+import uuid
 
 VERSION = "mock-agent 1.0.0"
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -35,6 +36,8 @@ def work(seconds):
 
 
 CHOICES = ["Yes", "No"]
+PROGRAM = os.path.basename(sys.argv[0])
+QUESTION = "Would you like to run the following command?" if PROGRAM == "codex" else "Do you want to proceed?"
 
 
 def draw(choice):
@@ -43,7 +46,7 @@ def draw(choice):
 
 
 def ask():
-    out("\r\nDo you want to proceed?\r\n")
+    out(f"\r\n{QUESTION}\r\n")
     choice = 0
     draw(choice)
     fd = sys.stdin.fileno()
@@ -83,36 +86,69 @@ def ask():
         termios.tcsetattr(fd, termios.TCSANOW, saved)
 
 
+def session(args):
+    if "resume" in args[:-1]:
+        return args[args.index("resume") + 1], True
+    return str(uuid.uuid4()), False
+
+
+def first(args):
+    told = [a for a in args if "Your task: " in a]
+    return told[-1].split("Your task: ", 1)[1] if told else None
+
+
+def bye(id):
+    out(f"\r\nTo continue this session, run: {PROGRAM} resume {id}\r\n")
+
+
 def main():
     if "--version" in sys.argv[1:]:
         print(VERSION)
         return 0
+    id, resumed = session(sys.argv[1:])
     out("\x1b]0;mock-agent\x07mock-agent: type turn, work N, ask or exit\r\n")
     if sys.argv[1:]:
         out("args: " + " ".join(sys.argv[1:]) + "\r\n")
-    composer()
-    for line in sys.stdin:
-        words = line.split()
-        out("\x1b[J\r\n")
-        if words[:1] == ["exit"]:
-            return 0
-        if words[:1] == ["work"]:
-            work(float(words[1]) if len(words) > 1 else 2)
-            out("WORK_DONE\r\n")
-        elif words[:1] in (["turn"], ["ask"]):
-            if words[:1] == ["turn"]:
-                work(2)
-            choice = ask()
-            out("\x1b[2J\x1b[H")
-            if choice == 0:
-                work(1)
-                out("TURN_DONE\r\n")
-            else:
-                out("Declined.\r\n")
-        else:
-            out(f"echo: {line.strip()}\r\n")
-        composer()
+    out(f"{'resumed' if resumed else 'session'} {id}\r\n")
+    try:
+        talk(None if resumed else first(sys.argv[1:]))
+    except KeyboardInterrupt:
+        pass
+    bye(id)
     return 0
+
+
+def talk(task):
+    composer()
+    if task and not answer(task):
+        return
+    for line in sys.stdin:
+        if not answer(line):
+            return
+
+
+def answer(line):
+    words = line.split()
+    out("\x1b[J\r\n")
+    if words[:1] == ["exit"]:
+        return False
+    if words[:1] == ["work"]:
+        work(float(words[1]) if len(words) > 1 else 2)
+        out("WORK_DONE\r\n")
+    elif words[:1] in (["turn"], ["ask"]):
+        if words[:1] == ["turn"]:
+            work(2)
+        choice = ask()
+        out("\x1b[2J\x1b[H")
+        if choice == 0:
+            work(1)
+            out("TURN_DONE\r\n")
+        else:
+            out("Declined.\r\n")
+    else:
+        out(f"echo: {line.strip()}\r\n")
+    composer()
+    return True
 
 
 if __name__ == "__main__":

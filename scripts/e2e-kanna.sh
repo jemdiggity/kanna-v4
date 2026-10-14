@@ -25,7 +25,8 @@ Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app (or $
 real_agent_tasks and real_agent_planners run the real claude and codex (on PATH,
 or $KANNA_E2E_CLAUDE / $KANNA_E2E_CODEX) against tools/agent-harness's mock
 model, each in a HOME of its own. A planning terminal
-offers no agent (KANNA_PLANNING_AGENTS=none) unless a scenario gives it some.
+offers no agent (KANNA_PLANNING_AGENTS=none) unless a scenario gives it some. Backlog tasks
+don't run by themselves (backlog.runners is 0) unless a scenario's repo sets it.
 USAGE
 }
 
@@ -62,6 +63,7 @@ new_state_dir() {
   [[ -n "$KANNA_STATE_DIR" && -d "$KANNA_STATE_DIR" ]] || { echo "e2e-kanna: mktemp gave no folder" >&2; exit 1; }
   export KANNA_STATE_DIR KANNA_SOCKET="$KANNA_STATE_DIR/kanna.sock"
   mkdir -p "$KANNA_AGENTS_HOME/.kanna-v4" && echo '{"version": 2, "setup": false}' >"$KANNA_AGENTS_HOME/.kanna-v4/agents.json"
+  echo '{"version": 1, "backlog": {"runners": 0}}' >"$KANNA_AGENTS_HOME/.kanna-v4/config.json"
 }
 new_state_dir
 export KANNA_IGNORE_OCCLUSION=1
@@ -2406,6 +2408,69 @@ blocked_tasks() {
   expected="t4 waits for nothing: it can start"; says in_repo task edit t4 --after none || { echo "blocked_tasks line $LINENO"; return 1; }
   in_repo task start t4 >/dev/null || { echo "blocked_tasks: a task with its blockers taken off didn't start"; return 1; }
   [[ "$(in_repo task edit t4 --after t2 2>&1)" == *"t4 has started"* ]] || { echo "blocked_tasks: a started task's blockers changed"; return 1; }
+}
+
+scenario backlog_runners M4
+backlog_runners() {
+  start_daemon && start_app || { echo "backlog_runners line $LINENO"; return 1; }
+  local repo="$KANNA_STATE_DIR/repo" fake="$KANNA_STATE_DIR/agents"
+  mkdir -p "$repo/.kanna" "$fake" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "backlog_runners line $LINENO"; return 1; }
+  ln -s "$repo_root/tools/mock-agent/mock-agent" "$fake/codex"
+  repo="$(cd "$repo" && pwd -P)"
+  in_repo() { (cd "$repo" && kanna "$@"); }
+  runners() { printf '{"version": 1, "backlog": {"runners": %s}}\n' "$1" >"$repo/.kanna/config.json"; }
+  backlog() { raw '{"id":1,"cmd":"backlog","args":{"action":"list"}}' | python3 -c 'import json, sys
+tasks = json.load(sys.stdin)["tasks"]
+for t in tasks: print(t["id"], "running" if t.get("running") else "stopped:" + (t.get("stopped") or "-") if t.get("folder") else "waiting", t.get("held") or "-", t.get("session") or "-")'; }
+  running() { backlog | awk '$2 == "running" { print $1 }' | xargs; }
+  of() { backlog | awk -v id="$1" '$1 == id { print $'"$2"' }'; }
+  runners 0
+  in_repo task new "Work one" "work 3" --agent "$fake/codex" >/dev/null && in_repo task new "Asks" "turn" --agent "$fake/codex" >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }
+  in_repo task new "Blocked" "work 1" --agent "$fake/codex" --after t1 >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }
+  for name in Four Five Six; do in_repo task new "Work $name" "work 3" --agent "$fake/codex" >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }; done
+  sleep 4
+  check test -z "$(running)" || { echo "backlog_runners: backlog.runners 0 ran a task"; backlog; return 1; }
+  check test ! -e "$repo/.kanna-worktrees" || { echo "backlog_runners: backlog.runners 0 made a worktree"; return 1; }
+  runners 3
+  check wait_for 10 eval '[[ "$(running)" == "t1 t2 t4" ]]' || { echo "backlog_runners: three didn't start in order, skipping the blocked one"; backlog; return 1; }
+  local seen="" most=0 now t
+  for _ in $(seq 400); do
+    now="$(running)"
+    (( $(wc -w <<<"$now") > most )) && most=$(wc -w <<<"$now")
+    for t in $now; do [[ " $seen " == *" $t "* ]] || seen="$seen $t"; done
+    [[ "$(of t6 2)" == stopped:* && "$(of t5 2)" == stopped:* ]] && break
+    sleep 0.1
+  done
+  check test "$most" -le 3 || { echo "backlog_runners: $most ran at once"; return 1; }
+  check test "${seen# }" == "t1 t2 t4 t5 t6" || { echo "backlog_runners: they started as $seen"; backlog; return 1; }
+  check test "$(of t1 2)" == stopped:finished || { backlog; return 1; }
+  check test "$(of t2 2)" == stopped:needs-you || { echo "backlog_runners: the task that asked didn't stop as needs you"; backlog; return 1; }
+  check test "$(of t6 2)" == stopped:finished || { backlog; return 1; }
+  check test "$(of t3 2)" == waiting || { echo "backlog_runners: the blocked task ran"; backlog; return 1; }
+  local asks sid; asks="$(of t2 3)" sid="$(of t1 4)"
+  [[ "$sid" =~ ^[0-9a-f-]{36}$ && "$(kanna read "$(of t1 3)")" == *$'\n'"session $sid"$'\n'* ]] || { echo "backlog_runners: t1's session isn't the one it started ($sid)"; kanna read "$(of t1 3)"; return 1; }
+  sid="$(of t2 4)"
+  [[ "$sid" =~ ^[0-9a-f-]{36}$ ]] && shows "$asks" "To continue this session, run: codex resume $sid" || { echo "backlog_runners: the session codex said as it quit wasn't recorded ($sid)"; backlog; kanna read "$asks"; return 1; }
+  check is "$asks" state exited || { echo "backlog_runners: the stopped agent still runs"; return 1; }
+  in_repo task list | grep -qE '^t2 +Asks +Backlog +stopped +made ' || { echo "backlog_runners: task list shows how far a backlog task got"; in_repo task list; return 1; }
+  raw '{"id":1,"cmd":"backlog","args":{"action":"events","task":"t2"}}' | grep -q '"why": *"needs-you"' || { echo "backlog_runners: why t2 stopped isn't in its events"; return 1; }
+  local opened w; opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "backlog_runners line $LINENO: $opened"; return 1; }
+  w="${BASH_REMATCH[1]}"
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}" | field "$1"; }
+  check wait_for 10 eval '[[ "$(desk backlog)" == "[\"t1\", \"t2\", \"t3\", \"t4\", \"t5\", \"t6\"]" ]]' || { echo "backlog_runners: the rows aren't oldest first"; desk backlog; return 1; }
+  in_repo task done t1 >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(of t3 2)" != waiting ]]' || { echo "backlog_runners: the blocked task didn't run once it was free"; backlog; return 1; }
+  [[ "$(kanna task shelve t2)" == "moved t2 to the Shelf: "* ]] || { echo "backlog_runners: the stopped task didn't move to the Shelf"; return 1; }
+  check wait_for 10 shows "$asks" "resumed $sid" || { echo "backlog_runners: the stopped task didn't resume its session on the Shelf"; kanna read "$asks"; return 1; }
+  shows "$asks" "args: --yolo --no-daemon resume $sid" || { kanna read "$asks"; return 1; }
+  sleep 6
+  check is "$asks" state running || { echo "backlog_runners: a task on the Shelf was stopped"; return 1; }
+  [[ "$(kanna task defer "$asks")" == *"to the backlog as t2"* ]] || { echo "backlog_runners: the resumed task didn't move back to the backlog"; return 1; }
+  check wait_for 15 eval '[[ "$(of t2 2)" == stopped:finished ]]' || { echo "backlog_runners: a task moved to the backlog idle didn't stop"; backlog; return 1; }
+  runners 0
+  in_repo task new "Seven" "work 1" --agent "$fake/codex" >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }
+  sleep 4
+  check test "$(of t7 2)" == waiting || { echo "backlog_runners: backlog.runners 0 ran a task"; backlog; return 1; }
 }
 
 for s in ${only[@]+"${only[@]}"}; do due "$s" >/dev/null || { echo "e2e-kanna: no scenario named $s (see --help)" >&2; exit 2; }; done
