@@ -12,11 +12,13 @@ What happens when a Desk window opens with nothing in it: where it opens, and ho
 
 ![Quit it and you're in your shell, with how to start it again](planner-quit.png)
 
-![File → New Desk opens in ~: it asks for a folder or a new project's name](desk-new.png)
+![File → New Desk opens in ~: it asks for a folder, a repo to clone, or a new project's name](desk-new.png)
+
+![A repo is cloned into ~/.kanna-v4/repos and the Desk moves there](desk-new-clone.png)
 
 ![A name makes the project in ~/.kanna-v4/repos; the terminal and Shelf move there, and the agent starts it with you](desk-new-project.png)
 
-**Done when** a new Desk in `~` asks where, and moves to the folder or makes the named project; a new Desk on a repo asks which agent, starts the agent you pick, and that agent uses the kanna-planning skill, with Claude and with Codex; and a new Desk on a project whose planner is set starts it without asking.
+**Done when** a new Desk in `~` asks where, and moves to the folder, clones the repo or makes the named project; a new Desk on a repo asks which agent, starts the agent you pick, and that agent uses the kanna-planning skill, with Claude and with Codex; and a new Desk on a project whose planner is set starts it without asking.
 
 ## Contents
 
@@ -42,7 +44,7 @@ What happens when a Desk window opens with nothing in it: where it opens, and ho
 ```mermaid
 flowchart LR
     S["agent setup<br/>(asks once per launch)"] --> W{"in ~?"}
-    W -->|"yes"| J["folder or project?<br/>cd there (a name: make it<br/>in ~/.kanna-v4/repos)"] --> P
+    W -->|"yes"| J["folder, repo or name?<br/>cd there (a repo: clone it,<br/>a name: make it, in ~/.kanna-v4/repos)"] --> P
     W -->|"no"| P{"planning.agent set,<br/>or one agent installed?"}
     P -->|"yes"| A["the agent, first message:<br/>You are the Kanna planning agent."]
     P -->|"no"| Q["which agent plans?"] --> O["make it the project's?<br/>(in a git repo)"] --> A
@@ -51,7 +53,16 @@ flowchart LR
 
 - **It runs Kanna's planner script once:** when the Desk opens, or when its terminal is restarted (`kanna restart`). Each run starts a new conversation.
 - **Agent setup first:** `kanna agents setup --ask` and `update --ask` ([agent setup](agent-setup.md#3-asking)).
-- **In `~`, it asks where first:** `Folder or project:`. A folder (it has a `/` or starts with `~` or `.`) must exist, and it moves there. A name (letters, digits, `.`, `-`, `_`) is a project in `~/.kanna-v4/repos/NAME`: made, empty, if it's new, opened if not. Either way the terminal moves before the agent starts, the header and Shelf follow, and the agent and the shell you're left in are there. Anywhere else (`kanna PATH`, a shell's folder), it doesn't ask.
+- **In `~`, it asks where first:** `Folder, repo or name:`, read in this order:
+  | You type | It |
+  |---|---|
+  | a git URL (`https://…`, `git@…`, `ssh://…`) | clones it into `~/.kanna-v4/repos/NAME` (the repo's name), or opens that clone if it's there |
+  | an existing folder (`~/work/kmux`, `../app`) | moves there |
+  | `owner/repo` that isn't a folder | clones it from GitHub with `gh repo clone`, as above; without `gh`, it says to give the URL |
+  | a name (letters, digits, `.`, `-`, `_`) | makes `~/.kanna-v4/repos/NAME`, empty, or opens it if it's there |
+
+  A clone that fails, a missing folder or a `NAME` in `repos` that's another repo is said, and it asks again. Then the terminal moves, the header and Shelf follow, and the agent and the shell you're left in are there. Anywhere else (`kanna PATH`, a shell's folder), it doesn't ask.
+- **A clone is a project like any other:** its own `.kanna/config.json` may already set `planning.agent`, and then nothing is asked. It clones with your git and `gh`, so their credentials apply.
 - **A new project isn't a repo yet:** Kanna makes only the folder. The planning agent sees an empty folder and, with the kanna-new-project skill, decides with you what it is, then runs `git init` and a first commit when you agree ([tasks](tasks.md#1-what-a-task-is)).
 - **The agents to choose from** are the agents Kanna knows that your shell finds, in the `AGENTS` table's order; Return takes the first.
 - **No question** when the folder's `planning.agent` is set ([settings](settings.md)) or only one agent is installed. With none, it says so and you're in your shell.
@@ -70,7 +81,7 @@ flowchart LR
 
 ## 4. Tests
 
-- **Unit (`backlog.rs`):** the planning terminal's command for each agent; `planner.sh` run with stand-in agents: asks where only in `~`, moves to a folder, makes and moves to a named project under a stand-in `~/.kanna-v4/repos`, refuses a missing folder, asks which agent with two, not with one or with `planning.agent` set, writes the setting on yes and keeps the file's other keys, says so with none.
+- **Unit (`backlog.rs`):** the planning terminal's command for each agent; `planner.sh` run with stand-in agents: asks where only in `~`, moves to a folder, clones a URL (a local bare repo) and `owner/repo` (a stand-in `gh`), makes a named project, all under a stand-in `~/.kanna-v4/repos`, refuses a missing folder, asks which agent with two, not with one or with `planning.agent` set, writes the setting on yes and keeps the file's other keys, says so with none.
 - **e2e (`scripts/e2e-kanna.sh`):** a new Desk asks, yes makes the agent the project's, and the next new Desk starts it straight away; claude and codex against the mock model (`tools/agent-harness`) each receive `You are the Kanna planning agent.` as their first message.
 
 ## 5. Rejected
