@@ -28,7 +28,8 @@ For how parts fit together (object hierarchies, class or layer stacks, who calls
 kanna comment .kanna/tmp/backlog.md:3 "The daemon owns the backlog; the app only shows it."
 ```
 
-- **A diagram, not prose:** a mermaid `classDiagram` for a hierarchy, a `sequenceDiagram` for a flow, a layer diagram for a stack (the `layer-diagrams` skill), a table for a set of parallel things. A heading and the diagram; at most a line of text under it.
+- **A diagram, not prose:** a mermaid `flowchart` for a hierarchy or who calls whom, a `sequenceDiagram` for a flow, a `stateDiagram-v2` for states, a layer diagram for a stack (the `layer-diagrams` skill), a table for a set of parallel things. A heading and the diagram; at most a line of text under it.
+- **Only those diagram types draw in Kanna.** Any other (`classDiagram`, `gitGraph`, `erDiagram`, …) shows as "Unsupported diagram type" and its source.
 - **Big picture first,** then the code it points to.
 
 ## Not code: a doc in a tab
