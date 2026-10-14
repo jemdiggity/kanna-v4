@@ -271,9 +271,9 @@ fn run() -> Result<(), String> {
             break;
         }
         app.expire(Instant::now());
-        let deadline = [core.poll(), app.next_deadline()].into_iter().flatten().min();
         terminals.save_if_changed();
         backlog.sweep();
+        let deadline = [core.poll(), app.next_deadline(), backlog.tick()].into_iter().flatten().min();
         let event = match deadline {
             Some(at) => inbox.recv_timeout(at.saturating_duration_since(Instant::now())),
             None => inbox.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -332,6 +332,7 @@ fn run() -> Result<(), String> {
                 if terminals.current(&pane, serial) {
                     core.with_pane_mut(&pane, |p| p.status = status.map(String::from));
                     app.status(&pane, status);
+                    backlog.status(&pane, status);
                 }
             }
             Event::RulesUpdated { token, report } => status_commands.updated(token, report),
