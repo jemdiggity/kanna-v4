@@ -630,7 +630,6 @@ impl CoreHandle {
             let pane = s.panes.make(kind, name);
             let field = |key: &str| string(args, key).map(String::from);
             pane.command = field("cmd");
-            pane.hands_over = planner;
             pane.cwd = cwd.clone();
             pane.opened_in = cwd;
             pane.url = string(args, "url").map(normalize_url);

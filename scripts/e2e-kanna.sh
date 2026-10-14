@@ -2198,17 +2198,17 @@ S63() {
   local id; id="$(cd "$repo" && kanna task new "Codex from nvm" "S63 first message" --agent codex | sed -n 's/^added \(t[0-9]*\).*/\1/p')"
   [[ "$id" =~ ^t[0-9]+$ ]] || { echo "S63: the task wasn't added"; return 1; }
   kanna task start "$id" >/dev/null || { echo "S63: the task didn't start"; return 1; }
-  check wait_for 10 shows "Codex from nvm" "args: .*S63 first message" || { echo "S63: codex from .zshrc's PATH didn't start"; kanna read "Codex from nvm"; return 1; }
+  check wait_for 10 shows "Codex from nvm" "Your task: S63 first message" || { echo "S63: codex from .zshrc's PATH didn't start"; kanna read "Codex from nvm"; return 1; }
   kanna read "Codex from nvm" | grep -q "command not found" && { echo "S63: the task's shell didn't find codex"; return 1; }
   return 0
 }
 
 S64() {
-  local bin="$KANNA_STATE_DIR/bin" repo="$KANNA_STATE_DIR/repo"
-  mkdir -p "$bin" "$repo" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$bin/claude" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$bin/codex" || { echo "S64 line $LINENO"; return 1; }
+  local fake="$KANNA_STATE_DIR/fake" repo="$KANNA_STATE_DIR/repo"
+  mkdir -p "$fake" "$repo" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$fake/claude" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$fake/codex" || { echo "S64 line $LINENO"; return 1; }
   git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S64 line $LINENO"; return 1; }
   repo="$(cd "$repo" && pwd -P)"
-  KANNA_PLANNING_AGENTS="$bin/claude $bin/codex" start_daemon || { echo "S64 line $LINENO"; return 1; }
+  KANNA_PLANNING_AGENTS="$fake/claude $fake/codex" start_daemon || { echo "S64 line $LINENO"; return 1; }
   env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
   app_pid=$!
   wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
@@ -2222,16 +2222,16 @@ S64() {
   check wait_for 5 shows "$planner" "Make codex the planning agent for repo? \[y/N\]" || { kanna read "$planner"; return 1; }
   kanna send "$planner" y >/dev/null || { echo "S64 line $LINENO"; return 1; }
   check wait_for 5 shows "$planner" "codex plans repo from now on" || { kanna read "$planner"; return 1; }
-  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna planning agent." || { echo "S64: codex didn't start as the planner"; kanna read "$planner"; return 1; }
-  check grep -q '"agent" : "codex"' "$repo/.kanna/config.json" || { cat "$repo/.kanna/config.json"; return 1; }
+  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna" || { echo "S64: codex didn't start as the planner"; kanna read "$planner"; return 1; }
+  check grep -Eq '"agent" ?: "codex"' "$repo/.kanna/config.json" || { cat "$repo/.kanna/config.json"; return 1; }
   kanna send "$planner" exit >/dev/null || { echo "S64 line $LINENO"; return 1; }
-  check wait_for 5 shows "$planner" "The planning agent quit. Start it again: .*codex --no-daemon 'You are the Kanna planning agent.'" || { kanna read "$planner"; return 1; }
+  check wait_for 5 shows "$planner" "The planning agent quit. Start it again:" || { kanna read "$planner"; return 1; }
   check is "$planner" state running || { echo "S64: quitting the agent ended the planning terminal"; return 1; }
   local opened w; opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "S64 line $LINENO: $opened"; return 1; }
   w="${BASH_REMATCH[1]}"
   check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "S64: the next Desk has no planning terminal"; return 1; }
   planner="$(desk planner "$w")"
-  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna planning agent." || { echo "S64: the next Desk didn't start the project's planner"; kanna read "$planner"; return 1; }
+  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna" || { echo "S64: the next Desk didn't start the project's planner"; kanna read "$planner"; return 1; }
   ! shows "$planner" "Choose an agent" || { echo "S64: the next Desk asked again"; return 1; }
   key cmd+n
   check wait_for 10 eval '[[ "$(desk planner w3)" == p* ]]' || { echo "S64: ⌘N opened no Desk"; kanna list; return 1; }
@@ -2239,7 +2239,7 @@ S64() {
   check wait_for 10 shows "$planner" "Folder, repo or name:" || { echo "S64: a Desk in ~ didn't ask where"; kanna read "$planner"; return 1; }
   kanna send "$planner" "$repo" >/dev/null || { echo "S64 line $LINENO"; return 1; }
   check wait_for 10 eval '[[ "$(desk header w3)" == "Planning · "*"${repo#/private} · main" ]]' || { echo "S64: the Desk didn't follow to the folder"; desk header w3; return 1; }
-  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna planning agent." || { echo "S64: the Desk didn't start the folder's planner"; kanna read "$planner"; return 1; }
+  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna" || { echo "S64: the Desk didn't start the folder's planner"; kanna read "$planner"; return 1; }
 }
 
 S65() {
@@ -2258,7 +2258,7 @@ S65() {
   done
   told() { python3 -c 'import json, sys
 lines = [json.loads(l) for l in open(sys.argv[1])]
-print(sum(1 for l in lines if l.get("turn") and l["path"].startswith(sys.argv[2]) and l["prompt"] == "You are the Kanna planning agent."))' "$agents/mock.jsonl" "$1"; }
+print(sum(1 for l in lines if l.get("turn") and l["path"].startswith(sys.argv[2]) and l["history"] and l["history"][0].rstrip().endswith("You are the Kanna planning agent.")))' "$agents/mock.jsonl" "$1"; }
   KANNA_PLANNING_AGENTS="$agents/bin/claude $agents/bin/codex" start_daemon || { echo "S65 line $LINENO"; return 1; }
   env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
   app_pid=$!

@@ -37,7 +37,6 @@ pub struct Record {
     pub id: String,
     pub name: Option<String>,
     pub cmd: Option<String>,
-    pub hands_over: bool,
     pub cwd: Option<String>,
     pub state: PaneState,
     pub exit_code: Option<i64>,
@@ -58,7 +57,6 @@ impl Record {
             "name": opt(self.name.as_deref()),
             "type": "term",
             "cmd": opt(self.cmd.as_deref()),
-            "handsOver": self.hands_over,
             "cwd": opt(self.cwd.as_deref()),
             "state": self.state.as_str(),
             "exitCode": self.exit_code.map_or(Value::Null, |c| num(c as f64)),
@@ -78,7 +76,6 @@ impl Record {
             id,
             name: text("name").filter(|n| !n.is_empty()),
             cmd: text("cmd"),
-            hands_over: value.get("handsOver") == Some(&Value::Bool(true)),
             cwd: text("cwd"),
             state: string(value, "state").and_then(PaneState::parse)?,
             exit_code: value.get("exitCode").and_then(Value::as_f64).map(|c| c as i64),
@@ -348,7 +345,6 @@ mod tests {
             id: id.into(),
             name: name.map(String::from),
             cmd: Some("top".into()),
-            hands_over: false,
             cwd: Some("/tmp".into()),
             state: PaneState::Running,
             exit_code: None,
@@ -362,7 +358,7 @@ mod tests {
         let dir = folder("records");
         let store = Store::open(&dir).unwrap();
         let mut exited = record("p3", None);
-        (exited.state, exited.exit_code, exited.hands_over) = (PaneState::Exited, Some(3), true);
+        (exited.state, exited.exit_code) = (PaneState::Exited, Some(3));
         let saved = Saved { counter: 7, records: vec![record("p1", Some("logs")), exited] };
         store.save(&saved).unwrap();
         assert_eq!(store.load(), saved);
