@@ -62,6 +62,13 @@ swift test --package-path apps/kanna --scratch-path target/kanna-build   # the S
 scripts/e2e-kanna.sh              # private instances on their own sockets; never touches yours
 ```
 
+Change kmux there and push it upstream as a kmux PR, then pull when it merges ([kmux subtree](docs/specs/kmux-subtree.md)):
+
+```sh
+git subtree push --prefix=references/kmux --rejoin --squash https://github.com/tampopogk/kmux.git BRANCH
+git subtree pull --prefix=references/kmux https://github.com/tampopogk/kmux.git main --squash
+```
+
 ## Skills
 
 The agent skills this project uses (`.claude/skills`, `.agents/skills`) are links into `.agents/kanna-skills`, a git subtree of [jemdiggity/kanna-skills](https://github.com/jemdiggity/kanna-skills). Change them here or there, and sync:
