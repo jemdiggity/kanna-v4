@@ -624,6 +624,7 @@ name = "kanna-keeper"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "kanna-build",
  "libc",
  "serde_json",
 ]
