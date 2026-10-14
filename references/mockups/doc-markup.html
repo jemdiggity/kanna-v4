@@ -83,16 +83,45 @@ mark.flash { animation: flash .9s; }
 .card .reply { display: flex; gap: 6px; margin-top: 6px; }
 .card .reply input { flex: 1; min-width: 0; background: #1b1c21; border: 1px solid var(--line); border-radius: 5px; color: var(--text); padding: 3px 6px; font: 12px var(--sans); }
 .card .reply button { padding: 2px 7px; }
+.typing { display: inline-flex; gap: 4px; align-items: center; margin: 4px 0 6px 12px; padding: 7px 10px; border-radius: 12px 12px 12px 4px; background: #2e3038; }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: #d18ae6; display: block; animation: blink 1.2s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes blink { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+.waiting { margin: 4px 0 6px 12px; font-size: 11.5px; color: var(--dim); }
+.waiting.needs { color: var(--warn); }
+.mini { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; }
+.mini i { width: 3px; height: 3px; border-radius: 50%; background: #d18ae6; display: block; animation: blink 1.2s infinite ease-in-out; }
+.mini i:nth-child(2) { animation-delay: .15s; } .mini i:nth-child(3) { animation-delay: .3s; }
+.mini.quiet i { background: var(--dim); animation: none; opacity: .8; }
+body.still .typing i, body.still .mini i, body.still .pdot i { animation: none; opacity: .75; transform: none; }
+.pagestrip { margin-top: 16px; display: flex; gap: 28px; align-items: flex-start; color: var(--dim); font-size: 11.5px; }
+body.picture .pagestrip { display: none; }
+.pagestrip .pg { position: relative; background: #f6f6f8; color: #222; border-radius: 6px; padding: 18px 16px 14px; width: 230px; font-size: 12px; }
+.pagestrip .pg .btn { display: inline-block; border: 1px solid #c9cbd1; border-radius: 5px; padding: 3px 10px; background: #fff; }
+.pagestrip .pg .thing { position: relative; display: inline-block; }
+.pdot { position: absolute; top: -8px; left: -8px; width: 16px; height: 16px; border-radius: 8px; background: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.25); display: flex; gap: 1.5px; align-items: center; justify-content: center; }
+.pdot i { width: 3px; height: 3px; border-radius: 50%; background: #fff; display: block; animation: blink 1.2s infinite ease-in-out; }
+.pdot i:nth-child(2) { animation-delay: .15s; } .pdot i:nth-child(3) { animation-delay: .3s; }
+.pdot.quiet i { animation: none; opacity: .7; }
+.pagestrip .cap { margin-top: 6px; }
+.seg { display: inline-flex; gap: 0; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 5px 0 0 5px; } .seg button:last-child { border-radius: 0 5px 5px 0; }
+.seg button.on { background: var(--accent); border-color: var(--accent); }
+.term .w { color: var(--warn); }
 </style>
 </head>
 <body>
 <main>
   <div class="intro">
     <h1>Doc markup: comment on a markdown file, and the agent beside it answers</h1>
+    <p>A thread waiting on the agent shows three dots where the reply will land while the agent is working, then the reply replaces them; if the agent stops without answering, a quiet line says so instead. The thread's row and its dot on a page carry small dots too. Try the agent states above the window.</p>
     <p>The markdown pane is a preview. Select text and press ⌘↵, or ⌘-click a word, to comment. Posting types the comment into the agent that opened the doc, then Enter, the same for every agent.</p>
     <div class="controls">
+      <span class="seg" id="agentState"><button data-a="working">Agent working</button><button data-a="busy">Busy with something else</button><button data-a="idle">Idle, no reply</button><button data-a="needs">Needs you</button><button data-a="none">No agent</button></span>
+      <button id="agentReply">Agent replies to c2</button>
+      <button id="motion">Reduce Motion: off</button>
       <button id="agentComment">Agent comments with kanna comment</button>
-            <button id="agentReply">Agent replies and resolves c2</button>
       <button id="toggle">Hide / show threads</button>
       <button id="reset">Reset</button>
     </div>
@@ -117,10 +146,14 @@ mark.flash { animation: flash .9s; }
       </div>
     </div>
   </div>
+  <div class="pagestrip">
+    <div><div class="pg"><span class="thing"><span class="btn">Park</span><span class="pdot" id="pdot"><i></i><i></i><i></i></span></span> &nbsp; <span class="thing"><span class="btn">Reset</span><span class="pdot" style="background:#8b8f98"></span></span></div><div class="cap">On a page: a waiting thread's dot holds the dots (Park); a replied one is plain.</div></div>
+  </div>
 </main>
 <script>
 const initial = () => ({
   showThreads: true,
+  agent: "working",
   active: "c2",
   composer: null,
   threads: [
@@ -185,15 +218,40 @@ function render() {
   renderThreads();
   renderTerm();
   const w = document.getElementById("watch");
-  w.textContent = "Agent: p1 claude";
+  w.textContent = s.agent === "none" ? "No agent: comments are saved, not sent" : "Agent: p1 claude";
+  w.style.color = s.agent === "none" ? "var(--warn)" : "";
+  w.style.borderColor = s.agent === "none" ? "var(--warn)" : "";
+  document.querySelectorAll("#agentState button").forEach(b => b.classList.toggle("on", b.dataset.a === s.agent));
+  const pd = document.getElementById("pdot");
+  const waitingNow = s.threads.some(t => t.status === "sent" && t.state === "open");
+  pd.style.background = waitingNow ? "" : "#8b8f98";
+  pd.classList.toggle("quiet", !working());
+  pd.style.display = "";
+  pd.querySelectorAll("i").forEach(i => i.style.display = waitingNow && s.agent !== "none" ? "" : "none");
+  document.getElementById("motion").textContent = `Reduce Motion: ${document.body.classList.contains("still") ? "on" : "off"}`;
   document.getElementById("threads").classList.toggle("hidden", !s.showThreads);
   document.getElementById("threadsBtn").classList.toggle("on", s.showThreads);
   document.getElementById("threadsBtn").textContent = `Threads ${s.threads.filter(t => t.state === "open").length}`;
 }
 
 function chip(t) {
-  const label = { sent: "sent to p1", replied: "agent replied", agent: "from p1" }[t.status];
+  if (t.status === "sent") return waiting(t);
+  const label = { replied: "agent replied", agent: "from p1" }[t.status];
   return `<span class="state ${t.status}">${label}</span>`;
+}
+
+function working() { return s.agent === "working" || s.agent === "busy"; }
+
+function waiting(t) {
+  if (working()) return `<div class="typing" title="p1 is working"><i></i><i></i><i></i></div>`;
+  if (s.agent === "needs") return `<div class="waiting needs">Not answered · p1 needs you</div>`;
+  if (s.agent === "none") return `<div class="waiting">Not sent · no agent</div>`;
+  return `<div class="waiting">Not answered · p1 is idle</div>`;
+}
+
+function marker(t) {
+  if (t.status !== "sent" || s.agent === "none") return "";
+  return `<span class="mini${working() ? "" : " quiet"}"><i></i><i></i><i></i></span>`;
 }
 
 function renderThreads() {
@@ -203,7 +261,7 @@ function renderThreads() {
   s.threads.filter(t => t.state === "open").forEach(t => {
     const card = document.createElement("div");
     card.className = "card" + (t.id === s.active ? " on" : "");
-    card.innerHTML = `<div class="head"><span>${t.id} · line ${t.line}</span><span class="res">Resolve</span></div>
+    card.innerHTML = `<div class="head"><span>${t.id} · line ${t.line}${marker(t)}</span><span class="res">Resolve</span></div>
       <div class="quote">${t.quote}</div>
       ${t.messages.map(m => `<div class="msg"><b class="${m.who}">${m.who}</b> ${m.text}</div>`).join("")}
       ${chip(t)}
@@ -233,9 +291,10 @@ function renderTerm() {
     lines.push(...pasted(t), ``);
     if (t.status === "replied") lines.push(`<span class="a">●</span> Updated docs/specs/tab-container.md`, `  kanna doc reply ${t.id} "${t.messages[t.messages.length - 1].text}"`, ...(t.state === "resolved" ? [`  kanna doc resolve ${t.id}`] : []), ``);
   });
-  const working = s.threads.some(t => t.status === "sent");
+  if (s.agent === "busy") lines.push(`<span class="a">●</span> Running the e2e suite for the tab strip…`, ``);
+  if (s.agent === "needs") lines.push(`<span class="w">Do you want to run cargo test?</span>`, `  <span class="p">❯</span> 1. Yes`, `    2. No`, ``);
   lines.push(`<div class="box"><span class="p">&gt;</span> <span class="g">Try "fix the open questions"</span></div>`);
-  lines.push(`<span class="g">${working ? "✻ Working…" : "? for shortcuts"}</span>`);
+  lines.push(`<span class="g">${working() ? "✻ Working…" : "? for shortcuts"}</span>`);
   document.getElementById("term").innerHTML = lines.join("\n");
 }
 
@@ -284,11 +343,14 @@ document.getElementById("doc").addEventListener("mousedown", e => { if (!e.targe
 document.getElementById("agentReply").onclick = () => {
   const t = s.threads.find(t => t.id === "c2");
   if (!t || t.state !== "open") return;
+  if (t.status !== "sent") return;
   t.status = "replied";
   t.messages.push({ who: "agent", text: "Added: ⌃Tab scrolls the next tab into view." });
+  if (!s.threads.some(o => o.status === "sent")) s.agent = "idle";
   render();
-  setTimeout(() => { t.state = "resolved"; render(); }, 1400);
 };
+document.querySelectorAll("#agentState button").forEach(b => b.onclick = () => { s.agent = b.dataset.a; render(); });
+document.getElementById("motion").onclick = () => { document.body.classList.toggle("still"); render(); };
 document.getElementById("agentComment").onclick = () => {
   if (s.threads.some(t => t.id === "c3")) return;
   s.threads.push({ id: "c3", line: 9, quote: "Today a window tab holds a tree of splits, and every leaf is a pane. A container is a new kind of leaf: it holds a list of panes and shows the active one.", state: "open", status: "agent", messages: [
@@ -301,6 +363,8 @@ document.getElementById("agentComment").onclick = () => {
 document.getElementById("toggle").onclick = () => { s.showThreads = !s.showThreads; render(); };
 document.getElementById("reset").onclick = () => { s = initial(); render(); };
 if (location.hash.startsWith("#picture")) document.body.classList.add("picture");
+for (const a of ["working", "busy", "idle", "needs", "none"]) if (location.hash.includes("," + a)) s.agent = a;
+if (location.hash.includes(",still")) document.body.classList.add("still");
 render();
 if (location.hash.includes("agent")) document.getElementById("agentComment").click();
 </script>
