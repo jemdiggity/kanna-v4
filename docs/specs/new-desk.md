@@ -4,7 +4,7 @@
 
 What happens when a Desk window opens with nothing in it: where it opens, and how its planning terminal gets you to a planning agent.
 
-![A new Desk: its planning terminal asks which agent plans](task-start.png)
+![A new Desk: its planning terminal asks which agent plans and makes tasks](task-start.png)
 
 ![Then it offers to make that agent the project's](planner-save.png)
 

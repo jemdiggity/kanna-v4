@@ -390,7 +390,7 @@ function plannerChoose(t) {
   const set = s.config[t.repo], got = s.installed;
   if (!got.length) { t.log.push(out(`No agent Kanna knows is installed (${KNOWN.join(", ")}).`), out(`Install one, then start it here.`)); return; }
   if (set || got.length === 1) return plannerRun(t, set || got[0], true);
-  t.log.push(`Which agent plans with you?`, ``, ...got.map((a, i) => `  ${i + 1}  ${a}`), ``);
+  t.log.push(`Choose an agent for planning and task creation?`, ``, ...got.map((a, i) => `  ${i + 1}  ${a}`), ``);
   t.ask = "choose";
 }
 function plannerRun(t, agent, greet) {
@@ -868,7 +868,7 @@ if (location.hash.includes("empty")) {
   s.windows[0].desk = null;
   planners();
   const p = s.windows[0].planner; p.log = []; p.ask = null; p.repo = "~/work/kanna-v4";
-  p.log.push("Which agent plans with you?", "", "  1  claude", "  2  codex", "", "Choose [1]: 2", "Make codex the planning agent for kanna-v4? [y/N] y", out("codex plans kanna-v4 from now on (planning.agent in .kanna/config.json)."), "");
+  p.log.push("Choose an agent for planning and task creation?", "", "  1  claude", "  2  codex", "", "Choose [1]: 2", "Make codex the planning agent for kanna-v4? [y/N] y", out("codex plans kanna-v4 from now on (planning.agent in .kanna/config.json)."), "");
   p.chosen = "codex"; s.config[p.repo] = "codex"; plannerRun(p, "codex", true);
 }
 if (location.hash.includes("fresh")) fresh();
