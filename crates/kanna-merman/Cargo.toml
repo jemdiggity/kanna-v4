@@ -8,5 +8,5 @@ license = "MIT"
 description = "Mermaid layout for Kanna.app's diagram view, behind one C call. From kmux's kmux-merman (MIT). Linked into the app by kanna-ffi."
 
 [dependencies]
-merman = { version = "=0.8.0", default-features = false, features = ["svg", "layout-elk", "diagram-flowchart", "diagram-sequence", "diagram-state"] }
+merman = { version = "=0.8.0", default-features = false, features = ["svg", "layout-elk", "diagram-flowchart", "diagram-sequence", "diagram-state", "diagram-class", "diagram-git-graph"] }
 serde_json = "1"
