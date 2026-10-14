@@ -1,12 +1,12 @@
 # Planning terminal
 
-**Status:** built; Kanna starting the planning agent (`planner.sh`) is planned ([2](#2-what-it-is)) · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Park, or Simulate: no tasks) · **Builds on:** [Desk](desk.md), [tasks](tasks.md), [docked pane](docked-pane.md) · **Tests:** `scripts/e2e-kanna.sh` S45, S46
+**Status:** built; Kanna starting the planning agent is planned ([planner script](planner-script.md)) · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Park, or Simulate: no tasks, first launch) · **Builds on:** [Desk](desk.md), [tasks](tasks.md), [docked pane](docked-pane.md) · **Tests:** `scripts/e2e-kanna.sh` S45, S46
 
 Each Desk window has a **planning terminal**: while no task is on the Desk, it's docked on the left and the full Shelf fills the right. Kanna starts the window's **planning agent** in it ([tasks](tasks.md#2-how-tasks-are-made)), the agent you choose, telling it it's the planner; the settings it gets are in [settings](settings.md).
 
 ![A new Desk: the planning terminal asks which agent plans](task-start.png)
 
-![The planning terminal beside the full Shelf, an agent running in it](desk-empty.png)
+![The planning agent greets you beside the full Shelf](desk-empty.png)
 
 ## Contents
 
@@ -38,33 +38,8 @@ stateDiagram-v2
 
 ## 2. What it is
 
-- **A new Desk's planning terminal runs Kanna's planner script** (`planner.sh`, in the app), once: agent setup, which agent plans, the agent, then your shell.
-
-  ```mermaid
-  flowchart LR
-      S["kanna agents setup --ask<br/>kanna agents update --ask"] --> P{"planning.agent set,<br/>or one agent installed?"}
-      P -->|"yes"| A["the agent:<br/>'You are the Kanna planning agent.'"]
-      P -->|"no"| Q["which agent plans?<br/>make it the project's?"] --> A
-      A -->|"you quit it"| SH["your shell"]
-  ```
-
-- **It asks which agent plans,** from the agents Kanna knows ([which agents resume](tasks.md#which-agents-resume)) that are installed, and offers to make your choice the project's:
-
-  ```
-  Which agent plans with you?
-
-    1  claude
-    2  codex
-
-  Choose [1]: 2
-  Make codex the planning agent for kanna-v4? [y/N] y
-  codex plans kanna-v4 from now on (planning.agent in .kanna/config.json).
-  ```
-
-  It doesn't ask with one agent installed, or when `planning.agent` is set in your settings or the repo's ([settings](settings.md)). Yes writes `planning.agent` to the repo's `.kanna/config.json`, which is part of the repo, so it's the project's planner for everyone; it's offered only in a git repo. With no agent installed it says so, and you're in your shell.
-- **Its first message tells it it's the planner:** `You are the Kanna planning agent.` The kanna-planning skill does the rest, so the agent answers straight away with what's running and waiting.
-- **It has Kanna's environment** (`KANNA_PANE`, `KANNA_SOCKET`) and the [settings](settings.md) for its agent; Codex runs with `--no-daemon` so its commands see them ([tasks](tasks.md#7-how-its-built)).
-- **Quit it and you're in your shell,** in the same folder. The planner is yours from then on: start an agent there yourself (telling it it's the planner if you want one), and Kanna tells it nothing. The script runs again only when the terminal's command does: a new Desk, or the terminal restarted (`kanna restart`), which starts a new conversation.
+- **Kanna starts the planning agent** with its [planner script](planner-script.md): it asks which agent plans (or uses the project's), starts it with `You are the Kanna planning agent.` as its first message, and leaves you in your shell when you quit it.
+- **It has Kanna's environment** (`KANNA_PANE`, `KANNA_SOCKET`) and the [settings](settings.md) for its agent.
 - **One per window.** A Desk window gets its own the first time it shows no task, and keeps it while tasks come and go. Every window is an independent Desk; there's no shared or cross-window planning terminal. Closing the window ends it.
 - **Not a task.** It isn't on the Shelf, the strip or in `kanna task list`, doesn't take one of the repo's three running slots, can't be parked, pulled, moved or docked elsewhere, and has no Park button. Its header says **Planning**, the terminal's folder and branch.
 - **In the window's folder, the repo's main checkout,** not a worktree.
@@ -85,19 +60,13 @@ stateDiagram-v2
 - **The layout keeps it as the window's `planner`**: a pane beside the window's dock (with its width), shown on the left only while the dock is empty, saved with the window. Parking and pulling move the dock and tabs and leave it in place. `move` refuses it (`planner`).
 - **The layout keeps the Shelf free of tabs:** placing a pane in a Desk with no task puts it in a new window instead, and tidying moves any tabs left on one to a window of their own (or makes a Desk with no planning terminal a plain window).
 - **The app asks for one** (`backlog` `plan`) when a Desk shows no task and has none, passing the window's folder; it follows the terminal's folder as it reports it, as for a task's agent.
-- **The daemon builds the terminal's command:** the [settings](settings.md) (`planning.context` as an `export`), then `planner.sh` with the `kanna` beside the daemon, the folder's `planning.agent` if set, and each agent Kanna knows with the command that starts it, from the `AGENTS` table in `backlog.rs` with the planner's first message, as you'd start it yourself: no session (a planner isn't resumed) and no skipping permission prompts, then your login shell, with Kanna's zsh integration put back for it. It opens it with the `planner` placement, outside the task limit.
-- **`planner.sh` (in `Contents/Resources`)** runs agent setup, keeps the agents it's given whose program your shell finds (`command -v`), asks, writes the project's `planning.agent` with `plutil` (it keeps the rest of the file), and runs the chosen command. It knows no agent itself: the table stays the daemon's.
+- **The daemon builds the terminal's command:** the [settings](settings.md), the [planner script](planner-script.md#2-how-its-built), then your login shell, with Kanna's zsh integration put back for it. It opens it with the `planner` placement, outside the task limit.
 - **`task desk`** makes a Desk with a folder (`kanna PATH`, Kanna started in one, or `~` for File → New Desk) or with none (started from Finder).
 
 ## 6. Rejected
 
 - **Detecting the planner from its folder** (the main checkout of a repo with `.kanna-worktrees/`) **or with a hook:** an agent you start yourself in Codex's shared server never sees Kanna's environment, and a folder can't tell the planner from any agent started in the main checkout. Kanna starting the agent tells it for certain.
-- **Telling it in its launch instructions** (`claude --append-system-prompt`, `codex -c developer_instructions`): an agent started with instructions and no message waits silently for you, and each agent needs its own flag. A first message works for every agent and gets an answer.
-- **Saving the agent you chose as your setting** without asking: you choose per Desk, and save it for a project only when you say so.
-- **A `kanna plan` command** to start or resume the planner: it only makes sense inside a Kanna planning terminal, not as a general command. Quit, the planner is yours to start.
-- **Resuming the planner's conversation:** it'd need its session kept per window; the planner re-reads the Shelf and backlog when it starts, so a new conversation loses little.
 - **Marking the planning terminal with an environment variable** (`KANNA_PLANNER`): the agent is told in its first message, and the daemon knows which pane is a window's planner.
-- **Printing getting-started text** (before): the agent itself says what's running and waiting.
 
 - **One Shelf window for every repo, with one planning terminal:** each window stays an independent Desk, so a planning terminal belongs to its window and its folder.
 - **Guessing a folder** (the latest parked or backlog task's repo) when Kanna starts with none: there's no project concept yet; the folder is where Kanna was started, else your home folder, and you `cd`.
