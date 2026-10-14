@@ -1,6 +1,6 @@
 # Agent Setup
 
-**Status:** built · **Part of:** [tasks](tasks.md)
+**Status:** built; telling agents at launch instead of a hook is planned ([2](#2-how-an-agent-knows-its-in-kanna)) · **Part of:** [tasks](tasks.md)
 
 Kanna's skills teach an agent how to work in Kanna: name its branch, add tasks to the backlog, plan, answer review comments. They live in this repo (`.agents/kanna-skills`), so today only agents working on Kanna itself have them. **Agent setup** puts them where Claude and Codex find them in any repo, once you agree.
 
@@ -22,29 +22,28 @@ flowchart LR
     APP["Kanna.app/Contents/Resources/kanna-skills"] -->|"you agree; again for each new Kanna"| D["daemon"]
     D -->|"copy"| A["~/.agents/skills/kanna-*<br/>(Codex)"]
     D -->|"link"| C["~/.claude/skills/kanna-*<br/>(Claude)"]
-    D -->|"add the hook and Kanna's socket"| S["~/.claude/settings.json<br/>hooks.SessionStart<br/>sandbox.network.allowUnixSockets"]
-    D -->|"add the hook"| X["~/.codex/hooks.json<br/>hooks.SessionStart"]
+    D -->|"add Kanna's socket"| S["~/.claude/settings.json<br/>sandbox.network.allowUnixSockets"]
     D -->|"copy of each file as installed"| R["~/.kanna-v4/agents/"]
 ```
 
 - **The skills:** `kanna-tasks`, `kanna-planning`, `kanna-new-project`, `kanna-markup`, `kanna-explain`, `kanna-quiz`, copied to `~/.agents/skills/` and linked from `~/.claude/skills/` (`../../.agents/skills/NAME`), the layout `install.sh --global` uses.
 - **The socket entry** lets an agent in Claude's sandbox run `kanna`. That lets it control Kanna's terminals, which run outside the sandbox, as the kmux socket entry in a repo's own settings did; the prompt says so. The rest of `settings.json` stays as it was, keys in their order and its permissions kept. A `settings.json` Kanna had to make is deleted again by remove.
-- **The hook** is a `SessionStart` hook in `~/.claude/settings.json` and `~/.codex/hooks.json` (Codex has hooks on by default since 0.162). Its command ends `# kanna agents setup`, so Kanna finds its own and leaves yours.
-- **Nothing else.** No environment variables, no flags on the agent's command line.
+- **No hooks.** Kanna tells the agents it starts that they're in Kanna as it starts them ([2](#2-how-an-agent-knows-its-in-kanna)). Setup removes the `SessionStart` hooks earlier Kannas added to `~/.claude/settings.json` and `~/.codex/hooks.json` (their command ends `# kanna agents setup`), and leaves yours.
+- **Nothing else.**
 
-## 2. How an agent knows to use a skill
+## 2. How an agent knows it's in Kanna
 
-An agent picks a skill by its description, from what's in its context: its folder, the platform, git status, not its environment. So it can't tell it's in Kanna by itself. The hook tells it: it runs as the session starts, and what it prints goes into the agent's context.
+An agent picks a skill by its description, from what's in its context, so it has to be told it's in Kanna. **Kanna starts every agent it uses**, the planner and every task's, so it tells each one as it starts it, in the agent's instructions rather than as a message from you:
 
-| In the terminal | The hook prints |
+| Agent | Kanna tells it |
 |---|---|
-| `$KANNA_PLANNER` set | You're running in Kanna, as a window's planning agent: use the kanna-planning skill now. |
-| `$KANNA_QUIZ` set (the [quiz](quiz.md)'s agent) | You're running in Kanna as a quiz, on main: use the kanna-quiz skill now. |
-| `$KANNA_PANE` set | You're running in Kanna, as a task's agent (pane p9): use the kanna-tasks skill as soon as you know what the work is. |
-| neither | nothing |
+| The [planning agent](planning-agent.md) | You're Kanna's planning agent for this repo: use the kanna-planning skill now. |
+| A task's agent | You're a task's agent in Kanna (pane p9), in your task's worktree: use kanna-tasks for the backlog and your branch, kanna-explain to explain code, and kanna-markup to review docs and mockups with the user. |
+| The [quiz](quiz.md)'s agent | You're Kanna's quiz, on main: use the kanna-quiz skill now. |
 
-- **Codex runs the hook only in its own process.** Interactive Codex normally runs sessions in one shared background server, whose environment has no `$KANNA_PANE`, so Kanna starts a Codex task with `--no-daemon` ([tasks](tasks.md#7-how-its-built)). Codex you start yourself, as in the planning terminal, needs `codex --no-daemon` for the hook to see Kanna.
-- **Codex asks you to trust the hook** the first time it sees it, and again whenever a new Kanna changes it.
+- **How it's said, per agent:** `claude --append-system-prompt TEXT`, `codex -c developer_instructions=TEXT`; an agent with neither gets it ahead of its first message. Each agent's way is a column of the `AGENTS` table ([tasks](tasks.md#7-how-its-built)).
+- **Every agent Kanna starts has Kanna's environment** (`KANNA_PANE`, `KANNA_SOCKET`), so `kanna` works from it; Codex runs with `--no-daemon`, so its commands get it too.
+- **An agent you start yourself** in a Kanna terminal is told nothing and uses no Kanna skill unless you ask.
 
 ## 3. Asking
 
@@ -57,8 +56,6 @@ An agent picks a skill by its description, from what's in its context: its folde
 
     ~/.agents/skills/kanna-*      the skills (Codex)
     ~/.claude/skills/kanna-*      links to them (Claude)
-    hooks in ~/.claude/settings.json and ~/.codex/hooks.json
-                                  that tell an agent it's in Kanna
     ~/.claude/settings.json       Kanna's socket in Claude's sandbox, which lets
                                   sandboxed agents control Kanna's terminals
 
@@ -69,7 +66,7 @@ An agent picks a skill by its description, from what's in its context: its folde
   ```
 
 - **Once.** Either answer is remembered, and the planning terminal never asks again. Nothing is written until you answer yes.
-- **Without them Kanna still runs,** but its agents don't name their tasks, plan or answer comments; `kanna agents` says so.
+- **Without them Kanna still runs,** but its agents don't plan, explain code or answer comments; `kanna agents` says so.
 - **`kanna agents setup` and `kanna agents remove`** change your mind later; `kanna agents` says where things stand.
 
 ## 4. Updates and your files
@@ -93,20 +90,20 @@ An agent picks a skill by its description, from what's in its context: its folde
 - **Not now** asks again at the next launch. **Skip this version** doesn't ask again until a newer Kanna brings newer skills. `kanna agents update` updates any time.
 - **A file that was there before setup** is yours and never touched; a file identical to Kanna's is adopted.
 - **Running agents** keep what they started with.
-- **Remove** takes back only the files that still match what Kanna installed, its hooks and its socket entry.
+- **Remove** takes back only the files that still match what Kanna installed, and its socket entry.
 
 ## 5. CLI
 
 | Command | Does |
 |---|---|
 | `kanna agents [status]` | Whether your agents are set up, and what setup installs |
-| `kanna agents setup [--ask]` | Install the skills, the hook and the socket entry (`--ask`: say what and ask first) |
+| `kanna agents setup [--ask]` | Install the skills and the socket entry (`--ask`: say what and ask first) |
 | `kanna agents update [--ask] [--force]` | Bring the skills up to this Kanna's, merging your changes (`--force`: Kanna's over yours) |
 | `kanna agents remove` | Take back what Kanna put there |
 
 ## 6. How it's built
 
-- **The daemon does it** (`agents` command, `crates/kanna-daemon/src/agents.rs`): it plans each update file by file against the copy it installed, merges with `git merge-file`, and writes. Each launch it only keeps its hooks and this instance's socket entry in place, once you've agreed; skills change only when you say yes.
+- **The daemon does it** (`agents` command, `crates/kanna-daemon/src/agents.rs`): it plans each update file by file against the copy it installed, merges with `git merge-file`, and writes. Each launch it only keeps this instance's socket entry in place (and takes out an earlier Kanna's hooks), once you've agreed; skills change only when you say yes.
 - **The planning terminal asks** by running `kanna agents setup --ask; kanna agents update --ask` before its getting-started text, with the `kanna` beside the daemon (Kanna.app carries it in `Contents/Helpers`). Each asks at most once per launch, in the first planning terminal that opens, and says nothing when there's nothing to ask.
 - **The merge editor runs in that terminal:** `kanna` makes a scratch git repo with the three versions as a real merge conflict and runs `git mergetool` on it, so any tool git knows works; what you save is copied over your file.
 - **The skills come from the app bundle,** copied there from `.agents/kanna-skills` by `scripts/build-kanna-app.sh`.

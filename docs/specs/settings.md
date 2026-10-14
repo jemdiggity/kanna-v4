@@ -42,6 +42,7 @@ flowchart LR
 | Key | Default | Does |
 |---|---|---|
 | `version` | `1` | The settings format the file is written for |
+| `planning.agent` | none: asked | The agent Kanna starts as a [planning agent](planning-agent.md#2-what-it-is), a name from the agents Kanna knows (`claude`, `codex`, …). Unset, the first planning terminal asks and saves your answer here. |
 | `planning.context` | `300000` | Tokens a claude agent's context grows to in a [planning terminal](planning-agent.md) before it compacts, from 100000 to 1000000, or `"auto"` for claude's own. A long-lived agent works better kept small (context rot). The terminal sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, unless your environment already does. Other agents keep their own limit (codex's is already shorter); each gets this setting as Kanna supports it. |
 
 ## 4. How it's built
@@ -54,7 +55,7 @@ flowchart LR
 - **`~/.config/kanna/`:** `~/.kanna-v4/` and a repo's `.kanna/` keep Kanna's files together, with a repo override beside the repo's other Kanna files.
 - **One file per feature** (`planning.json`): one `config.json` with a section per feature has room for the settings to come.
 - **Settings without a schema** (documented only in this spec): an agent in another repo can't read this spec, but it can run `kanna config schema`.
-- **Passing claude `--autocompact`:** Kanna doesn't start the planning agent; an environment variable in its terminal reaches whatever claude you start there.
+- **Passing claude `--autocompact`:** an environment variable in the planning terminal also reaches a claude you start there yourself.
 
 ## 6. Glossary
 
