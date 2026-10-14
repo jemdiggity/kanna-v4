@@ -48,7 +48,8 @@ stateDiagram-v2
 | claude | its terminal hung up | Kanna's, given at start (`--session-id`) |
 | any other | its terminal hung up | as it [resumes](tasks.md#which-agents-resume) |
 
-- **Stopping one:** Kanna closes the task's tabs, sends the keys, hangs up after 5s if it hasn't quit, reads the session from its screen, and saves the task stopped, with why (`stopped` and `why` in its events).
+- **Stopped means quit, not paused:** the agent's process exits; nothing is kept in memory. Its conversation is in the agent's own session files, and resuming starts a new process in the same pane with the agent's resume flag (`claude --resume UUID`, `codex resume ID`), as [Stop and Start](tasks.md#5-stop-done-or-back-to-the-backlog) do.
+- **Stopping one:** Kanna closes the task's tabs, then types the agent's quit keys into its terminal, as you would (codex's ctrl+c reaches it as a key press: it runs its terminal raw, so the terminal doesn't turn it into SIGINT). An agent with no keys, or one still running 5s later, is hung up: SIGHUP to its process group, SIGKILL a second later if it's still there. Kanna then reads the session from its screen and saves the task stopped, with why (`stopped` and `why` in its events).
 - **The quit files are bundled only:** the rules site and your overrides can't change which keys Kanna types into an agent.
 - **Tested** by e2e S68 with the mock agent as codex: with runners 0 nothing runs; with 3, five tasks run three at a time in order, skipping a blocked one until its blocker is Done; one that asks stops as needs you (in its events), its session read from what it said as it quit; Move to Shelf resumes it there; moved back to the backlog idle, it stops as finished.
 
