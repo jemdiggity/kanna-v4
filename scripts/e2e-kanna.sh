@@ -2301,10 +2301,52 @@ S66() {
   check test "$(state | field windows | count)" == 2 || { kanna list; return 1; }
 }
 
+S67() {
+  start_daemon && start_app || { echo "S67 line $LINENO"; return 1; }
+  local repo="$KANNA_STATE_DIR/repo" agent="$repo_root/tools/mock-agent/mock-agent"
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S67 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  in_repo() { (cd "$repo" && kanna "$@"); }
+  in_repo task new "Screenshot command" "say hi" --agent "$agent" >/dev/null && in_repo task new "S40 fix" --agent "$agent" >/dev/null || { echo "S67 line $LINENO"; return 1; }
+  expected="added t3 \"Diff viewer\" to the backlog of $repo; it waits for t1"; says in_repo task new "Diff viewer" "say hi" --agent "$agent" --after t1 || { echo "S67 line $LINENO"; return 1; }
+  expected="added t4 \"Release notes\" to the backlog of $repo; it waits for t1, t2"; says in_repo task new "Release notes" --agent "$agent" --after t1,t2 || { echo "S67 line $LINENO"; return 1; }
+  [[ "$(in_repo task new "Nowhere" --after t9 2>&1)" == *'no task "t9"'* ]] || { echo "S67: a blocker that isn't a task was taken"; return 1; }
+  [[ "$(in_repo task edit t1 --after t3 2>&1)" == *"t3 waits for t1: they'd wait for each other"* ]] || { echo "S67: a task was let wait for itself"; return 1; }
+  in_repo task list | grep -qE '^t3 +Diff viewer +Backlog +blocked +made .* · waits for t1$' || { in_repo task list; return 1; }
+  [[ "$(in_repo task start t3 2>&1)" == *'t3 waits for t1 "Screenshot command": it can start once it'"'"'s done'* ]] || { echo "S67: a blocked task started"; in_repo task list; return 1; }
+  in_repo task shelve t3 >/dev/null 2>&1 && { echo "S67: a blocked task moved to the Shelf"; return 1; }
+  check test ! -e "$repo/.kanna-worktrees" || { echo "S67: a blocked task got a worktree"; ls "$repo/.kanna-worktrees"; return 1; }
+  stop_app; stop_daemon; start_daemon && start_app || { echo "S67 line $LINENO"; return 1; }
+  in_repo task list | grep -qE '^t4 +Release notes +Backlog +blocked +made .* · waits for t1, t2$' || { echo "S67: blockers didn't survive a restart"; in_repo task list; return 1; }
+  local opened w; opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "S67 line $LINENO: $opened"; return 1; }
+  w="${BASH_REMATCH[1]}"
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}" | field "$1"; }
+  check wait_for 10 eval '[[ "$(desk scroll.blocked.0.task)" == t3 ]]' || { desk scroll; return 1; }
+  check test "$(desk scroll.blocked.0.go)" == Blocked || { desk scroll.blocked; return 1; }
+  check test "$(desk scroll.blocked.0.waits)" == '["Screenshot command"]' || { desk scroll.blocked; return 1; }
+  check test "$(desk scroll.blocked.1.waits)" == '["Screenshot command", "S40 fix"]' || { desk scroll.blocked; return 1; }
+  sleep 0.5; snap "$w" s67-blocked >/dev/null
+  raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t3","window":"'"$w"'"}}' >/dev/null
+  check wait_for 5 eval '[[ "$(desk note)" == *"waits for t1"* ]]' || { echo "S67: clicking a blocked row didn't say why"; desk note; return 1; }
+  check test "$(desk running)" == 0 || { echo "S67: clicking a blocked row started it"; return 1; }
+  local started pane; started="$(kanna task shelve t1)" && [[ "$started" =~ ^"moved t1 to the Shelf: "(p[0-9]+) ]] || { echo "S67 line $LINENO: $started"; return 1; }
+  pane="${BASH_REMATCH[1]}"
+  check wait_for 5 is "$pane" status idle || { echo "S67 line $LINENO"; return 1; }
+  local done; done="$(kanna task done "$pane")" || { echo "S67 line $LINENO"; return 1; }
+  [[ "$done" == *$'\nt3 "Diff viewer" can start now: nothing it waits for is left' && "$done" != *t4* ]] || { echo "S67: done didn't name what it freed: $done"; return 1; }
+  check wait_for 10 eval '[[ "$(desk scroll.blocked.0.task)" == t4 && "$(desk scroll.blocked.0.waits)" == "[\"S40 fix\"]" ]]' || { echo "S67: the freed row is still blocked"; desk scroll.blocked; return 1; }
+  in_repo task list | grep -qE '^t3 +Diff viewer +Backlog +stopped +made [^·]*· [^·]*$' || { in_repo task list; return 1; }
+  raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t3","window":"'"$w"'"}}' >/dev/null
+  check wait_for 10 eval '[[ "$(desk running)" == 1 && "$(desk backlog)" == "[\"t2\", \"t4\"]" ]]' || { echo "S67: the freed task didn't start"; desk backlog; desk note; return 1; }
+  expected="t4 waits for nothing: it can start"; says in_repo task edit t4 --after none || { echo "S67 line $LINENO"; return 1; }
+  in_repo task start t4 >/dev/null || { echo "S67: a task with its blockers taken off didn't start"; return 1; }
+  [[ "$(in_repo task edit t4 --after t2 2>&1)" == *"t4 has started"* ]] || { echo "S67: a started task's blockers changed"; return 1; }
+}
+
 due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]|S6[0-9]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61 S62 S63 S64 S65 S66)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61 S62 S63 S64 S65 S66 S67)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"

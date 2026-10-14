@@ -61,6 +61,7 @@ stateDiagram-v2
 - **`kanna task start` runs a task where it is**: a backlog task gets its worktree and agent and stays in the backlog, running, so you can start several and move them to the Shelf later. `kanna task list` shows each one's state: working, idle, needs you, or stopped.
 - **Oldest first.** A Desk's Shelf strip shows how many wait.
 - **Search it** with ⌘F on an empty Desk, by name or first message: [backlog search](backlog-search.md).
+- **A task can wait for others:** blocked, it can't start until they're Done ([blocked tasks](task-dependencies.md)).
 
 ## 4. Naming
 
@@ -102,7 +103,8 @@ An agent not in the table starts again with its first message, its conversation 
 
 | Command | Does |
 |---|---|
-| `kanna task new NAME [FIRST-MESSAGE] [--agent CMD]` | Add a task to this repo's backlog (the agent defaults to `$KANNA_AGENT`, else `claude`, and starts without asking permission) |
+| `kanna task new NAME [FIRST-MESSAGE] [--agent CMD] [--after TASK,…]` | Add a task to this repo's backlog (the agent defaults to `$KANNA_AGENT`, else `claude`, and starts without asking permission); `--after` makes it wait for others ([blocked tasks](task-dependencies.md)) |
+| `kanna task edit TASK --after TASK,…\|none` | Change what a backlog task waits for |
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, agent and first message and stays in the backlog; a stopped task's agent comes back, resuming its conversation |
 | `kanna task stop [TASK]` | End a task's agent and tabs, leaving it where it is (default: the one you're in) |
 | `kanna task shelve TASK [--window WINDOW]` | Move a backlog task to the Shelf (or onto that Desk), starting it if it's stopped; refused when the Shelf holds three |

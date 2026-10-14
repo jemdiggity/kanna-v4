@@ -199,7 +199,9 @@ extension AppController {
     func backlogTasks(in root: String?) -> [BacklogTask] {
         backlog.filter { root == nil || $0["repo"]?.string.map(canonical) == root }.compactMap { entry in
             guard let id = entry["id"]?.string, let name = entry["name"]?.string else { return nil }
-            return BacklogTask(id: id, name: name, message: entry["message"]?.string, from: entry["by"]?.string.flatMap(taskName), madeAt: entry["madeAt"]?.number)
+            var waits: [String] = []
+            if case .array(let blockers)? = entry["waits"] { waits = blockers.compactMap { $0["name"]?.string ?? $0["id"]?.string } }
+            return BacklogTask(id: id, name: name, message: entry["message"]?.string, from: entry["by"]?.string.flatMap(taskName), madeAt: entry["madeAt"]?.number, waits: waits)
         }
     }
 
