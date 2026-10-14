@@ -326,8 +326,8 @@ S10() {
   check grep -q "kanna task name" "$home/.claude/skills/kanna-tasks/SKILL.md" || return 1
   check test -f "$home/.agents/skills/kanna-planning/SKILL.md" || return 1
   check grep -qF "$KANNA_SOCKET" "$home/.claude/settings.json" || return 1
-  check grep -q "kanna-tasks skill" "$home/.claude/settings.json" || return 1
-  check grep -q "kanna-tasks skill" "$home/.codex/hooks.json" || return 1
+  ! grep -q SessionStart "$home/.claude/settings.json" || { echo "S10: setup added a hook to claude's settings"; return 1; }
+  check test "$(tr -d ' \n' <"$home/.codex/hooks.json")" == '{"hooks":{}}' || { echo "S10: setup changed codex's hooks"; return 1; }
   check grep -q "up to date" <(kanna agents) || return 1
   check test -z "$(echo y | kanna agents update --ask)" || { echo "S10: update --ask asked with nothing new"; return 1; }
   kanna agents remove >/dev/null || return 1
