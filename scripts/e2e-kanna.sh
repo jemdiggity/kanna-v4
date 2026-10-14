@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S65) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S66) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -1526,7 +1526,7 @@ S46() {
   check wait_for 5 shows "$planner" "context=400000" || { echo "S46: the repo's .kanna/config.json didn't set the context"; kanna read "$planner"; return 1; }
   (cd "$repo" && kanna task new "Waiting" "hello" --agent "$agent") >/dev/null || { echo "S46 line $LINENO"; return 1; }
   local opened w; opened="$(cd / && kanna "$repo")" || { echo "S46 line $LINENO"; return 1; }
-  [[ "$opened" =~ ^opened\ (w[0-9]+)\ on\ "$repo"$ ]] || { echo "S46 line $LINENO: $opened"; return 1; }
+  [[ "$opened" =~ ^brought\ forward\ (w1)\ on\ "$repo"$ ]] || { echo "S46: kanna PATH on the open project didn't bring its Desk forward: $opened"; return 1; }
   w="${BASH_REMATCH[1]}"
   check wait_for 5 eval '[[ "$(desk empty "$w")" == True && "$(desk backlog "$w")" == "[\"t1\"]" && "$(desk running "$w")" == 0 ]]' || { desk backlog "$w"; desk running "$w"; return 1; }
   check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "S46: no planning terminal"; kanna list; return 1; }
@@ -2227,6 +2227,7 @@ S64() {
   kanna send "$planner" exit >/dev/null || { echo "S64 line $LINENO"; return 1; }
   check wait_for 5 shows "$planner" "The planning agent quit. Start it again:" || { kanna read "$planner"; return 1; }
   check is "$planner" state running || { echo "S64: quitting the agent ended the planning terminal"; return 1; }
+  kanna close --window w1 >/dev/null || { echo "S64 line $LINENO"; return 1; }
   local opened w; opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "S64 line $LINENO: $opened"; return 1; }
   w="${BASH_REMATCH[1]}"
   check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "S64: the next Desk has no planning terminal"; return 1; }
@@ -2273,16 +2274,37 @@ print(sum(1 for l in lines if l.get("turn") and l["path"].startswith(sys.argv[2]
     kanna send "$planner" "$choice" >/dev/null && check wait_for 5 shows "$planner" "\[y/N\]" && kanna send "$planner" n >/dev/null || { echo "S65 line $LINENO"; kanna read "$planner"; return 1; }
     check wait_for 60 eval '[[ "$(told "$path")" -ge 1 ]]' || { echo "S65: $agent wasn't told it's the planning agent"; kanna read "$planner"; tail -3 "$agents/mock.jsonl" | cut -c1-300; return 1; }
     check wait_for 30 shows "$planner" "Agent status probe" || { echo "S65: $agent didn't show the mock's answer"; kanna read "$planner"; return 1; }
+    kanna close --window "$w" >/dev/null || { echo "S65 line $LINENO"; return 1; }
     opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "S65 line $LINENO: $opened"; return 1; }
     w="${BASH_REMATCH[1]}"
   done
   stop_agents
 }
 
+S66() {
+  start_daemon && start_app || { echo "S66 line $LINENO"; return 1; }
+  local repo="$KANNA_STATE_DIR/repo" wt="$KANNA_STATE_DIR/wt" other="$KANNA_STATE_DIR/other"
+  for dir in "$repo" "$other"; do mkdir -p "$dir" && git -C "$dir" init -q -b main && git -C "$dir" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S66 line $LINENO"; return 1; }; done
+  git -C "$repo" worktree add -q -b side "$wt" && mkdir -p "$repo/sub" "$wt/deep" || { echo "S66 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"; wt="$(cd "$wt" && pwd -P)"; other="$(cd "$other" && pwd -P)"
+  local opened; opened="$(cd / && kanna "$repo")" || { echo "S66 line $LINENO"; return 1; }
+  [[ "$opened" == "opened w1 on $repo" ]] || { echo "S66 line $LINENO: $opened"; return 1; }
+  expected="brought forward w1 on $repo"
+  says kanna "$repo" || { echo "S66: kanna PATH twice opened another Desk"; return 1; }
+  (cd "$repo/sub" && says kanna .) || { echo "S66: a subfolder didn't find the project's Desk"; return 1; }
+  says kanna "$wt/deep" || { echo "S66: a folder in a worktree didn't find the project's Desk"; return 1; }
+  check test "$(state | field windows | count)" == 1 || { echo "S66: more than one window"; kanna list; return 1; }
+  expected="opened w2 on $other"; says kanna "$other" || { echo "S66: another project didn't open a new Desk"; return 1; }
+  check wait_for 5 eval '[[ "$(win w2 key)" == True ]]' || { kanna list --json; return 1; }
+  expected="brought forward w1 on $repo"; says kanna "$repo" || return 1
+  check wait_for 5 eval '[[ "$(win w1 key)" == True ]]' || { echo "S66: the project's Desk isn't the key window"; kanna list --json; return 1; }
+  check test "$(state | field windows | count)" == 2 || { kanna list; return 1; }
+}
+
 due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]|S6[0-9]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61 S62 S63 S64 S65)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61 S62 S63 S64 S65 S66)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
