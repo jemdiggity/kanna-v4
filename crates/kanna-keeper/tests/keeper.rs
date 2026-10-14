@@ -157,7 +157,7 @@ fn spawn_then_read_and_write_through_the_fd() {
     req.rows = 30;
     let pty = c.spawn(&req).unwrap();
     assert!(pty.pid > 0 && alive(pty.pid));
-    assert_eq!(pty.cmd[1..], ["-l", "-c", req.command.as_deref().unwrap()]);
+    assert_eq!(pty.cmd[1..], ["-l", "-i", "-c", req.command.as_deref().unwrap()]);
     read_until(&pty.master, "ready");
     write(&pty.master, "hello\n");
     read_until(&pty.master, "got:hello");
@@ -188,11 +188,23 @@ fn shell_gets_the_login_convention_env_and_cwd() {
 }
 
 #[test]
+fn a_command_that_hands_over_skips_the_rc_files() {
+    let f = Fixture::new();
+    let mut c = f.client();
+    let mut req = SpawnRequest::command("handover", "case $- in *i*) echo with-rc;; *) echo without-rc;; esac; sleep 30");
+    req.skip_rc = true;
+    let pty = c.spawn(&req).unwrap();
+    assert_eq!(pty.cmd[1..], ["-l", "-c", req.command.as_deref().unwrap()]);
+    read_until(&pty.master, "without-rc");
+    c.close("handover").unwrap();
+}
+
+#[test]
 fn exit_codes_and_signals_are_the_commands_own() {
     let f = Fixture::new();
     let mut c = f.client();
     let p3 = c.spawn(&SpawnRequest::command("three", "exit 3")).unwrap();
-    let e = next_exit(&mut c);
+    let e = exit_reading(&mut c, &p3.master).0;
     assert_eq!(e, Exited { id: "three".into(), pid: p3.pid, status: ExitStatus::Code(3) });
     let p9 = c.spawn(&SpawnRequest::command("nine", "kill -9 $$")).unwrap();
     let e = next_exit(&mut c);
@@ -241,7 +253,7 @@ fn an_exit_while_nobody_is_connected_waits_for_an_ack() {
     let f = Fixture::new();
     let (quiet, chatty) = {
         let mut c = f.client();
-        let quiet = c.spawn(&SpawnRequest::command("quiet", "exit 6")).unwrap().pid;
+        let quiet = c.spawn(&SpawnRequest::command("quiet", "(exit 6)")).unwrap().pid;
         let chatty = c.spawn(&SpawnRequest::command("chatty", "sleep 0.2; echo last-words; exit 5")).unwrap().pid;
         (quiet, chatty)
     };
@@ -274,8 +286,11 @@ fn an_exit_while_nobody_is_connected_waits_for_an_ack() {
 
 fn group(c: &mut Client, id: &str, script: &str) -> (i32, i32) {
     let pty = c.spawn(&SpawnRequest::command(id, script)).unwrap();
-    let out = read_until(&pty.master, "\n");
-    let kid = out.trim().strip_prefix("kid:").unwrap_or_else(|| panic!("{out:?}")).parse().unwrap();
+    let mut out = read_until(&pty.master, "kid:");
+    while !out.rsplit("kid:").next().unwrap_or_default().contains('\n') {
+        out += &read_until(&pty.master, "\n");
+    }
+    let kid = out.lines().find_map(|l| l.trim().strip_prefix("kid:")).unwrap_or_else(|| panic!("{out:?}")).parse().unwrap();
     (pty.pid, kid)
 }
 

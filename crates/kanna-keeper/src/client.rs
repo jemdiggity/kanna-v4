@@ -31,6 +31,7 @@ pub struct SpawnRequest {
     pub id: String,
     pub command: Option<String>,
     pub shell: Option<String>,
+    pub skip_rc: bool,
     pub cwd: Option<PathBuf>,
     pub env: BTreeMap<String, Option<String>>,
     pub cols: u16,
@@ -50,6 +51,9 @@ impl SpawnRequest {
         let mut v = json!({"op": "spawn", "id": self.id, "cols": self.cols, "rows": self.rows});
         if let Some(c) = &self.command {
             v["command"] = c.as_str().into();
+        }
+        if self.skip_rc {
+            v["rc"] = false.into();
         }
         if let Some(s) = &self.shell {
             v["shell"] = s.as_str().into();

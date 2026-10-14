@@ -15,6 +15,7 @@ pub struct Spawned {
 pub enum What<'a> {
     Shell(Option<&'a str>),
     Command(&'a str),
+    LoginCommand(&'a str),
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -116,9 +117,19 @@ impl Base {
         match what {
             What::Shell(Some(shell)) if !shell.is_empty() => vec![(*shell).into()],
             What::Shell(_) => vec![self.login_shell.clone()],
-            What::Command(line) => vec![self.login_shell.clone(), "-l".into(), "-c".into(), (*line).into()],
+            What::Command(line) => command_argv(&self.login_shell, line),
+            What::LoginCommand(line) => vec![self.login_shell.clone(), "-l".into(), "-c".into(), (*line).into()],
         }
     }
+}
+
+fn command_argv(shell: &OsStr, line: &str) -> Vec<OsString> {
+    let mut argv = vec![shell.to_os_string(), "-l".into(), "-i".into()];
+    if Path::new(shell).file_name() == Some(OsStr::new("zsh")) {
+        argv.push("+m".into());
+    }
+    argv.extend(["-c".into(), line.into()]);
+    argv
 }
 
 struct Image {
@@ -300,4 +311,17 @@ pub fn spawn(
         Spawned { pid, master: OwnedFd::from_raw_fd(master), exec: OwnedFd::from_raw_fd(exec_pipe[0]) }
     };
     Ok((spawned, argv))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_command_runs_in_an_interactive_login_shell_and_zsh_without_job_control() {
+        let argv = |shell: &str| command_argv(OsStr::new(shell), "codex --yolo");
+        assert_eq!(argv("/bin/zsh"), ["/bin/zsh", "-l", "-i", "+m", "-c", "codex --yolo"]);
+        assert_eq!(argv("/opt/homebrew/bin/bash"), ["/opt/homebrew/bin/bash", "-l", "-i", "-c", "codex --yolo"]);
+        assert_eq!(argv("/bin/sh"), ["/bin/sh", "-l", "-i", "-c", "codex --yolo"]);
+    }
 }

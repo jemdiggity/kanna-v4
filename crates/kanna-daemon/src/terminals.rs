@@ -120,7 +120,7 @@ impl Terminals {
         env.push(("KANNA_PANE".into(), Some(pane.id.clone())));
         let (cols, rows) = self.sizes.borrow().get(&pane.id).copied().unwrap_or((COLS, ROWS));
         let command = pane.command.clone().filter(|c| !c.is_empty());
-        Spec { id: pane.id.clone(), command, cwd: pane.cwd.clone(), env, cols, rows }
+        Spec { id: pane.id.clone(), command, hands_over: pane.hands_over, cwd: pane.cwd.clone(), env, cols, rows }
     }
 
     fn next_serial(&self) -> u64 {
@@ -294,6 +294,7 @@ impl Terminals {
                         id: pane.id.clone(),
                         name: pane.name.clone(),
                         cmd: pane.command.clone(),
+                        hands_over: pane.hands_over,
                         cwd: pane.cwd.clone(),
                         state,
                         exit_code,
@@ -333,6 +334,7 @@ impl Terminals {
         for record in saved.records {
             let mut pane = Pane::new(&record.id, record.name.clone(), PaneType::Term);
             (pane.command, pane.cwd, pane.pid) = (record.cmd.clone(), record.cwd.clone(), Some(record.pid));
+            pane.hands_over = record.hands_over;
             let terminal = match ptys.remove(&record.keeper) {
                 Some(pty) => {
                     let snapshot = (i64::from(pty.pid) == record.pid).then(|| self.store.snapshot(&record.id)).flatten();
@@ -375,7 +377,7 @@ impl Terminals {
             };
             let mut pane = Pane::new(&id, None, PaneType::Term);
             pane.command = match pty.cmd.as_slice() {
-                [_, l, c, command] if l == "-l" && c == "-c" => Some(command.clone()),
+                [_, flags @ .., c, command] if c == "-c" && flags.first().is_some_and(|l| l == "-l") && flags.iter().all(|f| ["-l", "-i", "+m"].contains(&f.as_str())) => Some(command.clone()),
                 [sh, c, command] if sh == "/bin/sh" && c == "-c" => Some(command.clone()),
                 _ => None,
             };

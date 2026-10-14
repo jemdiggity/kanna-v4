@@ -4,7 +4,7 @@ set -uo pipefail
 usage() {
   cat <<'USAGE'
 Kanna's end-to-end scenarios: the reference for docs/plans/mux-build.md.
-Each scenario (S1–S13, S20–S22, S30–S62) is one behaviour of the finished system; the plan
+Each scenario (S1–S13, S20–S22, S30–S63) is one behaviour of the finished system; the plan
 makes them pass milestone by milestone. Runs a private Kanna (daemon,
 keeper, app in the background) on its own socket and folder, never yours,
 and stops it by PID.
@@ -2181,10 +2181,27 @@ S61() {
   return 0
 }
 
+S63() {
+  local zdot="$KANNA_STATE_DIR/zdot" nvm="$KANNA_STATE_DIR/nvm/bin" repo="$KANNA_STATE_DIR/repo"
+  mkdir -p "$zdot" "$nvm" "$repo" && ln -s "$repo_root/tools/mock-agent/mock-agent" "$nvm/codex" || { echo "S63 line $LINENO"; return 1; }
+  printf 'export S63_ZSHRC=from-zshrc\npath=(%q $path)\necho S63 zshrc says hello\n' "$nvm" >"$zdot/.zshrc"
+  git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "S63 line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  SHELL=/bin/zsh ZDOTDIR="$zdot" start_daemon && start_app || { echo "S63 line $LINENO"; return 1; }
+  kanna open --name s63 --cmd 'echo "S63:$S63_ZSHRC:$(command -v codex)"; exec cat' >/dev/null || return 1
+  check wait_for 5 shows s63 "S63:from-zshrc:$nvm/codex" || { echo "S63: a command pane didn't read .zshrc"; kanna read s63; return 1; }
+  local id; id="$(cd "$repo" && kanna task new "Codex from nvm" "S63 first message" --agent codex | sed -n 's/^added \(t[0-9]*\).*/\1/p')"
+  [[ "$id" =~ ^t[0-9]+$ ]] || { echo "S63: the task wasn't added"; return 1; }
+  kanna task start "$id" >/dev/null || { echo "S63: the task didn't start"; return 1; }
+  check wait_for 10 shows "Codex from nvm" "args: .*S63 first message" || { echo "S63: codex from .zshrc's PATH didn't start"; kanna read "Codex from nvm"; return 1; }
+  kanna read "Codex from nvm" | grep -q "command not found" && { echo "S63: the task's shell didn't find codex"; return 1; }
+  return 0
+}
+
 due() {
   case "$1" in S1|S2) echo M0 ;; S3|S4|S5|S9) echo M1 ;; S6|S7) echo M2 ;; S8|S10) echo M3 ;; S11|S12|S13|S20|S21|S22|S3[0-9]|S4[0-9]|S5[0-9]|S6[0-9]) echo M4 ;; esac
 }
-[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61 S62)
+[[ ${#only[@]} -gt 0 ]] && scenarios=("${only[@]}") || scenarios=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S20 S21 S22 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 S56 S57 S58 S59 S60 S61 S62 S63)
 passed=0 failed=0
 for s in "${scenarios[@]}"; do
   m="$(due "$s")"
