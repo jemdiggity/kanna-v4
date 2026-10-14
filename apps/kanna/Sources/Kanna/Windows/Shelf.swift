@@ -32,8 +32,28 @@ struct BacklogTask: Equatable {
     let from: String?
     let madeAt: Double?
     var waits: [String] = []
+    var run: String? = nil
 
-    var blocked: Bool { !waits.isEmpty }
+    var blocked: Bool { !waits.isEmpty && run == nil }
+
+    var state: String? {
+        switch run {
+        case "running": return "running"
+        case "needs-you": return "stopped: needs you"
+        case "finished": return "stopped: finished"
+        case "stopped": return "stopped"
+        default: return nil
+        }
+    }
+
+    var stateColor: NSColor {
+        switch run {
+        case "running": return .controlAccentColor
+        case "needs-you": return .systemOrange
+        case "finished": return .systemGreen
+        default: return .secondaryLabelColor
+        }
+    }
 
     var sub: String { [waits.isEmpty ? nil : "waits for " + waits.joined(separator: ", "), message, after].compactMap { $0 }.joined(separator: " · ") }
 
@@ -344,6 +364,10 @@ final class ShelfPage: NSView, NSSearchFieldDelegate {
         document.subviews.compactMap { $0 as? BacklogRow }.filter(\.task.blocked).map { ["task": .string($0.task.id), "waits": .array($0.task.waits.map { .string($0) }), "go": .string($0.label)] }
     }
 
+    var backlogStates: [JSON] {
+        document.subviews.compactMap { $0 as? BacklogRow }.map { ["task": .string($0.task.id), "state": $0.task.state.map(JSON.string) ?? .null] }
+    }
+
     var visibleBacklog: [String] {
         let seen = document.visibleRect
         return document.subviews.compactMap { $0 as? BacklogRow }.filter { seen.contains($0.frame) }.map(\.task.id)
@@ -551,7 +575,8 @@ private final class BacklogRow: NSView {
         name.lineBreakMode = .byTruncatingTail
         name.frame = NSRect(x: 30, y: 8, width: width - 160, height: 18)
         let small = NSFont.systemFont(ofSize: 12)
-        let detail = NSMutableAttributedString(string: task.waits.isEmpty ? "" : "waits for " + task.waits.joined(separator: ", ") + " · ", attributes: [.font: small, .foregroundColor: NSColor.systemOrange])
+        let detail = NSMutableAttributedString(string: task.blocked ? "waits for " + task.waits.joined(separator: ", ") + " · " : "", attributes: [.font: small, .foregroundColor: NSColor.systemOrange])
+        if let state = task.state { detail.append(NSAttributedString(string: state + " · ", attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: task.stateColor])) }
         detail.append(BacklogTask.marked(task.message.map { $0 + " · " } ?? "", query, font: small, color: .secondaryLabelColor))
         detail.append(NSAttributedString(string: task.after, attributes: [.font: small, .foregroundColor: NSColor.secondaryLabelColor]))
         let sub = NSTextField(labelWithAttributedString: detail)
@@ -569,6 +594,11 @@ private final class BacklogRow: NSView {
     var label: String { go.stringValue }
 
     override func draw(_ dirtyRect: NSRect) {
+        if task.run != nil && task.run != "stopped" {
+            task.stateColor.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 10, y: bounds.midY - 4.5, width: 9, height: 9)).fill()
+            return
+        }
         NSColor.tertiaryLabelColor.setStroke()
         let ring = NSBezierPath(ovalIn: NSRect(x: 10.5, y: bounds.midY - 4, width: 8, height: 8))
         ring.lineWidth = 1.4

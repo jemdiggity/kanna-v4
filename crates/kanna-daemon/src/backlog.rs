@@ -718,7 +718,11 @@ impl Backlog {
             let quitting = self.quitting.borrow();
             for (pane, _) in &running {
                 if !quitting.contains_key(pane) {
-                    turns.entry(pane.clone()).or_insert_with(Turn::underway);
+                    turns.entry(pane.clone()).or_insert_with(|| {
+                        let mut turn = Turn::underway();
+                        turn.see(core.pane(pane).and_then(|p| p.status).as_deref().and_then(Status::parse), now);
+                        turn
+                    });
                 }
             }
         }
@@ -801,7 +805,6 @@ impl Backlog {
     fn fill(self: &Rc<Self>, core: &CoreHandle) {
         let entries = self.entries.borrow().clone();
         let mut repos: Vec<&str> = entries.iter().map(|e| e.repo.as_str()).collect();
-        repos.dedup();
         repos.sort();
         repos.dedup();
         let starting: HashSet<String> = self.pending.borrow().values().map(|p| p.entry.id.clone()).chain(self.launching.borrow().iter().cloned()).collect();
