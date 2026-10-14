@@ -15,14 +15,7 @@ When your session starts (once per session):
 
 1. `git log --oneline main --since=1.day` (`master` if there's no `main`). With nothing, say nothing about a quiz.
 2. Otherwise offer once, in a line, after whatever else you say: what landed (the work, not the hashes), then "Quiz on today's changes? Five questions, about two minutes."
-3. On yes: if `kanna list` shows a pane named `quiz`, `kanna focus quiz`. Else open the Quiz window, with the agent you are:
-
-   ```sh
-   kanna open --window new --name quiz --cwd "$(git rev-parse --show-toplevel)" \
-     --cmd 'claude --dangerously-skip-permissions "You are the Kanna quiz agent, on main: quiz me on what landed on main."'
-   ```
-
-   For Codex, the command is `codex --yolo --no-daemon "You are the Kanna quiz agent, on main: quiz me on what landed on main."`. Say it's open, and carry on.
+3. On yes: `kanna quiz open`, from the repo, with the agent you are (`--agent codex` for Codex; Claude is the default). It brings the repo's Quiz window forward if it's open, else opens one: the quiz agent docked on the left, in the repo's main checkout, told it's the quiz agent, and what it opens as tabs beside it. It isn't a task. Say it's open, and carry on.
 
 ## Asking (the quiz agent)
 
@@ -59,7 +52,7 @@ Write each question just before you ask it:
 - **Ask it with your multiple-choice tool** (Claude's AskUserQuestion: the question, choices as options with a short description; header `Quiz N/5`). An agent without one: a numbered list, and the user answers with a number.
 - Head it, in the chat: `**N of 5** · KIND · where it comes from` (a commit's short hash, or a spec's path).
 - **Spot the bug:** put the lines in the question itself, labelled A to D with their line numbers, with exactly one changed to put a bug in; the choices are A to D. Not only in the chat before it: the question tool can cover what you wrote.
-- **Pick the drawing:** write three mermaid diagrams under the headings `## A`, `## B`, `## C`, with the question above them, to `$TMPDIR/kanna-quiz/drawings.md`, and open it in a tab: `kanna open md "$TMPDIR/kanna-quiz/drawings.md" --tab`. The choices are A, B and C, each described only as "Drawing A" and so on: describing a drawing in words gives it away. Leave it open until the round ends, like the code you open.
+- **Pick the drawing:** write three mermaid diagrams under the headings `## A`, `## B`, `## C`, with the question above them, to `$TMPDIR/kanna-quiz/drawings.md`, and open it in a tab: `kanna open md "$TMPDIR/kanna-quiz/drawings.md"`. The choices are A, B and C, each described only as "Drawing A" and so on: describing a drawing in words gives it away. Leave it open until the round ends, like the code you open.
 - **Never hint,** never reword a choice once asked, and never say the answer before the user picks.
 
 ### Answering
@@ -76,10 +69,10 @@ Write each question just before you ask it:
 - **On a miss,** open the code straight away, with the why on its lines:
 
   ```sh
-  kanna comment crates/kanna-daemon/src/agents.rs:514 --tab "The daemon keeps each file as it installed it and runs git merge-file on yours, the base and the new one."
+  kanna comment crates/kanna-daemon/src/agents.rs:514 "The daemon keeps each file as it installed it and runs git merge-file on yours, the base and the new one."
   ```
 
-  It opens in a tab of its own, so your pane stays whole (`FILE:LINE` takes the whole scope at that line; `FILE:FIRST-LAST` takes just those lines). A comment on the same file reuses that tab. Leave the panes you open there until the round ends: the user may still be reading one when you ask the next question.
+  It opens as a tab beside you, so your pane stays whole (`FILE:LINE` takes the whole scope at that line; `FILE:FIRST-LAST` takes just those lines). A comment on the same file reuses that tab. Leave the panes you open there until the round ends: the user may still be reading one when you ask the next question.
 - **On a right answer,** offer to open the code; open it if asked.
 - **Follow questions** the user asks between questions: answer from the code, briefly (comment on it if that's clearer), then go on to the next question.
 
@@ -87,18 +80,19 @@ Write each question just before you ask it:
 
 - Say what they knew: "You knew 4 of 5 about today's changes." Then one line per question: ✓ or ✗, its topic, and its file and line. Only this round: never a total, a trend or past rounds; the history is for picking questions, not a score.
 - Ask: close this window, or another round? Another round is a new `kanna quiz start`, and picks new topics from the same commits, or older ones once those run out.
-- To close: close the panes you opened, then your own window (`kanna close --window WINDOW`, the one `kanna list` shows your pane in).
+- To close: close your own window (`kanna close --window WINDOW`, the one `kanna list` shows your pane in); the tabs you opened close with it.
 
 Kanna keeps every round and answer (in its database, through `kanna quiz`), so misses come back and the next round starts from what's new since this one.
 
 ## Commands
 
-Run the `kanna` on your PATH, from this terminal: its `KANNA_*` variables tell Kanna which pane is asking, so what you open goes beside you.
+Run the `kanna` on your PATH, from this terminal: its `KANNA_*` variables tell Kanna which pane is asking, so what you open goes in a tab beside you.
 
 | Command | Does |
 |---|---|
-| `kanna comment FILE:LINE[-LAST] TEXT` | Show the code beside you with TEXT on those lines |
-| `kanna open md FILE` | Show a markdown file (with mermaid diagrams) beside you |
+| `kanna quiz open [--agent CMD]` | The planning agent: bring the repo's Quiz window forward, or open it |
+| `kanna comment FILE:LINE[-LAST] TEXT` | Show the code in a tab beside you with TEXT on those lines |
+| `kanna open md FILE` | Show a markdown file (with mermaid diagrams) in a tab beside you |
 | `kanna close PANE` | Close a pane you opened |
 | `kanna focus PANE` | Bring a pane forward |
 | `kanna list` | Windows, tabs and panes, with their IDs |

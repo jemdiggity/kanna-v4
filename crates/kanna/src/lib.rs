@@ -720,6 +720,9 @@ mod tests {
         assert!(refused("kanna quiz start --right").contains("for quiz answer"));
         assert!(refused("kanna quiz start --json '{oops'").contains("JSON object"));
         assert!(refused("kanna quiz score").contains("unknown action"));
+        assert_eq!(parse("kanna quiz open --agent codex").unwrap().1, json!({ "action": "open", "repo": repo.trim_end_matches("/.git"), "agent": "codex" }));
+        assert_eq!(parse("kanna quiz open").unwrap().1, json!({ "action": "open", "repo": repo.trim_end_matches("/.git") }));
+        assert!(refused("kanna quiz start --agent codex").contains("--agent is for quiz open"));
         assert!(refused("kanna list --json '{}'").contains("--json DOC"));
     }
 
@@ -740,5 +743,7 @@ mod tests {
         assert!(!text.contains("of"), "{text}");
         assert_eq!(output::quiz(&json!({ "action": "history" }), &json!({ "misses": true, "rounds": [] })), "no misses to bring back");
         assert_eq!(output::quiz(&json!({ "action": "start" }), &json!({ "round": "r3" })), "r3");
+        assert_eq!(output::quiz(&json!({ "action": "open" }), &json!({ "pane": "p9", "window": "w4", "opened": true })), "opened p9 in w4");
+        assert_eq!(output::quiz(&json!({ "action": "open" }), &json!({ "pane": "p9", "window": "w4", "opened": false })), "brought forward p9 in w4");
     }
 }

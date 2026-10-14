@@ -29,7 +29,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     var taskTitle: String?
     private(set) var desk = false
     private(set) var emptyDesk = false
-    private(set) var plannerShown: String?
+    private(set) var leadShown: String?
     var onCloseRequest: (() -> Void)?
     var onBecomeKey: (() -> Void)?
     var onFrameChange: (() -> Void)?
@@ -73,15 +73,15 @@ final class WindowController: NSObject, NSWindowDelegate {
         tab = state["tab"]?.string
         let instance = AppController.instanceName
         desk = state["desk"]?.bool == true
-        let named = desk ? taskTitle ?? "Shelf" : "\(state["title"]?.string ?? "Kanna") — \(id)"
+        let named = desk ? taskTitle ?? "Shelf" : state["lead"]?["name"]?.string ?? "\(state["title"]?.string ?? "Kanna") — \(id)"
         window.title = named + (instance == "default" ? "" : " · \(instance)")
         tabBar.show(state)
         let root = state["root"] ?? .null
         let task = Self.side(state["dock"])
-        let planner = desk && task == nil ? Self.side(state["planner"]) : nil
-        let dock = task ?? planner
+        let lead = task == nil ? Self.side(state["lead"]) : nil
+        let dock = task ?? lead
         let docked = dock?["pane"]?.string
-        plannerShown = planner?["pane"]?.string
+        leadShown = lead?["pane"]?.string
         let ids = Self.paneIDs(root)
         shown = Self.shownPanes(state)
         emptyDesk = desk && task == nil && ids.isEmpty
@@ -98,11 +98,12 @@ final class WindowController: NSObject, NSWindowDelegate {
         dividers.forEach { stage.addSubview($0) }
         if let dock, let docked, let view = panes.view(docked, type: dock["type"]?.string ?? "term") {
             if view.superview !== dockStage { dockStage.addSubview(view, positioned: .below, relativeTo: agentHeader) }
-            let header = self.desk ? AgentHeader.height : 0
+            let headed = self.desk || lead != nil
+            let header = headed ? AgentHeader.height : 0
             view.frame = NSRect(x: 0, y: 0, width: dockStage.bounds.width, height: dockStage.bounds.height - header)
             view.autoresizingMask = []
-            agentHeader.isHidden = !self.desk
-            agentHeader.parkable = planner == nil
+            agentHeader.isHidden = !headed
+            agentHeader.parkable = lead == nil
             agentHeader.frame = NSRect(x: 0, y: dockStage.bounds.height - header, width: dockStage.bounds.width, height: header)
             agentHeader.show(headerText)
         }
@@ -128,7 +129,7 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     private func arrange(_ dock: JSON?, zoomed: Zoom?) {
         var bounds = content.bounds
-        let taskless = desk && plannerShown != nil || emptyDesk
+        let taskless = desk && leadShown != nil || emptyDesk
         if shelfPage.isHidden == emptyDesk {
             shelfPage.isHidden = !emptyDesk
             if !emptyDesk { shelfPage.clearSearch() }
@@ -193,8 +194,8 @@ final class WindowController: NSObject, NSWindowDelegate {
             ids = list.compactMap(\.string)
         }
         guard let dock = window["dock"], let pane = dock["pane"]?.string else {
-            guard window["desk"]?.bool == true, let planner = window["planner"]?["pane"]?.string else { return ids }
-            return [planner] + ids
+            guard let lead = window["lead"]?["pane"]?.string else { return ids }
+            return [lead] + ids
         }
         return dock["edge"]?.string == "right" ? ids + [pane] : [pane] + ids
     }

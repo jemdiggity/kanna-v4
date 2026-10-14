@@ -172,7 +172,7 @@ fn run() -> Result<(), String> {
     let db = Rc::new(db::Db::open(&state_dir));
     let backlog = Rc::new(backlog::Backlog::open(db.clone(), &state_dir, core.weak(), events.clone()));
     backlog.install(&core);
-    let quiz = Rc::new(quiz::Quiz::new(db));
+    let quiz = Rc::new(quiz::Quiz::new(db, Some(core.weak())));
     quiz.install(&core);
     let agents = agents::Agents::new(agents::home(), agents::skills(), socket_path.clone());
     agents.refresh();

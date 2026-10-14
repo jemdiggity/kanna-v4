@@ -1,10 +1,10 @@
 # Quiz
 
-**Status:** planned · **Mockup:** [`references/mockups/quiz.html`](../../references/mockups/quiz.html) · **Builds on:** [code tour](code-tour.md), [planning agent](planning-agent.md), [agent setup](agent-setup.md)
+**Status:** planned; the Quiz window is built · **Tests:** `scripts/e2e-kanna.sh` `quiz_window`, `quiz_results` · **Mockup:** [`references/mockups/quiz.html`](../../references/mockups/quiz.html) · **Builds on:** [code tour](code-tour.md), [planning agent](planning-agent.md), [agent setup](agent-setup.md)
 
 Agents write code faster than you can read it, and you lose track of how your own codebase works. The **quiz** is a short break between reading agent output that keeps you up with what they built: five multiple-choice questions about what landed on main in the last day, asked by an agent in its chat, each answer explained, with the code opened at the line. It's the same problem the `kanna-explain` skill addresses, from the other side: you're asked, rather than told.
 
-It's a skill, `kanna-quiz`: the agent writes the questions itself when you start, and uses the `kanna` commands that already exist to open its window and the code. Kanna adds three small things: the quiz agent's first message telling it it's the quiz, an `open` from a terminal in a plain window going beside that terminal rather than into the window in front, and `kanna quiz`, which keeps every round and answer in [the database](database.md#quiz-results).
+It's a skill, `kanna-quiz`: the agent writes the questions itself when you start, and uses the `kanna` commands that already exist to open the code. Kanna adds `kanna quiz`: `kanna quiz open` opens the Quiz window with the quiz agent docked in it, told it's the quiz agent, and the rest keeps every round and answer in [the database](database.md#quiz-results).
 
 **Done when** the planning agent offers a round on this repo's recent changes, and the agent in the Quiz window plays it as in the mockup, in light and dark.
 
@@ -33,8 +33,8 @@ sequenceDiagram
     P->>P: git log main, the last day
     P->>You: Quiz on today's changes?
     You->>P: yes
-    P->>K: kanna open --window new --name quiz … (agent, with the kanna-quiz skill)
-    K->>Q: Quiz window: agent in the repo, on main
+    P->>K: kanna quiz open (with the agent it is)
+    K->>Q: Quiz window: the agent docked, in the repo, on main
     Q->>K: kanna quiz history (last round's commit, misses)
     Q->>Q: read what's new since (commits, diff, specs), plan five topics
     Q->>K: kanna quiz start
@@ -59,10 +59,10 @@ sequenceDiagram
 ## 2. Rules
 
 - **The planning agent offers, the quiz agent asks.** The planning agent checks what's merged into main in the last day when its session starts, and offers a round once per session if anything has. It never asks the questions itself.
-- **The Quiz window** is laid out like a Desk: the quiz agent docked on the left, running in the repo's own folder on main, and what it opens (`kanna comment`, `kanna open md`) as tabs on the right, wherever you are. **The docked agent isn't a task,** like the [planning terminal](planning-agent.md#2-what-it-is): it's not on the Shelf or in `kanna task list`, takes none of the project's three places, and can't be parked, pulled or deferred. There's no worktree, since a quiz changes nothing. (Planned: today the agent is the window's only tab pane and what it opens splits beside it.) If a pane named `quiz` is already open, the planning agent brings it forward (`kanna focus quiz`) instead of opening another.
+- **The Quiz window** is laid out like a Desk: the quiz agent docked on the left, running in the repo's own folder on main, and what it opens (`kanna comment`, `kanna open md`) as tabs on the right, wherever you are. **The docked agent isn't a task,** like the [planning terminal](planning-agent.md#2-what-it-is): it's not on the Shelf or in `kanna task list`, takes none of the project's three places, and can't be parked, pulled, deferred or moved; nothing docks in its place. It's the window's **lead**, as the planning terminal is a Desk's ([how it's built](planning-agent.md#5-how-its-built)), and it closes with its window. There's no worktree, since a quiz changes nothing. **One per repo:** `kanna quiz open` brings the repo's Quiz window forward when one is open, instead of opening another.
 - **Written when you start,** by the quiz agent, from what's on main: no background agent, nothing runs between quizzes. It asks the first question as soon as it's written, and writes each next one while you read the explanation.
 - **A round is five questions, one at a time,** about two minutes once started. The quiz agent asks each with its multiple-choice tool: Claude's question tool, or a numbered list for an agent without one.
-- **Every answer gets a short explanation** and an offer to open the code. **A miss opens it straight away:** `kanna comment FILE:LINE "why"`, so the code shows beside the agent with the explanation on its lines ([code tour](code-tour.md)). A comment on the same file reuses that pane; before one on another file, the agent closes the last.
+- **Every answer gets a short explanation** and an offer to open the code. **A miss opens it straight away:** `kanna comment FILE:LINE "why"`, so the code shows beside the agent with the explanation on its lines ([code tour](code-tour.md)). A comment on the same file reuses that tab; the tabs stay until the round ends, so you can still read one when the next question comes.
 - **Pausing is leaving.** Close the window or go back to your Desk.
 - **Every round and answer is kept** in Kanna's database ([quiz results](database.md#quiz-results)): the quiz agent records them with `kanna quiz start` and `kanna quiz answer`, and reads them back with `kanna quiz history`, so a round covers what's new since the last one and misses come back in a later round.
 - **Nothing interrupts a round.** A task that needs you shows on the Shelf in your Desk window, as always; the quiz doesn't stop for it.
@@ -86,7 +86,7 @@ sequenceDiagram
 - **What's new:** main's commits since the commit the last round asked about, else in the last day, at most 30; with none, the agent says so and offers the last 30 commits instead.
 - **Misses come back:** up to two a round from earlier misses (`kanna quiz history --misses`), asked fresh, with new wording and the choices shuffled. Answered again (`--again`), right or wrong, a miss stops coming back; a new miss stands for it.
 - **Architecture questions** ask how the pieces fit: which process or module owns something, how data flows between them, what talks to what, about what today's changes touched, seen from above.
-- **Pick-the-drawing questions** have three diagrams for choices. The agent writes them as mermaid diagrams, headed A, B and C, in one markdown file (`$TMPDIR/kanna-quiz/drawings.md`) and opens it beside it (`kanna open md FILE`); you pick A, B or C. It closes that pane when it moves on.
+- **Pick-the-drawing questions** have three diagrams for choices. The agent writes them as mermaid diagrams, headed A, B and C, in one markdown file (`$TMPDIR/kanna-quiz/drawings.md`) and opens it as a tab beside it (`kanna open md FILE`); you pick A, B or C.
 
 ![Pick the drawing: the three drawings beside the agent](quiz-drawing.png)
 
@@ -101,7 +101,7 @@ sequenceDiagram
 
 - `git log main --since=1.day`. With nothing new, say nothing.
 - Otherwise offer once, in a line: what landed, and "Quiz on today's changes? Five questions, about two minutes."
-- On yes: `kanna focus quiz` if it's open, else `kanna open --window new --name quiz --cwd REPO --cmd 'claude --dangerously-skip-permissions "You are the Kanna quiz agent, on main: quiz me on what landed on main."'`, with the agent you are (Codex: `codex --yolo --no-daemon`).
+- On yes: `kanna quiz open`, with the agent you are (`--agent codex`; Claude by default).
 
 **Asking** starts from that first message ([agent setup](agent-setup.md#2-how-an-agent-knows-its-in-kanna)), which says it's the quiz agent, on main, so the agent doesn't take itself for a task's (and rename main).
 
@@ -138,6 +138,7 @@ flowchart LR
 - **An offer on the Desk page:** the planning agent offers it in its chat.
 - **A quiz task:** a quiz changes nothing, so it needs no worktree, branch or place on the Shelf.
 - **The quiz agent as the window's only tab pane,** with what it opens split beside it (before): the code got squeezed into a split, and the window didn't look like the rest of Kanna. Docking it as the planning terminal is docked, outside the task rules, keeps it off the Shelf and out of the project's three.
+- **A quiz-only mark on the dock** (a docked pane flagged as not a task, or a Quiz window kind): every rule that keeps a pane out of the task rules (the Shelf, the list, the three, park, pull, move) would need a second check for it. The planning terminal already was a window's agent outside those rules, so it became the window's lead, for any window: a Desk's is its planning terminal, a plain window's is its quiz agent.
 - **Stepping aside when a task needs you:** the Shelf already shows it; the quiz never interrupts.
 - **Preparing questions in the background after main moves:** it costs agent runs for quizzes you never take, and needs something watching every repo.
 - **A question writer in the daemon,** writing rounds ahead for `kanna quiz` to hand out: the quiz agent writes better questions from what it just read, and answers follow questions. `kanna quiz` only keeps rounds and answers, which the agent writes; it was rejected at first, when nothing read them back, and came back once misses had to return ([quiz results](database.md#quiz-results)).
@@ -149,4 +150,5 @@ flowchart LR
 | **Round** | Five questions, asked one at a time, ending with what you knew |
 | **Quiz window** | The window the planning agent opens: the quiz agent docked on the left, on main, and the code it opens as tabs |
 | **Quiz agent** | The agent in the Quiz window, running the `kanna-quiz` skill |
+| **Lead** | A window's own agent, docked on the left and not a task: a Desk's planning terminal, a Quiz window's quiz agent |
 | **Level** | How broad a question is: architecture, module, or a line's detail |

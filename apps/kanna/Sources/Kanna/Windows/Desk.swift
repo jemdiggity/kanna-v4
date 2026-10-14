@@ -240,11 +240,13 @@ extension AppController {
 
     func wantsPlanner(_ window: JSON) -> Bool {
         guard let id = window["id"]?.string, window["desk"]?.bool == true, window["dock"]?["pane"]?.string == nil else { return false }
-        return window["planner"]?["pane"]?.string == nil && !starting.contains(id)
+        return window["lead"]?["pane"]?.string == nil && !starting.contains(id)
     }
 
-    func plannerHeader(_ planner: String?, _ root: String?) -> String {
-        let place = planner.map(headerText).flatMap { $0.isEmpty ? nil : $0 } ?? root.map(tilde)
-        return ["Planning", place].compactMap { $0 }.joined(separator: " · ")
+    func leadHeader(_ window: JSON, _ root: String?) -> String {
+        let lead = window["lead"]?["pane"]?.string
+        let place = lead.map(headerText).flatMap { $0.isEmpty ? nil : $0 } ?? root.map(tilde)
+        let role = window["desk"]?.bool == true ? "Planning" : window["lead"]?["name"]?.string
+        return [role, place].compactMap { $0 }.joined(separator: " · ")
     }
 }
