@@ -142,10 +142,14 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         let mut io = agents::Io { call: &mut call, input: &mut stdin.lock(), out: &mut std::io::stdout(), merge: &mut merge, tool: tool.clone() };
         return agents::run(&request, &mut io);
     }
+    let waiting = if command.name == "task" && request["action"] == "done" { mux.call("backlog", serde_json::json!({ "action": "list" })).ok() } else { None };
     let mut reply = match mux.call(wire(command, &request), request.clone()) {
         Ok(reply) => reply,
         Err(failure) => return Err(explain(command, failure, &mut mux, &target)),
     };
+    if let (Some(waiting), Some(done)) = (waiting, request["task"].as_str()) {
+        reply["freed"] = serde_json::Value::Array(output::freed(&waiting, done));
+    }
     if command.name == "task" && request["action"] == "list" {
         if let Ok(backlog) = mux.call("backlog", serde_json::json!({ "action": "list" })) {
             reply["backlog"] = backlog["tasks"].clone();
@@ -198,7 +202,7 @@ fn explain(command: &Command, mut failure: Failure, mux: &mut Session, target: &
 fn wire(command: &Command, request: &Value) -> &'static str {
     match command.name {
         "markup" if request.get("type").is_some() => "open",
-        "task" if ["new", "start", "stop", "shelve", "defer"].contains(&request["action"].as_str().unwrap_or("")) => "backlog",
+        "task" if ["new", "edit", "start", "stop", "shelve", "defer"].contains(&request["action"].as_str().unwrap_or("")) => "backlog",
         "task" if request["action"] == "done" && request["task"].as_str().is_some_and(commands::is_backlog_task) => "backlog",
         "task" if request["action"] == "done" => "close",
         "task" if request["action"] == "name" => "rename-pane",

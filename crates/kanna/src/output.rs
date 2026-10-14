@@ -138,7 +138,12 @@ pub fn task(request: &Value, reply: &Value) -> String {
                 })
                 .chain(waiting.iter().map(|t| {
                     let made = t["madeAt"].as_f64().map_or(String::new(), |at| format!("made {} · {}", ago(now - at), tilde(t["repo"].as_str().unwrap_or(""))));
-                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), "Backlog".into(), state(t), made]
+                    let waits = ids(&t["waits"]);
+                    let (state, made) = match (t["running"].as_bool(), waits.is_empty()) {
+                        (Some(false), false) => ("blocked".to_string(), format!("{made} · waits for {waits}")),
+                        _ => (state(t), made),
+                    };
+                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), "Backlog".into(), state, made]
                 }))
                 .collect();
             let head = ["TASK", "NAME", "WHERE", "STATE", ""];
@@ -150,7 +155,17 @@ pub fn task(request: &Value, reply: &Value) -> String {
         Some("park") => format!("{id} is already on the Shelf"),
         Some("pull") if reply["moved"] == Value::Bool(true) => format!("pulled {id} onto {}", reply["window"].as_str().unwrap_or("?")),
         Some("pull") => format!("{id} is on {}; brought it forward", reply["window"].as_str().unwrap_or("?")),
-        Some("new") => format!("added {} \"{}\" to the backlog of {}", reply["task"]["id"].as_str().unwrap_or("?"), reply["task"]["name"].as_str().unwrap_or(""), tilde(reply["task"]["repo"].as_str().unwrap_or("?"))),
+        Some("new") => format!(
+            "added {} \"{}\" to the backlog of {}{}",
+            reply["task"]["id"].as_str().unwrap_or("?"),
+            reply["task"]["name"].as_str().unwrap_or(""),
+            tilde(reply["task"]["repo"].as_str().unwrap_or("?")),
+            Some(ids(&reply["task"]["waits"])).filter(|w| !w.is_empty()).map_or(String::new(), |w| format!("; it waits for {w}"))
+        ),
+        Some("edit") => match ids(&reply["task"]["waits"]) {
+            waits if waits.is_empty() => format!("{} waits for nothing: it can start", reply["task"]["id"].as_str().unwrap_or("?")),
+            waits => format!("{} waits for {waits}", reply["task"]["id"].as_str().unwrap_or("?")),
+        },
         Some("start") if reply["resumed"] == Value::Bool(true) => format!("started {} again{}: {}", reply["task"].as_str().unwrap_or("?"), place(reply), reply["pane"].as_str().unwrap_or("?")),
         Some("start") => format!(
             "started {} in the backlog: {} in {}{}",
@@ -168,7 +183,7 @@ pub fn task(request: &Value, reply: &Value) -> String {
             tilde(reply["folder"].as_str().unwrap_or("?")),
             reply["branch"].as_str().map_or(String::new(), |b| format!(" ({b})"))
         ),
-        Some("done") if reply.get("closed").is_none() => format!("took {} off the backlog", reply["task"]["id"].as_str().unwrap_or("?")),
+        Some("done") if reply.get("closed").is_none() => format!("took {} off the backlog{}", reply["task"]["id"].as_str().unwrap_or("?"), freed_lines(reply)),
         Some("desk") => format!("opened {} on {}", reply["window"].as_str().unwrap_or("?"), tilde(reply["project"].as_str().unwrap_or("?"))),
         Some("defer") => format!(
             "moved {} to the backlog as {}, {}: shelve it to bring it back",
@@ -177,9 +192,27 @@ pub fn task(request: &Value, reply: &Value) -> String {
             if reply["running"] == Value::Bool(false) { "stopped" } else { "still running" }
         ),
         Some("name") => format!("named {} \"{}\"", request["pane"].as_str().unwrap_or("?"), request["name"].as_str().unwrap_or("")),
-        Some("done") => format!("{} is done: closed {}", request["task"].as_str().unwrap_or("?"), join(&reply["closed"])),
+        Some("done") => format!("{} is done: closed {}{}", request["task"].as_str().unwrap_or("?"), join(&reply["closed"]), freed_lines(reply)),
         _ => String::new(),
     }
+}
+
+fn ids(list: &Value) -> String {
+    list.as_array().map_or(vec![], |l| l.iter().filter_map(|w| w["id"].as_str()).collect::<Vec<_>>()).join(", ")
+}
+
+pub fn freed(backlog: &Value, done: &str) -> Vec<Value> {
+    let tasks = backlog["tasks"].as_array().cloned().unwrap_or_default();
+    tasks
+        .into_iter()
+        .filter(|t| matches!(t["waits"].as_array().map(Vec::as_slice), Some([only]) if only["id"] == done || only["pane"] == done))
+        .map(|t| serde_json::json!({ "id": t["id"], "name": t["name"] }))
+        .collect()
+}
+
+fn freed_lines(reply: &Value) -> String {
+    let freed = reply["freed"].as_array().cloned().unwrap_or_default();
+    freed.iter().map(|t| format!("\n{} \"{}\" can start now: nothing it waits for is left", t["id"].as_str().unwrap_or("?"), t["name"].as_str().unwrap_or(""))).collect()
 }
 
 fn place(reply: &Value) -> &'static str {
@@ -496,5 +529,29 @@ mod status_tests {
             status(&json!({ "action": "explain" }), &reply),
             "p3: claude 2.1.296 (/bin/claude)\nrules: 2026.10.10.1 (bundled)\nstatus: working\nrule: claude/working/title\nmatched: ◐ Claude Code"
         );
+    }
+}
+
+#[cfg(test)]
+mod blocked_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_blocked_task_lists_as_blocked_with_what_it_waits_for_and_done_names_what_it_frees() {
+        let backlog = json!({ "tasks": [
+            { "id": "t13", "name": "Diff viewer", "repo": "/r", "running": false, "waits": [{ "id": "t12", "pane": "p40" }] },
+            { "id": "t14", "name": "Release notes", "repo": "/r", "running": false, "waits": [{ "id": "t8" }, { "id": "t12", "pane": "p40" }] },
+            { "id": "t15", "name": "Free", "repo": "/r", "running": false, "waits": [] }
+        ] });
+        let text = task(&json!({ "action": "list" }), &json!({ "tasks": [], "backlog": backlog["tasks"] }));
+        assert!(text.contains("t13   Diff viewer    Backlog  blocked") && text.contains("waits for t12"), "{text}");
+        assert!(text.contains("waits for t8, t12"), "{text}");
+        assert!(text.contains("t15   Free           Backlog  stopped"), "{text}");
+        assert_eq!(freed(&backlog, "p40"), vec![json!({ "id": "t13", "name": "Diff viewer" })], "by its pane, and only where it was the last blocker");
+        assert_eq!(freed(&backlog, "t12").len(), 1);
+        let done = task(&json!({ "action": "done", "task": "p40" }), &json!({ "closed": ["p40"], "freed": freed(&backlog, "p40") }));
+        assert_eq!(done, "p40 is done: closed p40\nt13 \"Diff viewer\" can start now: nothing it waits for is left");
+        assert_eq!(task(&json!({ "action": "edit" }), &json!({ "task": { "id": "t14", "waits": [] } })), "t14 waits for nothing: it can start");
     }
 }
