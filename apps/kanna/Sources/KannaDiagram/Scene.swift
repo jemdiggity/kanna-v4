@@ -24,9 +24,17 @@ public struct DiagramScene {
         var size: CGFloat = 16
         var color: Paint = .role(.text)
         var bold = false
+        var italic = false
         var htmlLike = true
         var alignment: NSTextAlignment = .center
         var fixedSize = false
+        var angle: CGFloat = 0
+
+        var drawnBounds: CGRect {
+            guard angle != 0 else { return rect }
+            let turn = CGAffineTransform(translationX: rect.midX, y: rect.midY).rotated(by: angle).translatedBy(x: -rect.midX, y: -rect.midY)
+            return rect.applying(turn)
+        }
     }
 
     mutating func fit(margin: CGFloat = 8) {
@@ -38,7 +46,7 @@ public struct DiagramScene {
                 guard !box.isNull, box.width.isFinite, box.height.isFinite else { continue }
                 bounds = bounds.union(box.insetBy(dx: -shape.lineWidth - (shape.shadow ? 4 : 0), dy: -shape.lineWidth - (shape.shadow ? 4 : 0)))
             case .text(let label):
-                bounds = bounds.union(label.rect)
+                bounds = bounds.union(label.drawnBounds)
             }
         }
         guard !bounds.isNull else { return }
@@ -62,10 +70,11 @@ public struct DiagramScene {
         items.append(.shape(Shape(path: path, fill: fill, stroke: stroke, lineWidth: lineWidth, dash: dash, shadow: shadow)))
     }
 
-    mutating func text(_ text: String, in rect: CGRect, size: CGFloat = 14, color: Paint = .role(.text), bold: Bool = false,
-                       htmlLike: Bool = true, alignment: NSTextAlignment = .center, fixedSize: Bool = false) {
+    mutating func text(_ text: String, in rect: CGRect, size: CGFloat = 14, color: Paint = .role(.text), bold: Bool = false, italic: Bool = false,
+                       htmlLike: Bool = true, alignment: NSTextAlignment = .center, fixedSize: Bool = false, angle: CGFloat = 0) {
         guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        items.append(.text(Label(text: text, rect: rect, size: size, color: color, bold: bold, htmlLike: htmlLike, alignment: alignment, fixedSize: fixedSize)))
+        items.append(.text(Label(text: text, rect: rect, size: size, color: color, bold: bold, italic: italic, htmlLike: htmlLike, alignment: alignment,
+                                 fixedSize: fixedSize, angle: angle)))
     }
 }
 
@@ -77,6 +86,9 @@ enum Paint {
 enum Role {
     case text, line, nodeFill, nodeStroke, clusterFill, clusterStroke, labelBackground, noteFill, noteStroke,
          actorFill, actorStroke, lifeline, frameStroke, frameLabelFill, activationFill, activationStroke, startFill, numberText, shadow
+    case classFill(Int), classStroke(Int)
+    case branch(Int), branchText(Int), branchHighlight(Int)
+    case branchLine, commitLabelFill, commitInner, tagFill, tagStroke
 }
 
 struct Palette {
@@ -105,8 +117,38 @@ struct Palette {
         case .startFill: (light, night) = (0x28253d, 0xd4d2e0)
         case .numberText: (light, night) = (0xffffff, 0x1e1d26)
         case .shadow: (light, night) = (0x000000, 0x000000); alpha = dark ? 0.5 : 0.18
+        case .classStroke(let i): (light, night) = (Self.classColors[i % 12].stroke, Self.classColors[i % 12].stroke)
+        case .classFill(let i):
+            let stroke = Self.classColors[i % 12].stroke
+            (light, night) = (Self.classColors[i % 12].fill, Self.mix(stroke, over: 0x1e1d26, 0.16))
+        case .branch(let i): (light, night) = (Self.branchColors[i % 8].light, Self.branchColors[i % 8].dark)
+        case .branchText(let i): (light, night) = ([0, 3].contains(i % 8) ? 0xffffff : 0x000000, [0, 3].contains(i % 8) ? 0xffffff : 0x000000)
+        case .branchHighlight(let i): (light, night) = (Self.branchColors[i % 8].highlight, Self.branchColors[i % 8].darkHighlight)
+        case .branchLine: (light, night) = (0x333333, 0x8a8898)
+        case .commitLabelFill: (light, night) = (0xffffde, 0x3a3820); alpha = dark ? 0.7 : 0.5
+        case .commitInner: (light, night) = (0xececff, 0x1e1d26)
+        case .tagFill: (light, night) = (0xececff, 0x2e2d45)
+        case .tagStroke: (light, night) = (0xc8c8f0, 0x6a68a0)
         }
         return hex(dark ? night : light, alpha)
+    }
+
+    static let classColors: [(stroke: UInt32, fill: UInt32)] = [
+        (0xe879f9, 0xfdf4ff), (0x2dd4bf, 0xf0fdfa), (0xfb923c, 0xfff7ed), (0x22d3ee, 0xecfeff), (0x4ade80, 0xf0fdf4), (0xa78bfa, 0xf5f3ff),
+        (0xf87171, 0xfef2f2), (0xfacc15, 0xfefce8), (0x818cf8, 0xeef2ff), (0xa3e635, 0xf7fee7), (0x38bdf8, 0xf0f9ff), (0xfb7185, 0xfff1f2),
+    ]
+
+    static let branchColors: [(light: UInt32, dark: UInt32, highlight: UInt32, darkHighlight: UInt32)] = [
+        (0x0000ec, 0x5555ff, 0x131300, 0xd8d860), (0xdede00, 0xd4d400, 0x0000a1, 0x6060ff), (0x9dec00, 0x9dec00, 0x310093, 0x9a60ff),
+        (0x0076ec, 0x3399ff, 0x934900, 0xff9a40), (0x00ecec, 0x00d4d4, 0x930000, 0xff6060), (0x00ec76, 0x00d46a, 0x930049, 0xff60a0),
+        (0xec00ec, 0xe040e0, 0x009300, 0x40d040), (0xec0000, 0xf04040, 0x009393, 0x40d0d0),
+    ]
+
+    static func mix(_ top: UInt32, over bottom: UInt32, _ amount: Double) -> UInt32 {
+        [16, 8, 0].reduce(0) { value, shift in
+            let a = Double(top >> UInt32(shift) & 0xff), b = Double(bottom >> UInt32(shift) & 0xff)
+            return value | UInt32((a * amount + b * (1 - amount)).rounded()) << UInt32(shift)
+        }
     }
 
     func resolve(_ paint: Paint) -> CGColor {

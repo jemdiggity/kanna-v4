@@ -56,6 +56,7 @@ Derived from kmux:
   From kmux 1f05ccb, with comments removed:
   apps/kanna/Sources/KannaDiagram
       From apps/kmux/Sources/KmuxDiagram; merman's module is KannaMerman.
+      At kmux 39abfb9, with class diagrams and git graphs.
   apps/kanna/Sources/KannaMarkdown
       From apps/kmux/Sources/KmuxMarkdown; its attributes are kanna.*.
   apps/kanna/Sources/SimBridge
