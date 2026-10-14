@@ -31,8 +31,6 @@ pub struct Entry {
     /// The agent's pane of a task moved back to the backlog, still running, which comes back when it starts again.
     pub held: Option<String>,
     pub after: Vec<String>,
-    pub on: Option<String>,
-    pub base: Option<String>,
 }
 
 impl Entry {
@@ -49,7 +47,6 @@ impl Entry {
             "session": opt(self.session.as_deref()),
             "held": opt(self.held.as_deref()),
             "after": self.after,
-            "on": opt(self.on.as_deref()),
         })
     }
 
@@ -68,8 +65,6 @@ impl Entry {
                 "folder": opt(self.folder.as_deref()),
                 "session": opt(self.session.as_deref()),
                 "after": self.after,
-                "on": opt(self.on.as_deref()),
-                "base": opt(self.base.as_deref()),
             }),
         }
     }
@@ -88,8 +83,6 @@ impl Entry {
             session: text("session"),
             held: row.pane.clone().filter(|_| row.place == Place::Backlog),
             after: row.doc.get("after").and_then(Value::as_array).map_or(vec![], |ids| ids.iter().filter_map(Value::as_str).map(String::from).collect()),
-            on: text("on"),
-            base: text("base"),
         }
     }
 
@@ -361,15 +354,6 @@ fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
-fn branch_of(folder: &Path) -> Option<String> {
-    let branch = git(folder, &["branch", "--show-current"]).ok().filter(|b| !b.is_empty());
-    branch.or_else(|| git(folder, &["rev-parse", "HEAD"]).ok())
-}
-
-fn behind(folder: &Path, base: &str) -> Option<u64> {
-    git(folder, &["rev-list", "--count", &format!("HEAD..{base}")]).ok()?.parse().ok()
-}
-
 /// A random (v4) UUID, in hex.
 fn uuid() -> Result<String, String> {
     let mut uuid = [0u8; 16];
@@ -388,7 +372,7 @@ fn worktree_name() -> Result<String, String> {
 /// Makes a worktree in `.kanna-worktrees/NAME` on a new branch NAME, and returns its folder and branch.
 /// NAME is fresh for each worktree; the task's agent renames the branch once it knows what the work is.
 /// In a repo with no commits yet, the branch starts empty (an orphan), so its first commit is the project's.
-pub fn make_worktree(repo: &Path, from: Option<&str>) -> Result<(String, String), String> {
+pub fn make_worktree(repo: &Path) -> Result<(String, String), String> {
     let git = |args: &[&str]| git(repo, args);
     git(&["rev-parse", "--show-toplevel"]).map_err(|_| format!("{} isn't a git repo", repo.display()))?;
     let born = git(&["rev-parse", "--verify", "--quiet", "HEAD"]).is_ok();
@@ -409,9 +393,7 @@ pub fn make_worktree(repo: &Path, from: Option<&str>) -> Result<(String, String)
             continue;
         }
         let folder = folder.to_string_lossy().to_string();
-        if let Some(from) = from {
-            git(&["worktree", "add", "-b", &branch, &folder, from])?;
-        } else if born {
+        if born {
             git(&["worktree", "add", "-b", &branch, &folder])?;
         } else {
             git(&["worktree", "add", "--orphan", "-b", &branch, &folder])?;
@@ -495,10 +477,8 @@ impl Backlog {
     }
 
     pub fn view(&self) -> Value {
-        let tasks = self.entries.borrow().clone().iter().map(|e| self.described(e, false)).collect();
-        let running = self.running.borrow().clone();
-        let stacks = running.iter().filter_map(|r| Some(json!({ "pane": r.pane, "id": r.entry.id, "base": self.base_info(r.entry.on.as_deref()?) }))).collect();
-        json!({ "tasks": Value::Array(tasks), "stacks": Value::Array(stacks) })
+        let tasks = self.entries.borrow().clone().iter().map(|e| self.described(e)).collect();
+        json!({ "tasks": Value::Array(tasks) })
     }
 
     fn resolve(&self, reference: &str) -> Option<String> {
@@ -551,38 +531,15 @@ impl Backlog {
         false
     }
 
-    fn base_info(&self, on: &str) -> Value {
-        let found = self.known(on);
-        let started = found.as_ref().is_some_and(|f| f.folder.is_some());
-        let folder = found.as_ref().and_then(|f| f.folder.clone()).filter(|f| Path::new(f).is_dir());
-        let branch = folder.as_deref().and_then(|f| branch_of(Path::new(f)));
-        json!({
-            "id": on,
-            "name": opt(found.and_then(|f| f.name).as_deref()),
-            "pane": opt(self.pane_of(on).as_deref()),
-            "folder": opt(folder.as_deref()),
-            "branch": opt(branch.as_deref()),
-            "started": started,
-            "done": !self.is_open(on),
-        })
-    }
-
-    fn described(&self, entry: &Entry, count: bool) -> Value {
+    fn described(&self, entry: &Entry) -> Value {
         let mut value = entry.to_value();
         let waits = self.waits(entry).iter().map(|id| json!({ "id": id, "name": opt(self.known(id).and_then(|e| e.name).as_deref()), "pane": opt(self.pane_of(id).as_deref()) })).collect();
         value["waits"] = Value::Array(waits);
-        if let Some(on) = &entry.on {
-            let mut base = self.base_info(on);
-            if let (true, Some(folder), Some(branch)) = (count, &entry.folder, string(&base, "branch").map(String::from)) {
-                base["new"] = behind(Path::new(folder), &branch).map_or(Value::Null, |n| json!(n));
-            }
-            value["base"] = base;
-        }
         value
     }
 
-    fn deps(&self, args: &Value, me: &str) -> Result<(Option<Vec<String>>, Option<Option<String>>), KmuxError> {
-        let after = match args.get("after") {
+    fn blockers(&self, args: &Value, me: &str) -> Result<Option<Vec<String>>, KmuxError> {
+        Ok(match args.get("after") {
             None | Some(Value::Null) => None,
             Some(Value::Array(list)) => {
                 let mut ids: Vec<String> = vec![];
@@ -601,20 +558,7 @@ impl Backlog {
                 Some(ids)
             }
             Some(_) => return Err(bad("after is a list of tasks")),
-        };
-        let on = match args.get("on") {
-            None => None,
-            Some(Value::Null) => Some(None),
-            Some(Value::String(reference)) => {
-                let id = self.resolve(reference).ok_or_else(|| not_found(reference))?;
-                if id == me {
-                    return Err(bad("a task can't stack on itself"));
-                }
-                Some(Some(id))
-            }
-            Some(_) => return Err(bad("on is a task")),
-        };
-        Ok((after, on))
+        })
     }
 
     fn ready(&self, entry: &Entry) -> Result<(), KmuxError> {
@@ -627,18 +571,7 @@ impl Backlog {
             let them = if waits.len() > 1 { "they're" } else { "it's" };
             return Err(KmuxError::new("blocked", format!("{} waits for {}: it can start once {them} done", entry.id, names.join(", "))));
         }
-        if let Some(on) = &entry.on {
-            if self.known(on).is_some_and(|base| base.folder.is_none()) {
-                return Err(KmuxError::new("base_not_started", format!("{} stacks on {}, which hasn't started, so it has no branch yet: start {on} first", entry.id, self.label(on))));
-            }
-        }
         Ok(())
-    }
-
-    fn stacked(&self, entry: &Entry) -> Value {
-        let Some(on) = &entry.on else { return Value::Null };
-        let branch = entry.base.as_deref().filter(|f| Path::new(f).is_dir()).and_then(|f| branch_of(Path::new(f)));
-        json!({ "task": on, "branch": opt(branch.as_deref()) })
     }
 
     fn edit(&self, args: &Value) -> Result<Map, KmuxError> {
@@ -649,19 +582,10 @@ impl Backlog {
         if entry.folder.is_some() {
             return Err(KmuxError::new("started", format!("{reference} has started: its branch is made, and nothing holds it back now")));
         }
-        let (after, on) = self.deps(args, &entry.id)?;
-        if after.is_none() && on.is_none() {
-            return Err(bad("say what to change: after, on, or both"));
-        }
-        if let Some(after) = after {
-            entry.after = after;
-        }
-        if let Some(on) = on {
-            entry.on = on;
-        }
-        let change = Change::new("edited").by(who(args)).with("after", json!(entry.after)).with("on", opt(entry.on.as_deref()));
+        entry.after = self.blockers(args, &entry.id)?.ok_or_else(|| bad("say what it waits for: after"))?;
+        let change = Change::new("edited").by(who(args)).with("after", json!(entry.after));
         self.store(&entry, Place::Backlog, entry.held.as_deref(), Some(change))?;
-        let value = self.described(&entry, false);
+        let value = self.described(&entry);
         if let Some(found) = self.entries.borrow_mut().iter_mut().find(|e| e.id == entry.id) {
             *found = entry;
         }
@@ -849,10 +773,10 @@ impl Backlog {
     fn add(&self, args: &Value) -> Result<Map, KmuxError> {
         let name = string(args, "name").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad("a task needs a name"))?.to_string();
         let message = string(args, "message").map(str::trim).filter(|m| !m.is_empty()).map(String::from);
-        let (after, on) = self.deps(args, "")?;
-        let entry = Entry { after: after.unwrap_or_default(), on: on.flatten(), ..self.mint(args, Some(name), message)? };
+        let after = self.blockers(args, "")?.unwrap_or_default();
+        let entry = Entry { after, ..self.mint(args, Some(name), message)? };
         self.store(&entry, Place::Backlog, None, Some(Change { to: Some(Place::Backlog), ..Change::new("made") }.by(entry.by.as_deref().or(who(args)))))?;
-        let value = self.described(&entry, false);
+        let value = self.described(&entry);
         self.entries.borrow_mut().push(entry);
         self.changed();
         Ok(Map::from_iter([("task".to_string(), value)]))
@@ -866,23 +790,14 @@ impl Backlog {
             .iter()
             .filter(|e| repo.is_none_or(|r| e.repo == r))
             .map(|e| {
-                let mut value = self.described(e, true);
+                let mut value = self.described(e);
                 let pane = e.held.as_deref().zip(core.as_ref()).and_then(|(pane, core)| core.pane(pane).map(|p| (alive(core, pane), p)));
                 value["running"] = json!(pane.as_ref().is_some_and(|(running, _)| *running));
                 value["status"] = opt(pane.as_ref().and_then(|(_, p)| p.status()));
                 value
             })
             .collect();
-        let running = self.running.borrow().clone();
-        let stacks = running
-            .iter()
-            .filter(|r| repo.is_none_or(|repo| r.entry.repo == repo))
-            .filter_map(|r| {
-                r.entry.on.as_ref()?;
-                Some(json!({ "pane": r.pane, "id": r.entry.id, "base": self.described(&r.entry, true)["base"] }))
-            })
-            .collect();
-        Map::from_iter([("tasks".to_string(), Value::Array(tasks)), ("stacks".to_string(), Value::Array(stacks))])
+        Map::from_iter([("tasks".to_string(), Value::Array(tasks))])
     }
 
     fn take(&self, id: &str) -> Option<Entry> {
@@ -1082,15 +997,12 @@ impl Backlog {
             }
             (entry.folder, entry.session) = (None, None);
         }
-        let base = entry.on.as_deref().and_then(|on| self.known(on)).and_then(|base| base.folder).filter(|f| Path::new(f).is_dir());
-        let from = base.as_deref().and_then(|f| branch_of(Path::new(f)));
-        entry.base = base.filter(|_| from.is_some());
         let token = self.next.get() + 1;
         self.next.set(token);
         let (repo, events) = (PathBuf::from(&entry.repo), self.events.clone());
         self.pending.borrow_mut().insert(token, Starting { entry, window, backlog, by, responder });
         std::thread::spawn(move || {
-            let result = make_worktree(&repo, from.as_deref());
+            let result = make_worktree(&repo);
             let _ = events.send(Event::Worktree { token, result });
         });
     }
@@ -1220,7 +1132,6 @@ impl Backlog {
             ("place".to_string(), json!("backlog")),
             ("folder".to_string(), json!(ran.folder)),
             ("branch".to_string(), json!(branch)),
-            ("on".to_string(), self.stacked(&ran)),
         ]);
         let entry = Entry { held: Some(pane.clone()), ..ran };
         let saved = self.store(&entry, Place::Backlog, Some(&pane), Some(Change::new("started").by(by.as_deref())));
@@ -1239,7 +1150,6 @@ impl Backlog {
             ("pane".to_string(), json!(pane)),
             ("folder".to_string(), json!(ran.folder)),
             ("branch".to_string(), json!(branch)),
-            ("on".to_string(), self.stacked(&ran)),
         ]);
         let saved = self.store(&ran, Place::Shelf, Some(&pane), Some(Change::new("shelved").moved(Place::Backlog, Place::Shelf).by(by.as_deref())));
         self.record(&pane, ran, Place::Shelf);
@@ -1635,7 +1545,7 @@ mod tests {
 
     #[test]
     fn entries_round_trip_through_the_db() {
-        let entry = Entry { id: "t7".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into(), folder: Some("/r/.kanna-worktrees/task-1".into()), session: Some("s".into()), held: Some("p3".into()), after: vec!["t2".into()], on: Some("t3".into()), base: Some("/r/.kanna-worktrees/task-0".into()) };
+        let entry = Entry { id: "t7".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into(), folder: Some("/r/.kanna-worktrees/task-1".into()), session: Some("s".into()), held: Some("p3".into()), after: vec!["t2".into()] };
         assert_eq!(Entry::from_row(&entry.row(Place::Backlog, Some("p3"))), entry);
         assert_eq!(Entry::from_row(&entry.row(Place::Shelf, Some("p3"))).held, None, "a task on the Shelf isn't held");
     }
@@ -1648,7 +1558,7 @@ mod tests {
         let git = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(&dir).args(args).output().unwrap().status.success(), "git {args:?}");
         git(&["init", "-q", "-b", "main"]);
         git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "first"]);
-        let (folder, branch) = make_worktree(&dir, None).unwrap();
+        let (folder, branch) = make_worktree(&dir).unwrap();
         let name = folder.rsplit('/').next().unwrap().to_string();
         let hex = name.strip_prefix("task-").unwrap_or_else(|| panic!("{name}"));
         assert!(hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{name}");
@@ -1665,7 +1575,7 @@ mod tests {
         let marker = dir.join("hooked");
         fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
         fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        let (other, _) = make_worktree(&dir, None).unwrap();
+        let (other, _) = make_worktree(&dir).unwrap();
         assert_ne!(other, folder);
         assert!(!marker.exists(), "a repo's hooks ran");
         let exclude = fs::read_to_string(dir.join(".git/info/exclude")).unwrap();
@@ -1710,45 +1620,21 @@ mod tests {
         let made = |args: Value| backlog.add(&args).map(|m| string(&m["task"], "id").unwrap().to_string());
         let first = made(json!({ "repo": repo, "name": "First" })).unwrap();
         let second = made(json!({ "repo": repo, "name": "Second", "after": [first] })).unwrap();
-        let third = made(json!({ "repo": repo, "name": "Third", "after": [second], "on": first })).unwrap();
+        let third = made(json!({ "repo": repo, "name": "Third", "after": [second] })).unwrap();
         let entry = |id: &str| backlog.entries.borrow().iter().find(|e| e.id == id).cloned().unwrap();
         assert_eq!(backlog.ready(&entry(&second)).unwrap_err().code, "blocked");
-        backlog.edit(&json!({ "task": third, "after": [] })).unwrap();
-        assert_eq!(backlog.ready(&entry(&third)).unwrap_err().code, "base_not_started", "a base with no branch yet");
-        backlog.edit(&json!({ "task": third, "after": [second] })).unwrap();
         assert_eq!(backlog.edit(&json!({ "task": first, "after": [third] })).unwrap_err().code, "cycle");
         assert!(made(json!({ "repo": repo, "name": "Fourth", "after": ["t99"] })).is_err(), "an unknown blocker");
         let gone = backlog.take(&first).unwrap();
         backlog.store(&gone, Place::Done, None, None).unwrap();
         assert!(backlog.ready(&entry(&second)).is_ok(), "its blocker is done");
         assert!(made(json!({ "repo": repo, "name": "Fifth", "after": [first] })).is_err(), "a done task holds nothing back");
-        backlog.edit(&json!({ "task": third, "after": [], "on": null })).unwrap();
-        assert_eq!((entry(&third).after, entry(&third).on), (vec![], None));
+        backlog.edit(&json!({ "task": third, "after": [] })).unwrap();
+        assert!(entry(&third).after.is_empty());
+        assert!(backlog.ready(&entry(&third)).is_ok(), "a task with its blockers taken off can start");
         let again = Backlog::open(Rc::new(Db::open(&state)), &state, core.weak(), std::sync::mpsc::channel().0);
         assert_eq!(again.entries.borrow().iter().find(|e| e.id == second).unwrap().after, vec![first.clone()], "blockers survive a restart");
         fs::remove_dir_all(&state).unwrap();
-    }
-
-    #[test]
-    fn a_stacked_worktree_starts_on_its_base_s_branch() {
-        let dir = std::env::temp_dir().join(format!("kanna-stacked-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let git = |at: &Path, args: &[&str]| assert!(Command::new("git").arg("-C").arg(at).args(["-c", "user.name=k", "-c", "user.email=k@k"]).args(args).status().unwrap().success());
-        git(&dir, &["init", "-q"]);
-        git(&dir, &["commit", "-q", "--allow-empty", "-m", "first"]);
-        let (base, _) = make_worktree(&dir, None).unwrap();
-        git(Path::new(&base), &["branch", "-m", "screenshot-command"]);
-        git(Path::new(&base), &["commit", "-q", "--allow-empty", "-m", "screenshots"]);
-        let from = branch_of(Path::new(&base)).unwrap();
-        assert_eq!(from, "screenshot-command", "the base's branch, renamed, is found through its worktree");
-        let (stacked, _) = make_worktree(&dir, Some(&from)).unwrap();
-        let log = |at: &str| String::from_utf8(Command::new("git").arg("-C").arg(at).args(["log", "--format=%s"]).output().unwrap().stdout).unwrap();
-        assert_eq!(log(&stacked), "screenshots\nfirst\n");
-        assert_eq!(behind(Path::new(&stacked), &from), Some(0));
-        git(Path::new(&base), &["commit", "-q", "--allow-empty", "-m", "more"]);
-        assert_eq!(behind(Path::new(&stacked), &from), Some(1), "the base moved on");
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -1757,15 +1643,15 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let dir = dir.canonicalize().unwrap();
-        assert!(make_worktree(&dir, None).unwrap_err().contains("isn't a git repo"));
+        assert!(make_worktree(&dir).unwrap_err().contains("isn't a git repo"));
         assert!(!dir.join(".git").exists(), "Kanna made a repo");
         assert!(Command::new("git").arg("-C").arg(&dir).args(["init", "-q"]).status().unwrap().success());
-        let (folder, branch) = make_worktree(&dir, None).unwrap();
+        let (folder, branch) = make_worktree(&dir).unwrap();
         let run = |at: &str, args: &[&str]| Command::new("git").arg("-C").arg(at).args(args).output().unwrap();
         assert_eq!(String::from_utf8_lossy(&run(&folder, &["branch", "--show-current"]).stdout).trim(), branch);
         assert!(!run(&folder, &["rev-parse", "--verify", "HEAD"]).status.success(), "a commit was made for the user");
         assert_eq!(String::from_utf8_lossy(&run(dir.to_str().unwrap(), &["status", "--porcelain"]).stdout), "");
-        let (other, _) = make_worktree(&dir, None).unwrap();
+        let (other, _) = make_worktree(&dir).unwrap();
         assert_ne!(other, folder);
         fs::remove_dir_all(&dir).unwrap();
     }
