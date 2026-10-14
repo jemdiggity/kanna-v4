@@ -49,12 +49,8 @@ stateDiagram-v2
 - **By an agent:** `kanna task new "NAME" "FIRST MESSAGE"` adds a task to the backlog of the repo it runs in. The **planning agent**, the one Kanna starts in a window's [planning terminal](planning-agent.md), makes them as you plan with it, and a task's agent splitting off its own work does too.
 - **By you, by hand:** the same `kanna task new` in the repo, in any terminal.
 - **Only these two.** The app never starts a blank task: every task is made with the CLI or by an agent, and started from the backlog (Move to Shelf, or `kanna task start` to run it there). There's no Start a task button or menu item.
-- **A window with nothing in it** starts on the Shelf with its planning terminal (pictured above): in the folder Kanna was started in when Kanna opens with nothing, and in your home folder for File → New Desk. Kanna starts the planning agent there ([planning agent](planning-agent.md#2-what-it-is)).
-- **File → New Desk (⌘N) opens a Desk for another project:** a new Desk window in the same Kanna, with nothing docked and its planning terminal in `~`, as `kanna ~` would. `cd` it into the project and the Shelf follows; start your planning agent there. There's no folder picker, and the title bar says Shelf as on any empty Desk. ⌘N always means New Desk; New Window (a plain terminal window) keeps its menu item, without a shortcut.
-
-  ![File → New Desk: a Desk in ~, nothing on its Shelf yet](desk-new.png)
+- **A window with nothing in it** starts on the Shelf with its planning terminal (pictured above), where Kanna starts the planning agent: when Kanna opens with nothing, on File → New Desk (⌘N, in `~`), and on `kanna PATH` ([new Desk](new-desk.md)).
 - **No New Instance.** kmux's Kanna → New Instance (a whole second Kanna with its own daemon, keeper and state) isn't in Kanna's menu: working on another project is what a Desk is for. Instances stay as a developer and testing tool (dev builds, `kanna --instance`), not a user feature ([build channels](build-channels.md)).
-- **`kanna PATH` opens a Desk on a project:** a new window on the project PATH is in, with nothing docked: its planning terminal (in PATH) beside the project's Shelf and backlog, taking none of its three running slots. The window keeps the project across a relaunch, until a task from another project is pulled onto it.
 - **A new or empty project** (an empty folder, or not a git repo yet): the planning agent helps you decide what it is, sets it up (`git init` and a first commit only when you agree), and turns the plan into backlog tasks, with Kanna's `kanna-new-project` skill.
 
 ## 3. The backlog
@@ -131,7 +127,7 @@ flowchart TB
 ```
 
 - **The daemon keeps the backlog** in `kanna.db` ([database](database.md)), with every task from made to done and each change of its place or state as an event, so agents add tasks with or without the app.
-- **The daemon opens planning terminals** (`backlog` `plan`): it makes the script (`KANNA_PLANNER`, the context limit, agent setup, `planner.sh`, then your shell) and opens it as the window's planner in its folder ([planning agent](planning-agent.md#5-how-its-built)).
+- **The daemon opens planning terminals** (`backlog` `plan`): it makes the command (the context limit, agent setup, the planner script, then your shell) and opens it as the window's planner in its folder ([new Desk](new-desk.md#3-how-its-built)).
 - **A running task is its docked agent pane**, as on the [Desk](desk.md): its name is the pane's name, its repo the pane's folder.
 - **Only a task's agent docks.** `kanna move PANE --dock` refuses any pane that isn't docked (`not_a_task`), so a task starts only by starting one and the limit holds.
 - **A task's agent is frozen** ([docked pane](docked-pane.md#2-rules)): the daemon opens it with `open --dock --frozen`, so it stays in its dock, and nothing is dropped, swapped or docked in its place, which would make another pane the task.

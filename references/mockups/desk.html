@@ -398,7 +398,7 @@ function plannerRun(t, agent, greet) {
   if (!greet) return;
   const r = inRepo(t.repo), b = backlog(t.repo);
   t.log.push(`<span class="p">&gt;</span> ${ROLE}`, ``,
-    `<span class="m">●</span> ${t.repo === "~" ? "You're in your home folder, which isn't a project. Which project are we planning? I'll cd there, or help you start a new one." : `In ${esc(short(t.repo))}: ${r.length ? `${r.length} running (${r.map(x => esc(x.title || "New task") + ", " + statusText[x.status]).join("; ")})` : "nothing running"}, ${b.length} waiting in the backlog. What are we working on?`}`);
+    `<span class="m">●</span> ${t.repo === "~" ? "You're in your home folder, not a project. Which project are we planning, or shall we start a new one?" : `In ${esc(short(t.repo))}: ${r.length ? `${r.length} running (${r.map(x => esc(x.title || "New task") + ", " + statusText[x.status]).join("; ")})` : "nothing running"}, ${b.length} waiting in the backlog. What are we working on?`}`);
 }
 function plannerAnswer(t, line) {
   const a = line.trim();
@@ -878,7 +878,7 @@ if (location.hash.includes("quit")) { planners(); const p = s.windows[0].planner
 if (location.hash.includes("zoom")) { if (task(s.windows[0].desk)) task(s.windows[0].desk).zoom = true; else { planners(); s.windows[0].planner.zoom = true; } }
 const asked = location.hash.match(/q=([^&]*)/);
 if (asked) { s.windows[0].query = decodeURIComponent(asked[1]); s.finding = "w1"; }
-if (location.hash.includes("new")) { fresh(); s.windows[0].repo = "~"; }
+if (location.hash.includes("new")) { fresh(); s.windows[0].repo = "~"; if (location.hash.includes("pick")) { planners(); plannerAnswer(s.windows[0].planner, "1"); } }
 if (location.hash.includes("needs")) { task("p4").status = "needs"; task("p4").needsAt = Date.now(); }
 setInterval(() => { if (!drag && !document.activeElement?.closest?.("[data-cmd]")) render(); }, 30000);
 render();

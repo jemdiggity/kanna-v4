@@ -42,7 +42,7 @@ flowchart LR
 | Key | Default | Does |
 |---|---|---|
 | `version` | `1` | The settings format the file is written for |
-| `planning.agent` | none: asked | The agent a new Desk's planning terminal starts as a [planning agent](planning-agent.md#2-what-it-is), a name from the agents Kanna knows (`claude`, `codex`, …). Unset, each new Desk asks (unless one agent is installed) and offers to write your answer to the repo's file. |
+| `planning.agent` | none: asked | The agent a new Desk's planning terminal starts as a [planning agent](planning-agent.md#2-what-it-is), a name from the agents Kanna knows (`claude`, `codex`, …). Unset, each [new Desk](new-desk.md) asks (unless one agent is installed) and offers to write your answer to the repo's file. |
 | `planning.context` | `300000` | Tokens a claude agent's context grows to in a [planning terminal](planning-agent.md) before it compacts, from 100000 to 1000000, or `"auto"` for claude's own. A long-lived agent works better kept small (context rot). The terminal sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, unless your environment already does. Other agents keep their own limit (codex's is already shorter); each gets this setting as Kanna supports it. |
 
 ## 4. How it's built
