@@ -236,7 +236,7 @@ function offer() {
 }
 
 function chat() {
-  const out = [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude "You are the Kanna quiz agent, on main: quiz me on what landed on main."`, ``];
+  const out = [`<span class="c">kanna-v4</span> <span class="p">❯</span> claude --dangerously-skip-permissions "You are the Kanna quiz agent, on main: quiz me on what landed on main."`, ``];
   if (s.step === "prep") {
     out.push(tool("git log --stat main --since=1.day", "3 commits · 14 files changed, 1210 insertions(+), 96 deletions(-)"), say("Reading what landed since yesterday: agent setup, <code>kanna agents</code>, and Codex's <code>--no-daemon</code>. First question in a moment."), ``, `<span class="spin">✻</span> <span class="g">Reading crates/kanna-daemon/src/agents.rs… 0:12</span>`);
     return wrap(out, "");

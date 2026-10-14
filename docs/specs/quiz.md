@@ -101,7 +101,7 @@ sequenceDiagram
 
 - `git log main --since=1.day`. With nothing new, say nothing.
 - Otherwise offer once, in a line: what landed, and "Quiz on today's changes? Five questions, about two minutes."
-- On yes: `kanna focus quiz` if it's open, else `kanna open --window new --name quiz --cwd REPO --cmd 'claude "You are the Kanna quiz agent, on main: quiz me on what landed on main."'`, with the agent you are (Codex: `codex --no-daemon`).
+- On yes: `kanna focus quiz` if it's open, else `kanna open --window new --name quiz --cwd REPO --cmd 'claude --dangerously-skip-permissions "You are the Kanna quiz agent, on main: quiz me on what landed on main."'`, with the agent you are (Codex: `codex --yolo --no-daemon`).
 
 **Asking** starts from that first message ([agent setup](agent-setup.md#2-how-an-agent-knows-its-in-kanna)), which says it's the quiz agent, on main, so the agent doesn't take itself for a task's (and rename main).
 

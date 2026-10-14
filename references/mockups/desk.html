@@ -362,6 +362,7 @@ function agentTerm(t) {
 
 const ROLE = "You are the Kanna planning agent.";
 const KNOWN = ["claude", "codex", "copilot", "opencode", "agy"];
+const START = { claude: "claude --dangerously-skip-permissions", codex: "codex --yolo --no-daemon", copilot: "copilot --yolo -i", opencode: "opencode --prompt", agy: "agy --dangerously-skip-permissions -i" };
 const out = text => `<span class="out">${esc(text)}</span>`;
 const short = repo => repo.replace("~/work/", "");
 const shellPrompt = (t, line) => `<span class="c">${esc(short(t.repo))}</span> <span class="p">❯</span> ${esc(line)}`;
@@ -470,7 +471,7 @@ const saveQuestion = t => `Make ${t.chosen} the planning agent for ${short(t.rep
 function plannerQuit(t) {
   const agent = t.agent;
   t.agent = null;
-  t.log.push(``, out(`The planning agent quit. Start it again: ${agent} ${quote(ROLE)}`));
+  t.log.push(``, out(`The planning agent quit. Start it again: ${START[agent] || agent} ${quote(ROLE)}`));
 }
 
 function plannerShell(t, line) {

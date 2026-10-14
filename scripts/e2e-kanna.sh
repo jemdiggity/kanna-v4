@@ -2222,7 +2222,7 @@ S64() {
   check wait_for 5 shows "$planner" "Make codex the planning agent for repo? \[y/N\]" || { kanna read "$planner"; return 1; }
   kanna send "$planner" y >/dev/null || { echo "S64 line $LINENO"; return 1; }
   check wait_for 5 shows "$planner" "codex plans repo from now on" || { kanna read "$planner"; return 1; }
-  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna" || { echo "S64: codex didn't start as the planner"; kanna read "$planner"; return 1; }
+  check wait_for 10 shows "$planner" "args: --yolo --no-daemon You are the Kanna" || { echo "S64: codex didn't start as the planner"; kanna read "$planner"; return 1; }
   check grep -Eq '"agent" ?: "codex"' "$repo/.kanna/config.json" || { cat "$repo/.kanna/config.json"; return 1; }
   kanna send "$planner" exit >/dev/null || { echo "S64 line $LINENO"; return 1; }
   check wait_for 5 shows "$planner" "The planning agent quit. Start it again:" || { kanna read "$planner"; return 1; }
@@ -2231,7 +2231,7 @@ S64() {
   w="${BASH_REMATCH[1]}"
   check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "S64: the next Desk has no planning terminal"; return 1; }
   planner="$(desk planner "$w")"
-  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna" || { echo "S64: the next Desk didn't start the project's planner"; kanna read "$planner"; return 1; }
+  check wait_for 10 shows "$planner" "args: --yolo --no-daemon You are the Kanna" || { echo "S64: the next Desk didn't start the project's planner"; kanna read "$planner"; return 1; }
   ! shows "$planner" "Choose an agent" || { echo "S64: the next Desk asked again"; return 1; }
   key cmd+n
   check wait_for 10 eval '[[ "$(desk planner w3)" == p* ]]' || { echo "S64: ⌘N opened no Desk"; kanna list; return 1; }
@@ -2239,7 +2239,7 @@ S64() {
   check wait_for 10 shows "$planner" "Folder, repo or name:" || { echo "S64: a Desk in ~ didn't ask where"; kanna read "$planner"; return 1; }
   kanna send "$planner" "$repo" >/dev/null || { echo "S64 line $LINENO"; return 1; }
   check wait_for 10 eval '[[ "$(desk header w3)" == "Planning · "*"${repo#/private} · main" ]]' || { echo "S64: the Desk didn't follow to the folder"; desk header w3; return 1; }
-  check wait_for 10 shows "$planner" "args: --no-daemon You are the Kanna" || { echo "S64: the Desk didn't start the folder's planner"; kanna read "$planner"; return 1; }
+  check wait_for 10 shows "$planner" "args: --yolo --no-daemon You are the Kanna" || { echo "S64: the Desk didn't start the folder's planner"; kanna read "$planner"; return 1; }
 }
 
 S65() {

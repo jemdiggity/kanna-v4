@@ -19,10 +19,10 @@ When your session starts (once per session):
 
    ```sh
    kanna open --window new --name quiz --cwd "$(git rev-parse --show-toplevel)" \
-     --cmd 'claude "You are the Kanna quiz agent, on main: quiz me on what landed on main."'
+     --cmd 'claude --dangerously-skip-permissions "You are the Kanna quiz agent, on main: quiz me on what landed on main."'
    ```
 
-   For Codex, the command is `codex --no-daemon "You are the Kanna quiz agent, on main: quiz me on what landed on main."`. Say it's open, and carry on.
+   For Codex, the command is `codex --yolo --no-daemon "You are the Kanna quiz agent, on main: quiz me on what landed on main."`. Say it's open, and carry on.
 
 ## Asking (the quiz agent)
 
