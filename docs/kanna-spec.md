@@ -419,7 +419,7 @@ sequenceDiagram
 
 **The CLI starts the app** ([plan](plans/mux-build.md) steps 1.4 and B.6). When the daemon answers a command with `no_app` and `KANNA_SOCKET` isn't set, `kanna` starts Kanna.app (`open -n -a $KANNA_APP`; else, for a dev build, its checkout's `target/Kanna.app`; else by its channel's bundle ID, `dev.kanna.app` or `dev.kanna.app.staging`; never the branded kmux `dev.kanna.kanna`; with `KANNA_SOCKET` and `KANNA_STATE_DIR` passed on, in the background with `--bg` or `KANNA_BG=1`), retries the command every 200 ms until the app has attached (a `no_app` answer changes nothing, so the retry is safe), and gives up after 20 s with exit 6. With `KANNA_SOCKET` set (a test, a script, a terminal inside Kanna) it never starts an app: it exits 6 with the daemon's message and "KANNA_SOCKET is set, so kanna doesn't start Kanna.app for it". Without `KANNA_SOCKET`, kanna talks to the daemon of its instance (its build's default, such as `kanna-dev/kanna.sock` in the app support folder; [build channels](specs/build-channels.md)), and when nothing answers there it starts Kanna.app, which starts the daemon ([4.5](#45-the-app-link)), as kmux's CLI starts kmux; the CLI itself never starts a daemon ([4.11](#411-the-kanna-cli)).
 
-**Conformance.** kmux's 46 protocol cases pass three ways: against `kanna-mux` with the model in-process; with the model behind `LayoutOwner`, every step sent as JSON and answered on a later turn (`crates/kanna-mux/tests/protocol_cases.rs`); and through a running daemon, keeper and app link, with a test app answering through `LayoutOwner` (`crates/kanna-daemon/tests/protocol_cases.rs`: all of them since M3, the 13 of docked panes since 4.16, [4.9](#49-web-markdown-and-ios-panes)). The app's own glue is checked by S5 and S9 of `scripts/e2e-kanna.sh` and by `crates/kanna-layout/tests`.
+**Conformance.** kmux's 46 protocol cases pass three ways: against `kanna-mux` with the model in-process; with the model behind `LayoutOwner`, every step sent as JSON and answered on a later turn (`crates/kanna-mux/tests/protocol_cases.rs`); and through a running daemon, keeper and app link, with a test app answering through `LayoutOwner` (`crates/kanna-daemon/tests/protocol_cases.rs`: all of them since M3, the 13 of docked panes since 4.16, [4.9](#49-web-markdown-and-ios-panes)). The app's own glue is checked by `layout_restored` and `cli_starts_app` of `scripts/e2e-kanna.sh` and by `crates/kanna-layout/tests`.
 
 ### 4.8 Restarting the Daemon
 
@@ -481,7 +481,7 @@ sequenceDiagram
 - **Upgrades:** a relaunched app of another build makes the daemon stop as on SIGTERM (`other_build`, [4.5](#45-the-app-link)) and starts its own, which takes everything back as above; a rebuild that didn't change the daemon keeps it running ([daemon build](specs/daemon-build.md)).
 - **The app** sees its link close, keeps trying to reconnect, and on reconnecting says hello and attaches again ([4.5](#45-the-app-link)); the hello reply lists the same IDs, so its layout (in memory and in `layout.json`) still matches and nothing moves ([4.7](#47-the-layout)).
 
-**Checked by** `crates/kanna-daemon/tests/restart.rs` (a running shell keeps its pid and screen, output written while the daemon was down appears, and the app gets all of it on attach; a full-screen program redraws once after SIGWINCH; exits while the daemon is down, with their codes; a SIGKILLed daemon's screens, including output written just before the kill; IDs don't repeat; a pty the disk doesn't know is taken back and a record the keeper doesn't know dropped; a second daemon on the folder is refused; an app of another build stops the daemon and the next keeps its terminals), the store's unit tests, S6 of `scripts/e2e-kanna.sh` (with the app attached: same PIDs, screen and layout, output written meanwhile, the app's view) and S61 (an app replacing a daemon of another build).
+**Checked by** `crates/kanna-daemon/tests/restart.rs` (a running shell keeps its pid and screen, output written while the daemon was down appears, and the app gets all of it on attach; a full-screen program redraws once after SIGWINCH; exits while the daemon is down, with their codes; a SIGKILLed daemon's screens, including output written just before the kill; IDs don't repeat; a pty the disk doesn't know is taken back and a record the keeper doesn't know dropped; a second daemon on the folder is refused; an app of another build stops the daemon and the next keeps its terminals), the store's unit tests, `daemon_restart` of `scripts/e2e-kanna.sh` (with the app attached: same PIDs, screen and layout, output written meanwhile, the app's view) and `daemon_upgrade` (an app replacing a daemon of another build).
 
 ### 4.9 Web, Markdown and iOS Panes
 
@@ -507,7 +507,7 @@ A web, markdown or iOS pane is a view in the app and a record in its layout: a w
 - **kmux's commands for these panes are kmux's:** there is no `web.*` namespace in kmux; `debug.web` (URL and page text), `debug.md` and `debug.ios` are its, and Kanna follows it.
 - **The iOS screen** comes straight from the simulator (Xcode's private CoreSimulator and SimulatorKit frameworks, as kmux); `simctl` boots, installs and launches. A simulator is never shut down by Kanna.
 
-**Conformance.** With this, all of kmux's protocol cases (31 then) also pass through the daemon and the app link (the test app reports every pane running at once). `crates/kanna-daemon/tests/panes.rs` checks lending, clashes, updates, the app's requests, an app that goes away and the answers with no app; S8 of `scripts/e2e-kanna.sh` checks the real views: a page and a markdown file open, `navigate` with history, `list` and `no_app` (exit 6) with the app closed, both back after a relaunch and untouched by a daemon restart, and, when an iPhone simulator is already booted, an iOS pane (Settings) running and reattached after a relaunch.
+**Conformance.** With this, all of kmux's protocol cases (31 then) also pass through the daemon and the app link (the test app reports every pane running at once). `crates/kanna-daemon/tests/panes.rs` checks lending, clashes, updates, the app's requests, an app that goes away and the answers with no app; `web_md_ios_panes` of `scripts/e2e-kanna.sh` checks the real views: a page and a markdown file open, `navigate` with history, `list` and `no_app` (exit 6) with the app closed, both back after a relaunch and untouched by a daemon restart, and, when an iPhone simulator is already booted, an iOS pane (Settings) running and reattached after a relaunch.
 
 ### 4.10 Windows, Tabs and Splits
 
@@ -580,7 +580,7 @@ sequenceDiagram
     Note over W: view → draw, saved ½ s later
 ```
 
-**Light and dark.** The window's own parts (the tab bar, the gaps between panes, an empty slot, the focus outline) follow the app's appearance as it changes: a colour given to a layer is resolved for the view's current appearance and given again when it changes, since a layer keeps the colour it was handed. `debug.snapshot` reports the tab bar's drawn colour, and S36 checks it in dark, light and dark again.
+**Light and dark.** The window's own parts (the tab bar, the gaps between panes, an empty slot, the focus outline) follow the app's appearance as it changes: a colour given to a layer is resolved for the view's current appearance and given again when it changes, since a layer keeps the colour it was handed. `debug.snapshot` reports the tab bar's drawn colour, and `chrome_and_drops` checks it in dark, light and dark again.
 
 **Terminal views.** A terminal's surface is made the first time its pane is on screen, and stays (attached to the daemon, drawing its output) until the pane leaves the layout, so switching tabs shows a live screen at once; a terminal in a tab never shown since launch keeps the size its pty has. Web, markdown and iOS views start when the daemon says `start` ([4.9](#49-web-markdown-and-ios-panes)) and are placed when shown.
 
@@ -600,7 +600,7 @@ sequenceDiagram
 | `debug.snapshot {window?, path?, marker?}` | any window (default: the key one), with each pane's `notice` and the window's tab titles |
 | `debug.text {pane?}` | also the surface's `columns` and `rows` |
 
-**Checked by** `crates/kanna-mux` owner tests (`view`, `focused`, `divider`, `frame`, `shapes`) and S11–S13 of `scripts/e2e-kanna.sh`: menus and shortcuts split, tab, zoom, cycle and close; clicks select, rename and focus; dividers snap; `auto` follows the pane's shape; Ghostty's split navigation and font size; frames come back; the app outlives its last window; panes and tabs dragged everywhere; the tab and pane menus; every window drawn with its tab bar and dividers (`debug.snapshot`).
+**Checked by** `crates/kanna-mux` owner tests (`view`, `focused`, `divider`, `frame`, `shapes`) and `windows_tabs_ui`, `resize_arrange`, `drag_panes_tabs` of `scripts/e2e-kanna.sh`: menus and shortcuts split, tab, zoom, cycle and close; clicks select, rename and focus; dividers snap; `auto` follows the pane's shape; Ghostty's split navigation and font size; frames come back; the app outlives its last window; panes and tabs dragged everywhere; the tab and pane menus; every window drawn with its tab bar and dividers (`debug.snapshot`).
 
 ### 4.11 The kanna CLI
 
@@ -728,7 +728,7 @@ sequenceDiagram
 
 **The app's `debug.*` commands** go through the daemon by name: every `debug.*` the core doesn't answer itself (only `debug.saveState` and `debug.restoreState`) is passed to the app with pane names turned into IDs, so a debug command the app adds (kmux's `debug.click`, `debug.drag`, `debug.menu`, …) needs no change in the daemon. The app answers one it doesn't know with kmux's `unknown command`.
 
-**Checked by** `crates/kanna/tests/kmux_reference.rs` (against kmux's source), the unit tests in `crates/kanna/src` (kmux's CLI tests, ported; target and instance resolution; the app started), `crates/kanna/tests/cli.rs` (every command through a real daemon with a test app answering through `LayoutOwner`, and without it; help, marks and `commands --json`; errors and exit codes; instances; the kmux backend), `crates/kanna/tests/no_launch.rs` (nothing starts with `KANNA_SOCKET`; a missing app is exit 3), `crates/kanna-daemon/tests/app_link.rs` (`debug.*` and `capabilities`), and S20–S22 and S62 of `scripts/e2e-kanna.sh`: every command against the real app (S20), without it (S21), an instance started by `--instance` and listed by `instances` (S22), and `screenshot` (S62, [screenshot](specs/screenshot.md#3-how-its-built)).
+**Checked by** `crates/kanna/tests/kmux_reference.rs` (against kmux's source), the unit tests in `crates/kanna/src` (kmux's CLI tests, ported; target and instance resolution; the app started), `crates/kanna/tests/cli.rs` (every command through a real daemon with a test app answering through `LayoutOwner`, and without it; help, marks and `commands --json`; errors and exit codes; instances; the kmux backend), `crates/kanna/tests/no_launch.rs` (nothing starts with `KANNA_SOCKET`; a missing app is exit 3), `crates/kanna-daemon/tests/app_link.rs` (`debug.*` and `capabilities`), and `cli_commands`, `cli_without_app`, `instances` and `screenshot` of `scripts/e2e-kanna.sh`: every command against the real app (`cli_commands`), without it (`cli_without_app`), an instance started by `--instance` and listed by `instances` (`instances`), and `screenshot` (`screenshot`, [screenshot](specs/screenshot.md#3-how-its-built)).
 
 ### 4.12 Terminal Behaviour
 
@@ -782,25 +782,25 @@ sequenceDiagram
 
 | Behaviour | kmux | Kanna | Checked by |
 |---|---|---|---|
-| Colour queries (OSC 4, 10, 11, 12), DECRQSS cursor style | Ghostty's pty answers from the theme | the daemon answers from `settings`, with or without the app | kanna-vt tests, `terminal_behaviour.rs`, S30 |
-| Light/dark | Ghostty's theme switch | the same, and the daemon reports the scheme to programs that set mode 2031 | `terminal_behaviour.rs`, S30 (screenshots in both) |
-| Shell folder (OSC 7) | the pane's cwd: `list`, restart, restore | the daemon parses it (`file://` on this host, or `kitty-shell-cwd://`) and sets the pane's cwd: `list`, `restart` | `terminal_behaviour.rs`, S31 |
-| Title (OSC 0/2) | not shown | kept on the surface (`onTitle` for the tabs, should they want it); not shown | S31 |
-| Copy, paste, selection, bracketed paste | Ghostty's | Ghostty's; ⌘C/⌘V, the selection clipboard is the app's own | S32 |
-| OSC 52 | read only during input events (so in effect never), write allowed | Ghostty's rules: `clipboard-read` (ask), `clipboard-write` (allow), with a sheet when asked | S32 |
-| Mouse reporting, selection, scrolling | Ghostty's | Ghostty's; reports go to the pty as `input` | S33 |
-| Keys, IME, kitty keyboard | Ghostty's | Ghostty's ([4.6](#46-the-apps-terminal-views)); the program's keyboard mode is in the snapshot, so it survives a relaunch | S33 |
-| Focus reporting (mode 1004) | Ghostty's | the surface reports focus in and out; the mode is in the snapshot | S33 |
+| Colour queries (OSC 4, 10, 11, 12), DECRQSS cursor style | Ghostty's pty answers from the theme | the daemon answers from `settings`, with or without the app | kanna-vt tests, `terminal_behaviour.rs`, `terminal_colours` |
+| Light/dark | Ghostty's theme switch | the same, and the daemon reports the scheme to programs that set mode 2031 | `terminal_behaviour.rs`, `terminal_colours` (screenshots in both) |
+| Shell folder (OSC 7) | the pane's cwd: `list`, restart, restore | the daemon parses it (`file://` on this host, or `kitty-shell-cwd://`) and sets the pane's cwd: `list`, `restart` | `terminal_behaviour.rs`, `cwd_title` |
+| Title (OSC 0/2) | not shown | kept on the surface (`onTitle` for the tabs, should they want it); not shown | `cwd_title` |
+| Copy, paste, selection, bracketed paste | Ghostty's | Ghostty's; ⌘C/⌘V, the selection clipboard is the app's own | `clipboard` |
+| OSC 52 | read only during input events (so in effect never), write allowed | Ghostty's rules: `clipboard-read` (ask), `clipboard-write` (allow), with a sheet when asked | `clipboard` |
+| Mouse reporting, selection, scrolling | Ghostty's | Ghostty's; reports go to the pty as `input` | `mouse_keys_focus` |
+| Keys, IME, kitty keyboard | Ghostty's | Ghostty's ([4.6](#46-the-apps-terminal-views)); the program's keyboard mode is in the snapshot, so it survives a relaunch | `mouse_keys_focus` |
+| Focus reporting (mode 1004) | Ghostty's | the surface reports focus in and out; the mode is in the snapshot | `mouse_keys_focus` |
 | Cursor shapes, link hover | Ghostty's macOS app sets them; kmux doesn't | the app sets the mouse cursor Ghostty asks for and a pointer over a link | by hand (`debug.terminal` reports `hoveredLink`) |
-| ⌘-click a link | Ghostty's fallback opener: anything | web, mail and plain documents only (below) | KannaLinks tests, S35 |
-| Bell | nothing | Ghostty's `bell-features`: system beep, the Dock's attention request | S35 |
-| Desktop notifications (OSC 9, OSC 777) | nothing | Ghostty's (`desktop-notifications`, its rate limit), posted with UserNotifications | S35 |
-| Progress (OSC 9;4) | nothing | kept on the surface (`onProgress`) | S35 |
-| Font size (⌘+, ⌘−, ⌘0) | the surface's grid changes, and its pty with it | the surface asks the daemon for the new grid (`resize`), as a view resize does | S12, S34 |
+| ⌘-click a link | Ghostty's fallback opener: anything | web, mail and plain documents only (below) | KannaLinks tests, `links_bell_notify` |
+| Bell | nothing | Ghostty's `bell-features`: system beep, the Dock's attention request | `links_bell_notify` |
+| Desktop notifications (OSC 9, OSC 777) | nothing | Ghostty's (`desktop-notifications`, its rate limit), posted with UserNotifications | `links_bell_notify` |
+| Progress (OSC 9;4) | nothing | kept on the surface (`onProgress`) | `links_bell_notify` |
+| Font size (⌘+, ⌘−, ⌘0) | the surface's grid changes, and its pty with it | the surface asks the daemon for the new grid (`resize`), as a view resize does | `resize_arrange`, `font_size_scrollback` |
 | Synchronized output (mode 2026) | Ghostty's | Ghostty's; a snapshot taken mid-update ends it after Ghostty's timeout | by hand |
-| Scrollback | Ghostty's `scrollback-limit` (10 MB default) | the daemon keeps 10 MB, no line limit; `read --lines` | kanna-vt tests, S34 |
+| Scrollback | Ghostty's `scrollback-limit` (10 MB default) | the daemon keeps 10 MB, no line limit; `read --lines` | kanna-vt tests, `font_size_scrollback` |
 | Search | none | none, as kmux | — |
-| Dropping files, images or text | Ghostty's: file paths, shell-escaped and space-separated, or the text, pasted | the same, plus what Ghostty drops: a file promise (a screenshot's thumbnail, Mail, Photos) is saved and an image with no file (a browser's) is written as a PNG, both in `$TMPDIR/kanna-drops`, and its path pasted, so an agent in the pane gets the image. A drop is a paste: it goes through Ghostty's paste, so bracketed paste and the unsafe-paste question apply as for ⌘V, and a path with a control character in its name (a newline, ESC) is written as `$'…'` with `\xHH` escapes, so no name can run a command | KannaDrop tests, S36 (`debug.drop`) |
+| Dropping files, images or text | Ghostty's: file paths, shell-escaped and space-separated, or the text, pasted | the same, plus what Ghostty drops: a file promise (a screenshot's thumbnail, Mail, Photos) is saved and an image with no file (a browser's) is written as a PNG, both in `$TMPDIR/kanna-drops`, and its path pasted, so an agent in the pane gets the image. A drop is a paste: it goes through Ghostty's paste, so bracketed paste and the unsafe-paste question apply as for ⌘V, and a path with a control character in its name (a newline, ESC) is written as `$'…'` with `\xHH` escapes, so no name can run a command | KannaDrop tests, `chrome_and_drops` (`debug.drop`) |
 
 **Links** come from terminal output, which any program (or a file being `cat`ed) writes, so a click on one is treated as untrusted. Ghostty opens a link only on a click with ⌘ held; the app then decides, in `KannaLinks` (`UntrustedURL`, started from Ghostty's macOS app's rules for OSC 8 links and made stricter):
 
@@ -840,7 +840,7 @@ Ghostty's app asks before opening other schemes and opens plain-text links (its 
 
 **Not done:** OSC 5522 (kitty's clipboard protocol) gets only part of its replies; kitty graphics aren't in a snapshot, so images go when the app relaunches; an empty OSC 7 is ignored; a title isn't shown again after a relaunch until the program sets it.
 
-**Checked by** `crates/kanna-vt/tests/terminal.rs` (colour answers, scheme reports, cursor defaults, title and cwd changes, snapshots after widening), `crates/kanna-daemon/tests/terminal_behaviour.rs` (colour queries from the app's theme, also after a restart; scheme reports; the shell's folder in `list`), `apps/kanna/Tests/KannaLinksTests` (every link rule), `apps/kanna/Tests/KannaDropTests` (escaping dropped paths), and S30–S36 of `scripts/e2e-kanna.sh`: theme and light/dark with screenshots (S30), cwd and title (S31), paste, OSC 52 and selection (S32), kitty keys, mouse and focus reports after a relaunch (S33), font size and the pty, scrollback (S34), links, bell, notifications and progress (S35), dropped files and images (S36).
+**Checked by** `crates/kanna-vt/tests/terminal.rs` (colour answers, scheme reports, cursor defaults, title and cwd changes, snapshots after widening), `crates/kanna-daemon/tests/terminal_behaviour.rs` (colour queries from the app's theme, also after a restart; scheme reports; the shell's folder in `list`), `apps/kanna/Tests/KannaLinksTests` (every link rule), `apps/kanna/Tests/KannaDropTests` (escaping dropped paths), and `terminal_colours`, `cwd_title`, `clipboard`, `mouse_keys_focus`, `font_size_scrollback`, `links_bell_notify`, `chrome_and_drops` of `scripts/e2e-kanna.sh`: theme and light/dark with screenshots (`terminal_colours`), cwd and title (`cwd_title`), paste, OSC 52 and selection (`clipboard`), kitty keys, mouse and focus reports after a relaunch (`mouse_keys_focus`), font size and the pty, scrollback (`font_size_scrollback`), links, bell, notifications and progress (`links_bell_notify`), dropped files and images (`chrome_and_drops`).
 
 ### 4.13 Doc Markup
 
@@ -860,12 +860,12 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 ### 4.17 Agent Status
 
-**[Built]** Working, needs you, idle or exited for agent panes, judged in the daemon from the bottom of the screen, the title and progress by per-agent rules kept as data and hot-loaded from a rules site, so an agent's new release needs no new Kanna. Its own spec: [specs/agent-status.md](specs/agent-status.md). In the daemon: `crates/kanna-detect` (the rules, their sources and the foreground program, from v3's `kanna3-detect`), `crates/kanna-daemon/src/status.rs` (one thread judging settled screens) and the `status` command; rule files and the corpus in `agent-rules/`. Checked by `cargo test -p kanna-detect` (the corpus and the rule store), `crates/kanna-daemon/tests/status.rs` and S40.
+**[Built]** Working, needs you, idle or exited for agent panes, judged in the daemon from the bottom of the screen, the title and progress by per-agent rules kept as data and hot-loaded from a rules site, so an agent's new release needs no new Kanna. Its own spec: [specs/agent-status.md](specs/agent-status.md). In the daemon: `crates/kanna-detect` (the rules, their sources and the foreground program, from v3's `kanna3-detect`), `crates/kanna-daemon/src/status.rs` (one thread judging settled screens) and the `status` command; rule files and the corpus in `agent-rules/`. Checked by `cargo test -p kanna-detect` (the corpus and the rule store), `crates/kanna-daemon/tests/status.rs` and `agent_status`.
 
 
 ### 4.18 Tab Completion
 
-**[Built]** Tab completes every `kanna` command, option and value in zsh and bash: pane names and IDs, tabs and windows from the running Kanna (never starting one), and only the files a command takes. On in Kanna's zsh and bash terminals with no setup (the daemon adds a step to the login shell's startup that hands over to yours). Generated from the CLI's command table, so a new command or option completes with no extra work. Its own spec: [specs/tab-completion.md](specs/tab-completion.md). In `crates/kanna/src/complete.rs` with the shell scripts beside it, and `crates/kanna-daemon/src/shell.rs`; checked by their unit tests and S41. The same startup step reports the shell's folder (OSC 7, at the first prompt and on every `cd`), since Ghostty's own shell integration doesn't run under Kanna's; a Desk's header and a task's repo follow it (S45).
+**[Built]** Tab completes every `kanna` command, option and value in zsh and bash: pane names and IDs, tabs and windows from the running Kanna (never starting one), and only the files a command takes. On in Kanna's zsh and bash terminals with no setup (the daemon adds a step to the login shell's startup that hands over to yours). Generated from the CLI's command table, so a new command or option completes with no extra work. Its own spec: [specs/tab-completion.md](specs/tab-completion.md). In `crates/kanna/src/complete.rs` with the shell scripts beside it, and `crates/kanna-daemon/src/shell.rs`; checked by their unit tests and `zsh_completion`. The same startup step reports the shell's folder (OSC 7, at the first prompt and on every `cd`), since Ghostty's own shell integration doesn't run under Kanna's; a Desk's header and a task's repo follow it (`desk_backlog`).
 
 ### 4.19 Code Viewer
 
@@ -873,7 +873,7 @@ A window's one pane outside its tabs, along its left or right edge, shown whiche
 
 ### 4.20 Code Tour
 
-**[Built]** The agent comments on code as it explains it: `kanna comment FILE:LINE "text"` opens the file in a code tab, tints those lines (snapped to their tree-sitter scope), dims the rest and lists the comment beside the code, folding the earlier ones. Comments live on the code pane\'s record; the daemon asks the app to snap. How to give a tour is the `kanna-tour` skill. Its own spec: [specs/code-tour.md](specs/code-tour.md); mockup `references/mockups/code-tour.html`. In `crates/kanna-mux` (`comment`, the record), `crates/kanna` (the command, threads on docs), `apps/kanna/Sources/KannaCode` (the box, tint and dim) and `AppCommands.swift` (`app.snap`); checked by `crates/kanna-daemon/tests/panes.rs` and S50.
+**[Built]** The agent comments on code as it explains it: `kanna comment FILE:LINE "text"` opens the file in a code tab, tints those lines (snapped to their tree-sitter scope), dims the rest and lists the comment beside the code, folding the earlier ones. Comments live on the code pane\'s record; the daemon asks the app to snap. How to give a tour is the `kanna-tour` skill. Its own spec: [specs/code-tour.md](specs/code-tour.md); mockup `references/mockups/code-tour.html`. In `crates/kanna-mux` (`comment`, the record), `crates/kanna` (the command, threads on docs), `apps/kanna/Sources/KannaCode` (the box, tint and dim) and `AppCommands.swift` (`app.snap`); checked by `crates/kanna-daemon/tests/panes.rs` and `code_tour`.
 
 ### 4.21 The Build
 
@@ -999,7 +999,7 @@ The kmux adapter maps these one-to-one onto the [kmux control protocol](https://
 - **Encoded in the daemon, for the program's modes.** Each key goes through libghostty-vt's key encoder, set from the pane's screen as the daemon keeps it: application cursor and keypad keys, the kitty keyboard protocol's flags, modifyOtherKeys, alt sending ESC. So `up` is `ESC [ A` to a shell and `ESC O A` to a program that turned on application cursor keys, `esc` is `ESC [ 27 u` to one that asked for the kitty protocol, and the bytes match what Ghostty in the app would send (`ctrl+[` and `ctrl+shift+c` are CSI u, as Ghostty sends them).
 - **One key at a time.** Keys are written in order, each its own write 50 ms after the one before, the first 50 ms after the command arrives, so a TUI reads separate key presses rather than a paste, even right after `kanna send`. Every key is checked first: if one isn't a key, or encodes to nothing in the current mode, nothing is sent. The reply comes after the last key is written, so a `read` after it sees its effect.
 - **No app, no focus.** It works with the app closed and on a pane that isn't in front, like `send`.
-- **Checked by** `crates/kanna-vt/tests/key.rs` (names, ctrl and alt, cursor key modes, kitty, modifyOtherKeys), `crates/kanna/tests/cli.rs` (the bytes a raw-mode program reads, ctrl+c interrupting a shell, the errors) and S56 of `scripts/e2e-kanna.sh` (the bytes, and the mock agent's menu, in application cursor mode, answered with `down return`).
+- **Checked by** `crates/kanna-vt/tests/key.rs` (names, ctrl and alt, cursor key modes, kitty, modifyOtherKeys), `crates/kanna/tests/cli.rs` (the bytes a raw-mode program reads, ctrl+c interrupting a shell, the errors) and `send_key` of `scripts/e2e-kanna.sh` (the bytes, and the mock agent's menu, in application cursor mode, answered with `down return`).
 
 Options for `open`:
 
