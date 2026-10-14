@@ -56,7 +56,7 @@ cp "$product_dir/Kanna" "$app/Contents/MacOS/Kanna"
 cp "$repo_root/target/release/kanna-daemon" "$repo_root/target/release/kanna-keeper" "$repo_root/target/release/kanna" "$app/Contents/Helpers/"
 cp "$repo_root/assets/Kanna.icns" "$app/Contents/Resources/Kanna.icns"
 cp "$repo_root/LICENSE" "$app/Contents/Resources/"
-cp "$repo_root/apps/kanna/Resources/getting-started.md" "$app/Contents/Resources/"
+install -m 755 "$repo_root/apps/kanna/Resources/planner.sh" "$app/Contents/Resources/"
 mkdir -p "$app/Contents/Resources/kanna-skills"
 for skill in kanna-tasks kanna-planning kanna-new-project kanna-markup kanna-explain kanna-quiz; do cp -RL "$repo_root/.agents/kanna-skills/skills/$skill" "$app/Contents/Resources/kanna-skills/"; done
 

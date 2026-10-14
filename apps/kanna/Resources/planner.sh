@@ -1,0 +1,209 @@
+#!/bin/sh
+
+kanna= zsh= repos="$HOME/.kanna-v4/repos"
+while [ $# -gt 0 ]; do
+  case $1 in
+    --kanna) kanna=$2; shift 2 ;;
+    --zsh) zsh=$2; shift 2 ;;
+    --repos) repos=$2; shift 2 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+shell() {
+  trap - INT
+  if [ -n "$zsh" ]; then
+    case "${SHELL##*/}" in
+      zsh) [ -z "${ZDOTDIR+x}" ] || export KANNA_ZSH_ZDOTDIR="$ZDOTDIR"; export ZDOTDIR="$zsh" ;;
+    esac
+  fi
+  exec "${SHELL:-/bin/sh}" -l
+}
+trap 'echo; shell' INT
+
+tilde() {
+  case $1 in
+    "$HOME") echo "~" ;;
+    "$HOME"/*) echo "~${1#"$HOME"}" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+ask() {
+  printf '%s ' "$1"
+  read -r answer || { echo; shell; }
+}
+
+moved() {
+  url=$(pwd -P | sed 's/%/%25/g; s/ /%20/g')
+  printf '\033]7;file://localhost%s\033\\' "$url"
+}
+
+origin_is() {
+  origin=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
+  case ${origin%.git} in
+    *"${2%.git}") return 0 ;;
+  esac
+  return 1
+}
+
+clone() {
+  how=$1 from=$2 name=$3
+  dest="$repos/$name"
+  if [ -e "$dest" ]; then
+    if origin_is "$dest" "$from"; then
+      echo "Opened $(tilde "$dest") (already cloned)"
+      cd "$dest" && return 0
+    fi
+    echo "$(tilde "$dest") is already there, and isn't a clone of $from."
+    return 1
+  fi
+  mkdir -p "$repos" || return 1
+  echo "Cloning $from into $(tilde "$dest")…"
+  case $how in
+    gh)
+      command -v gh >/dev/null 2>&1 || { echo "gh isn't installed: give the repo's URL."; return 1; }
+      gh repo clone "$from" "$dest" ;;
+    *) git clone -- "$from" "$dest" ;;
+  esac || { echo "Couldn't clone $from."; return 1; }
+  cd "$dest"
+}
+
+where() {
+  echo "Open a folder, clone a repo (a URL or owner/repo), or name a new project. Clones and new projects go in $(tilde "$repos")."
+  echo
+  while :; do
+    ask "Folder, repo or name:"
+    case $answer in
+      '') continue ;;
+      https://*|http://*|ssh://*|git://*|file://*|git@*)
+        name=$(basename "${answer%/}" .git)
+        name=${name##*:}
+        clone git "$answer" "$name" && break
+        continue ;;
+    esac
+    case $answer in
+      '~') folder=$HOME ;;
+      '~/'*) folder="$HOME/${answer#'~/'}" ;;
+      *) folder=$answer ;;
+    esac
+    if [ -d "$folder" ]; then
+      cd "$folder" && break
+    fi
+    case $answer in
+      '~'*|.*|/*) echo "No folder $answer." ;;
+      */*)
+        case $answer in
+          */*/*|*[!A-Za-z0-9._/-]*) echo "No folder $answer." ;;
+          *) clone gh "$answer" "${answer#*/}" && break ;;
+        esac ;;
+      *[!A-Za-z0-9._-]*|[!A-Za-z0-9]*) echo "A project's name is letters, digits, '.', '-' and '_'." ;;
+      *)
+        dest="$repos/$answer"
+        if [ -d "$dest" ]; then
+          echo "Opened $(tilde "$dest")"
+        else
+          mkdir -p "$dest" || continue
+          echo "Made $(tilde "$dest")"
+        fi
+        cd "$dest" && break ;;
+    esac
+  done
+  echo
+  moved
+}
+
+setting() {
+  top=$(git rev-parse --show-toplevel 2>/dev/null)
+  for file in ${top:+"$top/.kanna/config.json"} "$HOME/.kanna-v4/config.json"; do
+    [ -f "$file" ] || continue
+    version=$(plutil -extract version raw -o - "$file" 2>/dev/null)
+    case $version in
+      ''|1) ;;
+      *) continue ;;
+    esac
+    value=$(plutil -extract planning.agent raw -o - "$file" 2>/dev/null) && [ -n "$value" ] && { echo "$value"; return; }
+  done
+}
+
+save() {
+  file="$1/.kanna/config.json"
+  mkdir -p "$1/.kanna" || return 1
+  if [ ! -s "$file" ]; then
+    printf '{\n  "version": 1,\n  "planning": {\n    "agent": "%s"\n  }\n}\n' "$2" >"$file"
+    return
+  fi
+  plutil -extract planning raw -o - "$file" >/dev/null 2>&1 || plutil -extract planning xml1 -o - "$file" >/dev/null 2>&1 || plutil -insert planning -dictionary "$file" || return 1
+  plutil -replace planning.agent -string "$2" "$file" && plutil -convert json -r "$file"
+}
+
+nl='
+'
+installed=
+while [ $# -ge 2 ]; do
+  program=${2%% *}
+  command -v "$program" >/dev/null 2>&1 && installed="$installed$1	$2$nl"
+  shift 2
+done
+
+if [ -n "$kanna" ]; then
+  "$kanna" agents setup --ask
+  "$kanna" agents update --ask
+fi
+
+[ "$(pwd -P)" = "$(cd "$HOME" && pwd -P)" ] && where
+
+if [ -z "$installed" ]; then
+  echo "No agent Kanna knows is installed (claude, codex, copilot, opencode or agy). Install one, then start it here."
+  shell
+fi
+
+count=$(printf '%s' "$installed" | grep -c .)
+chosen=
+wanted=$(setting)
+if [ -n "$wanted" ]; then
+  chosen=$(printf '%s' "$installed" | awk -F '\t' -v n="$wanted" '$1 == n { print; exit }')
+  [ -n "$chosen" ] || echo "planning.agent is $wanted, which isn't installed."
+fi
+if [ -z "$chosen" ] && [ "$count" -eq 1 ]; then
+  chosen=$installed
+fi
+if [ -z "$chosen" ]; then
+  echo "Choose an agent for planning and task creation"
+  echo
+  printf '%s' "$installed" | awk -F '\t' '{ printf "  %d  %s\n", NR, $1 }'
+  echo
+  while :; do
+    ask "Choose [1]:"
+    [ -n "$answer" ] || answer=1
+    case $answer in
+      *[!0-9]*) ;;
+      *) [ "$answer" -ge 1 ] && [ "$answer" -le "$count" ] && break ;;
+    esac
+    echo "Choose 1 to $count."
+  done
+  chosen=$(printf '%s' "$installed" | sed -n "${answer}p")
+  name=${chosen%%	*}
+  top=$(git rev-parse --show-toplevel 2>/dev/null)
+  if [ -n "$top" ]; then
+    ask "Make $name the planning agent for $(basename "$top")? [y/N]"
+    case $answer in
+      [yY]*)
+        if save "$top" "$name"; then
+          echo "$name plans $(basename "$top") from now on (planning.agent in .kanna/config.json)."
+        else
+          echo "Couldn't write $top/.kanna/config.json."
+        fi ;;
+    esac
+  fi
+  echo
+fi
+
+command=${chosen#*	}
+command=${command%"$nl"}
+trap : INT
+eval "$command"
+echo
+echo "The planning agent quit. Start it again: $command"
+shell
