@@ -16,6 +16,7 @@ pub const CAN_RESUME: &str = "kanna-keeper: can resume state";
 const HELD: [libc::c_int; 3] = [libc::SIGCHLD, libc::SIGTERM, libc::SIGINT];
 
 pub struct State {
+    pub written: Duration,
     pub lock: RawFd,
     pub listener: RawFd,
     pub next_serial: u64,
@@ -89,6 +90,7 @@ impl State {
     pub fn to_json(&self) -> Value {
         json!({
             "state": STATE_VERSION,
+            "written_ns": self.written.as_nanos() as u64,
             "lock": self.lock,
             "listener": self.listener,
             "next_serial": self.next_serial,
@@ -120,6 +122,7 @@ impl State {
         };
         let requester = &v["requester"];
         Ok(State {
+            written: Duration::from_nanos(num(v, "written_ns")?),
             lock: fd(v, "lock")?,
             listener: fd(v, "listener")?,
             next_serial: num(v, "next_serial")?,
@@ -214,6 +217,22 @@ fn exit(v: &Value) -> Result<Option<ExitStatus>, String> {
     }
 }
 
+pub fn monotonic() -> Duration {
+    let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
+#[cfg(debug_assertions)]
+fn test_probe_delay() {
+    if let Some(ms) = std::env::var("KANNA_KEEPER_TEST_PROBE_DELAY_MS").ok().and_then(|v| v.parse().ok()) {
+        std::thread::sleep(Duration::from_millis(ms));
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn test_probe_delay() {}
+
 pub fn write(dir: &Path, state: &State) -> std::io::Result<File> {
     let path = dir.join(format!("keeper.upgrade.{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
@@ -232,6 +251,7 @@ pub fn read(file: &mut File) -> Result<State, String> {
 }
 
 pub fn check() -> i32 {
+    test_probe_delay();
     let mut stdin = unsafe { File::from_raw_fd(0) };
     let result = read(&mut stdin);
     std::mem::forget(stdin);
@@ -357,6 +377,7 @@ mod tests {
 
     fn sample() -> State {
         State {
+            written: Duration::from_nanos(123_456_789),
             lock: 3,
             listener: 4,
             next_serial: 9,

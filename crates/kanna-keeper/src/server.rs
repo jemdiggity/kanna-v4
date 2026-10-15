@@ -230,6 +230,7 @@ pub fn resume(settings: Settings, fd: RawFd) -> Result<()> {
         })
         .collect();
     let now = Instant::now();
+    let paused = upgrade::monotonic().saturating_sub(state.written);
     keeper.pending = state
         .pending
         .into_iter()
@@ -242,11 +243,11 @@ pub fn resume(settings: Settings, fd: RawFd) -> Result<()> {
             cwd: p.cwd,
             master: unsafe { OwnedFd::from_raw_fd(p.master) },
             exec: unsafe { OwnedFd::from_raw_fd(p.exec) },
-            deadline: now + p.left,
+            deadline: now + p.left.saturating_sub(paused),
             exit: p.exit,
         })
         .collect();
-    keeper.closed = state.closed.into_iter().map(|c| Closed { pid: c.pid, kill_at: c.kill_in.map(|d| now + d) }).collect();
+    keeper.closed = state.closed.into_iter().map(|c| Closed { pid: c.pid, kill_at: c.kill_in.map(|d| now + d.saturating_sub(paused)) }).collect();
     keeper.reap();
     let requester = state.requester;
     eprintln!(
@@ -803,6 +804,7 @@ impl Keeper {
     fn state(&self, conn: u64, tag: &Value) -> State {
         let now = Instant::now();
         State {
+            written: upgrade::monotonic(),
             lock: self.lock.as_ref().map_or(-1, |l| l.as_raw_fd()),
             listener: self.listener.as_raw_fd(),
             next_serial: self.next_serial,

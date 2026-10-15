@@ -986,3 +986,22 @@ fn upgrade_by_hand_and_a_state_too_new_is_refused() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("newer"), "{}", String::from_utf8_lossy(&out.stderr));
 }
+
+#[test]
+#[cfg_attr(not(debug_assertions), ignore = "needs the keeper's debug-build test hooks")]
+fn the_upgrades_pause_counts_against_a_waiting_spawns_timeout() {
+    let f = Fixture::with(&[
+        ("KANNA_KEEPER_TEST_SPAWN_DELAY_MS", "10000"),
+        ("KANNA_KEEPER_SPAWN_TIMEOUT_MS", "2000"),
+        ("KANNA_KEEPER_TEST_PROBE_DELAY_MS", "1500"),
+    ]);
+    let mut spawner = f.client();
+    let asked = Instant::now();
+    let spawning = std::thread::spawn(move || spawner.spawn(&SpawnRequest::command("stuck", "true")).map(|p| p.pid));
+    std::thread::sleep(Duration::from_millis(300));
+    f.client().upgrade(&new_build(&f)).unwrap();
+    let error = spawning.join().unwrap().unwrap_err().to_string();
+    let took = asked.elapsed();
+    assert!(error.contains("timed out"), "{error}");
+    assert!(took < Duration::from_millis(3000), "the spawn failed after {took:?}, its timeout is 2 s");
+}
