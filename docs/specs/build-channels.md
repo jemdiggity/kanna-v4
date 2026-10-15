@@ -1,6 +1,6 @@
 # Build Channels
 
-**Status:** built · **Builds on:** [instances](../kanna-spec.md#411-the-kanna-cli) · **Why:** Kanna is developed inside Kanna: every task builds and runs its own Kanna in its worktree while the Kanna it works in keeps running
+**Status:** built · **Builds on:** [instances](instances.md) · **Why:** Kanna is developed inside Kanna: every task builds and runs its own Kanna in its worktree while the Kanna it works in keeps running
 
 A build of Kanna is one of three **channels**, chosen when it's built. Each channel is a separate app (its own name, bundle ID and folders), so all three run side by side; a **dev** build made in a git worktree is, in addition, an app of its own named after the worktree, so every task's Kanna runs beside the others and beside the one it was built from.
 
@@ -36,8 +36,8 @@ Each folder is a whole Kanna (daemon, keeper, terminals, layout, backlog), so no
 flowchart LR
     S["scripts/build.sh [channel]"] -->|"KANNA_CHANNEL"| B["crates/kanna-build<br/>build.rs: channel; checkout;<br/>worktree when .git is a file"]
     B --> CLI["kanna<br/>default instance, app to start"]
-    B --> D["kanna-daemon<br/>default socket, instance.json;<br/>--build prints the identity"]
-    D -->|"kanna-daemon --build"| P["build-kanna-app.sh<br/>Info.plist: CFBundleName,<br/>CFBundleIdentifier, KannaChannel,<br/>KannaInstance"]
+    B --> D["kanna-daemon<br/>default socket, instance.json"]
+    B -->|"target/release/kanna-build<br/>prints the identity"| P["build-kanna-app.sh<br/>Info.plist: CFBundleName,<br/>CFBundleIdentifier, KannaChannel,<br/>KannaInstance"]
     P --> A["Kanna.app<br/>default socket, Dock badge"]
 ```
 

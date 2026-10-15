@@ -28,7 +28,7 @@ flowchart LR
 | SwiftPM's packages (`kanna_borrow_swiftpm`) | the worktree has no `target/kanna-build` | `cp -c -R -p` of `repositories/` and `checkouts/`; `workspace-state.json` with the main checkout's path replaced by the worktree's | package resolve 3.5s → 0.2s |
 
 - **Our crates always rebuild.** Dropping their fingerprints makes cargo compile every `kanna-*` crate from the worktree's own source, whatever the main checkout last built; only registry crates, whose fingerprints don't depend on paths, are reused. Binaries and `libkanna_ffi.a` come out byte-identical to a from-scratch build.
-- **Built for the same macOS.** The clone carries the main checkout's `macos-deployment-target` stamp; `kanna_cargo_release_for` runs after the borrow and cleans the clone if it was built for another deployment target ([4.21](../kanna-spec.md#421-the-build)).
+- **Built for the same macOS.** The clone carries the main checkout's `macos-deployment-target` stamp; `kanna_cargo_release_for` runs after the borrow and cleans the clone if it was built for another deployment target ([deployment target](deployment-target.md)).
 - **Clones, not links.** A clone shares disk blocks until either side writes, so the worktree's builds never touch the main checkout's `target/`, and neither side waits on the other's cargo lock.
 - **Only resolution state from SwiftPM.** Its build products record absolute paths (the module cache refuses to load from a different path), so a whole clone of `kanna-build` fails to build; the Swift modules compile in the worktree.
 
@@ -48,7 +48,7 @@ SwiftPM's release build compiles each module whole, on one core: the `Kanna` mod
 | Case | Before | After | Where the time goes after |
 |---|---|---|---|
 | (a) fresh worktree (`target/` absent) | 71.4s | **20.7s** | cargo, our crates 7.4s · swift debug 11.1s · rest 2s |
-| (b) no-op rebuild | 1.2s | **1.0s** | two cargo no-ops 0.2s, `kanna-daemon --build` and SwiftPM planning 0.8s |
+| (b) no-op rebuild | 1.2s | **1.0s** | two cargo no-ops 0.2s, `kanna-build` and SwiftPM planning 0.8s |
 | (c) edit a Swift file in the `Kanna` module | 9.9s | **5.0s** | 9 files recompiled, then the debug link (~2.5s) |
 | (c) edit a Swift leaf module (`KannaStatus`) | 1.4s | **1.2s** | |
 | (c) edit `kanna-daemon/src/host.rs` | 3.6s | **3.2s** | cargo 2.3s; Swift untouched |

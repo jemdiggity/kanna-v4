@@ -17,14 +17,47 @@ kanna_macos_target() {
   echo "$cargo_target"
 }
 
+kanna_host_triple() {
+  rustc -vV | sed -n 's/^host: //p'
+}
+
+kanna_arch_triple() {
+  case "$1" in
+    arm64|aarch64) echo aarch64-apple-darwin ;;
+    x86_64) echo x86_64-apple-darwin ;;
+    *) echo "unknown architecture $1: use arm64 or x86_64" >&2; return 1 ;;
+  esac
+}
+
+kanna_triple_arch() {
+  case "$1" in aarch64-*) echo arm64 ;; *) echo "${1%%-*}" ;; esac
+}
+
+kanna_arch_dir() {
+  if [ "$2" = "$(kanna_host_triple)" ]; then echo "$1/target"; else echo "$1/target/$2"; fi
+}
+
+kanna_rust_target() {
+  [ "$1" = "$(kanna_host_triple)" ] && return
+  rustup target list --installed 2>/dev/null | grep -qx "$1" && return
+  echo "==> rustup target add $1" >&2
+  rustup target add "$1" >&2
+}
+
 kanna_cargo_release_for() {
-  stamp="$1/target/release/macos-deployment-target"
+  cargo_triple="${3:-$(kanna_host_triple)}"
+  cargo_release="$(kanna_arch_dir "$1" "$cargo_triple")/release"
+  stamp="$cargo_release/macos-deployment-target"
   [ "$(cat "$stamp" 2>/dev/null)" = "$2" ] && return
-  if [ -d "$1/target/release" ]; then
-    echo "==> target/release was built for macOS $(cat "$stamp" 2>/dev/null || echo "the default"), not $2: cleaning it" >&2
-    cargo clean --manifest-path "$1/Cargo.toml" --release >&2 || return 1
+  if [ -d "$cargo_release" ]; then
+    echo "==> $cargo_release was built for macOS $(cat "$stamp" 2>/dev/null || echo "the default"), not $2: cleaning it" >&2
+    if [ "$cargo_triple" = "$(kanna_host_triple)" ]; then
+      cargo clean --manifest-path "$1/Cargo.toml" --release >&2 || return 1
+    else
+      cargo clean --manifest-path "$1/Cargo.toml" --release --target "$cargo_triple" >&2 || return 1
+    fi
   fi
-  mkdir -p "$1/target/release" && echo "$2" > "$stamp"
+  mkdir -p "$cargo_release" && echo "$2" > "$stamp"
 }
 
 kanna_zig() {
@@ -53,9 +86,11 @@ kanna_ghostty_source() {
     return
   fi
   dir="$1/target/ghostty-source"
-  if [ ! -f "$dir/build.zig" ]; then
+  if [ ! -d "$dir/.git" ]; then
     mkdir -p "$1/target"
-    git clone -q --no-checkout --filter=blob:none --branch "$KANNA_GHOSTTY_BRANCH" "$KANNA_GHOSTTY_FORK" "$dir" >&2 || return 1
+    rm -rf "$dir" "$dir.cloning"
+    git clone -q --no-checkout --filter=blob:none --branch "$KANNA_GHOSTTY_BRANCH" "$KANNA_GHOSTTY_FORK" "$dir.cloning" >&2 || return 1
+    mv "$dir.cloning" "$dir"
   fi
   if [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" != "$KANNA_GHOSTTY_COMMIT" ] || [ ! -f "$dir/build.zig" ]; then
     git -C "$dir" remote set-url origin "$KANNA_GHOSTTY_FORK" >&2 || return 1
@@ -92,22 +127,25 @@ kanna_main_checkout() {
 }
 
 kanna_borrow_cargo() {
-  here="$1/target/release"
+  borrow_triple="${2:-$(kanna_host_triple)}"
+  here="$(kanna_arch_dir "$1" "$borrow_triple")/release"
   [ -e "$here" ] && return
   main="$(kanna_main_checkout "$1")" || return 0
-  [ -d "$main/target/release/.fingerprint" ] || return 0
-  mkdir -p "$1/target"
-  if cp -c -R -p "$main/target/release" "$here.borrowing" 2>/dev/null; then
+  from="$(kanna_arch_dir "$main" "$borrow_triple")/release"
+  [ -d "$from/.fingerprint" ] || return 0
+  mkdir -p "$(dirname "$here")"
+  if cp -c -R -p "$from" "$here.borrowing" 2>/dev/null; then
     rm -rf "$here.borrowing"/.fingerprint/kanna-*
     mv "$here.borrowing" "$here"
-    echo "Cloned $main/target/release's dependencies"
+    echo "Cloned $from's dependencies"
   else
     rm -rf "$here.borrowing"
   fi
 }
 
 kanna_borrow_swiftpm() {
-  here="$1/target/kanna-build"
+  borrow_triple="${2:-$(kanna_host_triple)}"
+  here="$(kanna_arch_dir "$1" "$borrow_triple")/kanna-build"
   [ -e "$here" ] && return
   main="$(kanna_main_checkout "$1")" || return 0
   from="$main/target/kanna-build"

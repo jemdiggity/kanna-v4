@@ -251,7 +251,7 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     assert!(overview.contains(&format!("Instance: default of {} at {}", kanna_build::Build::current().app_name(), nowhere.display())), "{overview}");
     assert!(overview.contains("6 needs Kanna.app, which isn't attached and wasn't started."), "{overview}");
     assert_eq!(kanna_at(&dir, Some(&nowhere), &["help"]).ok(), overview);
-    assert_eq!(kanna_at(&dir, Some(&nowhere), &["--version"]).ok(), format!("kanna {} ({})", env!("CARGO_PKG_VERSION"), kanna_build::Build::current().app_name()));
+    assert_eq!(kanna_at(&dir, Some(&nowhere), &["--version"]).ok(), format!("kanna {} ({})", kanna_build::VERSION, kanna_build::Build::current().app_name()));
     let open = kanna_at(&dir, Some(&nowhere), &["help", "open"]).ok();
     assert!(open.starts_with("kanna open — Open a terminal"), "{open}");
     assert_eq!(kanna_at(&dir, Some(&nowhere), &["open", "--help"]).ok(), open);

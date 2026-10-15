@@ -1,10 +1,12 @@
 use crate::pty::{self, What};
+use crate::upgrade::{self, ClosedState, ConnState, PendingState, PtyState, Requester, State};
 use crate::{fdpass, paths, session, sig, ExitStatus, PROTOCOL_VERSION};
 use anyhow::{Context, Result};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, VecDeque};
+use std::fs::File;
 use std::io::Read;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::rc::Rc;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -15,6 +17,8 @@ const MAX_CONNS: usize = 16;
 const ACCEPT_PAUSE: Duration = Duration::from_millis(100);
 const MAX_LINE: usize = 1 << 20;
 const MAX_OUT: usize = 8 << 20;
+const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct Settings {
     pub state_dir: PathBuf,
@@ -152,6 +156,9 @@ struct Keeper {
     accept_paused_until: Option<Instant>,
     peer_uid: libc::uid_t,
     stop: bool,
+    lock: Option<File>,
+    build: Option<String>,
+    upgrade: Option<(u64, Value, String)>,
 }
 
 pub const LISTENING: u8 = b'1';
@@ -179,9 +186,100 @@ pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
         tell(ready, &[ALREADY_RUNNING]);
         return Ok(());
     }
+    let sigs = signals()?;
+    let listener = listen(&paths::socket(&dir))?;
+    std::fs::write(paths::pid(&dir), format!("{}\n", std::process::id()))?;
+    tell(ready, &[LISTENING]);
+    serve(Keeper::new(listener, sigs, settings, lock))
+}
+
+pub fn resume(settings: Settings, fd: RawFd) -> Result<()> {
+    let mut file = unsafe { File::from_raw_fd(fd) };
+    let state = upgrade::read(&mut file).map_err(anyhow::Error::msg).context("resuming after an upgrade")?;
+    drop(file);
+    upgrade::open(&state.fds()).map_err(anyhow::Error::msg)?;
+    sig::cloexec_inherited();
+    if let Some(nofile) = state.nofile {
+        pty::keep_original_nofile(nofile);
+    }
+    let sigs = signals()?;
+    let (lock, listener) = unsafe { (File::from_raw_fd(state.lock), UnixListener::from_raw_fd(state.listener)) };
+    let mut keeper = Keeper::new(listener, sigs, settings, lock);
+    keeper.next_serial = state.next_serial;
+    let max_out_fds = keeper.max_out_fds();
+    keeper.conns = state
+        .conns
+        .into_iter()
+        .map(|c| Conn {
+            serial: c.serial,
+            stream: unsafe { UnixStream::from_raw_fd(c.fd) },
+            inbuf: c.inbuf,
+            out: VecDeque::new(),
+            out_bytes: 0,
+            out_fds: 0,
+            max_out_fds,
+            dead: false,
+        })
+        .collect();
+    keeper.ptys = state
+        .ptys
+        .into_iter()
+        .map(|p| {
+            let master = Rc::new(unsafe { OwnedFd::from_raw_fd(p.master) });
+            (p.id, Pty { pid: p.pid, cmd: p.cmd, cwd: p.cwd, master, exit: p.exit })
+        })
+        .collect();
+    let now = Instant::now();
+    let paused = upgrade::monotonic().saturating_sub(state.written);
+    keeper.pending = state
+        .pending
+        .into_iter()
+        .map(|p| Pending {
+            conn: p.conn,
+            tag: p.tag,
+            id: p.id,
+            pid: p.pid,
+            cmd: p.cmd,
+            cwd: p.cwd,
+            master: unsafe { OwnedFd::from_raw_fd(p.master) },
+            exec: unsafe { OwnedFd::from_raw_fd(p.exec) },
+            deadline: now + p.left.saturating_sub(paused),
+            exit: p.exit,
+        })
+        .collect();
+    keeper.closed = state.closed.into_iter().map(|c| Closed { pid: c.pid, kill_at: c.kill_in.map(|d| now + d.saturating_sub(paused)) }).collect();
+    keeper.reap();
+    let requester = state.requester;
+    eprintln!(
+        "kanna-keeper: upgraded (pid {}) from build {} to {}",
+        std::process::id(),
+        short(requester.from.as_deref()),
+        short(keeper.build.as_deref())
+    );
+    let mut reply = json!({"ok": true, "version": PROTOCOL_VERSION, "pid": std::process::id(), "build": keeper.build, "from": requester.from});
+    if !requester.tag.is_null() {
+        reply["req"] = requester.tag;
+    }
+    if let Some(c) = keeper.conns.iter_mut().find(|c| c.serial == requester.conn) {
+        c.send(reply, vec![]);
+    }
+    for i in 0..keeper.conns.len() {
+        keeper.handle_lines(i);
+    }
+    serve(keeper)
+}
+
+fn short(build: Option<&str>) -> &str {
+    build.map_or("unknown", |b| &b[..b.len().min(8)])
+}
+
+fn signals() -> Result<OwnedFd> {
     unsafe {
         libc::signal(libc::SIGHUP, libc::SIG_IGN);
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
+    let sigs = sig::pipe(&[libc::SIGCHLD, libc::SIGTERM, libc::SIGINT])?;
+    unsafe {
         let mut set: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut set);
         for signo in [libc::SIGCHLD, libc::SIGTERM, libc::SIGINT] {
@@ -189,30 +287,16 @@ pub fn run(settings: Settings, ready: Option<&OwnedFd>) -> Result<()> {
         }
         libc::pthread_sigmask(libc::SIG_UNBLOCK, &set, std::ptr::null_mut());
     }
-    let sigs = sig::pipe(&[libc::SIGCHLD, libc::SIGTERM, libc::SIGINT])?;
-    let sock = paths::socket(&dir);
-    let listener = listen(&sock)?;
-    let pid_file = paths::pid(&dir);
-    std::fs::write(&pid_file, format!("{}\n", std::process::id()))?;
-    tell(ready, &[LISTENING]);
-    let mut keeper = Keeper {
-        listener,
-        sigs,
-        conns: Vec::new(),
-        ptys: BTreeMap::new(),
-        pending: Vec::new(),
-        base: pty::Base::load(),
-        next_serial: 0,
-        closed: Vec::new(),
-        settings,
-        idle_since: Instant::now(),
-        accept_paused_until: None,
-        peer_uid: expected_uid(),
-        stop: false,
-    };
+    Ok(sigs)
+}
+
+fn serve(mut keeper: Keeper) -> Result<()> {
     let result = keeper.run();
+    let dir = keeper.settings.state_dir.clone();
+    let lock = keeper.lock.take();
     drop(keeper);
-    let _ = std::fs::remove_file(&sock);
+    let _ = std::fs::remove_file(paths::socket(&dir));
+    let pid_file = paths::pid(&dir);
     if std::fs::read_to_string(&pid_file).is_ok_and(|p| p.trim() == std::process::id().to_string()) {
         let _ = std::fs::remove_file(&pid_file);
     }
@@ -236,6 +320,31 @@ fn pollfd(fd: libc::c_int, events: libc::c_short) -> libc::pollfd {
 }
 
 impl Keeper {
+    fn new(listener: UnixListener, sigs: OwnedFd, settings: Settings, lock: File) -> Keeper {
+        Keeper {
+            listener,
+            sigs,
+            conns: Vec::new(),
+            ptys: BTreeMap::new(),
+            pending: Vec::new(),
+            base: pty::Base::load(),
+            next_serial: 0,
+            closed: Vec::new(),
+            settings,
+            idle_since: Instant::now(),
+            accept_paused_until: None,
+            peer_uid: expected_uid(),
+            stop: false,
+            lock: Some(lock),
+            build: kanna_build::own_build_id(),
+            upgrade: None,
+        }
+    }
+
+    fn max_out_fds(&self) -> usize {
+        2 * self.settings.max_ptys + 16
+    }
+
     fn run(&mut self) -> Result<()> {
         while !self.stop {
             if self.accept_paused_until.is_some_and(|until| Instant::now() >= until) {
@@ -288,6 +397,9 @@ impl Keeper {
             self.conns.retain(|c| !c.dead);
             if self.run_kills() {
                 self.reap();
+            }
+            if let Some(wanted) = self.upgrade.take() {
+                self.upgrade(wanted);
             }
             self.check_idle();
         }
@@ -384,7 +496,7 @@ impl Keeper {
                         out: VecDeque::new(),
                         out_bytes: 0,
                         out_fds: 0,
-                        max_out_fds: 2 * self.settings.max_ptys + 16,
+                        max_out_fds: self.max_out_fds(),
                         dead: false,
                     };
                     for (id, p) in &self.ptys {
@@ -420,7 +532,14 @@ impl Keeper {
             }
         };
         self.conns[i].inbuf.extend_from_slice(&buf[..n]);
+        self.handle_lines(i);
+    }
+
+    fn handle_lines(&mut self, i: usize) {
         while let Some(end) = self.conns[i].inbuf.iter().position(|&b| b == b'\n') {
+            if self.upgrade.is_some() {
+                return;
+            }
             let line: Vec<u8> = self.conns[i].inbuf.drain(..=end).collect();
             if self.conns[i].dead {
                 return;
@@ -440,7 +559,7 @@ impl Keeper {
         let tag = req.get("req").cloned().unwrap_or(Value::Null);
         let id = req["id"].as_str().unwrap_or("");
         let result: Result<(Value, Vec<Rc<OwnedFd>>), String> = match req["op"].as_str().unwrap_or("") {
-            "hello" => Ok((json!({"version": PROTOCOL_VERSION, "pid": std::process::id()}), vec![])),
+            "hello" => Ok((json!({"version": PROTOCOL_VERSION, "pid": std::process::id(), "build": self.build}), vec![])),
             "spawn" => match self.spawn(i, &tag, id, req) {
                 Ok(()) => return,
                 Err(error) => Err(error),
@@ -459,6 +578,13 @@ impl Keeper {
             }
             "close" => self.close(id),
             "ack" => self.ack(id),
+            "upgrade" => match req["binary"].as_str() {
+                Some(binary) if Path::new(binary).is_absolute() => {
+                    self.upgrade = Some((self.conns[i].serial, tag, binary.to_string()));
+                    return;
+                }
+                _ => Err("upgrade needs the absolute path of a keeper binary".into()),
+            },
             op => Err(format!("unknown op {op:?}")),
         };
         let (mut reply, fds) = match result {
@@ -618,6 +744,110 @@ impl Keeper {
             for c in &mut self.conns {
                 c.send(event.clone(), vec![]);
             }
+        }
+    }
+}
+
+impl Keeper {
+    fn upgrade(&mut self, (conn, tag, binary): (u64, Value, String)) {
+        eprintln!("kanna-keeper: upgrading to {binary}");
+        let error = self.try_upgrade(conn, &tag, Path::new(&binary));
+        eprintln!("kanna-keeper: not upgraded: {error}");
+        let mut reply = json!({"ok": false, "error": error});
+        if !tag.is_null() {
+            reply["req"] = tag;
+        }
+        if let Some(c) = self.conns.iter_mut().find(|c| c.serial == conn) {
+            c.send(reply, vec![]);
+        }
+        for i in 0..self.conns.len() {
+            self.handle_lines(i);
+        }
+    }
+
+    fn try_upgrade(&mut self, conn: u64, tag: &Value, binary: &Path) -> String {
+        self.reap();
+        self.flush_all();
+        let state = self.state(conn, tag);
+        let mut file = match upgrade::write(&self.settings.state_dir, &state) {
+            Ok(file) => file,
+            Err(e) => return format!("can't write the state: {e}"),
+        };
+        if let Err(e) = upgrade::probe(binary, &mut file, PROBE_TIMEOUT) {
+            return e;
+        }
+        upgrade::exec(binary, &self.settings.state_dir, &file, &state.fds())
+    }
+
+    fn flush_all(&mut self) {
+        let deadline = Instant::now() + FLUSH_TIMEOUT;
+        loop {
+            for c in &mut self.conns {
+                c.flush();
+            }
+            self.conns.retain(|c| !c.dead);
+            let mut fds: Vec<_> =
+                self.conns.iter().filter(|c| !c.out.is_empty()).map(|c| pollfd(c.stream.as_raw_fd(), libc::POLLOUT)).collect();
+            if fds.is_empty() {
+                return;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                eprintln!("kanna-keeper: dropped {} client(s) that weren't reading, to upgrade", fds.len());
+                self.conns.retain(|c| c.out.is_empty());
+                return;
+            }
+            unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, left.as_millis() as libc::c_int + 1) };
+        }
+    }
+
+    fn state(&self, conn: u64, tag: &Value) -> State {
+        let now = Instant::now();
+        State {
+            written: upgrade::monotonic(),
+            lock: self.lock.as_ref().map_or(-1, |l| l.as_raw_fd()),
+            listener: self.listener.as_raw_fd(),
+            next_serial: self.next_serial,
+            nofile: pty::original_nofile(),
+            requester: Requester { conn, tag: tag.clone(), from: self.build.clone() },
+            conns: self
+                .conns
+                .iter()
+                .map(|c| ConnState { serial: c.serial, fd: c.stream.as_raw_fd(), inbuf: c.inbuf.clone() })
+                .collect(),
+            ptys: self
+                .ptys
+                .iter()
+                .map(|(id, p)| PtyState {
+                    id: id.clone(),
+                    pid: p.pid,
+                    cmd: p.cmd.clone(),
+                    cwd: p.cwd.clone(),
+                    master: p.master.as_raw_fd(),
+                    exit: p.exit,
+                })
+                .collect(),
+            pending: self
+                .pending
+                .iter()
+                .map(|p| PendingState {
+                    conn: p.conn,
+                    tag: p.tag.clone(),
+                    id: p.id.clone(),
+                    pid: p.pid,
+                    cmd: p.cmd.clone(),
+                    cwd: p.cwd.clone(),
+                    master: p.master.as_raw_fd(),
+                    exec: p.exec.as_raw_fd(),
+                    left: p.deadline.saturating_duration_since(now),
+                    exit: p.exit,
+                })
+                .collect(),
+            closed: self
+                .closed
+                .iter()
+                .map(|c| ClosedState { pid: c.pid, kill_in: c.kill_at.map(|at| at.saturating_duration_since(now)) })
+                .collect(),
         }
     }
 }

@@ -153,13 +153,15 @@ public final class PageMarkupView: NSView {
     public var threads: [DocThread] { record.threads }
     public var activeThread: String? { active }
     public var commentBoxThread: String? { box.map { $0.threadID ?? "new" } }
+    public var commentBoxParts: [String: NSRect]? { box?.parts }
+    public var commentBoxShown: Bool { box.map { overlay.bounds.contains($0.frame) } ?? false }
     public var markRects: [String: NSRect] {
         Dictionary(uniqueKeysWithValues: overlay.marks.compactMap { mark in mark.thread.map { ($0, overlay.convert(mark.frame, to: self)) } })
     }
     public var areaRects: [String: NSRect] { overlay.areas.mapValues { overlay.convert($0.frame, to: self) } }
     public var pageHash: String { pageHashValue }
     public var cardRects: [String: (rect: NSRect, reply: Bool)] {
-        Dictionary(panel.cards.map { ($0.thread.id, ($0.convert($0.bounds, to: self), $0.field.superview != nil)) }, uniquingKeysWith: { a, _ in a })
+        Dictionary(panel.cards.map { ($0.thread.id, ($0.convert($0.bounds, to: self), $0.grow.superview != nil)) }, uniquingKeysWith: { a, _ in a })
     }
 
     public func rect(of selector: String) async -> NSRect? {
@@ -313,7 +315,7 @@ public final class PageMarkupView: NSView {
         pending = (spot, rect)
         overlay.draft = rect
         let box = CommentBox(composer: ())
-        box.frame.origin = boxOrigin(below: rect, height: box.frame.height)
+        anchor(box, below: rect)
         (box.button("post") as? Chip)?.onPress = { [weak self] in self?.post() }
         box.field.onKey = { [weak self] event in
             if event.keyCode == 36, event.modifierFlags.contains(.command) { self?.post(); return true }
@@ -327,7 +329,7 @@ public final class PageMarkupView: NSView {
         guard let thread = record.threads.first(where: { $0.id == id }), let rect = boxes[id] else { return }
         closeBox()
         let box = CommentBox(thread: thread, note: notes()[id])
-        box.frame.origin = boxOrigin(below: rect, height: box.frame.height)
+        anchor(box, below: rect)
         (box.button("act") as? ActButton)?.onPress = { [weak self] in
             self?.closeBox()
             self?.setState(id, open: !thread.isOpen)
@@ -342,6 +344,14 @@ public final class PageMarkupView: NSView {
             return true
         }
         show(box)
+    }
+
+    private func anchor(_ box: CommentBox, below rect: NSRect) {
+        box.frame.origin = boxOrigin(below: rect, height: box.frame.height)
+        box.onResize = { [weak self] box in
+            guard let self else { return }
+            box.frame.origin = boxOrigin(below: rect, height: box.frame.height)
+        }
     }
 
     private func show(_ box: CommentBox) {
