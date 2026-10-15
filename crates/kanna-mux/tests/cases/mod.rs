@@ -9,7 +9,7 @@ pub type Send = Box<dyn FnMut(Value) -> Value>;
 const KANNA_DIFFERS: [(&str, &str); 3] = [
     ("dock.json: move docks a pane, moves the docked pane to the other edge, and undocks it into a tab", "only a task's agent docks"),
     ("dock.json: docking where a pane is docked sends that one to a new tab, not shown", "only a task's agent docks"),
-    ("dock.json: moving the docked pane to another window or beside a pane undocks it; dropping on it swaps", "only a task's agent docks"),
+    ("dock.json: moving the docked pane to another window or beside a pane undocks it; dropping on it swaps", "only a task's agent docks, and move --window makes a new tab"),
 ];
 
 pub fn cases_directory() -> PathBuf {

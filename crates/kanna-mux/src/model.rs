@@ -814,16 +814,13 @@ impl Model {
             let destination = if let Some(reference) = tab.filter(|r| *r != "new") {
                 let (w, t) = self.need_tab(Some(reference))?;
                 self.windows[w].tabs[t].id.clone()
-            } else if tab == Some("new") {
+            } else if tab == Some("new") || args.get("window").is_some() {
                 let w = if args.get("window").is_some() { self.target_window(string(args, "window"))? } else { from_w };
+                let alone = self.locate(&id).is_some_and(|l| l.window == w && l.parent.is_none());
+                if tab.is_none() && alone {
+                    return Ok(reply([("window", from_window.into())]));
+                }
                 let t = self.make_tab(w, true);
-                self.windows[w].tabs[t].id.clone()
-            } else if args.get("window").is_some() {
-                let w = self.target_window(string(args, "window"))?;
-                let t = match self.windows[w].active_index() {
-                    Some(t) => t,
-                    None => self.make_tab(w, true),
-                };
                 self.windows[w].tabs[t].id.clone()
             } else {
                 return Err(bad_request("move needs to + side, tab, or window"));

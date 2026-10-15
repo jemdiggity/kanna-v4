@@ -200,7 +200,7 @@ pub static COMMANDS: &[Command] = &[
             ("--to OTHER", "The pane to move next to."),
             ("--side SIDE", "left, right, top or bottom of OTHER (takes half its space), or swap (default)."),
             ("--tab [TAB|new]", "Move into that tab, or a new tab (the default). Undocks a docked pane."),
-            ("--window WINDOW|new", "Move into that window's active tab, or a new window."),
+            ("--window WINDOW|new", "Move into a new tab of that window (as --tab new --window), or a new window."),
             ("--dock [left|right]", "Make it its window's docked pane (or that window's), on the left (default) or right edge; or move the docked pane to that edge. A pane already docked there moves to a new tab."),
         ],
         notes: "Moving a docked pane to a tab, a window or beside a pane undocks it. A docked pane can't be split: --to it only swaps. A frozen docked pane (open --dock --frozen) doesn't move, and nothing moves onto it or into its dock. A docked pane is a running task, so --dock moves only the pane that's docked already: start a task with `kanna task start`. A task's agent is frozen.",
