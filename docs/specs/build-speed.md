@@ -48,7 +48,7 @@ SwiftPM's release build compiles each module whole, on one core: the `Kanna` mod
 | Case | Before | After | Where the time goes after |
 |---|---|---|---|
 | (a) fresh worktree (`target/` absent) | 71.4s | **20.7s** | cargo, our crates 7.4s · swift debug 11.1s · rest 2s |
-| (b) no-op rebuild | 1.2s | **1.0s** | two cargo no-ops 0.2s, `kanna-daemon --build` and SwiftPM planning 0.8s |
+| (b) no-op rebuild | 1.2s | **1.0s** | two cargo no-ops 0.2s, `kanna-build` and SwiftPM planning 0.8s |
 | (c) edit a Swift file in the `Kanna` module | 9.9s | **5.0s** | 9 files recompiled, then the debug link (~2.5s) |
 | (c) edit a Swift leaf module (`KannaStatus`) | 1.4s | **1.2s** | |
 | (c) edit `kanna-daemon/src/host.rs` | 3.6s | **3.2s** | cargo 2.3s; Swift untouched |

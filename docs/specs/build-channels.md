@@ -36,8 +36,8 @@ Each folder is a whole Kanna (daemon, keeper, terminals, layout, backlog), so no
 flowchart LR
     S["scripts/build.sh [channel]"] -->|"KANNA_CHANNEL"| B["crates/kanna-build<br/>build.rs: channel; checkout;<br/>worktree when .git is a file"]
     B --> CLI["kanna<br/>default instance, app to start"]
-    B --> D["kanna-daemon<br/>default socket, instance.json;<br/>--build prints the identity"]
-    D -->|"kanna-daemon --build"| P["build-kanna-app.sh<br/>Info.plist: CFBundleName,<br/>CFBundleIdentifier, KannaChannel,<br/>KannaInstance"]
+    B --> D["kanna-daemon<br/>default socket, instance.json"]
+    B -->|"target/release/kanna-build<br/>prints the identity"| P["build-kanna-app.sh<br/>Info.plist: CFBundleName,<br/>CFBundleIdentifier, KannaChannel,<br/>KannaInstance"]
     P --> A["Kanna.app<br/>default socket, Dock badge"]
 ```
 
