@@ -82,7 +82,7 @@ With no task on the Desk, the window's planning terminal, where you run your pla
 | `kanna task done ID` | End a task: close its panes |
 | `kanna task new`, `start`, `stop`, `shelve`, `defer`, `name` | Make, run, stop, move and name tasks: [tasks](tasks.md#6-cli) |
 
-A task's ID is its docked pane's ID. Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens a new tab on the task's Desk (or, while it's parked, among its parked tabs). `done` leaves its Desk empty.
+A task's ID is its docked pane's ID. Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens a new tab on the task's Desk (or, while it's parked or in the backlog, among its hidden tabs); with `--tab`, `--split` or `--size` it opens in the task's own window too, never the front one ([presenting](presenting.md#3-how-its-built)). `done` leaves its Desk empty.
 
 ## 6. How it's built
 

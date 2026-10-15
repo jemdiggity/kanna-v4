@@ -1978,22 +1978,25 @@ task_start_stop() {
   KANNA_PANE="$task" kanna open --name side --cmd 'exec cat' >/dev/null || { echo "task_start_stop line $LINENO"; return 1; }
   expected="stopped $task; \`kanna task start $task\` starts it again"; says kanna task stop "Task 1" || { echo "task_start_stop line $LINENO"; return 1; }
   check is "Task 1" state exited || { echo "task_start_stop: Task 1's agent is still running"; return 1; }
-  kanna list --json | grep -q '"side"' && { echo "task_start_stop: Task 1's tab is still open"; return 1; }
+  check is side state exited || { echo "task_start_stop: Task 1's terminal tab didn't stay, hung up"; kanna list; return 1; }
   (cd "$repo" && kanna task list) | grep -qE "^$task +Task 1 +Shelf +stopped" || { echo "task_start_stop: Task 1 left the Shelf"; (cd "$repo" && kanna task list); return 1; }
   [[ "$(kanna task stop "Task 1" 2>&1)" == *"is stopped"* ]] || { echo "task_start_stop line $LINENO"; return 1; }
   [[ "$(kanna task shelve t4 2>&1)" == *"has 3 tasks on the Shelf"* ]] || { echo "task_start_stop: a stopped task stopped counting on the Shelf"; return 1; }
   expected="started $task again: $task"; says kanna task start "Task 1" || { echo "task_start_stop line $LINENO"; return 1; }
   check wait_for 5 eval '[[ "$(kanna read "Task 1" | tr -d "\r\n")" == *"--resume $session"* ]]' || { echo "task_start_stop: Task 1 didn't resume its conversation"; kanna read "Task 1"; return 1; }
+  check wait_for 5 is side state running || { echo "task_start_stop: Task 1's terminal tab didn't run again"; kanna list; return 1; }
   (cd "$repo" && kanna task list) | grep -qE "^$task +Task 1 +Shelf +(idle|working|running)" || { (cd "$repo" && kanna task list); return 1; }
   [[ "$(kanna task stop t5)" == "stopped t5 in the backlog; "* ]] || { echo "task_start_stop line $LINENO"; return 1; }
   (cd "$repo" && kanna task list) | grep -qE '^t5 +Task 5 +Backlog +stopped' || { (cd "$repo" && kanna task list); return 1; }
   [[ "$(kanna task start t5)" == "started t5 again in the backlog: p"* ]] || { echo "task_start_stop line $LINENO"; return 1; }
   check wait_for 5 shows "Task 5" "--resume" || { echo "task_start_stop: t5 didn't resume"; kanna read "Task 5"; return 1; }
   stop_app; stop_daemon; start_daemon && start_app || { echo "task_start_stop line $LINENO"; return 1; }
+  KANNA_PANE="$(pane "Task 4" id)" kanna open --name side4 --cmd 'exec cat' >/dev/null || { echo "task_start_stop line $LINENO"; return 1; }
   kanna task stop t4 >/dev/null || { echo "task_start_stop line $LINENO"; return 1; }
   stop_app; stop_daemon; start_daemon && start_app || { echo "task_start_stop line $LINENO"; return 1; }
   (cd "$repo" && kanna task list) | grep -qE '^t4 +Task 4 +Backlog +stopped' || { echo "task_start_stop: a stopped task didn't survive a restart"; (cd "$repo" && kanna task list); return 1; }
   kanna task start t4 >/dev/null && check wait_for 5 shows "Task 4" "--resume" || { echo "task_start_stop: t4 didn't resume after a restart"; return 1; }
+  check wait_for 5 is side4 state running || { echo "task_start_stop: a hung-up terminal didn't run again after a restart"; kanna list; return 1; }
 }
 
 scenario code_pinned_line M4
@@ -2471,6 +2474,46 @@ for t in tasks: print(t["id"], "running" if t.get("running") else "stopped:" + (
   in_repo task new "Seven" "work 1" --agent "$fake/codex" >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }
   sleep 4
   check test "$(of t7 2)" == waiting || { echo "backlog_runners: backlog.runners 0 ran a task"; backlog; return 1; }
+  in_repo task done t7 >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }
+  cat >"$fake/present.sh" <<PRESENT
+#!/bin/bash
+set -e
+exec 2>>"$KANNA_STATE_DIR/present.log"
+printf '# Change\\n\\nWhat changed, and why.\\n' >notes.md
+md="\$("$bin/kanna" open md notes.md | sed -E 's/^opened (p[0-9]+).*/\1/')"
+"$bin/kanna" comment notes.md:3 "Why it changed." >/dev/null
+long="\$("$bin/kanna" open --tab --cmd 'echo LONG_RUNNING; exec sleep 600' | sed -E 's/^opened (p[0-9]+).*/\1/')"
+short="\$("$bin/kanna" open --tab --cmd 'echo SHORT_DONE' | sed -E 's/^opened (p[0-9]+).*/\1/')"
+"$bin/kanna" focus "\$md" >/dev/null
+"$bin/kanna" zoom "\$md" >/dev/null
+echo "\$md \$long \$short" >"$KANNA_STATE_DIR/presented"
+PRESENT
+  chmod +x "$fake/present.sh"
+  in_repo task new "Presents" "run $fake/present.sh" --agent "$fake/codex" >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }
+  runners 1
+  check wait_for 60 eval '[[ "$(of t8 2)" == stopped:finished ]]' || { echo "backlog_runners: the presenting task didn't stop"; backlog; cat "$KANNA_STATE_DIR/present.log"; return 1; }
+  local presenter md long short; presenter="$(of t8 3)"
+  read -r md long short <"$KANNA_STATE_DIR/presented" || { echo "backlog_runners: the agent didn't present"; kanna read "$presenter"; cat "$KANNA_STATE_DIR/present.log"; return 1; }
+  check is "$md" type md || { echo "backlog_runners: stopping closed the markdown tab"; kanna list; return 1; }
+  check is "$long" state exited || { echo "backlog_runners: stopping didn't hang up the running terminal"; kanna list; return 1; }
+  check is "$short" state exited || { echo "backlog_runners line $LINENO"; return 1; }
+  held() { raw '{"id":1,"cmd":"debug.saveState"}' | python3 -c 'import json, sys
+w = next(w for w in json.load(sys.stdin)["state"]["parked"] if (w.get("dock") or {}).get("pane") == sys.argv[1])
+print(len(w["tabs"]), w.get("focused"), w.get("zoomed"))' "$presenter"; }
+  check test "$(held)" == "3 $md $md" || { echo "backlog_runners: the stopped task's layout changed: $(held)"; return 1; }
+  runners 0
+  [[ "$(kanna task shelve t8)" == "moved t8 to the Shelf: "* ]] || { echo "backlog_runners: the presenting task didn't move to the Shelf"; return 1; }
+  check wait_for 10 is "$long" state running || { echo "backlog_runners: the hung-up terminal didn't run again"; kanna list; return 1; }
+  check wait_for 5 shows "$long" LONG_RUNNING || { kanna read "$long"; return 1; }
+  check is "$short" state exited || { echo "backlog_runners: a terminal that had exited before the stop ran again"; return 1; }
+  kanna task pull "$presenter" >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }
+  shown() { state | python3 -c 'import json, sys
+listed = json.load(sys.stdin)
+ids = {p.get("name") or p["id"]: p["id"] for p in listed["panes"]}
+ids.update({p["id"]: p["id"] for p in listed["panes"]})
+w = next(w for w in listed["windows"] if ids.get((w.get("dock") or {}).get("pane")) == sys.argv[1])
+print(len(w["tabs"]), ids.get(w.get("focused")), ids.get(w.get("zoomed")))' "$presenter"; }
+  check test "$(shown)" == "3 $md $md" || { echo "backlog_runners: the pulled task doesn't show what it presented: $(shown)"; state; return 1; }
 }
 
 for s in ${only[@]+"${only[@]}"}; do due "$s" >/dev/null || { echo "e2e-kanna: no scenario named $s (see --help)" >&2; exit 2; }; done

@@ -54,6 +54,7 @@ pub struct Placement {
     pub dock: Option<Edge>,
     pub frozen: bool,
     pub from: Option<String>,
+    pub opener: Option<String>,
     pub shelf: bool,
     pub backlog: bool,
     pub planner: bool,
@@ -137,7 +138,7 @@ impl LayoutLink for LocalLayout {
     }
 }
 
-pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>, frozen: bool, from: Option<&str>, shelf: bool, backlog: bool, planner: bool) -> Value {
+pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>, frozen: bool, from: Option<&str>, opener: Option<&str>, shelf: bool, backlog: bool, planner: bool) -> Value {
     let mut at = Map::new();
     if frozen {
         at.insert("frozen".into(), Value::Bool(true));
@@ -153,6 +154,9 @@ pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>
     }
     if let Some(from) = from {
         at.insert("from".into(), from.into());
+    }
+    if let Some(opener) = opener {
+        at.insert("opener".into(), opener.into());
     }
     if let Some(dock) = dock {
         at.insert("dock".into(), dock.as_str().into());
@@ -234,7 +238,7 @@ pub fn placement(at: &Value) -> Result<Placement, KmuxError> {
         Some(size) => size.as_f64().filter(|s| *s > 0.0 && *s < 1.0).ok_or_else(|| bad("size must be a fraction between 0 and 1"))?,
     };
     let dock = Edge::read(at.get("dock")).map_err(|_| bad("dock must be left or right"))?;
-    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock, frozen: at.get("frozen") == Some(&Value::Bool(true)), from: string(at, "from").map(String::from), shelf: at.get("shelf") == Some(&Value::Bool(true)), backlog: at.get("backlog") == Some(&Value::Bool(true)), planner: at.get("planner") == Some(&Value::Bool(true)) })
+    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock, frozen: at.get("frozen") == Some(&Value::Bool(true)), from: string(at, "from").map(String::from), opener: string(at, "opener").map(String::from), shelf: at.get("shelf") == Some(&Value::Bool(true)), backlog: at.get("backlog") == Some(&Value::Bool(true)), planner: at.get("planner") == Some(&Value::Bool(true)) })
 }
 
 fn spot(reply: &mut Map, spot: Option<Spot>, window: Option<String>) {

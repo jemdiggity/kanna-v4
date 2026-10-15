@@ -112,6 +112,7 @@ pub struct Pane {
     pub session: Option<String>,
     pub pid: Option<i64>,
     pub status: Option<String>,
+    pub hung_up: bool,
 }
 
 impl Pane {
@@ -139,6 +140,7 @@ impl Pane {
             session: None,
             pid: None,
             status: None,
+            hung_up: false,
         }
     }
 
