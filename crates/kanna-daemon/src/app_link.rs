@@ -366,6 +366,7 @@ impl AppLink {
         }
         core.with_pane_mut(id, |pane| {
             if let Some(title) = string(args, "title").filter(|_| pane.kind == PaneType::Web) {
+                let title: String = title.chars().filter(|c| !c.is_control()).collect();
                 pane.title = Some(title.trim().to_string()).filter(|t| !t.is_empty());
             }
             if let Some(device) = string(args, "device") {

@@ -162,14 +162,13 @@ impl Pane {
     }
 
     pub fn tab_name(&self) -> Option<String> {
-        if let Some(name) = &self.name {
-            return Some(name.clone());
-        }
-        match self.kind {
-            PaneType::Md | PaneType::Code => self.path.as_deref().and_then(file_name),
-            PaneType::Web => self.title.clone().filter(|t| !t.trim().is_empty()).or_else(|| self.url.as_deref().and_then(host)),
-            PaneType::Term | PaneType::Ios => None,
-        }
+        let name = match (&self.name, self.kind) {
+            (Some(name), _) => Some(name.clone()),
+            (None, PaneType::Md | PaneType::Code) => self.path.as_deref().and_then(file_name),
+            (None, PaneType::Web) => self.title.clone().filter(|t| !t.trim().is_empty()).or_else(|| self.url.as_deref().and_then(host)),
+            (None, PaneType::Term | PaneType::Ios) => None,
+        };
+        name.map(|n| n.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string()).filter(|n| !n.is_empty())
     }
 
     pub fn summary(&self) -> Value {
@@ -381,6 +380,9 @@ mod tab_name_tests {
         assert_eq!(web.tab_name().as_deref(), Some("serde - Rust"));
         web.title = Some("  ".into());
         assert_eq!(web.tab_name().as_deref(), Some("docs.rs"));
+        web.title = Some("\u{1b}]0;owned\u{7}\u{1b}[2Jpage\n".into());
+        assert_eq!(web.tab_name().as_deref(), Some("]0;owned[2Jpage"), "no control characters reach a terminal through kanna list");
+        web.title = None;
         web.url = Some("http://[::1]:5173/".into());
         assert_eq!(web.tab_name().as_deref(), Some("::1"));
         web.url = Some("file:///Users/me/mockups/tabs.html".into());
