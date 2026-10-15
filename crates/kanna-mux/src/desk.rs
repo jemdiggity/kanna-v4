@@ -67,6 +67,30 @@ impl Model {
         self.parked.insert(0, parked);
     }
 
+    pub(crate) fn parked_containing(&self, id: &str) -> Option<usize> {
+        self.parked.iter().position(|p| p.docks(id) || p.tabs.iter().any(|t| pane_ids(t.root.as_ref()).iter().any(|x| x == id)))
+    }
+
+    pub(crate) fn focus_parked(&mut self, id: &str) -> Option<usize> {
+        let p = self.parked_containing(id)?;
+        let parked = &mut self.parked[p];
+        if let Some(tab) = parked.tabs.iter_mut().find(|t| pane_ids(t.root.as_ref()).iter().any(|x| x == id)) {
+            tab.last_focus = Some(id.into());
+            parked.active = Some(tab.id.clone());
+        }
+        parked.focused = Some(id.into());
+        Some(p)
+    }
+
+    pub(crate) fn focus_parked_tab(&mut self, reference: &str) -> bool {
+        let Some(parked) = self.parked.iter_mut().find(|p| p.tabs.iter().any(|t| t.id == reference)) else { return false };
+        let Some(tab) = parked.tabs.iter().find(|t| t.id == reference) else { return false };
+        let ids = pane_ids(tab.root.as_ref());
+        parked.focused = tab.last_focus.clone().filter(|l| ids.contains(l)).or_else(|| ids.first().cloned());
+        parked.active = Some(reference.into());
+        true
+    }
+
     pub(crate) fn task_panes(&mut self, task: &str) -> Result<Vec<String>, KmuxError> {
         let window = match self.dock_window(task) {
             Some(w) => {

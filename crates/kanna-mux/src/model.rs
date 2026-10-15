@@ -114,7 +114,7 @@ impl Window {
         }
     }
 
-    fn docks(&self, pane: &str) -> bool {
+    pub(crate) fn docks(&self, pane: &str) -> bool {
         self.dock.as_ref().is_some_and(|d| d.pane == pane)
     }
 
@@ -631,7 +631,10 @@ impl Model {
 
     fn focus_pane(&mut self, id: &str) {
         let location = self.locate(id);
-        let Some(w) = location.as_ref().map(|l| l.window).or_else(|| self.dock_window(id)).or_else(|| self.planner_window(id)) else { return };
+        let Some(w) = location.as_ref().map(|l| l.window).or_else(|| self.dock_window(id)).or_else(|| self.planner_window(id)) else {
+            self.focus_parked(id);
+            return;
+        };
         let window = &mut self.windows[w];
         if let Some(location) = location {
             window.active = Some(window.tabs[location.tab].id.clone());
@@ -671,7 +674,9 @@ impl Model {
             let id = panes.need(Some(reference))?.id.clone();
             self.focus_pane(&id);
         } else if let Some(reference) = string(args, "tab") {
-            let (w, t) = self.tab_index(reference).ok_or_else(|| not_found(format!("no tab \"{reference}\"")))?;
+            let Some((w, t)) = self.tab_index(reference) else {
+                return if self.focus_parked_tab(reference) { Ok(reply([("window", opt(self.key.as_deref()))])) } else { Err(not_found(format!("no tab \"{reference}\""))) };
+            };
             let window = &mut self.windows[w];
             let ids = pane_ids(window.tabs[t].root.as_ref());
             window.active = Some(window.tabs[t].id.clone());
@@ -689,7 +694,13 @@ impl Model {
 
     fn zoom(&mut self, args: &Value, panes: &Panes) -> Result<Map, KmuxError> {
         let id = panes.need(string(args, "pane"))?.id.clone();
-        let w = self.window_containing(&id).ok_or_else(|| not_found(format!("no pane \"{id}\"")))?;
+        let Some(w) = self.window_containing(&id) else {
+            let p = self.parked_containing(&id).ok_or_else(|| not_found(format!("no pane \"{id}\"")))?;
+            let was = self.parked[p].zoomed() == Some(&id);
+            self.focus_parked(&id);
+            self.parked[p].zoom = !was;
+            return Ok(reply([("zoomed", Value::Bool(!was))]));
+        };
         let was = self.windows[w].zoomed() == Some(&id);
         self.focus_pane(&id);
         *self.windows[w].zoom_mut() = !was;
@@ -1003,13 +1014,16 @@ impl LayoutHost for Model {
             self.shelve(pane, edge, at.backlog, at.frozen);
             return Ok(None);
         }
-        if let Some(placed) = at.from.as_deref().and_then(|from| self.place_on_task(pane, from)) {
+        let hidden = at.opener.as_deref().and_then(|opener| self.parked_containing(opener)).and_then(|p| self.parked[p].dock.as_ref().map(|d| d.pane.clone()));
+        if let Some(placed) = hidden.as_deref().or(at.from.as_deref()).and_then(|from| self.place_on_task(pane, from)) {
             return Ok(placed);
         }
         let beside = at.from.as_deref().and_then(|from| self.locate(from).map(|l| (l.window, l.tab, from.to_string())));
-        let mut w = match &beside {
-            Some((w, _, _)) => *w,
-            None => self.target_window(at.window.as_deref())?,
+        let opener = at.opener.as_deref().filter(|_| at.window.is_none()).and_then(|opener| self.window_containing(opener));
+        let mut w = match (&beside, opener) {
+            (Some((w, _, _)), _) => *w,
+            (None, Some(w)) => w,
+            (None, None) => self.target_window(at.window.as_deref())?,
         };
         if at.dock.is_none() && self.is_shelf(w) {
             w = self.make_window();
