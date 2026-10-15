@@ -433,7 +433,6 @@ function render() {
   bind();
 }
 function bind() {
-  document.querySelectorAll("#scope span").forEach(s => s.onclick = () => { state.scope = s.dataset.v; state.sel = 0; render(); });
   document.querySelectorAll("#mode span").forEach(s => s.onclick = () => { state.mode = s.dataset.v; render(); });
   document.querySelectorAll(".files .f").forEach(f => f.onclick = () => { state.sel = +f.dataset.i; render(); const t = document.getElementById("file" + state.sel); document.getElementById("scroller").scrollTop = t.offsetTop; });
   document.querySelectorAll(".fh").forEach(h => h.onclick = e => {
