@@ -101,17 +101,7 @@ fi
 build_number="$(git rev-list --count HEAD)"
 echo "    $app_name $version (build $build_number) from ${last_tag:-the start} to $(git rev-parse --short HEAD)"
 
-main_checkout="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
-work="$main_checkout/.worktrees/release"
-dist="$main_checkout/target/release-dmg/$tag"
-step "Source: $head in ${work#"$main_checkout/"}"
-if [[ -e "$work/.git" ]]; then
-  git -C "$work" checkout --quiet --detach --force "$head"
-  git -C "$work" clean --quiet -fd
-else
-  git worktree prune
-  git worktree add --quiet --detach "$work" "$head"
-fi
+dist="$repo_root/target/release-dmg/$tag"
 rm -rf "$dist"
 mkdir -p "$dist"
 
@@ -132,9 +122,9 @@ verify_output="$dist/verification.txt"
 dmgs=()
 for arch in "${archs[@]}"; do
   step "Build $app_name $version for $arch"
-  KANNA_VERSION="$version" "$work/scripts/build.sh" "$channel" --arch "$arch"
-  triple="$(. "$work/scripts/env.sh" && kanna_arch_triple "$arch")"
-  if [[ "$triple" == "$(. "$work/scripts/env.sh" && kanna_host_triple)" ]]; then built="$work/target/Kanna.app"; else built="$work/target/$triple/Kanna.app"; fi
+  KANNA_VERSION="$version" "$repo_root/scripts/build.sh" "$channel" --arch "$arch"
+  triple="$(. "$repo_root/scripts/env.sh" && kanna_arch_triple "$arch")"
+  if [[ "$triple" == "$(. "$repo_root/scripts/env.sh" && kanna_host_triple)" ]]; then built="$repo_root/target/Kanna.app"; else built="$repo_root/target/$triple/Kanna.app"; fi
 
   stage="$dist/$arch"
   rm -rf "$stage"
@@ -153,7 +143,7 @@ for arch in "${archs[@]}"; do
   done < <(find "$app/Contents/Helpers" -type f -print0)
   stray="$(find "$app/Contents" -type f ! -path "*/Contents/Helpers/*" ! -path "*/Contents/MacOS/Kanna" -exec sh -c 'file -b "$1" | grep -q Mach-O && echo "$1"' _ {} \;)"
   [[ -z "$stray" ]] || fail "Mach-O files outside Contents/Helpers would go unsigned: $stray"
-  codesign --force --sign "$sign_hash" --options runtime --timestamp --entitlements "$work/apps/kanna/Resources/Kanna.entitlements" "$app"
+  codesign --force --sign "$sign_hash" --options runtime --timestamp --entitlements "$repo_root/apps/kanna/Resources/Kanna.entitlements" "$app"
   codesign --verify --strict --deep --verbose=2 "$app"
 
   step "DMG $arch"

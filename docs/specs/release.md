@@ -18,8 +18,7 @@
 ```mermaid
 flowchart TB
     P["Preflight<br/>clean main on origin/main, Developer ID,<br/>notary credential, gh, claude"] --> V["Version<br/>last v* tag + bump, or VERSION"]
-    V --> W["Release worktree<br/>.worktrees/release at HEAD"]
-    W --> L{{"for arm64, x86_64"}}
+    V --> L{{"for arm64, x86_64"}}
     L --> B["scripts/build.sh production --arch A<br/>KANNA_VERSION=X.Y.Z"]
     B --> S["Sign Helpers, then the app<br/>Developer ID, hardened runtime, timestamp"]
     S --> D["Kanna-X.Y.Z-A.dmg<br/>sign, notarize, staple, verify"]
@@ -31,9 +30,9 @@ flowchart TB
     T --> G["GitHub Release Kanna vX.Y.Z<br/>on tampopogk/kanna, DMGs attached"]
 ```
 
-- **The build runs in its own worktree,** the main checkout's `.worktrees/release`, checked out at HEAD. So the release builds exactly what's committed, and never replaces the main checkout's `target/Kanna.app`, the dev Kanna that may be running.
+- **The build runs in this checkout:** `target/Kanna.app` and `target/x86_64-apple-darwin/Kanna.app` become the production (or staging) apps, replacing the dev builds there.
 - **Nothing is launched:** the script never opens the app it builds, and never touches `/Applications`.
-- **Its output** is `target/release-dmg/vX.Y.Z/` in the main checkout: the DMGs, `notes.md` and `verification.txt`.
+- **Its output** is `target/release-dmg/vX.Y.Z/`: the DMGs, `notes.md` and `verification.txt`.
 
 ## Preflight
 
