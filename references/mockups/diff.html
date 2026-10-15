@@ -154,9 +154,10 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 <main>
   <div class="intro">
     <h1>Diff viewer: what the task changed, as a tab beside its agent</h1>
-    <p><code>kanna open diff</code> opens a <b>diff pane</b>: everything the task's branch changed since it left <code>main</code>, committed or not, file by file, highlighted. It follows the worktree: when the agent edits a file the pane re-diffs and marks what moved. Pick <b>Uncommitted</b> to see only what isn't committed yet, or <b>Split</b> for old and new side by side. Read-only: you review, select, copy, and open a file in a code pane.</p>
+    <p><code>kanna open diff [ARGS]</code> opens a <b>diff pane</b> showing what <code>git diff [ARGS]</code> shows, in the task's worktree, file by file, highlighted. It takes git's arguments as git does: no arguments is what isn't staged; <code>--merge-base main</code> is everything the task changed since it left <code>main</code>, committed or not; <code>--staged</code>, <code>main...HEAD</code>, <code>-- PATH</code> as in git. It follows the worktree: when the agent edits or commits, the pane re-diffs and marks what moved. <b>Split</b> shows old and new side by side. Read-only: you review, select, copy, and open a file in a code pane.</p>
     <div class="controls">
-      <button id="openIt">Agent opens the diff</button>
+      <button id="openIt">Agent: kanna open diff --merge-base main</button>
+      <button id="openPlain">Agent: kanna open diff</button>
       <button id="edit">Agent edits pane.rs</button>
       <button id="commit">Agent commits</button>
       <span class="sep"></span>
@@ -402,21 +403,20 @@ const pathHTML = p => { const i = p.lastIndexOf("/"); return `<i>${escH(p.slice(
 function render() {
   document.documentElement.dataset.theme = state.theme;
   const tabs = [["diff-viewer.md", false], ["diff.html", false]];
-  if (state.open) tabs.push(["Diff vs main", true]);
+  if (state.open) tabs.push([state.scope === "branch" ? "diff --merge-base main" : "diff", true]);
   document.getElementById("dtabs").innerHTML = tabs.map(([n, on], i) => `<div class="dtab ${on || (!state.open && i === 0) ? "on" : ""}">${n}<span class="x">✕</span></div>`).join("") + `<span class="add">+</span>`;
   const el = document.getElementById("diff");
   if (!state.open) { el.innerHTML = `<div class="empty"><b>docs/specs/diff-viewer.md</b>(a markdown tab)</div>`; return; }
   const fs = files();
   const tot = fs.reduce((t, f) => { const [a, d] = count(f); return [t[0] + a, t[1] + d]; }, [0, 0]);
-  const what = state.scope === "branch" ? `<code>diff-viewer</code> vs <code>main</code>` : `Uncommitted in <code>diff-viewer</code>`;
+  const what = `<code>git diff${state.scope === "branch" ? " --merge-base main" : ""}</code>`;
   const head = `<div class="dhead">
     <span class="what">${what}</span><span class="tot">${fs.length} files · ${ct(tot)}</span>
     <span class="spacer"></span>
     <span class="live ${state.busy ? "busy" : ""}" title="Re-diffs when the worktree changes"><i></i>${state.busy ? "updating" : "live"}</span>
-    <span class="seg" id="scope"><span data-v="branch" class="${state.scope === "branch" ? "on" : ""}">vs main</span><span data-v="uncommitted" class="${state.scope === "uncommitted" ? "on" : ""}">Uncommitted</span></span>
     <span class="seg" id="mode"><span data-v="unified" class="${state.mode === "unified" ? "on" : ""}">Unified</span><span data-v="split" class="${state.mode === "split" ? "on" : ""}">Split</span></span>
   </div>`;
-  if (!fs.length) { el.innerHTML = head + `<div class="empty"><b>Nothing uncommitted</b>The worktree matches the branch's last commit.</div>`; bind(); return; }
+  if (!fs.length) { el.innerHTML = head + `<div class="empty"><b>No changes</b>git diff shows nothing: the worktree matches the index.</div>`; bind(); return; }
   const dirs = {};
   fs.forEach((f, i) => { const d = f.path.slice(0, f.path.lastIndexOf("/") + 1); (dirs[d] = dirs[d] || []).push([f, i]); });
   const list = `<div class="files ${state.list ? "" : "hidden"}">${Object.entries(dirs).map(([d, xs]) => `<div class="dir">${escH(d)}</div>` + xs.map(([f, i]) => `<div class="f ${f.st} ${i === state.sel ? "on" : ""} ${f.fresh ? "fresh" : ""}" data-i="${i}"><span class="st ${f.st}">${f.st}</span><span class="nm">${escH(f.path.slice(d.length))}</span><span class="ct">${ct(count(f))}</span></div>`).join("")).join("")}</div>`;
@@ -455,13 +455,22 @@ function say(s) { log += s; term.innerHTML = BASE + log; }
 document.getElementById("openIt").onclick = () => {
   if (state.open) return;
   say(`
-<span class="g">  Bash(</span><span class="c">kanna open diff</span><span class="g">)</span>
+<span class="g">  Bash(</span><span class="c">kanna open diff --merge-base main</span><span class="g">)</span>
 <span class="ok">  ⎿ p231 opened</span>
 
 <span class="m">●</span> That's everything on this branch against main, in
   the Diff tab. The two new files aren't committed yet.
 `);
   state.open = true; render();
+};
+document.getElementById("openPlain").onclick = () => {
+  say(`
+<span class="g">  Bash(</span><span class="c">kanna open diff</span><span class="g">)</span>
+<span class="ok">  ⎿ p232 opened</span>
+
+<span class="m">●</span> That's what I haven't staged yet.
+`);
+  state.open = true; state.scope = "uncommitted"; state.sel = 0; render();
 };
 document.getElementById("edit").onclick = () => {
   if (!state.open) document.getElementById("openIt").click();
