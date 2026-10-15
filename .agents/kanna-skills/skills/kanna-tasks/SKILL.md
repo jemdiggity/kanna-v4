@@ -42,6 +42,15 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 - **Say what it waits for.** If it can't start until other tasks are done (it builds on their merged work), add `--after TASK,...` (IDs from `kanna task list`, yours too: your pane works). It's **blocked**: it can't start until those tasks are done, and its backlog row shows it so. It starts from main, so it gets their work only once they're merged and done.
 - **Start or shelve one only when the user asks, or shelve when there's room.** `kanna task shelve` puts it on the Shelf if the project has fewer than three tasks out (the Desk's and the Shelf's); otherwise leave it in the backlog, unless the user asks, and then make room by deferring a Shelf task they're not using. `kanna task start` runs it in the backlog instead, with no limit.
 
+## Present your work
+
+When the work is done, set up your Desk to show the user what you changed and why, before your turn ends. They may be watching, or the task may have run in the backlog and they'll pull it hours later: either way, what they see first is the layout you leave. Kanna keeps it while you're stopped and shows it when the task comes onto the Desk.
+
+- **Pick what explains this change best,** one or a few of: the spec you changed (`kanna open md`), the mockup (`kanna open web`), comments on the key code (`kanna comment`, as the `kanna-explain` skill says), a diagram in a doc in `.kanna/tmp/`, a diff (`kanna open --tab --name diff --cmd 'git -c color.ui=always diff main...HEAD | less -R'`).
+- **Arrange it:** the most important tab shown and focused (`kanna focus`), and zoomed if one pane says it all (`kanna zoom`). Close tabs that don't help, and leave no terminal the user needs: Kanna closes terminal tabs when it stops you.
+- **End your turn with a short summary** in the chat: what changed, why, what's in the tabs, and what's left for the user (merge, a decision, a check).
+- **If you stopped to ask,** set up what the question is about the same way.
+
 ## Show it in a tab
 
 When the user asks you to show them something (a diff, a file, a doc, a page, a log), open it in a new tab of your own window, not in the chat:
@@ -66,7 +75,7 @@ When the user asks you to show them something (a diff, a file, a doc, a page, a 
 | `kanna task edit TASK --after TASK,...\|none` | Change what a backlog task waits for (only when the user asks to unblock it) |
 | `kanna task list [QUERY]` | Every task: ID, name, where (a Desk, the Shelf, the backlog), state (working, idle, needs you, stopped, or blocked, with what it waits for), repo; QUERY keeps those whose name or first message has every word |
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, branch and agent with the first message, and stays in the backlog; a stopped task resumes its conversation |
-| `kanna task stop [TASK]` | End a task's agent and tabs, leaving it where it is (only when the user asks) |
+| `kanna task stop [TASK]` | End a task's agent and terminals, leaving it where it is with its other tabs (only when the user asks) |
 | `kanna task shelve TASK` | Move a backlog task to the Shelf, starting it if it's stopped (three per project) |
 | `kanna task pull TASK` | Bring a task onto the Desk, parking the one there (only when the user asks) |
 | `kanna task park [TASK]` | Move the Desk's task to the Shelf (only when the user asks) |
