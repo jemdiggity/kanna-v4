@@ -24,7 +24,7 @@ Every command, option, output and error is kmux's CLI's, except where [the CLI's
 | | `kanna move PANE --to OTHER [--side SIDE]` / `--tab TAB\|new` / `--window WINDOW\|new` | Move a pane beside another, swap two, or move it to another tab or window. |
 | | `kanna navigate PANE URL\|FILE\|--back\|--forward` | Point a web pane at a new URL (or move through its history), or a markdown pane at another `.md` file. |
 | Tabs and windows | `kanna arrange LAYOUT` | Rearrange existing panes in one go. Today LAYOUT is kmux's JSON tree; the [layout expression](arranging-panes.md#2-the-layout-expression) is planned. |
-| | `kanna rename-tab TAB TITLE` | Rename a tab. |
+| | `kanna rename-tab TAB TITLE` | Rename a tab; it keeps that name instead of following its pane's ([tab names](tab-names.md)). |
 | | `kanna move-tab TAB [--window WINDOW\|new] [--index N]` | Reorder a tab, or move it to another window. |
 | Information | `kanna list` | List panes with their names, IDs, types and states. |
 | | `kanna capabilities` | Show what the running mux supports (and, for Kanna, whether the app is attached). |
@@ -41,7 +41,7 @@ Kanna's own commands beyond these (`markup`, `rename-pane`, `task`, `status`, `c
 | `--name NAME` | A stable name to use in later commands. |
 | `--split [right\|down\|auto]` | Where to put the new pane relative to the focused one. |
 | `--size FRACTION` | How much of the split space the new pane gets, e.g. `1/3`. |
-| `--tab` | Open in a new tab instead of splitting. |
+| `--tab` | Open in a new tab instead of splitting, named after the pane: `kanna open code src/store.rs --tab` makes a tab `store.rs` ([tab names](tab-names.md)). |
 | `--window ID\|new` | Open in that window, or a new one. |
 | `--no-wait` | Return as soon as the pane is created, without waiting until it's running. |
 

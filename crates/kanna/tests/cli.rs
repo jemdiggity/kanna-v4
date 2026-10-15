@@ -61,7 +61,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["open", "--name", "b", "--split", "right", "--size", "1/3"]).ok(), "opened p2 (b) in window w1, tab t1: running");
     assert_eq!(layout(&daemon, 0, 0), "a:2/3 | b:1/3");
     let list = daemon.kanna(&["list"]).ok();
-    assert!(list.starts_with("*w1  focused: b\n  *t1 \"Tab 1\"  a:2/3 | b:1/3\n\nPANE  NAME  TYPE  STATE    COMMAND"), "{list}");
+    assert!(list.starts_with("*w1  focused: b\n  *t1 \"a\"  a:2/3 | b:1/3\n\nPANE  NAME  TYPE  STATE    COMMAND"), "{list}");
     assert!(list.contains("p1    a     term  running  exec /bin/sh"), "{list}");
     assert!(list.contains("p2    b     term  running  (shell)"), "{list}");
 

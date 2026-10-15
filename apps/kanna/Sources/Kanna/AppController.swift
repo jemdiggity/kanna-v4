@@ -302,7 +302,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func learn(_ pane: JSON) {
-        _ = appLayout?.call(["call": "pane", "pane": pane])
+        let reply = appLayout?.call(["call": "pane", "pane": pane])
+        if reply?["changed"]?.bool == true { refresh() }
         scheduleSave()
     }
 

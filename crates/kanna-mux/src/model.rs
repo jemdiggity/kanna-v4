@@ -2,7 +2,7 @@ use crate::error::KmuxError;
 use crate::fraction;
 use crate::json::{num, opt, string, trim, Map, Value};
 use crate::layout::{Edge, LayoutHost, Placement, SavedLayout, Scope, SplitSide, Spot};
-use crate::pane::Panes;
+use crate::pane::{Pane, Panes};
 use crate::state::{bad, number_in, quoted, whole};
 use std::collections::HashSet;
 
@@ -53,11 +53,33 @@ pub struct Tab {
     pub title: String,
     pub root: Option<Node>,
     pub last_focus: Option<String>,
+    pub number: usize,
+    pub namer: Option<String>,
+    pub renamed: bool,
 }
 
 impl Tab {
-    pub(crate) fn new(id: String, title: String) -> Tab {
-        Tab { id, title, root: None, last_focus: None }
+    pub(crate) fn new(id: String, number: usize) -> Tab {
+        Tab { id, title: format!("Tab {number}"), root: None, last_focus: None, number, namer: None, renamed: false }
+    }
+
+    pub(crate) fn rename(&mut self, title: &str) {
+        self.title = title.into();
+        self.renamed = true;
+    }
+
+    fn retitle(&mut self, panes: &Panes) -> bool {
+        let ids = pane_ids(self.root.as_ref());
+        if !self.namer.as_ref().is_some_and(|n| ids.contains(n)) {
+            self.namer = ids.into_iter().next();
+        }
+        if self.renamed {
+            return false;
+        }
+        let title = self.namer.as_deref().and_then(|n| panes.get(n)).and_then(Pane::tab_name).unwrap_or_else(|| format!("Tab {}", self.number));
+        let changed = title != self.title;
+        self.title = title;
+        changed
     }
 }
 
@@ -321,6 +343,14 @@ impl Model {
         Model::default()
     }
 
+    pub fn retitle(&mut self, panes: &Panes) -> bool {
+        let mut changed = false;
+        for tab in self.windows.iter_mut().chain(self.parked.iter_mut()).flat_map(|w| w.tabs.iter_mut()) {
+            changed |= tab.retitle(panes);
+        }
+        changed
+    }
+
     pub fn windows(&self) -> &[Window] {
         &self.windows
     }
@@ -415,7 +445,7 @@ impl Model {
         self.counters.0 += 1;
         let window = &mut self.windows[w];
         window.tab_count += 1;
-        let tab = Tab::new(format!("t{}", self.counters.0), format!("Tab {}", window.tab_count));
+        let tab = Tab::new(format!("t{}", self.counters.0), window.tab_count);
         if activate || window.active.is_none() {
             window.active = Some(tab.id.clone());
         }
@@ -715,7 +745,7 @@ impl Model {
             return Err(bad_request("a tab title cannot be empty"));
         }
         let tab = &mut self.windows[w].tabs[t];
-        tab.title = title.into();
+        tab.rename(title);
         Ok(reply([("tab", tab.id.clone().into()), ("title", title.into())]))
     }
 
@@ -950,7 +980,7 @@ impl Model {
             let share = 1.0 / leftovers.len() as f64;
             let kids = leftovers.into_iter().map(|id| Child { node: Node::Pane(id), size: share }).collect();
             let rest = &mut self.windows[w].tabs[rest];
-            rest.title = "unarranged".into();
+            rest.rename("unarranged");
             rest.root = Some(normalize(Node::Split(Split { axis: Axis::Row, kids })));
         }
         let window = &mut self.windows[w];
@@ -1167,12 +1197,20 @@ impl LayoutHost for Model {
                     .tabs
                     .iter()
                     .map(|tab| {
-                        Value::Object(reply([
+                        let mut out = reply([
                             ("id", tab.id.clone().into()),
                             ("title", tab.title.clone().into()),
                             ("lastFocus", opt(tab.last_focus.as_deref())),
                             ("layout", tab.root.as_ref().map_or(Value::Null, Model::export_node)),
-                        ]))
+                            ("number", num(tab.number as f64)),
+                        ]);
+                        if let Some(namer) = &tab.namer {
+                            out.insert("namer".into(), namer.clone().into());
+                        }
+                        if tab.renamed {
+                            out.insert("renamed".into(), Value::Bool(true));
+                        }
+                        Value::Object(out)
                     })
                     .collect();
                 let mut out = reply([
@@ -1289,9 +1327,17 @@ impl LayoutHost for Model {
                     Some(layout) => Some(normalize(build(layout, panes, &mut placed)?)),
                 };
                 let title = trim(string(entry, "title").unwrap_or(""));
-                let title = if title.is_empty() { format!("Tab {}", window.tabs.len() + 1) } else { title.into() };
-                let mut tab = Tab::new(tab_id.into(), title);
+                let number = whole(entry.get("number"))
+                    .or_else(|| title.strip_prefix("Tab ").and_then(|n| n.parse().ok()))
+                    .filter(|n| *n > 0)
+                    .unwrap_or(window.tabs.len() + 1);
+                let mut tab = Tab::new(tab_id.into(), number);
+                if !title.is_empty() {
+                    tab.title = title.into();
+                }
+                tab.renamed = !title.is_empty() && entry.get("renamed") == Some(&Value::Bool(true));
                 let ids = pane_ids(root.as_ref());
+                tab.namer = string(entry, "namer").filter(|n| ids.iter().any(|id| id == n)).map(String::from);
                 tab.root = root;
                 tab.last_focus = string(entry, "lastFocus").filter(|l| ids.iter().any(|id| id == l)).map(String::from);
                 window.tabs.push(tab);
@@ -1364,6 +1410,10 @@ impl LayoutHost for Model {
         self.set_key(restored.key);
         self.counters = (self.counters.0.max(restored.counters.0), self.counters.1.max(restored.counters.1));
         self.drop_empty();
+    }
+
+    fn retitle(&mut self, panes: &Panes) -> bool {
+        Model::retitle(self, panes)
     }
 }
 

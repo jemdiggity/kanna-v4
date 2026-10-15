@@ -103,6 +103,8 @@ pub trait LayoutHost {
     fn read_state(&self, state: &Value, panes: &HashSet<String>) -> Result<SavedLayout, KmuxError>;
 
     fn install_state(&mut self, saved: SavedLayout);
+
+    fn retitle(&mut self, panes: &Panes) -> bool;
 }
 
 pub type LayoutCall = Pin<Box<dyn Future<Output = Result<Map, KmuxError>>>>;
@@ -250,6 +252,13 @@ fn spot(reply: &mut Map, spot: Option<Spot>, window: Option<String>) {
 }
 
 pub fn serve(host: &mut dyn LayoutHost, request: &Value, panes: &Panes) -> Result<Map, KmuxError> {
+    host.retitle(panes);
+    let result = step(host, request, panes);
+    host.retitle(panes);
+    result
+}
+
+fn step(host: &mut dyn LayoutHost, request: &Value, panes: &Panes) -> Result<Map, KmuxError> {
     let mut reply = Map::new();
     match string(request, "op").unwrap_or("") {
         "place" => {
