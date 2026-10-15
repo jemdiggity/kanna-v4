@@ -1,6 +1,6 @@
 # Build Channels
 
-**Status:** built · **Builds on:** [instances](../kanna-spec.md#411-the-kanna-cli) · **Why:** Kanna is developed inside Kanna: every task builds and runs its own Kanna in its worktree while the Kanna it works in keeps running
+**Status:** built · **Builds on:** [instances](instances.md) · **Why:** Kanna is developed inside Kanna: every task builds and runs its own Kanna in its worktree while the Kanna it works in keeps running
 
 A build of Kanna is one of three **channels**, chosen when it's built. Each channel is a separate app (its own name, bundle ID and folders), so all three run side by side; a **dev** build made in a git worktree is, in addition, an app of its own named after the worktree, so every task's Kanna runs beside the others and beside the one it was built from.
 

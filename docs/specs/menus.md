@@ -1,6 +1,6 @@
 # Menus and shortcuts
 
-**Status:** built; Reload replaces Restart (2026-10-14) · **Reference:** kmux ([`references/kmux`](../../references/kmux/docs/kmux-spec.md) §5) · **Part of:** [Windows, Tabs and Splits](../kanna-spec.md#410-windows-tabs-and-splits)
+**Status:** built; Reload replaces Restart (2026-10-14) · **Reference:** kmux ([`references/kmux`](../../references/kmux/docs/kmux-spec.md) §5) · **Part of:** [Windows, Tabs and Splits](windows.md)
 
 Kanna's menus and shortcuts are kmux's ([its spec](../../references/kmux/docs/kmux-spec.md) §5), with the shortcut the user's Ghostty config binds to the same action where there is one (`new_split:right`, `goto_split:next`, `toggle_split_zoom`, `new_tab`, `next_tab`, `increase_font_size:1`, `copy_to_clipboard`, …):
 
@@ -26,7 +26,7 @@ Kanna's menus and shortcuts are kmux's ([its spec](../../references/kmux/docs/km
 - Every item acts on the key window and its focused pane. Pane, tab and window cycling go in reading order and wrap; zoom is the window's mode: while it's on, the focused pane fills the window wherever focus goes, until ⇧⌘↩ ([zoom](zoom.md)). A new web pane starts with its URL selected for editing; a new markdown pane asks for a file; a new iOS pane opens Settings.
 - **Ghostty keybindings** that no menu item takes reach the app as actions: `new_split`, `goto_split` (previous, left and up go back; the rest forward), `toggle_split_zoom`, `new_tab`, `goto_tab` (next, previous), `new_window`, `close_window`, `goto_window`, and `close_surface` (closes the pane). The pane the key was typed in is focused first. `GhosttyRuntime` passes them on (`onAction`, `onClose`); the app decides.
 - **Right-clicking a pane** opens the Pane menu for it (it takes focus first): in a terminal unless its program uses the mouse, below WebKit's own items in a web pane, below the text items in a markdown pane, alone in an iOS pane.
-- **Instances** ([CLI](../kanna-spec.md#411-the-kanna-cli)): unlike kmux, Kanna has no New Instance menu item: kmux used one to work on another project, and in Kanna that's a Desk (File → New Desk). Instances are a developer and testing tool, reached through dev builds and `kanna --instance`. An instance other than the default one shows its name in its window titles (`Tab 1 — w1 · work`) and at the top of the Kanna menu; the name comes from the socket's folder, as the daemon's does.
+- **Instances** ([CLI](instances.md)): unlike kmux, Kanna has no New Instance menu item: kmux used one to work on another project, and in Kanna that's a Desk (File → New Desk). Instances are a developer and testing tool, reached through dev builds and `kanna --instance`. An instance other than the default one shows its name in its window titles (`Tab 1 — w1 · work`) and at the top of the Kanna menu; the name comes from the socket's folder, as the daemon's does.
 - **Greyed out** where an item doesn't apply to the focused pane: Reload, Open URL… on anything but a web pane; Home on anything but an iOS pane with its screen; Close Pane on a docked pane.
 
 ## 3. Reload, not Restart

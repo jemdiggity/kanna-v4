@@ -101,14 +101,14 @@ flowchart TB
 ```
 
 - **The mux layer does the layout.** A Desk is an ordinary window with a [docked pane](docked-pane.md) and tabs. Nothing in the mux layer knows about tasks.
-- **The Desk layer is chrome and the Shelf.** The app keeps parked tasks (their dock with its width, their tabs, and when they were parked), saved with the windows ([4.7](../kanna-spec.md#47-the-layout)). The title bar, agent header and Shelf are app views around the window's content.
+- **The Desk layer is chrome and the Shelf.** The app keeps parked tasks (their dock with its width, their tabs, and when they were parked), saved with the windows ([layout](layout.md)). The title bar, agent header and Shelf are app views around the window's content.
 - **Parking** moves the task's dock, tabs, focus and zoom off the window; the panes keep their IDs, and their terminals never notice. The window keeps the Shelf view's zoom ([zoom](zoom.md#4-how-its-built)).
 - **The planning terminal is the window's `planner`**: a pane the window holds beside its dock, shown on the left only while the dock is empty. Parking and pulling move the dock and tabs and leave it where it is. The app asks the daemon for one (`backlog` `plan`) when a Desk shows no task and has none; the daemon makes its command and opens it with the `planner` placement.
 - **`kanna task` commands** are layout commands: they go to the app like `open --split`, and start it if it's closed.
 
 ## 7. Rejected
 
-- **The planning terminal's alternatives:** [planning agent](planning-agent.md#8-rejected).
+- **The planning terminal's alternatives:** [planning agent](planning-agent.md#6-rejected).
 
 ## 8. Open questions
 
