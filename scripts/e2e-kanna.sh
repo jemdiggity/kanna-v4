@@ -2189,7 +2189,7 @@ real_agent_program_status() {
   python3 -I "$harness/isolate.py" --agent claude --real "$claude" --home "$agents/claude-home" --port "$(cat "$agents/port")" --trust "$repo" --out "$agents/bin/claude" || { echo "real_agent_program_status line $LINENO"; return 1; }
   kanna open --name reporting --cwd "$repo" --cmd "$agents/bin/claude" >/dev/null || { echo "real_agent_program_status line $LINENO"; return 1; }
   reported() { raw '{"id":1,"cmd":"status","args":{"action":"explain","pane":"reporting"}}' | python3 -c 'import json, sys; r = json.load(sys.stdin); print(r.get("source"), (r.get("reported") or {}).get("state"), r.get("status"))'; }
-  check wait_for 60 shows reporting "for shortcuts" || { echo "real_agent_program_status: claude didn't start"; kanna read reporting; return 1; }
+  check wait_for 60 shows reporting "for shortcuts\\|shift+tab" || { echo "real_agent_program_status: claude didn't start"; kanna read reporting; return 1; }
   kanna send reporting "PLAIN_TURN" && kanna send-key reporting return || { echo "real_agent_program_status line $LINENO"; return 1; }
   check wait_for 30 eval '[[ "$(reported)" == "osc7501 working working" ]]' || { echo "real_agent_program_status: claude's turn wasn't working from OSC 7501 but $(reported)"; kanna status explain reporting; return 1; }
   kanna status explain reporting | grep -qF "source: OSC 7501" || { kanna status explain reporting; return 1; }
