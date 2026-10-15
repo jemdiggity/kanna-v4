@@ -11,6 +11,8 @@ pub const RECORD: &str = "instance.json";
 
 pub const DAEMON: &str = "kanna-daemon";
 
+pub const VERSION: &str = env!("KANNA_BUILD_VERSION");
+
 pub fn build_id(binary: &Path) -> Option<String> {
     let mut file = std::fs::File::open(binary).ok()?;
     let mut hasher = Sha256::new();
@@ -179,6 +181,7 @@ impl Build {
             ("bundle_id", self.bundle_id()),
             ("instance", self.default_instance()),
             ("folder", self.channel.folder().to_string()),
+            ("version", VERSION.to_string()),
         ]
         .iter()
         .map(|(key, value)| format!("{key}={value}\n"))
