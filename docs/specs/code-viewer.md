@@ -88,7 +88,7 @@ The pane's record in `layout.json` is `{type: "code", path, line, zoom}`, so it 
 
 ## 5. How it's built
 
-Read top to bottom: each layer uses the ones below it; the outer boxes are processes, numbered as the [Kanna stack](../kanna-spec.md#41-layers-and-processes) (layers 1, 2 and 5 take no part).
+Read top to bottom: each layer uses the ones below it; the outer boxes are processes, numbered as the [Kanna stack](architecture.md#1-the-stack) (layers 1, 2 and 5 take no part).
 
 ```mermaid
 flowchart TB
@@ -138,8 +138,8 @@ flowchart TB
 | Grammars | tree-sitter and each language's grammar crate; Vue's source vendored | — |
 
 - **All native, no web view or JavaScript.** The pane is an AppKit `NSTextView`, as the markdown pane is, with the gutter, indent guides and pinned scopes drawn by its own views; tree-sitter is a C library compiled into `kanna-syntax`. The HTML mockup is only the reference model.
-- **Kanna's own, not kmux's.** kmux is the reference for the mux's pane types ([4.3](../kanna-spec.md#43-kmux-is-the-reference-model)), but the code pane is built in Kanna only: kmux gets no code pane, and `open code` is a Kanna command its protocol cases don't cover. The code tour it leads to is Kanna's agent layer, which has no kmux counterpart.
-- **The pane is one more of the app's panes** ([4.9](../kanna-spec.md#49-web-markdown-and-ios-panes)): the daemon's core gives it its ID, checks and answers its commands and lends its record to the app, which shows it.
+- **Kanna's own, not kmux's.** kmux is the reference for the mux's pane types ([kmux is the reference model](kmux-reference.md)), but the code pane is built in Kanna only: kmux gets no code pane, and `open code` is a Kanna command its protocol cases don't cover. The code tour it leads to is Kanna's agent layer, which has no kmux counterpart.
+- **The pane is one more of the app's panes** ([app panes](app-panes.md)): the daemon's core gives it its ID, checks and answers its commands and lends its record to the app, which shows it.
 - **Highlighting is tree-sitter, in a new Rust crate, `kanna-syntax`**, linked into the app with a C header, as `kanna-layout` is, through the app's one Rust static library, `kanna-ffi`. One call takes a language and the text and returns the spans (byte range and capture name, such as `keyword`, `function`, `type`, `string`) and the scopes (start and end lines). Why tree-sitter rather than TextMate grammars (syntect): it parses the code into a tree, which sticky scope needs now and the code tour needs next (stops that are whole functions and blocks); the same grammars and queries are used by Zed, Neovim and Helix.
 - **Why tree-sitter**, against the other ways to highlight:
 
