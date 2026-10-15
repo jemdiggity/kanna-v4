@@ -890,7 +890,7 @@ Ghostty's `build.zig` sets its own minimum (13.0) and ignores the environment, a
 
 Changing the deployment target needs a clean cargo build. Cargo reruns the `cc` build scripts when the `[env]` value changes, but it doesn't recompile pure Rust crates, so their objects keep the old version. `kanna_cargo_release_for` (`scripts/env.sh`) keeps the version `target/release` was built for in `target/release/macos-deployment-target` and cleans `target/release` when it differs or is missing; the build scripts call it before cargo. Ghostty's builds are reused by commit (`ghostty.rev`, borrowed by worktrees through `kanna_borrow_built`), so a change to how Ghostty is built goes in the fork and the pinned commit, and the new pin makes every checkout rebuild them.
 
-How a task's worktree builds quickly (clones of the main checkout's cargo dependencies and Swift packages, and dev's Swift app in debug), with timings: [specs/build-speed.md](specs/build-speed.md).
+How a task's worktree builds quickly (clones of the main checkout's cargo dependencies and Swift packages, and dev's Swift app in debug), with timings: [specs/build-speed.md](specs/build-speed.md). Building for arm64 or x86_64 (`--arch`): [specs/build-architectures.md](specs/build-architectures.md).
 
 ### 4.22 Quiz
 
