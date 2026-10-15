@@ -61,7 +61,8 @@ xcrun notarytool history "${notary[@]}" >/dev/null 2>&1 ||
   fail "notarytool can't use profile \"$notary_profile\" in $notary_keychain: unlock that keychain, or save the credential again with xcrun notarytool store-credentials"
 echo "    notarizing with profile $notary_profile"
 
-gh auth status >/dev/null 2>&1 || fail "gh isn't authenticated: run gh auth login"
+gh_status="$(gh auth status --active 2>&1)" || fail "gh can't reach GitHub as a signed-in account (run gh auth login if it isn't signed in):
+$(grep -v -i token <<<"$gh_status")"
 command -v claude >/dev/null || fail "the claude CLI isn't installed: it writes the release notes"
 
 release_tags() { git tag -l 'v*' | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V; }
