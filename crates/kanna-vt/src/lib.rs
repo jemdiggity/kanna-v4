@@ -701,7 +701,7 @@ unsafe extern "C" fn program_status(
         ffi::GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION => Some(Need::Permission),
         ffi::GHOSTTY_PROGRAM_STATUS_KIND_QUESTION => Some(Need::Question),
         ffi::GHOSTTY_PROGRAM_STATUS_KIND_AUTH => Some(Need::Auth),
-        ffi::GHOSTTY_PROGRAM_STATUS_KIND_NONE | _ => None,
+        _ => None,
     };
     statuses.put(ProgramStatus {
         id,
@@ -884,7 +884,6 @@ mod abi {
             ("GHOSTTY_PROGRAM_STATUS_STATE_ERROR", GHOSTTY_PROGRAM_STATUS_STATE_ERROR as i64),
             ("GHOSTTY_PROGRAM_STATUS_STATE_CLEAR", GHOSTTY_PROGRAM_STATUS_STATE_CLEAR as i64),
             ("sizeof GhosttyProgramStatusState", size_of::<i32>() as i64),
-            ("GHOSTTY_PROGRAM_STATUS_KIND_NONE", GHOSTTY_PROGRAM_STATUS_KIND_NONE as i64),
             ("GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION", GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION as i64),
             ("GHOSTTY_PROGRAM_STATUS_KIND_QUESTION", GHOSTTY_PROGRAM_STATUS_KIND_QUESTION as i64),
             ("GHOSTTY_PROGRAM_STATUS_KIND_AUTH", GHOSTTY_PROGRAM_STATUS_KIND_AUTH as i64),

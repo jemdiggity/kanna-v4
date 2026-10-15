@@ -54,7 +54,7 @@ pub enum Event {
     Wake,
     Output { pane: String, serial: u64 },
     Drained { pane: String, serial: u64 },
-    Status { pane: String, serial: u64, status: Option<&'static str> },
+    Status { pane: String, serial: u64, status: Option<&'static str>, ended: bool },
     RulesUpdated { token: u64, report: kanna_detect::Report },
     Worktree { token: u64, result: Result<(String, String), String> },
     KeeperReadable,
@@ -326,11 +326,11 @@ fn run() -> Result<(), String> {
                     app.status(&pane, Some("exited"));
                 }
             }
-            Event::Status { pane, serial, status } => {
+            Event::Status { pane, serial, status, ended } => {
                 if terminals.current(&pane, serial) {
                     core.with_pane_mut(&pane, |p| p.status = status.map(String::from));
                     app.status(&pane, status);
-                    backlog.status(&pane, status);
+                    backlog.status(&pane, status, ended);
                 }
             }
             Event::RulesUpdated { token, report } => status_commands.updated(token, report),
