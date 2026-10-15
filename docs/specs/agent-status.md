@@ -1,8 +1,8 @@
 # Agent Status
 
-**Status:** built (no dots yet: the Desk isn't built) · **Used by:** [Desk](desk.md) (the agent header and the Shelf) · **Mockup:** the Desk's ([`references/mockups/desk.html`](../../references/mockups/desk.html)), the dots beside each task · **From:** kanna v2/v3's detection rules (`kanna3-detect`) and herdr's agent-detection manifests
+**Status:** built (no dots yet: the Desk isn't built) · **Tested:** e2e `agent_status`, `real_agent_program_status`; `cargo test -p kanna-vt`, `-p kanna-daemon` · **Used by:** [Desk](desk.md) (the agent header and the Shelf) · **Mockup:** the Desk's ([`references/mockups/desk.html`](../../references/mockups/desk.html)), the dots beside each task · **From:** kanna v2/v3's detection rules (`kanna3-detect`) and herdr's agent-detection manifests
 
-**Agent status** tells you at a glance whether an agent is busy, waiting for you, or done, so you can leave it running and come back when it needs you. Kanna reads the bottom of the agent's screen and matches it against **rules**: patterns for each agent, kept as data that Kanna updates on its own, so a new Claude Code or Codex release never needs a new Kanna.
+**Agent status** tells you at a glance whether an agent is busy, waiting for you, or done, so you can leave it running and come back when it needs you. An agent that reports its own status ([OSC 7501](#4-the-agents-own-report-osc-7501), as Claude Code does) is taken at its word. For the others, Kanna reads the bottom of the agent's screen and matches it against **rules**: patterns for each agent, kept as data that Kanna updates on its own, so a new Claude Code or Codex release never needs a new Kanna.
 
 ![The dots: the task on the Desk is working (blue); on the Shelf, one needs you (amber) and one is idle (green)](desk.png)
 
@@ -11,9 +11,10 @@
 1. [States](#1-states)
 2. [Rules](#2-rules)
 3. [Detection rules](#3-detection-rules)
-4. [CLI](#4-cli)
-5. [How it's built](#5-how-its-built)
-6. [Glossary](#6-glossary)
+4. [The agent's own report (OSC 7501)](#4-the-agents-own-report-osc-7501)
+5. [CLI](#5-cli)
+6. [How it's built](#6-how-its-built)
+7. [Glossary](#7-glossary)
 
 ## 1. States
 
@@ -32,9 +33,9 @@ stateDiagram-v2
 
 | Status | When |
 |---|---|
-| working | a busy rule matches (spinner, "esc to interrupt", a busy title or progress) |
-| needs you | a waiting rule matches: an approval, a question or a trust prompt is on screen |
-| idle | the agent is at its prompt, or no rule matches |
+| working | the agent reports working, or a busy rule matches (spinner, "esc to interrupt", a busy title or progress) |
+| needs you | the agent reports blocked, or a waiting rule matches: an approval, a question or a trust prompt is on screen |
+| idle | the agent reports idle, done or error, or is at its prompt, or no rule matches |
 | exited | the program has ended (the pane is `exited`) |
 
 ## 2. Rules
@@ -42,7 +43,7 @@ stateDiagram-v2
 - **Known agents only:** a terminal whose foreground program is an agent Kanna has rules for (Claude Code, Codex, …) has a status; other terminals show only `exited`.
 - **Needs you is strict:** it shows only when the screen matches a known question or approval. A prompt Kanna hasn't learned shows as idle, never as needs you by guesswork.
 - **Settled screens only:** Kanna judges a screen once it stops changing mid-frame, so a half-drawn repaint never flips the status.
-- **Screen only:** the bell and the agents' own notifications (OSC 9, OSC 777) aren't used. They depend on each agent's settings and, for Codex, on focus reports ([evidence](../research/agent-status-signals.md)); the screen doesn't.
+- **The agent's report, else the screen:** an [OSC 7501](#4-the-agents-own-report-osc-7501) report wins whenever there is one; the bell and the agents' own notifications (OSC 9, OSC 777) aren't used. They depend on each agent's settings and, for Codex, on focus reports ([evidence](../research/agent-status-signals.md)); the screen doesn't.
 - **Shown in Kanna only:** status is the dots in Kanna's windows; it doesn't badge the Dock icon or post macOS notifications.
 - **Same for every agent:** each agent differs only in its rule file.
 - **Rules are data: they can't choose what Kanna runs.** Which programs are agents is Kanna's own code; the version probe runs only the agent's own executable, as the OS reports it, with `--version`; a rule file gives only the pattern that reads the answer.
@@ -77,19 +78,43 @@ flowchart LR
 - **Unread** (the app's): an agent that goes from working to idle while its pane isn't on screen in Kanna's key window (in its active tab, zoomed pane or dock), with Kanna active, is unread until it is; leaving idle clears it.
 - **Names on the wire:** `working`, `needs-you`, `idle`, `exited`.
 
-## 4. CLI
+## 4. The agent's own report (OSC 7501)
+
+The [Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) (draft rev 0.4) lets a program tell its terminal what it's doing: `ESC ] 7501 ; state=working|blocked|idle|done|error[:kind=…][:progress=N][:id=…][:app=…][:title=b64][:msg=b64] ST`. Claude Code sends it (since 2.1.295) once its terminal answers the probe `OSC 7501 ; ?`. Codex and the others don't, and keep the rules.
+
+```mermaid
+flowchart LR
+    A["agent<br/>(Claude Code)"] -->|"OSC 7501 ; ?"| VT["daemon's terminal<br/>(libghostty-vt in kanna-vt)"]
+    VT -->|"OSC 7501 ; ?  (the answer)"| A
+    A -->|"OSC 7501 ; state=…"| VT
+    VT --> REC["the pane's records<br/>one per id"]
+    PG["foreground process group<br/>when the report came"] --> REC
+    REC -->|"root record, from the<br/>program in the foreground"| D{"a record?"}
+    S["screen + rules"] --> D
+    D -->|yes| ST["status"]
+    D -->|no| ST
+```
+
+- **Precedence:** the pane's root record (no `id`) decides whenever there is one: working is working, blocked (any kind) is needs you, idle, done and error are idle. With no record, the [rules](#3-detection-rules) decide as before. It shows at once: no settling and no 300 ms hold.
+- **Only the daemon's terminal answers the probe,** so the agent gets one answer; the app's Ghostty parses the reports and ignores them.
+- **Records** are kept per pane, one per id, each report replacing its record whole (children such as `build/test` too; `state=clear` removes a record and those beneath it). At most 256; the one updated longest ago goes.
+- **When records go:** working and blocked ones when a new prompt starts (OSC 133 A) or the program ends (another process group takes the terminal's foreground, or the pane exits); all of them at a full reset (RIS). A record counts only while the process group that reported it is in the foreground, so a `done` left by one program never speaks for the next.
+- **A turn's end:** a record going from working to idle or done ends a [backlog task's turn](backlog-runners.md) at once, alongside the 3s rule.
+- **Untrusted text:** `msg`, `title` and `app` are shown only by `kanna status explain`, with control and invisible formatting characters taken out, and never sent back to the program.
+
+## 5. CLI
 
 | Command | Does |
 |---|---|
 | `kanna list` | Adds a STATUS column for agent panes |
 | `kanna list --json` | Adds `status` to each agent pane |
-| `kanna status explain PANE` | The agent, its version, the rules file and its source, the matching rule and the text it matched |
+| `kanna status explain PANE` | The agent, its version, where its status came from (`source: OSC 7501` with the record, or `source: rules`), the rules file and its source, the matching rule and the text it matched |
 | `kanna status explain --file SCREEN --agent claude` | The same for a saved screen, for writing rules |
 | `kanna status update` | Check the rules site now |
 
 `KANNA_AGENT_RULES_URL` sets the rules site (`none` turns it off; the tests do), `KANNA_AGENT_RULES_DIR` the override folder.
 
-## 5. How it's built
+## 6. How it's built
 
 - **In the daemon**, which already keeps every terminal's screen ([4.5](../kanna-spec.md#45-the-app-link)), so status works with the app closed and `list` reads it directly. The daemon knows each terminal's foreground program, which picks the agent.
 - **The app** gets a `status {pane, status}` notice on every change, and one per pane after `app.hello`, and keeps status and unread in its state (`debug.status`).
@@ -97,7 +122,7 @@ flowchart LR
 - **The corpus and harness:** `tools/agent-harness` (the mock model, from v3's characterization tools) records sessions; `kanna-corpus` (`crates/kanna-corpus`) replays them through libghostty-vt, samples the settled screens by the harness's phases and writes them into `agent-rules/corpus/<agent>/`. `cargo test -p kanna-detect corpus` prints a confusion matrix per agent.
 - **Seeded** from v3's rules (the user's own, via v2); herdr (Apache-2.0) is a reference for behaviour only, and none of its rule text is copied.
 
-## 6. Glossary
+## 7. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -107,3 +132,5 @@ flowchart LR
 | **Corpus** | Recorded agent screens, each labeled with its true status, that every rule change is tested against |
 | **Mock model** | A local stand-in for the AI provider that drives real Claude Code and Codex without spending tokens |
 | **OSC 9;4** | The escape sequence a program uses to report progress to its terminal |
+| **OSC 7501** | The Program Status Protocol: a program's own report of what it's doing, kept as one record per id |
+| **Root record** | The record a report with no `id` makes: the program itself |
