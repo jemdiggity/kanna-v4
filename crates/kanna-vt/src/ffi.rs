@@ -66,6 +66,20 @@ pub const GHOSTTY_TERMINAL_PROGRESS_STATE_SET: i32 = 1;
 pub const GHOSTTY_TERMINAL_PROGRESS_STATE_ERROR: i32 = 2;
 pub const GHOSTTY_TERMINAL_PROGRESS_STATE_INDETERMINATE: i32 = 3;
 pub const GHOSTTY_TERMINAL_PROGRESS_STATE_PAUSE: i32 = 4;
+pub const GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT: i32 = 42;
+pub const GHOSTTY_SEMANTIC_PROMPT_PROMPT_START: i32 = 1;
+pub const GHOSTTY_SEMANTIC_PROMPT_PROMPT_PRIMARY: i32 = 0;
+pub const GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS: i32 = 46;
+pub const GHOSTTY_PROGRAM_STATUS_STATE_IDLE: i32 = 0;
+pub const GHOSTTY_PROGRAM_STATUS_STATE_WORKING: i32 = 1;
+pub const GHOSTTY_PROGRAM_STATUS_STATE_DONE: i32 = 2;
+pub const GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED: i32 = 3;
+pub const GHOSTTY_PROGRAM_STATUS_STATE_ERROR: i32 = 4;
+pub const GHOSTTY_PROGRAM_STATUS_STATE_CLEAR: i32 = 5;
+pub const GHOSTTY_PROGRAM_STATUS_KIND_NONE: i32 = 0;
+pub const GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION: i32 = 1;
+pub const GHOSTTY_PROGRAM_STATUS_KIND_QUESTION: i32 = 2;
+pub const GHOSTTY_PROGRAM_STATUS_KIND_AUTH: i32 = 3;
 pub const GHOSTTY_TERMINAL_DATA_COLS: i32 = 1;
 pub const GHOSTTY_TERMINAL_DATA_ROWS: i32 = 2;
 pub const GHOSTTY_TERMINAL_DATA_CURSOR_X: i32 = 3;
@@ -226,6 +240,33 @@ pub struct GhosttyTerminalProgressReport {
 }
 pub type GhosttyTerminalProgressReportFn =
     unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, report: *const GhosttyTerminalProgressReport);
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GhosttyTerminalSemanticPrompt {
+    pub size: usize,
+    pub kind: i32,
+    pub prompt_kind: i32,
+    pub has_exit_code: bool,
+    pub exit_code: i32,
+    pub command: GhosttyString,
+    pub error: GhosttyString,
+}
+pub type GhosttyTerminalSemanticPromptFn =
+    unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, event: *const GhosttyTerminalSemanticPrompt);
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GhosttyTerminalProgramStatus {
+    pub size: usize,
+    pub state: i32,
+    pub kind: i32,
+    pub progress: i8,
+    pub id: GhosttyString,
+    pub app: GhosttyString,
+    pub title: GhosttyString,
+    pub message: GhosttyString,
+}
+pub type GhosttyTerminalProgramStatusFn =
+    unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, report: *const GhosttyTerminalProgramStatus);
 pub type GhosttyTerminalColorSchemeFn =
     unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void, out: *mut i32) -> bool;
 pub type GhosttyTerminalChangedFn = unsafe extern "C" fn(terminal: GhosttyTerminal, userdata: *mut c_void);
