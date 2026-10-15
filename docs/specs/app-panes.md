@@ -20,8 +20,10 @@ sequenceDiagram
     A->>D: update {pane, state: running}
     D->>C: ok, running
     A->>D: update {pane, url} (the page moved)
-    A->>D: update {pane, title} (its title loaded)
     D->>A: pane {pane: record}
+    A->>D: update {pane, title} (its title loaded)
+    D->>A: pane {pane: record with title}
+    Note over A: the layout names the pane's tab after it
 ```
 
 Why not keep them in the daemon: they'd outlive the app with nothing to show them, and `list` would report pages no view has. Why not answer their commands in the app: the core (IDs, names, history, errors) would be split in two.
