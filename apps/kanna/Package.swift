@@ -1,7 +1,7 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-let kannaFFI = LinkerSetting.unsafeFlags(["-L", Context.packageDirectory + "/../../target/release"])
+let kannaFFI = LinkerSetting.unsafeFlags(["-L", Context.environment["KANNA_RUST_RELEASE_DIR"] ?? Context.packageDirectory + "/../../target/release"])
 
 let package = Package(
     name: "kanna",

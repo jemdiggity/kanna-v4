@@ -694,7 +694,7 @@ Global options, as kmux's: `--json` (the reply as one line of JSON), `--help`/`-
 - **Starting one:** `kanna --instance work open` with nothing answering starts Kanna.app with `KANNA_SOCKET` set to `kanna-dev-work/kanna.sock`; the app keeps its layout in that folder and starts the daemon there.
 - **The daemon names itself** from its folder (`kanna-dev-NAME`, `kanna-prod-NAME` or `kanna-staging-NAME` is NAME; anything else, such as a test's private folder, is `default`), reports it in `capabilities`, sets `KANNA_INSTANCE` in its terminals, and writes `instance.json` there.
 - **`kanna instances`** lists the folders of every channel whose daemon answers, with each one's channel, windows, panes and (for a dev build in a worktree) worktree, `*` marking the one this shell's commands go to; `--json` as kmux, with `channel` and `worktree` added. **`kanna instances prune`** deletes the folders whose `instance.json` names a worktree that's gone, unless the daemon answers or the keeper runs.
-- **Why not `kanna`:** the kmux-branded Kanna.app that came before used `kanna/kanna.sock`, and Kanna v3 uses `Kanna` (the same folder on a case-insensitive disk), and either may still be running; the channels' folders and bundle IDs are in one place, `crates/kanna-build`, which the CLI and the daemon use and which writes the app's Info.plist through `kanna-daemon --build`.
+- **Why not `kanna`:** the kmux-branded Kanna.app that came before used `kanna/kanna.sock`, and Kanna v3 uses `Kanna` (the same folder on a case-insensitive disk), and either may still be running; the channels' folders and bundle IDs are in one place, `crates/kanna-build`, which the CLI and the daemon use and whose `kanna-build` binary writes the app's Info.plist.
 
 **Reaching Kanna:**
 

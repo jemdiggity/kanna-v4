@@ -32,7 +32,7 @@ use pty::Spawner;
 use store::Store;
 use terminals::{Restored, Terminals};
 
-const USAGE: &str = "usage: kanna-daemon [--uses-keeper | --build]
+const USAGE: &str = "usage: kanna-daemon [--uses-keeper]
 
 Serves Kanna's terminals and kmux's control protocol on $KANNA_SOCKET
 (default: this build's instance's socket, such as kanna-dev/kanna.sock in
@@ -43,8 +43,7 @@ beside this binary) if none runs. Stopping the daemon leaves the terminals
 running in the keeper; it saves them in that folder (terminals/), and the
 next daemon takes them back.
 
-  --uses-keeper   exits 0: this daemon gets its ptys from a keeper
-  --build         prints this build's channel, app name, bundle ID, instance and folder";
+  --uses-keeper   exits 0: this daemon gets its ptys from a keeper";
 
 const APP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -73,7 +72,6 @@ fn main() {
     match args.first().map(String::as_str) {
         None => {}
         Some("--uses-keeper") => std::process::exit(0),
-        Some("--build") => return print!("{}", Build::current().shell()),
         Some("-h" | "--help") => return println!("{USAGE}"),
         Some(other) => {
             eprintln!("kanna-daemon: unknown argument {other}\n{USAGE}");

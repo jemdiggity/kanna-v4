@@ -36,8 +36,8 @@ Each folder is a whole Kanna (daemon, keeper, terminals, layout, backlog), so no
 flowchart LR
     S["scripts/build.sh [channel]"] -->|"KANNA_CHANNEL"| B["crates/kanna-build<br/>build.rs: channel; checkout;<br/>worktree when .git is a file"]
     B --> CLI["kanna<br/>default instance, app to start"]
-    B --> D["kanna-daemon<br/>default socket, instance.json;<br/>--build prints the identity"]
-    D -->|"kanna-daemon --build"| P["build-kanna-app.sh<br/>Info.plist: CFBundleName,<br/>CFBundleIdentifier, KannaChannel,<br/>KannaInstance"]
+    B --> D["kanna-daemon<br/>default socket, instance.json"]
+    B -->|"target/release/kanna-build<br/>prints the identity"| P["build-kanna-app.sh<br/>Info.plist: CFBundleName,<br/>CFBundleIdentifier, KannaChannel,<br/>KannaInstance"]
     P --> A["Kanna.app<br/>default socket, Dock badge"]
 ```
 
@@ -62,7 +62,7 @@ So in production's terminals every `kanna` talks to production; to reach the wor
 
 | Command | Does |
 |---|---|
-| `scripts/build.sh [production\|staging\|dev]` | builds everything as that channel (default `dev`); `scripts/build-kanna-app.sh` takes the same argument. Dev builds the Swift app in debug, the others in release; a worktree starts from the main checkout's builds ([build speed](build-speed.md)) |
+| `scripts/build.sh [production\|staging\|dev] [--arch arm64\|x86_64]` | builds everything as that channel (default `dev`) for that architecture (default this Mac's, [§5](#5-architectures)); `scripts/build-kanna-app.sh` takes the same arguments. Dev builds the Swift app in debug, the others in release; a worktree starts from the main checkout's builds ([build speed](build-speed.md)) |
 | `scripts/run-kanna.sh` | opens this checkout's `target/Kanna.app` |
 | `scripts/run-kanna.sh COMMAND …` | runs this checkout's CLI against this checkout's Kanna (starting it if needed), from anywhere, a production terminal included |
 | `kanna instances` | the running instances of every channel: name, channel, windows and panes, and the worktree a dev build came from (`(gone)` once it's removed) |
@@ -71,7 +71,23 @@ So in production's terminals every `kanna` talks to production; to reach the wor
 
 Production is the build that goes in /Applications (`ditto target/Kanna.app /Applications/Kanna.app`); its folder starts empty. To carry the main checkout's dev Kanna over (layout, backlog, terminals), quit it, stop its keeper (`kill $(cat ~/Library/Application\ Support/kanna-dev/keeper.pid)`, which ends its terminals) and move `kanna-dev` to `kanna-prod`.
 
-## 5. Open questions
+## 5. Architectures
+
+`--arch` builds a whole Kanna.app for one architecture: the Swift app (`swift build --arch`), the Rust helpers (`cargo --target`) and libghostty-vt (Zig). Each architecture gets its own app, never a universal binary.
+
+| `--arch` on an arm64 Mac | Rust | Swift build | libghostty-vt | App |
+|---|---|---|---|---|
+| left out, or `arm64` | `target/release` | `target/kanna-build` | `target/ghostty-vt/aarch64-apple-darwin` | `target/Kanna.app` |
+| `x86_64` | `target/x86_64-apple-darwin/release` | `target/x86_64-apple-darwin/kanna-build` | `target/ghostty-vt/x86_64-apple-darwin` | `target/x86_64-apple-darwin/Kanna.app` |
+
+- **The native build stays where it was;** another architecture's goes in `target/<rust triple>/`, beside cargo's own output for it, so building one never cleans or overwrites the other.
+- **GhosttyKit is shared:** Ghostty's xcframework already holds arm64 and x86_64, and SwiftPM links the slice it needs.
+- **The identity comes from the host:** the Info.plist is written from `target/release/kanna-build`, built for this Mac, since the other architecture's binaries may not run here.
+- **Borrowing in a worktree is per architecture:** cargo's dependencies come from the main checkout's `target/<triple>/release` when it has one; Ghostty and the Swift packages are borrowed as for a native build ([build speed](build-speed.md)).
+- **The Rust target** is added with `rustup target add` the first time it's needed.
+- **A non-native dev build** is for checking that it builds: its CLI still opens `target/Kanna.app`.
+
+## 6. Open questions
 
 - **Pruning on `task done`:** the daemon removes a task's worktree; it could also prune that worktree's dev instance then, rather than waiting for `kanna instances prune`.
 - **The older apps' names:** `/Applications/Kanna.app` and `Kanna Staging.app` may still be Kanna v3 (`build.kanna`, `build.kanna.staging`, folder `Kanna`); channels use different bundle IDs and folders, so installing production replaces only the file.
