@@ -2,8 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_repo="tampopogk/kanna-v4"
-public_repo="tampopogk/kanna"
+repo="tampopogk/kanna"
 release_env="$HOME/.kanna/.env.release.local"
 archs=(arm64 x86_64)
 
@@ -30,8 +29,8 @@ done
 
 step "Preflight"
 cd "$repo_root"
-[[ "$(git remote get-url origin)" =~ github\.com[:/]$source_repo(\.git)?$ ]] || fail "origin is $(git remote get-url origin), not $source_repo: git remote set-url origin https://github.com/$source_repo.git"
-git fetch --quiet --tags origin main || fail "can't fetch origin ($source_repo)"
+[[ "$(git remote get-url origin)" =~ github\.com[:/]$repo(\.git)?$ ]] || fail "origin is $(git remote get-url origin), not $repo: git remote set-url origin https://github.com/$repo.git"
+git fetch --quiet --tags origin main || fail "can't fetch origin ($repo)"
 problems=()
 [[ -z "$(git status --porcelain)" ]] || problems+=("the working tree has uncommitted changes: commit or remove them")
 git merge-base --is-ancestor HEAD origin/main || problems+=("HEAD $(git rev-parse --short HEAD) isn't on origin/main: merge it into main and push, then release from main")
@@ -98,6 +97,8 @@ if grep -qx "$tag" <<<"$remote_tags"; then
   [[ "$(git rev-parse "$tag^{commit}" 2>/dev/null)" == "$head" ]] || fail "$tag is already on origin at another commit"
   echo "    $tag is already on origin at HEAD: carrying on with its release"
 fi
+[[ "$(gh api "repos/$repo" --jq .full_name)" == "$repo" ]] || fail "$repo resolves to another repo"
+gh release view "$tag" --repo "$repo" >/dev/null 2>&1 && fail "$repo already has a release $tag"
 build_number="$(git rev-list --count HEAD)"
 echo "    $app_name $version (build $build_number) from ${last_tag:-the start} to $(git rev-parse --short HEAD)"
 
@@ -204,33 +205,18 @@ if $dry_run; then
   exit 0
 fi
 
-step "Public repo $public_repo"
-if [[ "$(gh api "repos/$public_repo" --jq .full_name 2>/dev/null || true)" != "$public_repo" ]]; then
-  gh repo create "$public_repo" --public --description "Kanna: run coding agents side by side on your Mac" >/dev/null
-  readme="# Kanna
-
-Kanna is a Mac app for running coding agents side by side, each in its own terminal and worktree.
-
-[Download Kanna](https://github.com/$public_repo/releases/latest): pick Kanna-X.Y.Z-arm64.dmg for Apple silicon or Kanna-X.Y.Z-x86_64.dmg for Intel, open it and drag Kanna to Applications.
-"
-  gh api -X PUT "repos/$public_repo/contents/README.md" -f message="README" -f content="$(printf '%s' "$readme" | base64)" >/dev/null
-  echo "    created $public_repo"
-fi
-[[ "$(gh api "repos/$public_repo" --jq .full_name)" == "$public_repo" ]] || fail "$public_repo still resolves to another repo"
-gh release view "$tag" --repo "$public_repo" >/dev/null 2>&1 && fail "$public_repo already has a release $tag"
-
 step "Tag $tag on origin"
 if ! grep -qx "$tag" <<<"$remote_tags"; then
   git tag -a "$tag" -m "Kanna $tag" "$head"
   git push --quiet origin "refs/tags/$tag"
 fi
 
-step "Release $tag on $public_repo"
-flags=(--repo "$public_repo" --target main --title "Kanna $tag" --notes-file "$dist/notes.md")
+step "Release $tag on $repo"
+flags=(--repo "$repo" --verify-tag --title "Kanna $tag" --notes-file "$dist/notes.md")
 $staging && flags+=(--prerelease)
 gh release create "$tag" "${dmgs[@]}" "${flags[@]}" >/dev/null
-assets="$(gh release view "$tag" --repo "$public_repo" --json assets --jq '.assets[].name')"
+assets="$(gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name')"
 ! grep -qx latest.json <<<"$assets" || fail "$tag has an asset named latest.json: delete it now, Kanna v2 installs read it"
-url="$(gh release view "$tag" --repo "$public_repo" --json url --jq .url)"
+url="$(gh release view "$tag" --repo "$repo" --json url --jq .url)"
 step "Published $url"
 printf '%s\n' "$assets" | sed 's/^/    /'

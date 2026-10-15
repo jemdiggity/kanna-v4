@@ -2,7 +2,7 @@
 
 **Status:** built · **Builds on:** [build channels](build-channels.md), [build architectures](build-architectures.md) · **Why:** people download Kanna as a signed, notarized DMG from GitHub, so one command has to take main to a published release
 
-`scripts/release.sh [--major|--minor|--patch | VERSION] [--staging] [--dry-run]` builds Kanna for arm64 and x86_64, signs and notarizes one DMG per architecture, tags the source and publishes a GitHub Release on **tampopogk/kanna**. It's Kanna v2's `ship.sh` and `mirror-release.sh` without the updater, the appcast or the soak and promote gates.
+`scripts/release.sh [--major|--minor|--patch | VERSION] [--staging] [--dry-run]` builds Kanna for arm64 and x86_64, signs and notarizes one DMG per architecture, tags the source and publishes a GitHub Release on **tampopogk/kanna**, the repo that holds both the source and the downloads. It's Kanna v2's `ship.sh` and `mirror-release.sh` without the updater, the appcast or the soak and promote gates.
 
 - [The flow](#the-flow)
 - [Preflight](#preflight)
@@ -26,8 +26,8 @@ flowchart TB
     D --> N["Release notes<br/>claude --print --model haiku"]
     N --> R{"--dry-run?"}
     R -->|yes| X["stop: DMGs and notes in<br/>target/release-dmg/vX.Y.Z"]
-    R -->|no| T["push tag vX.Y.Z to tampopogk/kanna-v4"]
-    T --> G["GitHub Release Kanna vX.Y.Z<br/>on tampopogk/kanna, DMGs attached"]
+    R -->|no| T["push tag vX.Y.Z to origin<br/>(tampopogk/kanna)"]
+    T --> G["GitHub Release Kanna vX.Y.Z<br/>on that tag, DMGs attached"]
 ```
 
 - **The build runs in this checkout:** `target/Kanna.app` and `target/x86_64-apple-darwin/Kanna.app` become the production (or staging) apps, replacing the dev builds there.
@@ -40,6 +40,7 @@ Every check runs before any build, and each failure says what to do.
 
 | Check | How |
 |---|---|
+| origin is tampopogk/kanna | `git remote get-url origin` |
 | The working tree is clean | `git status --porcelain` is empty |
 | HEAD is on main, already pushed | HEAD is an ancestor of `origin/main` after a fetch, in any checkout or worktree |
 | A Developer ID identity | `security find-identity -v -p codesigning` has a "Developer ID Application" identity; it signs by its hash |
@@ -92,12 +93,12 @@ flowchart LR
 
 ## Publishing
 
-| Where | What |
-|---|---|
-| tampopogk/kanna-v4 (the source) | the annotated tag `vX.Y.Z` at HEAD |
-| tampopogk/kanna (downloads only) | the GitHub Release `vX.Y.Z`, titled "Kanna vX.Y.Z", with `Kanna-X.Y.Z-arm64.dmg` and `Kanna-X.Y.Z-x86_64.dmg`; its tag is that repo's `main` |
+The tag and the release are both on **tampopogk/kanna**, which origin must point at:
 
-- **The first release creates tampopogk/kanna:** the old repo of that name was renamed tampopogk/kanna2, and GitHub redirects the name to it. release.sh checks the name resolves to itself (not the redirect), and otherwise creates the repo, public, with a README linking to its releases.
+1. the annotated tag `vX.Y.Z` at HEAD, pushed to origin;
+2. the GitHub Release `vX.Y.Z` on that tag (`gh release create --verify-tag`), titled "Kanna vX.Y.Z", with `Kanna-X.Y.Z-arm64.dmg` and `Kanna-X.Y.Z-x86_64.dmg`.
+
+- **The repo's history:** Kanna v2's repo was tampopogk/kanna until it was renamed tampopogk/kanna2; this source repo (first jemdiggity/kanna-v4) then took the name. Preflight checks the name resolves to itself, not a redirect, and that no release `vX.Y.Z` exists yet.
 - **Release notes,** as in v2's `mirror-release.sh`: the merge commit subjects since the last tag (all of main's for the first) go to `claude --print --model haiku`, which writes short user-facing bullets under `### Added` and `### Fixed`, with no internal names or paths. They're printed before anything is published.
 
 ## The staging channel
