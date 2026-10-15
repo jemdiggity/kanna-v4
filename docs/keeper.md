@@ -2,7 +2,7 @@
 
 > **Status:** built (`crates/kanna-keeper`), step 0.5 of [the build plan](plans/mux-build.md) · **Last updated:** 2026-10-15
 >
-> **Related:** [kanna spec §4](kanna-spec.md#4-kannaapp), [mux architecture §8 (restarting the daemon)](research/mux-architecture.md#8-restarting-the-daemon).
+> **Related:** [kanna spec §4](kanna-spec.md#4-kannaapp), [upgrading the keeper](specs/keeper-upgrade.md), [mux architecture §8 (restarting the daemon)](research/mux-architecture.md#8-restarting-the-daemon).
 
 ## Table of Contents
 
@@ -13,12 +13,11 @@
 5. [What Runs, and Its Environment](#5-what-runs-and-its-environment)
 6. [Exits and Close](#6-exits-and-close)
 7. [Life of the Keeper](#7-life-of-the-keeper)
-8. [Upgrading the Keeper](#8-upgrading-the-keeper)
-9. [The Client (for the Daemon)](#9-the-client-for-the-daemon)
-10. [Security and Limits](#10-security-and-limits)
-11. [Known Limitations](#11-known-limitations)
-12. [Testing](#12-testing)
-13. [Glossary](#13-glossary)
+8. [The Client (for the Daemon)](#8-the-client-for-the-daemon)
+9. [Security and Limits](#9-security-and-limits)
+10. [Known Limitations](#10-known-limitations)
+11. [Testing](#11-testing)
+12. [Glossary](#12-glossary)
 
 ---
 
@@ -79,7 +78,7 @@ One connection per daemon on `$KANNA_STATE_DIR/keeper.sock`. Each message is one
 | `{"op":"adopt"}` | one `{"req":..,"pty":{"id","pid","cmd","cwd","exit"?},"fds":1}` + master per pty, then `{"ok":true,"ptys":N}` | `exit` is present for an exited pty not yet acknowledged |
 | `{"op":"close","id":ID}` | `{"ok":true}` | ends the process group ([6](#6-exits-and-close)); the id is free at once |
 | `{"op":"ack","id":ID}` | `{"ok":true}` | forgets an exited pty; an error if it's still running |
-| `{"op":"upgrade","binary":PATH}` | `{"ok":true,"pid":P,"build":B,"from":OLD}`, sent by the new code | the keeper re-execs itself as `PATH` ([8](#8-upgrading-the-keeper)); an error leaves the old code running |
+| `{"op":"upgrade","binary":PATH}` | `{"ok":true,"pid":P,"build":B,"from":OLD}`, sent by the new code | the keeper re-execs itself as `PATH` ([upgrading](specs/keeper-upgrade.md)); an error leaves the old code running |
 | — (event) | `{"exited":ID,"pid":P,"code":N}` or `{..,"signal":S}` | sent to every connection when a process exits, and on connect for every exit not yet acknowledged |
 
 Errors are `{"ok":false,"error":"…"}` and leave the connection usable. There is no `resize`: the daemon sets the size on its own copy with `TIOCSWINSZ`.
@@ -143,7 +142,7 @@ stateDiagram-v2
 
 | | |
 |---|---|
-| **Command line** | `kanna-keeper [--state-dir DIR] [--detach \| --upgrade]`; `--upgrade` asks the keeper of DIR to become this binary ([8](#8-upgrading-the-keeper)). DIR defaults to `$KANNA_STATE_DIR`, else `~/Library/Application Support/kanna` (macOS) or `$XDG_DATA_HOME/kanna`. |
+| **Command line** | `kanna-keeper [--state-dir DIR] [--detach \| --upgrade]`; `--upgrade` asks the keeper of DIR to become this binary ([upgrading](specs/keeper-upgrade.md)). DIR defaults to `$KANNA_STATE_DIR`, else `~/Library/Application Support/kanna` (macOS) or `$XDG_DATA_HOME/kanna`. |
 | **Starting** | The daemon runs `kanna-keeper --state-dir DIR --detach` (via the client's `connect_or_start`): it double-forks into its own session, changes to `/`, stdio on `/dev/null`, stderr appended to `keeper.log`, and returns once the socket listens (or it found another keeper listening). If the keeper fails before listening, `--detach` prints its error and exits 1; the keeper reports which over a pipe (`1` listening, `2` another keeper, `E` and the error). Without `--detach` it runs in the foreground. |
 | **One per directory** | `flock` on `keeper.lock`; a second keeper returns at once, successfully (with `--detach`, reporting another keeper). The lock's owner may still be starting or already stopping, so `connect_or_start` keeps connecting, and starting a keeper again, with backoff for up to 5 s. |
 | **Files** | `keeper.sock`, `keeper.lock`, `keeper.pid`, `keeper.log` in DIR. |
@@ -153,88 +152,14 @@ stateDiagram-v2
 | **Signals** | It unblocks SIGCHLD, SIGTERM and SIGINT at start: the daemon that starts it blocks the signals it waits for, and children inherit that. |
 | **SIGTERM / SIGINT** | It exits without signalling anyone. Its copies close; a pty with no other copy hangs up, and its processes get SIGHUP from the kernel. |
 
-## 8. Upgrading the Keeper
-
-The keeper **re-execs itself in place**: it `execve`s the new binary, and its state and every descriptor it holds cross the exec. The pid stays, so the shells and agents stay its children: it still reaps them and reports their exit codes, and `keeper.pid` doesn't change. The listening socket and the lock cross too, so nobody ever finds the keeper gone, and so do the connections: a daemon connected through the upgrade carries on.
-
-```mermaid
-sequenceDiagram
-    participant D as daemon
-    participant K as keeper (old code)
-    participant P as new binary (probe)
-    participant N as keeper (new code, same pid)
-    participant S as shells, agents
-    D->>K: hello
-    K->>D: {version, pid, build: old}
-    Note over D: build ≠ the kanna-keeper beside the daemon
-    D->>K: upgrade {binary}
-    K->>K: stop reading, flush replies, reap
-    K->>K: state → unlinked file keeper.upgrade.PID
-    K->>P: run binary --check-upgrade < state
-    P->>K: "kanna-keeper: can resume state 1"
-    Note over K: else: error reply, old code carries on
-    K->>K: clear close-on-exec on state, lock,<br/>socket, connections, masters, exec pipes
-    K->>N: execve(binary --state-dir DIR --resume FD)
-    Note over S: parent pid unchanged, ptys open throughout
-    N->>N: read state, re-arm timers, reap
-    N->>D: {ok, pid, build: new, from: old}
-    D->>N: adopt
-    N->>D: every pty + master
-    S->>N: exit (SIGCHLD)
-    N->>D: {exited, code}
-```
-
-### Why re-exec, not a handoff
-
-A handoff to a new process (the old keeper sending its masters and table over `SCM_RIGHTS`) would leave the children with a dead parent: they'd be reparented to launchd, and their exit codes would be lost. Re-exec keeps the parent, and nothing rules it out: `execve` keeps the pid, the children, zombies not yet reaped, descriptors without close-on-exec, the `flock` (it belongs to the open file, which the descriptor keeps), the signal mask and the ignored dispositions.
-
-### What crosses
-
-The state is one JSON object (`"state": 1`), written to a file in DIR that's unlinked as soon as it's open, so only its descriptor names it:
-
-| Carried | How |
-|---|---|
-| ptys: id, pid, cmd, cwd, master, exit not yet acknowledged | the master's descriptor number; the pid is still the keeper's child |
-| spawns still waiting for their exec: id, pid, cmd, cwd, master, exec pipe, the requester's serial and `req`, time left, an exit already reaped | the master's and the pipe's descriptors; the new code answers the spawn |
-| closed processes not yet gone: pid, time left before SIGKILL | |
-| connections: serial, socket, any unread request lines | their replies are flushed before the exec (up to 2 s; one that won't take them is dropped) |
-| the upgrade's requester: serial and `req` | the new code sends the reply |
-| the listening socket, `keeper.lock` | their descriptors; the socket file is never unlinked |
-| the next connection serial, the original `RLIMIT_NOFILE` | spawned processes still get the original limit back |
-
-Not carried, rebuilt by the new code: the signal pipe, the spawn environment (looked up again, so Ghostty's resources are the new binary's), `build`, the idle timer. Exits that happen during the exec wait as zombies; the new code reaps once it has its handlers. SIGCHLD, SIGTERM and SIGINT are blocked across the exec, so a SIGTERM sent then stops the new code instead of killing it half-started.
-
-### Versions
-
-The upgrade request and the state are versioned apart from the protocol:
-
-- **The state** has `"state": N`. A keeper resumes every state up to its own; each new state version keeps reading the old ones. Before it execs, the old keeper runs the new binary with `--check-upgrade`, giving it the very state it's about to hand over: the new code parses it exactly as `--resume` will and answers with one line, within 5 s. Anything else (a state too new for it, a binary that isn't a keeper, one that doesn't run, a timeout) is an error reply and the **old code keeps running**, nothing lost. A downgrade works the same way: it goes ahead only if the older binary reads the state.
-- **The protocol** stays 1: `build` and `upgrade` are additions an old daemon ignores. A keeper that changes the protocol incompatibly must still speak the old one to connections that cross the exec.
-
-### Who triggers it
-
-- **The daemon, at start.** After `hello` it compares the keeper's `build` with the SHA-256 of the `kanna-keeper` it would start (the one beside it in `Contents/Helpers`, or `$KANNA_KEEPER`). If they differ, or the protocol versions do, it asks for an upgrade to that binary before `adopt`, then says so in daemon.log (`upgraded the keeper (pid P) from build a1b2c3d4 to e5f6a7b8`). So starting a newly built Kanna upgrades the keeper by itself. If the upgrade fails, a keeper of the same protocol is kept as it is (logged); one of another protocol is refused as before, saying which pid to stop.
-- **By hand:** `kanna-keeper --upgrade [--state-dir DIR]` asks the keeper of DIR to become the binary that was run, and prints `upgraded the keeper (pid P) to PATH` or the error.
-- **A keeper that predates upgrades** (no `build` in `hello`) can't be upgraded: the daemon logs it and uses it as it is. It gets new code the next time it stops.
-
-### An interrupted upgrade
-
-| What happens | Result |
-|---|---|
-| The requester disconnects | the upgrade goes on; the reply goes nowhere |
-| The probe refuses, fails or times out; the binary is missing; `execve` fails | error reply, close-on-exec restored, the old code carries on as if nothing happened |
-| SIGTERM or SIGINT during the upgrade | handled by whichever code runs once the exec is done or abandoned: the keeper stops, as it would anyway |
-| The new code can't use the state it accepted, or crashes after the exec | as a keeper crash ([11](#11-known-limitations)): the processes keep running with the daemon's copies, without a parent |
-| The keeper is killed | as a keeper crash |
-
-## 9. The Client (for the Daemon)
+## 8. The Client (for the Daemon)
 
 `kanna_keeper::client`, blocking:
 
 | Call | Does |
 |---|---|
 | `Client::connect(socket)` / `Client::connect_or_start(state_dir, keeper_bin)` | connects (checking the keeper runs as the same user), starting a detached keeper if none listens; retries for up to `START_TIMEOUT` (5 s), and fails with the keeper's own error if `--detach` does |
-| `hello() -> (version, pid)`, `info() -> Hello { version, pid, build }` | the daemon compares `build` and `version` with its own keeper's, upgrading it if they differ ([8](#8-upgrading-the-keeper)) |
+| `hello() -> (version, pid)`, `info() -> Hello { version, pid, build }` | the daemon compares `build` and `version` with its own keeper's, upgrading it if they differ ([upgrading](specs/keeper-upgrade.md)) |
 | `upgrade(binary) -> Hello` | asks the keeper to re-exec as `binary`; the new code's `hello` |
 | `spawn(&SpawnRequest) -> Pty` | `SpawnRequest::shell(id)` / `::command(id, cmd)`, then set `shell`, `cwd`, `env`, `cols`, `rows` |
 | `adopt() -> Vec<Pty>` | every pty held; `Pty { id, pid, cmd, cwd, master: OwnedFd, exit }` |
@@ -245,7 +170,7 @@ The upgrade request and the state are versioned apart from the protocol:
 
 Received masters are close-on-exec and blocking; the daemon sets what it needs.
 
-## 10. Security and Limits
+## 9. Security and Limits
 
 - **State directory** 0700, owned by the user and a real directory: a symlink there is refused (it is opened `O_NOFOLLOW`, checked and tightened through that descriptor). **Socket** 0600.
 - **Peer check:** every connection's uid (`getpeereid` on macOS, `SO_PEERCRED` on Linux) must be the keeper's; others are closed and logged. The client checks the keeper's uid the same way.
@@ -263,9 +188,9 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 | Request line | 1 MiB | — |
 | Unsent replies per connection | 8 MiB, or 2 × the pty limit + 16 descriptors, then it's dropped | — |
 
-## 11. Known Limitations
+## 10. Known Limitations
 
-- **A keeper restart loses the processes' parent**, not the processes: if the keeper dies while a daemon holds the masters, the shells keep running but nobody reaps them or knows their exit code. An upgrade doesn't restart it ([8](#8-upgrading-the-keeper)).
+- **A keeper restart loses the processes' parent**, not the processes: if the keeper dies while a daemon holds the masters, the shells keep running but nobody reaps them or knows their exit code. An upgrade doesn't restart it ([upgrading](specs/keeper-upgrade.md)).
 - **An upgrade pauses the keeper** for the probe (up to 5 s) and the flush (up to 2 s); spawns wait meanwhile, well inside the daemon's 10 s reply timeout.
 - **A new keeper that crashes after accepting the state** loses the processes' parent, as any keeper crash would; the probe makes that unlikely, since it runs the same parsing first.
 - **A keeper built before upgrades existed can't be upgraded**: it keeps its code until it stops (once, the first time).
@@ -275,7 +200,7 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 - **macOS `recvmsg` has no `MSG_CMSG_CLOEXEC`**: a received master is made close-on-exec just after `recvmsg` returns, so a process the client's program forks from another thread in that instant could inherit it. On Linux the flag closes the window.
 - **Linux** builds (`cargo check --target x86_64-unknown-linux-gnu`) but the tests have only run on macOS.
 
-## 12. Testing
+## 11. Testing
 
 `cargo test -p kanna-keeper`: unit tests of the Ghostty environment, and integration tests that each run a private keeper in a private state directory (stopped by PID):
 
@@ -291,9 +216,9 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 - signals: dispositions the keeper inherited as ignored are default in its children; a closed process stays a zombie until its SIGKILL;
 - races: concurrent `connect_or_start`, connecting while the keeper goes idle; `--detach` failing when the keeper can't listen; the keeper's own settings stay out of spawned environments.
 - idle exit only with no process and no client; `connect_or_start` with a detached keeper.
-- upgrade: live sessions keep their pid, parent, pty and output across it, and their exits after it report codes; a spawn waiting for its exec is answered by the new code; an exit straight after the upgrade, and one during it, are reported; a connection crosses it; a probe that refuses leaves the old code running; `--upgrade` by hand. `scripts/e2e-kanna.sh S68` does it with the app: a claude agent on the Desk, a shell in a tab and a parked task, then a daemon whose keeper differs.
+- upgrade: see [upgrading the keeper](specs/keeper-upgrade.md#7-testing).
 
-## 13. Glossary
+## 12. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -306,5 +231,3 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 | **Login-shell convention** | Starting a shell with argv[0] beginning with `-` (`-zsh`), so it reads its login files. |
 | **login(1)** | macOS's program for starting a user's session; Ghostty runs commands through it, and it always exits 0. |
 | **Idle exit** | The keeper exiting by itself when it has nothing to keep. |
-| **Re-exec** | A process running a new program with `execve`, keeping its pid, children and open descriptors. |
-| **Probe** | The new binary run with `--check-upgrade` on the state, before the keeper commits to it. |
