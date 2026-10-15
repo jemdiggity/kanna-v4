@@ -65,7 +65,7 @@ echo "    notarizing with profile $notary_profile"
 gh auth status >/dev/null 2>&1 || fail "gh isn't authenticated: run gh auth login"
 command -v claude >/dev/null || fail "the claude CLI isn't installed: it writes the release notes"
 
-release_tags() { git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V; }
+release_tags() { git tag -l 'v*' | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V; }
 last_tag="$(release_tags | tail -1)"
 if [[ -n "$explicit" ]]; then
   version="$explicit"
