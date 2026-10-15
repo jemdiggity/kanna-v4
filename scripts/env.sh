@@ -86,9 +86,11 @@ kanna_ghostty_source() {
     return
   fi
   dir="$1/target/ghostty-source"
-  if [ ! -f "$dir/build.zig" ]; then
+  if [ ! -d "$dir/.git" ]; then
     mkdir -p "$1/target"
-    git clone -q --no-checkout --filter=blob:none --branch "$KANNA_GHOSTTY_BRANCH" "$KANNA_GHOSTTY_FORK" "$dir" >&2 || return 1
+    rm -rf "$dir" "$dir.cloning"
+    git clone -q --no-checkout --filter=blob:none --branch "$KANNA_GHOSTTY_BRANCH" "$KANNA_GHOSTTY_FORK" "$dir.cloning" >&2 || return 1
+    mv "$dir.cloning" "$dir"
   fi
   if [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" != "$KANNA_GHOSTTY_COMMIT" ] || [ ! -f "$dir/build.zig" ]; then
     git -C "$dir" remote set-url origin "$KANNA_GHOSTTY_FORK" >&2 || return 1
