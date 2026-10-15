@@ -100,6 +100,7 @@ pub struct Pane {
     pub cwd: Option<String>,
     pub opened_in: Option<String>,
     pub url: Option<String>,
+    pub title: Option<String>,
     pub app: Option<String>,
     pub device: Option<String>,
     pub path: Option<String>,
@@ -128,6 +129,7 @@ impl Pane {
             cwd: None,
             opened_in: None,
             url: None,
+            title: None,
             app: None,
             device: None,
             path: None,
@@ -156,6 +158,17 @@ impl Pane {
         match &self.name {
             Some(name) => format!("{name} ({})", self.id),
             None => self.id.clone(),
+        }
+    }
+
+    pub fn tab_name(&self) -> Option<String> {
+        if let Some(name) = &self.name {
+            return Some(name.clone());
+        }
+        match self.kind {
+            PaneType::Md | PaneType::Code => self.path.as_deref().and_then(file_name),
+            PaneType::Web => self.title.clone().filter(|t| !t.trim().is_empty()).or_else(|| self.url.as_deref().and_then(host)),
+            PaneType::Term | PaneType::Ios => None,
         }
     }
 
@@ -215,6 +228,21 @@ impl Pane {
         }
         Value::Object(out)
     }
+}
+
+fn file_name(path: &str) -> Option<String> {
+    path.trim_end_matches('/').rsplit('/').next().filter(|n| !n.is_empty()).map(String::from)
+}
+
+fn host(url: &str) -> Option<String> {
+    let Some((_, rest)) = url.split_once("://") else { return file_name(url) };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let authority = authority.rsplit('@').next().unwrap_or("");
+    let host = match authority.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => authority.split(':').next().unwrap_or(""),
+    };
+    if host.is_empty() { file_name(rest.split(['?', '#']).next().unwrap_or("")) } else { Some(host.into()) }
 }
 
 #[derive(Debug, Default)]
@@ -317,5 +345,45 @@ mod pid_tests {
         assert!(pane.summary().get("pid").is_none());
         pane.pid = Some(4242);
         assert_eq!(pane.summary().get("pid").and_then(|v| v.as_f64()), Some(4242.0));
+    }
+}
+
+#[cfg(test)]
+mod tab_name_tests {
+    use super::*;
+
+    fn pane(kind: PaneType, name: Option<&str>) -> Pane {
+        Pane::new("p1", name.map(String::from), kind)
+    }
+
+    #[test]
+    fn a_pane_names_its_tab_by_its_name_then_its_file_or_page() {
+        let mut code = pane(PaneType::Code, None);
+        code.path = Some("/repo/crates/kanna-daemon/src/store.rs".into());
+        assert_eq!(code.tab_name().as_deref(), Some("store.rs"));
+        let mut md = pane(PaneType::Md, None);
+        md.path = Some("docs/specs/presenting.md".into());
+        assert_eq!(md.tab_name().as_deref(), Some("presenting.md"));
+        let mut named = pane(PaneType::Code, Some("diff"));
+        named.path = Some("/repo/a.rs".into());
+        assert_eq!(named.tab_name().as_deref(), Some("diff"));
+        assert_eq!(pane(PaneType::Term, None).tab_name(), None);
+        assert_eq!(pane(PaneType::Term, Some("logs")).tab_name().as_deref(), Some("logs"));
+        assert_eq!(pane(PaneType::Ios, None).tab_name(), None);
+    }
+
+    #[test]
+    fn a_web_pane_is_its_page_title_or_its_host_until_the_title_loads() {
+        let mut web = pane(PaneType::Web, None);
+        web.url = Some("https://user@docs.rs:443/serde/latest?x=1".into());
+        assert_eq!(web.tab_name().as_deref(), Some("docs.rs"));
+        web.title = Some("serde - Rust".into());
+        assert_eq!(web.tab_name().as_deref(), Some("serde - Rust"));
+        web.title = Some("  ".into());
+        assert_eq!(web.tab_name().as_deref(), Some("docs.rs"));
+        web.url = Some("http://[::1]:5173/".into());
+        assert_eq!(web.tab_name().as_deref(), Some("::1"));
+        web.url = Some("file:///Users/me/mockups/tabs.html".into());
+        assert_eq!(web.tab_name().as_deref(), Some("tabs.html"));
     }
 }

@@ -83,6 +83,12 @@ fn updates_from_the_app_change_the_record_and_come_back_to_it() {
     app.tell("update", json!({"pane": "p1", "url": "http://b.test/"}));
     let echoed = app.until("the record", |m| m["cmd"] == "pane");
     assert_eq!(echoed["args"]["pane"]["url"], "http://b.test/", "{echoed}");
+    app.tell("update", json!({"pane": "p1", "title": "Page B"}));
+    let titled = app.until("the titled record", |m| m["cmd"] == "pane");
+    assert_eq!((titled["args"]["pane"]["url"].clone(), titled["args"]["pane"]["title"].clone()), (json!("http://b.test/"), json!("Page B")), "{titled}");
+    app.tell("update", json!({"pane": "p1", "title": ""}));
+    let untitled = app.until("the untitled record", |m| m["cmd"] == "pane");
+    assert!(untitled["args"]["pane"]["title"].is_null(), "{untitled}");
     app.send(json!({"id": 5, "cmd": "navigate", "args": {"pane": "site", "back": true}}));
     let stop = app.until("stop", |m| m["cmd"] == "stop");
     assert_eq!(stop["args"]["pane"], "p1");

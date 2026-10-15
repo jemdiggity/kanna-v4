@@ -365,6 +365,9 @@ impl AppLink {
             core.page_moved(id, url);
         }
         core.with_pane_mut(id, |pane| {
+            if let Some(title) = string(args, "title").filter(|_| pane.kind == PaneType::Web) {
+                pane.title = Some(title.trim().to_string()).filter(|t| !t.is_empty());
+            }
             if let Some(device) = string(args, "device") {
                 pane.device = Some(device.into());
             }

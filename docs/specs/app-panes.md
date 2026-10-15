@@ -20,6 +20,7 @@ sequenceDiagram
     A->>D: update {pane, state: running}
     D->>C: ok, running
     A->>D: update {pane, url} (the page moved)
+    A->>D: update {pane, title} (its title loaded)
     D->>A: pane {pane: record}
 ```
 
@@ -33,7 +34,7 @@ Why not keep them in the daemon: they'd outlive the app with nothing to show the
 | pane tables (`panes` in the hello reply and every `layout` step) | daemon | records: `{id, name, type}` plus the state file's fields (`url`, `history`; `path`, `zoom`, `agent`; `app`, `device`; `cmd`, `cwd` for terminals) |
 | `start {pane: record}` | daemon | show this pane (`open`, `restart`, `navigate`, `debug.restoreState`), replacing any view it had |
 | `stop {pane}` | daemon | the pane closed, or is about to start again |
-| `update {pane, state?, error?, url?, device?, zoom?}` | app | the view is `running` or `failed` (with `error`); the page moved (`url`, applied as kmux's page moves, history included); the simulator chosen; the markdown zoom |
+| `update {pane, state?, error?, url?, title?, device?, zoom?}` | app | the view is `running` or `failed` (with `error`); the page moved (`url`, applied as kmux's page moves, history included); the page's title changed (`title`, `""` for none: it names the pane's tab, [tab names](windows.md#4-tab-names)); the simulator chosen; the markdown zoom |
 | `pane {pane: record}` | daemon | the record after an `update`, for the app's layout |
 | requests (`{id, cmd, args}`) | app | `navigate` from the views (the URL editor, a markdown link, back and forward), answered as any client's |
 | `debug.web`, `debug.md`, `debug.ios` (with an `id`) | daemon | kmux's commands for these panes (the page's URL and text; the rendered markdown; a tap or Home on the simulator), passed on like `debug.text` |

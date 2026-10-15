@@ -134,7 +134,7 @@ impl LayoutOwner {
         if let Some(known) = self.panes.get_mut(&pane.id) {
             *known = pane;
         }
-        Ok(Map::new())
+        Ok(changed(self.model.retitle(&self.panes)))
     }
 
     fn learn(&mut self, pane: Pane) {
@@ -172,6 +172,7 @@ impl LayoutOwner {
             self.model.place(&pane.id, &Placement { window: None, split: SplitSide::Auto, size: 0.5, new_tab: false, dock: None, frozen: false, from: None, opener: None, shelf: false, backlog: false, planner: false }, &self.panes)?;
             added.push(pane.id.clone());
         }
+        self.model.retitle(&self.panes);
         let mut reply = Map::new();
         reply.insert("dropped".into(), dropped.into());
         reply.insert("placed".into(), added.into());
@@ -373,6 +374,116 @@ mod tests {
     fn place(owner: &mut LayoutOwner, id: &str, at: Value) {
         let reply = owner.handle(&json!({ "call": "serve", "request": { "op": "place", "pane": { "id": id, "name": null, "type": "term" }, "at": at } }));
         assert_eq!(reply["ok"], true, "{reply}");
+    }
+
+    fn open(owner: &mut LayoutOwner, pane: Value, at: Value) {
+        let reply = owner.handle(&json!({ "call": "serve", "request": { "op": "place", "pane": pane, "at": at } }));
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
+
+    fn titles(owner: &LayoutOwner) -> Vec<String> {
+        owner.model.windows().iter().flat_map(|w| w.tabs.iter().map(|t| t.title.clone())).collect()
+    }
+
+    fn command(owner: &mut LayoutOwner, cmd: &str, args: Value) -> Value {
+        owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": cmd, "args": args } }))
+    }
+
+    #[test]
+    fn a_tab_is_named_after_the_pane_it_was_made_with() {
+        let mut owner = LayoutOwner::new();
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        open(&mut owner, json!({ "id": "p1", "name": null, "type": "term" }), json!({}));
+        open(&mut owner, json!({ "id": "p2", "name": null, "type": "code", "path": "/repo/crates/kanna-daemon/src/store.rs" }), json!({ "tab": true }));
+        open(&mut owner, json!({ "id": "p3", "name": null, "type": "md", "path": "docs/specs/presenting.md" }), json!({ "tab": true }));
+        open(&mut owner, json!({ "id": "p4", "name": null, "type": "web", "url": "http://localhost:5173/app" }), json!({ "tab": true }));
+        open(&mut owner, json!({ "id": "p5", "name": "diff", "type": "term" }), json!({ "tab": true }));
+        open(&mut owner, json!({ "id": "p6", "name": "spec", "type": "md", "path": "docs/specs/windows.md" }), json!({ "tab": true }));
+        open(&mut owner, json!({ "id": "p7", "name": null, "type": "md", "path": "a/SKILL.md" }), json!({ "tab": true }));
+        open(&mut owner, json!({ "id": "p8", "name": null, "type": "md", "path": "b/SKILL.md" }), json!({ "tab": true }));
+        open(&mut owner, json!({ "id": "p9", "name": null, "type": "term" }), json!({ "tab": true }));
+        assert_eq!(titles(&owner), ["Tab 1", "store.rs", "presenting.md", "localhost", "diff", "spec", "SKILL.md", "SKILL.md", "Tab 9"]);
+        let view = Value::Object(owner.view());
+        assert_eq!(view["windows"][0]["title"], "Tab 9", "the window is titled after its active tab");
+        assert_eq!(view["windows"][0]["tabs"][1]["title"], "store.rs");
+    }
+
+    #[test]
+    fn a_tab_follows_its_web_page_title_and_its_terminal_renamed() {
+        let mut owner = LayoutOwner::new();
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        open(&mut owner, json!({ "id": "p1", "name": null, "type": "web", "url": "https://docs.rs/serde" }), json!({}));
+        open(&mut owner, json!({ "id": "p2", "name": null, "type": "term" }), json!({ "tab": true }));
+        assert_eq!(titles(&owner), ["docs.rs", "Tab 2"]);
+        let reply = owner.handle(&json!({ "call": "pane", "pane": { "id": "p1", "name": null, "type": "web", "url": "https://docs.rs/serde", "title": "serde - Rust" } }));
+        assert_eq!(reply["changed"], true);
+        assert_eq!(titles(&owner), ["serde - Rust", "Tab 2"]);
+        owner.handle(&json!({ "call": "pane", "pane": { "id": "p1", "name": null, "type": "web", "url": "https://github.com/serde-rs", "title": "serde-rs · GitHub" } }));
+        assert_eq!(titles(&owner), ["serde-rs · GitHub", "Tab 2"]);
+        owner.handle(&json!({ "call": "pane", "pane": { "id": "p1", "name": null, "type": "web", "url": "https://example.com/" } }));
+        assert_eq!(titles(&owner), ["example.com", "Tab 2"], "the host until the next title loads");
+        owner.handle(&json!({ "call": "serve", "request": { "op": "windows", "panes": [{ "id": "p1", "name": null, "type": "web", "url": "https://example.com/" }, { "id": "p2", "name": "server", "type": "term" }] } }));
+        assert_eq!(titles(&owner), ["example.com", "server"], "rename-pane reaches the layout as a windows step with the new names");
+        let unchanged = owner.handle(&json!({ "call": "pane", "pane": { "id": "p2", "name": "server", "type": "term" } }));
+        assert_eq!(unchanged["changed"], false);
+    }
+
+    #[test]
+    fn a_renamed_tab_keeps_its_name_after_a_relaunch_and_an_older_layout_takes_its_panes_names() {
+        let dir = folder("renamed");
+        let file = StateFile::new(&dir.join("layout.json").to_string_lossy());
+        let (mut owner, _) = LayoutOwner::open(Some(file.clone()), false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        open(&mut owner, json!({ "id": "p1", "name": null, "type": "web", "url": "https://docs.rs/" }), json!({}));
+        open(&mut owner, json!({ "id": "p2", "name": null, "type": "code", "path": "/r/a.rs" }), json!({ "tab": true }));
+        assert_eq!(command(&mut owner, "rename-tab", json!({ "tab": "t1", "title": "reading" }))["title"], "reading");
+        owner.handle(&json!({ "call": "pane", "pane": { "id": "p1", "name": null, "type": "web", "url": "https://docs.rs/", "title": "Docs.rs" } }));
+        assert_eq!(titles(&owner), ["reading", "a.rs"]);
+        owner.save().unwrap();
+        assert_eq!(owner.export()["windows"][0]["tabs"][0]["renamed"], true);
+
+        let panes = json!([{ "id": "p1", "name": "docs", "type": "web", "url": "https://docs.rs/" }, { "id": "p2", "name": "main", "type": "code", "path": "/r/a.rs" }]);
+        let (mut again, _) = LayoutOwner::open(Some(file.clone()), false);
+        again.handle(&json!({ "call": "attach", "panes": panes }));
+        assert_eq!(titles(&again), ["reading", "main"]);
+        again.handle(&json!({ "call": "pane", "pane": { "id": "p2", "name": null, "type": "term" } }));
+        assert_eq!(titles(&again), ["reading", "Tab 2"], "a restored tab keeps its number");
+        again.handle(&json!({ "call": "pane", "pane": { "id": "p2", "name": "main", "type": "code", "path": "/r/a.rs" } }));
+
+        let mut old = again.export();
+        old["windows"][0]["tabs"][0].as_object_mut().unwrap().remove("renamed");
+        old["windows"][0]["tabs"][1]["title"] = "Tab 2".into();
+        file.write(&old).unwrap();
+        let (mut older, _) = LayoutOwner::open(Some(file), false);
+        older.handle(&json!({ "call": "attach", "panes": panes }));
+        assert_eq!(titles(&older), ["docs", "main"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_parked_tasks_tabs_are_named_after_their_panes() {
+        let mut owner = LayoutOwner::new();
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        open(&mut owner, json!({ "id": "p1", "name": null, "type": "term" }), json!({ "dock": "left" }));
+        command(&mut owner, "task", json!({ "action": "park" }));
+        open(&mut owner, json!({ "id": "p2", "name": null, "type": "code", "path": "/r/store.rs" }), json!({ "tab": true, "from": "p1" }));
+        open(&mut owner, json!({ "id": "p3", "name": null, "type": "term" }), json!({ "tab": true, "from": "p1" }));
+        assert_eq!(owner.view()["shelf"][0]["tabs"], json!(["store.rs", "Tab 2"]));
+    }
+
+    #[test]
+    fn a_split_tab_keeps_its_first_panes_name_until_that_pane_closes() {
+        let mut owner = LayoutOwner::new();
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        open(&mut owner, json!({ "id": "p1", "name": null, "type": "term" }), json!({}));
+        open(&mut owner, json!({ "id": "p2", "name": null, "type": "code", "path": "/r/store.rs" }), json!({ "tab": true }));
+        open(&mut owner, json!({ "id": "p3", "name": null, "type": "md", "path": "/r/plan.md" }), json!({ "split": "right" }));
+        open(&mut owner, json!({ "id": "p4", "name": null, "type": "term" }), json!({ "split": "down" }));
+        assert_eq!(titles(&owner), ["Tab 1", "store.rs"]);
+        owner.handle(&json!({ "call": "serve", "request": { "op": "remove", "ids": ["p2"], "tidy": true } }));
+        assert_eq!(titles(&owner), ["Tab 1", "plan.md"]);
+        owner.handle(&json!({ "call": "serve", "request": { "op": "remove", "ids": ["p3"], "tidy": true } }));
+        assert_eq!(titles(&owner), ["Tab 1", "Tab 2"]);
     }
 
     #[test]

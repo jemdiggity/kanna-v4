@@ -94,7 +94,7 @@ sequenceDiagram
 - **Focus follows the first responder**, not key-window status, so a pane keeps its focused cursor across reparenting. `ghostty_surface_set_occlusion` with visibility false stops the renderer updating at all, so `KANNA_IGNORE_OCCLUSION=1` (the test scripts) keeps hidden windows drawing.
 - **`screenshot` and `debug.snapshot` capture with `CGWindowListCreateImage`**, drawing terminals hidden from Ghostty first, so an occluded window's come out legible ([screenshot](screenshot.md#3-how-its-built)).
 - **Keeping the surface right across a snapshot** (the Ghostty fork, `kanna4`): loading a snapshot replaces the surface's terminal, so the fork keeps what belongs to the surface and not to the program: whether it's focused and visible (focus reports stay correct), the config's cursor style and colours (unless the program chose its own), and the image limits. A widening resize keeps the scrollback inside its byte limit, so a snapshot after it loads whole. A font size change asks the host for a new grid instead of resizing the surface's own terminal, which only the daemon's resize may do.
-- **Surfaces** are made when a pane is first shown and kept while it's in the layout ([windows](windows.md#4-terminal-views)).
+- **Surfaces** are made when a pane is first shown and kept while it's in the layout ([windows](windows.md#5-terminal-views)).
 
 ## 5. Debug mode
 
