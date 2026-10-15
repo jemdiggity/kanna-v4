@@ -92,7 +92,7 @@ Through `kanna_layout_call`, besides `serve`, `attach`, `save` and the rest of [
 
 ## 4. Tab names
 
-![A tab bar: a terminal from ⌘T, a code file, a doc and a web page](tab-names.png)
+![A window titled after its active tab, a web page's title, beside tabs for a terminal from ⌘T, a code file and a doc](tab-names.png)
 
 A tab is named after the pane it was made with:
 
