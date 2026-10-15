@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_repo="jemdiggity/kanna-v4"
+source_repo="tampopogk/kanna-v4"
 public_repo="tampopogk/kanna"
 release_env="$HOME/.kanna/.env.release.local"
 archs=(arm64 x86_64)
@@ -30,6 +30,7 @@ done
 
 step "Preflight"
 cd "$repo_root"
+[[ "$(git remote get-url origin)" =~ github\.com[:/]$source_repo(\.git)?$ ]] || fail "origin is $(git remote get-url origin), not $source_repo: git remote set-url origin https://github.com/$source_repo.git"
 git fetch --quiet --tags origin main || fail "can't fetch origin ($source_repo)"
 problems=()
 [[ -z "$(git status --porcelain)" ]] || problems+=("the working tree has uncommitted changes: commit or remove them")
@@ -105,9 +106,13 @@ rm -rf "$dist"
 mkdir -p "$dist"
 
 notarize() {
-  local file="$1" result id status
-  result="$(xcrun notarytool submit "$file" "${notary[@]}" --wait --output-format json)" || true
-  id="$(plutil -extract id raw -o - - <<<"$result" 2>/dev/null || true)"
+  local file="$1" result id status attempt
+  for attempt in 1 2 3; do
+    result="$(xcrun notarytool submit "$file" "${notary[@]}" --wait --output-format json)" || true
+    id="$(plutil -extract id raw -o - - <<<"$result" 2>/dev/null || true)"
+    [[ -z "$id" && $attempt -lt 3 ]] || break
+    echo "    notarytool didn't get a submission through (attempt $attempt): trying again"
+  done
   status="$(plutil -extract status raw -o - - <<<"$result" 2>/dev/null || true)"
   echo "    notarization ${id:-(no id)}: ${status:-failed}"
   if [[ "$status" != Accepted ]]; then

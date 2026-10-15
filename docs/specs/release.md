@@ -26,7 +26,7 @@ flowchart TB
     D --> N["Release notes<br/>claude --print --model haiku"]
     N --> R{"--dry-run?"}
     R -->|yes| X["stop: DMGs and notes in<br/>target/release-dmg/vX.Y.Z"]
-    R -->|no| T["push tag vX.Y.Z to jemdiggity/kanna-v4"]
+    R -->|no| T["push tag vX.Y.Z to tampopogk/kanna-v4"]
     T --> G["GitHub Release Kanna vX.Y.Z<br/>on tampopogk/kanna, DMGs attached"]
 ```
 
@@ -94,7 +94,7 @@ flowchart LR
 
 | Where | What |
 |---|---|
-| jemdiggity/kanna-v4 (the source) | the annotated tag `vX.Y.Z` at HEAD |
+| tampopogk/kanna-v4 (the source) | the annotated tag `vX.Y.Z` at HEAD |
 | tampopogk/kanna (downloads only) | the GitHub Release `vX.Y.Z`, titled "Kanna vX.Y.Z", with `Kanna-X.Y.Z-arm64.dmg` and `Kanna-X.Y.Z-x86_64.dmg`; its tag is that repo's `main` |
 
 - **The first release creates tampopogk/kanna:** the old repo of that name was renamed tampopogk/kanna2, and GitHub redirects the name to it. release.sh checks the name resolves to itself (not the redirect), and otherwise creates the repo, public, with a README linking to its releases.
