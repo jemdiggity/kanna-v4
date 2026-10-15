@@ -22,7 +22,7 @@ Uses target/release/{kanna,kanna-daemon,kanna-keeper} and target/Kanna.app (or $
   KANNA_STATE_DIR  where the daemon, keeper and app keep their files
                    (the keeper writes keeper.pid there)
   KANNA_KEEPER     the keeper binary the daemon starts (once it uses one)
-real_agent_tasks and real_agent_planners run the real claude and codex (on PATH,
+real_agent_tasks, real_agent_planners and keeper_upgrade run the real claude and codex (on PATH,
 or $KANNA_E2E_CLAUDE / $KANNA_E2E_CODEX) against tools/agent-harness's mock
 model, each in a HOME of its own. A planning terminal
 offers no agent (KANNA_PLANNING_AGENTS=none) unless a scenario gives it some. Backlog tasks
@@ -539,6 +539,20 @@ PY
   printf "python3 %s '%s' '%s' %s; exec cat" "$KANNA_STATE_DIR/probe.py" "$1" "${2:-\\007}" "${3:-1}"
 }
 count() { python3 -c 'import json, sys; print(len(json.load(sys.stdin)))'; }
+long_comment="A long comment that runs on for a while, so that it wraps over many lines in the comment box and then some more past its cap. "
+long_comment="$long_comment$long_comment$long_comment$long_comment$long_comment$long_comment"
+box_fits() { python3 -c 'import json, sys
+r = json.load(sys.stdin)
+p = {k: (x, y, x + w, y + h) for k, (x, y, w, h) in r["box_parts"].items()}
+box, f = p["box"], p["field"]
+inside = lambda a: a[0] >= box[0] and a[1] >= box[1] and a[2] <= box[2] and a[3] <= box[3]
+assert f[3] - f[1] == 160, ("the field should grow to its cap", r["box_parts"])
+assert p["text"][3] - p["text"][1] > 160, ("past its cap the text should scroll inside the field", r["box_parts"])
+for k in ("box", "field", "hint", "post"):
+    if k in p: assert inside(p[k]), (k, "is outside the box", r["box_parts"])
+for k in ("hint", "post"):
+    if k in p: assert p[k][1] >= f[3], (k, "overlaps the field", r["box_parts"])
+assert r["box_shown"], ("the box should stay in view", r["box_parts"])'; }
 snap() {
   local shot
   shot="$(raw "{\"id\":1,\"cmd\":\"debug.snapshot\",\"args\":{\"window\":\"$1\",\"path\":\"$2.png\",\"marker\":\"*\"}}")"
@@ -985,7 +999,20 @@ print(len(v) if isinstance(v, list) else v)' "$1" "$2"; }
   xy="$(md_comments_md ',"mark":"c3"')"
   raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"pane\":\"doc\",\"command\":true,\"at\":[$(echo "$xy" | field x),$(echo "$xy" | field y)]}}" >/dev/null
   check test "$(md_comments_md | field box)" == new || return 1
+  raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$long_comment\"}}" >/dev/null
+  check eval 'md_comments_md | box_fits' || return 1
+  sleep 0.3; md_comments_shot md_comments-long
   key escape; check test "$(md_comments_md | field box)" == None || return 1
+  for _ in 1 2 3 4 5; do md_comments_md ',"zoom":1' >/dev/null; done
+  check test "$(md_comments_md | field zoom)" == 2 || return 1
+  xy="$(md_comments_md ',"mark":"c3"')"
+  raw "{\"id\":1,\"cmd\":\"debug.click\",\"args\":{\"pane\":\"doc\",\"command\":true,\"at\":[$(echo "$xy" | field x),$(echo "$xy" | field y)]}}" >/dev/null
+  check test "$(md_comments_md | field box)" == new || return 1
+  raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$long_comment\"}}" >/dev/null
+  check eval 'md_comments_md | box_fits' || return 1
+  sleep 0.3; md_comments_shot md_comments-long-zoomed
+  key escape; check test "$(md_comments_md | field box)" == None || return 1
+  for _ in 1 2 3 4 5; do md_comments_md ',"zoom":-1' >/dev/null; done
   check test "$(md_comments_count)" == 4 || return 1
   kanna markup reply c4 --doc "$dir/review.md" "Fixed the wording." >/dev/null || return 1
   check wait_for 5 eval '[[ "$(md_comments_thread c4 messages)" == 2 ]]' || return 1
@@ -1152,6 +1179,12 @@ print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
   page_comments_click "\"command\":true,\"at\":$xy"
   check wait_for 5 eval '[[ "$(page_comments_web | field box)" == new ]]' || { page_comments_web; return 1; }
   sleep 0.3; page_comments_shot page_comments-composer
+  raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$long_comment\"}}" >/dev/null
+  check eval 'page_comments_web | box_fits' || return 1
+  sleep 0.3; page_comments_shot page_comments-long
+  key escape; check wait_for 5 eval '[[ "$(page_comments_web | field box)" == None ]]' || return 1
+  page_comments_click "\"command\":true,\"at\":$xy"
+  check wait_for 5 eval '[[ "$(page_comments_web | field box)" == new ]]' || { page_comments_web; return 1; }
   raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Bigger"}}' >/dev/null
   key cmd+return
   check wait_for 5 eval '[[ "$(page_comments_thread c1 status)" == sent ]]' || { page_comments_web; return 1; }
@@ -2450,6 +2483,71 @@ blocked_tasks() {
   in_repo task start t4 >/dev/null || { echo "blocked_tasks: a task with its blockers taken off didn't start"; return 1; }
   [[ "$(in_repo task edit t4 --after t2 2>&1)" == *"t4 has started"* ]] || { echo "blocked_tasks: a started task's blockers changed"; return 1; }
 }
+
+scenario keeper_upgrade M4
+keeper_upgrade() {
+  local claude="${KANNA_E2E_CLAUDE:-$(command -v claude)}"
+  [[ -x "$claude" ]] || { echo "keeper_upgrade: claude isn't installed (or set KANNA_E2E_CLAUDE)"; return 1; }
+  need "$bin/kanna-daemon" && need "$bin/kanna-keeper" || return 1
+  local old="$KANNA_STATE_DIR/old" agents="$KANNA_STATE_DIR/agents" repo="$KANNA_STATE_DIR/repo" harness="$repo_root/tools/agent-harness"
+  mkdir -p "$old" "$agents" "$repo" && cp "$bin/kanna-keeper" "$old/kanna-keeper" || { echo "keeper_upgrade line $LINENO"; return 1; }
+  codesign -f -s - -i dev.kanna.e2e.old-keeper "$old/kanna-keeper" 2>/dev/null || { echo "keeper_upgrade: can't re-sign a copy of the keeper as an older build"; return 1; }
+  [[ "$(shasum -a 256 "$old/kanna-keeper" | cut -d' ' -f1)" != "$(shasum -a 256 "$bin/kanna-keeper" | cut -d' ' -f1)" ]] || { echo "keeper_upgrade: the old keeper is the same build"; return 1; }
+  git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "keeper_upgrade line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  in_repo() { (cd "$repo" && kanna "$@"); }
+  KANNA_KEEPER="$old/kanna-keeper" "$bin/kanna-daemon" >>"$out/daemon.log" 2>&1 &
+  daemon_pid=$!
+  wait_for 5 test -S "$KANNA_SOCKET" || { echo "keeper_upgrade: the daemon did not open its socket"; return 1; }
+  start_app || { echo "keeper_upgrade line $LINENO"; return 1; }
+  local keeper; keeper="$(cat "$KANNA_STATE_DIR/keeper.pid")"
+  [[ "$(ps -o command= -p "$keeper")" == "$old/kanna-keeper"* ]] || { echo "keeper_upgrade: the old keeper isn't running: $(ps -o command= -p "$keeper")"; return 1; }
+  python3 -I "$harness/mock_server.py" --log "$agents/mock.jsonl" >"$agents/port" 2>"$agents/mock.log" &
+  check wait_for 10 eval '[[ -s "$agents/port" ]]' || { echo "keeper_upgrade: the mock model didn't start"; return 1; }
+  python3 -I "$harness/isolate.py" --agent claude --real "$claude" --home "$agents/claude-home" --port "$(cat "$agents/port")" --trust "$repo" --out "$agents/bin/claude" || { echo "keeper_upgrade line $LINENO"; return 1; }
+  asked() { python3 -c 'import json, sys
+lines = [json.loads(l) for l in open(sys.argv[1])]
+print(sum(1 for l in lines if l.get("turn") and sys.argv[2] in l["prompt"] and (len(sys.argv) < 4 or any(sys.argv[3] in h for h in l["history"]))))' "$agents/mock.jsonl" "$@"; }
+  local first="UPGRADE_FIRST claude" second="UPGRADE_SECOND claude" id parked
+  id="$(in_repo task new "claude task" "$first" --agent "$agents/bin/claude" | sed -n 's/^added \(t[0-9]*\).*/\1/p')"
+  parked="$(in_repo task new "Parked" "say hi" --agent "$repo_root/tools/mock-agent/mock-agent" | sed -n 's/^added \(t[0-9]*\).*/\1/p')"
+  [[ "$id" =~ ^t[0-9]+$ && "$parked" =~ ^t[0-9]+$ ]] || { echo "keeper_upgrade: the tasks weren't added"; return 1; }
+  kanna task shelve "$id" >/dev/null && kanna task pull "claude task" >/dev/null || { echo "keeper_upgrade: the claude task didn't reach the Desk"; return 1; }
+  kanna task shelve "$parked" >/dev/null || { echo "keeper_upgrade: the parked task didn't go to the Shelf"; return 1; }
+  check wait_for 60 eval '[[ "$(asked "$first")" == 1 ]]' || { echo "keeper_upgrade: claude's first message didn't reach the mock model"; kanna read "claude task"; return 1; }
+  check wait_for 30 shows "claude task" "Agent status probe" || { echo "keeper_upgrade: claude didn't show the mock's answer"; kanna read "claude task"; return 1; }
+  in_repo open --name upgradeshell --tab >/dev/null || { echo "keeper_upgrade line $LINENO"; return 1; }
+  kanna send upgradeshell 'echo UPGRADE-BEFORE-$((6*7))' >/dev/null || return 1
+  check wait_for 5 shows upgradeshell UPGRADE-BEFORE-42 || return 1
+  check wait_for 5 is Parked state running || return 1
+  local pane pids=()
+  for pane in "claude task" Parked upgradeshell; do pids+=("$(pane "$pane" pid)"); done
+  stop_app; stop_daemon
+  local lines; lines="$(wc -l <"$out/daemon.log")"
+  start_daemon && start_app || { echo "keeper_upgrade line $LINENO"; return 1; }
+  local log; log="$(tail -n +"$((lines + 1))" "$out/daemon.log")"
+  grep -q "upgraded the keeper (pid $keeper) from build" <<<"$log" || { echo "keeper_upgrade: the daemon didn't upgrade the keeper"; echo "$log"; return 1; }
+  grep -qE "took back [3-9] terminal\(s\) from the keeper \(0 the disk didn't know\), 0 that had exited; 0 gone" <<<"$log" || { echo "keeper_upgrade: the daemon didn't take every terminal back"; echo "$log"; return 1; }
+  check test "$(cat "$KANNA_STATE_DIR/keeper.pid")" == "$keeper" || return 1
+  [[ "$(ps -o command= -p "$keeper")" == "$bin/kanna-keeper"* ]] || { echo "keeper_upgrade: the keeper runs $(ps -o command= -p "$keeper")"; return 1; }
+  local i=0
+  for pane in "claude task" Parked upgradeshell; do
+    check is "$pane" pid "${pids[$i]}" || return 1
+    check is "$pane" state running || return 1
+    [[ "$(ps -o ppid= -p "${pids[$i]}" | tr -d ' ')" == "$keeper" ]] || { echo "keeper_upgrade: $pane's parent isn't the keeper"; return 1; }
+    i=$((i + 1))
+  done
+  check app_text upgradeshell UPGRADE-BEFORE-42 || return 1
+  check shows "claude task" "Agent status probe" || return 1
+  kanna send "claude task" "$second" && kanna send-key "claude task" return || { echo "keeper_upgrade line $LINENO"; return 1; }
+  check wait_for 60 eval '[[ "$(asked "$second" "$first")" -ge 1 ]]' || { echo "keeper_upgrade: claude's next message didn't carry its conversation"; kanna read "claude task"; return 1; }
+  [[ "$(asked "$first")" == 1 ]] || { echo "keeper_upgrade: claude started over instead of carrying on"; return 1; }
+  kanna send upgradeshell 'exit 7' >/dev/null || return 1
+  check wait_for 5 is upgradeshell state exited || return 1
+  check is upgradeshell exitCode 7 || return 1
+  stop_agents
+}
+
 
 scenario backlog_runners M4
 backlog_runners() {
