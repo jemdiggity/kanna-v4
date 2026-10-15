@@ -4,9 +4,7 @@
 
 A **task** is one agent's work in one repo. Agents make tasks: they add them to the repo's **backlog**, and you move the ones you want to the Shelf, where each gets its own agent, branch and worktree. There's no form: you tell the window's [planning agent](planning-agent.md) what you want, and it makes the tasks.
 
-![A new Desk in ~: where, which agent, the project's planner, then the agent](desk-new.png)
-
-![An empty Desk: the planning agent, and the Shelf's tasks above the backlog](task-backlog.png)
+![An empty Desk: the planning agent on the left, the Shelf's tasks above the backlog on the right](desk-new.png)
 
 ## Contents
 
@@ -62,6 +60,7 @@ stateDiagram-v2
 - **Oldest first.** A Desk's Shelf strip shows how many wait.
 - **Search it** with ⌘F on an empty Desk, by name or first message: [backlog search](backlog-search.md).
 - **A task can wait for others:** blocked, it can't start until they're Done ([blocked tasks](task-dependencies.md)).
+- **Backlog tasks run by themselves,** a few at a time, and Kanna stops each when its agent's turn ends ([backlog runners](backlog-runners.md)).
 
 ## 4. Naming
 
@@ -93,7 +92,7 @@ Kanna gives an agent a session ID of its own when it starts, if the agent takes 
 | opencode | `opencode --prompt 'FIRST'` (it takes no ID) | `opencode --session ID`, the latest top-level session in `~/.local/share/opencode/opencode.db` whose `directory` is the folder (`--continue` is the repo's, shared by its worktrees) | the same |
 | antigravity | `agy --dangerously-skip-permissions -i 'FIRST'` (it takes no ID) | `agy --dangerously-skip-permissions --continue` (the folder's last conversation) | the same |
 
-**Tested** by e2e S57 for claude and codex: the real agents run as tasks against a local mock model (`tools/agent-harness`), come back to their conversation after `kanna restart` on their first start, and after Move to Backlog, Stop and Start, the mock sees their next message carry the first, with no second start. Copilot and antigravity only talk to their own services, and opencode (which could use the mock as a provider) isn't covered yet, so only their command lines are tested (`backlog.rs`).
+**Tested** by e2e `real_agent_tasks` for claude and codex: the real agents run as tasks against a local mock model (`tools/agent-harness`), come back to their conversation after `kanna restart` on their first start, and after Move to Backlog, Stop and Start, the mock sees their next message carry the first, with no second start. Copilot and antigravity only talk to their own services, and opencode (which could use the mock as a provider) isn't covered yet, so only their command lines are tested (`backlog.rs`).
 
 An agent not in the table starts again with its first message, its conversation lost; so do copilot and opencode when no session of theirs is found for the folder. Copilot, opencode and antigravity take the first message as a flag (`-i`, `--prompt`), not an argument.
 
@@ -146,7 +145,7 @@ flowchart TB
 
 1. **Task IDs that travel:** backlog IDs (`t4`) are this machine's; sending tasks elsewhere will want IDs that don't clash.
 2. **Codex, opencode and antigravity take no session ID up front:** they resume the folder's latest session, which is the task's while each task has its own worktree. If one starts to take an ID, it moves to the ID like claude and copilot.
-3. **Codex saves its last reply a moment after showing it:** in its own terminal (`--no-daemon`) it writes the reply to its session about a second after it appears, and a stop within that second (SIGHUP, then SIGKILL a second later) loses the reply: started again, it shows the question and "Conversation interrupted". Stopping could wait for the agent to go idle, or ask it to quit; S57 waits for the reply to be saved.
+3. **Codex saves its last reply a moment after showing it:** in its own terminal (`--no-daemon`) it writes the reply to its session about a second after it appears, and a stop within that second (SIGHUP, then SIGKILL a second later) loses the reply: started again, it shows the question and "Conversation interrupted". [Backlog runners](backlog-runners.md) wait for the turn to end and quit codex with its own keys; `kanna task stop` still hangs up; `real_agent_tasks` waits for the reply to be saved.
 
 ## 9. Glossary
 

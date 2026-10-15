@@ -36,7 +36,7 @@ ln -s "$PWD/references/prototypes/doc-markup/kanna-doc" ~/.local/bin/kanna-doc
 - `frame.js`: added to an HTML page so the doc pane can pick parts of it, box them and screenshot it.
 - `page.html`: the doc pane. Markdown and mermaid render as in Kanna's markdown pane; comments are highlighted in place and listed beside it; it reloads when the file or the threads change.
 - Threads: `<repo>/.kanna/docs/<path>.json`; an image comment's marked-up copy goes in `<repo>/.kanna/docs/marks/`. The agent is the pane `open` ran in (`$KANNA_PANE`), and `$KANNA_SOCKET` picks the Kanna.
-- `fixture/`: a doc and its threads that the model and Kanna's native pane (e2e S37) are both screenshotted with, to compare how they render.
+- `fixture/`: a doc and its threads that the model and Kanna's native pane (e2e `md_comments`) are both screenshotted with, to compare how they render.
 - Server: `~/.kanna-doc-prototype/` (`server.json` has its port, token and PID; `server.log`). `KANNA_DOC_PROTOTYPE_DIR` moves it.
 
 ## Where it differs from the spec

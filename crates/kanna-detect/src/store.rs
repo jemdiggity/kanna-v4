@@ -36,6 +36,10 @@ pub fn bundled() -> impl Iterator<Item = (&'static str, &'static str)> {
     BUNDLED.iter().copied()
 }
 
+pub fn bundled_quit() -> impl Iterator<Item = (&'static str, &'static str)> {
+    BUNDLED_QUIT.iter().copied()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Loaded {
     pub agent: String,

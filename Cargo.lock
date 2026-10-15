@@ -577,6 +577,7 @@ name = "kanna-corpus"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "kanna-detect",
  "kanna-vt",
  "serde_json",
 ]

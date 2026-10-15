@@ -243,8 +243,8 @@ const initial = () => {
         tabs: ["localhost:5173", "target/tmp/s36-2-light.png"], active: "localhost:5173", focus: "agent", zoom: false, log: [] },
       { id: "p7", repo: "~/work/kmux", worktree: true, title: "Pinch zoom in web panes", branch: "kanna/p7", agent: "claude", status: "idle", parkedAt: now - 64 * MIN, width: 0.32,
         tabs: ["docs/kanna-spec.md", "tests"], active: "tests", focus: "docs", zoom: false, log: [] },
-      { id: "p8", repo: "~/work/kanna-v4", backlog: true, title: "S40 status test is flaky", by: "p1", madeAt: now - 40 * MIN,
-        prompt: "S40 waits 5s for 'working' after answering the mock agent, but work(1) lasts a second; make the wait follow the status, and run it 20 times" },
+      { id: "p8", repo: "~/work/kanna-v4", backlog: true, title: "agent_status e2e is flaky", by: "p1", madeAt: now - 40 * MIN,
+        prompt: "agent_status waits 5s for 'working' after answering the mock agent, but work(1) lasts a second; make the wait follow the status, and run it 20 times" },
       { id: "p9", repo: "~/work/kanna-v4", backlog: true, title: "kanna open infers the pane type", by: "p4", madeAt: now - 25 * MIN,
         prompt: "kanna open FILE should pick md or web from the file's extension, so TYPE is optional" },
       { id: "p11", repo: "~/work/kanna-v4", backlog: true, title: "Rename a task from the Shelf", by: "p1", madeAt: now - 5 * MIN,
@@ -353,9 +353,9 @@ function agentTerm(t) {
   ] : [
     `<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> ${t.agent}`,
     ``,
-    `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : t.id === "p4" ? "Done. S36 passes; screenshots in light and dark attached." : "Found it: the query answers before the theme loads."}`,
+    `<span class="m">●</span> ${t.status === "needs" ? "I need you to choose: keep the old colours as a fallback, or drop them?" : t.id === "p4" ? "Done. chrome_and_drops passes; screenshots in light and dark attached." : "Found it: the query answers before the theme loads."}`,
   ];
-  const ph = t.planner && t.ask ? (t.ask === "project" ? "~/work/kmux · github.com/you/app · you/app · recipe-box" : t.ask === "choose" ? s.installed.map((_, i) => i + 1).join(" · ") : t.ask === "save" ? "y · n" : "y · n") : t.planner && !t.agent ? (t.repo === "~" ? `cd work/kanna-v4 · claude '${ROLE}'` : `claude · codex '${ROLE}' · cd kmux`) : t.planner ? "split the login work into three tasks · what's waiting? · start the first one · /exit" : t.agent ? `kanna task new &quot;Fix the S39 pinch&quot; &quot;the mark drifts…&quot; · kanna task list · kanna task park` : "claude · codex · or any shell command";
+  const ph = t.planner && t.ask ? (t.ask === "project" ? "~/work/kmux · github.com/you/app · you/app · recipe-box" : t.ask === "choose" ? s.installed.map((_, i) => i + 1).join(" · ") : t.ask === "save" ? "y · n" : "y · n") : t.planner && !t.agent ? (t.repo === "~" ? `cd work/kanna-v4 · claude '${ROLE}'` : `claude · codex '${ROLE}' · cd kmux`) : t.planner ? "split the login work into three tasks · what's waiting? · start the first one · /exit" : t.agent ? `kanna task new &quot;Fix the page_comments pinch&quot; &quot;the mark drifts…&quot; · kanna task list · kanna task park` : "claude · codex · or any shell command";
   const lead = t.planner && t.ask ? esc(t.ask === "save" ? saveQuestion(t) : questions[t.ask]) : t.planner && !t.agent ? `<span class="c">${esc(short(t.repo))}</span>&nbsp;<span class="p">❯</span>` : `<span class="p">&gt;</span>`;
   return (t.planner ? plannerHead(t) : head).concat(t.log).join("\n") + `<div class="cmd">${lead}<input data-cmd="${t.id}" placeholder="${esc(ph).replace(/&amp;quot;/g, "&quot;")}" spellcheck="false" autocomplete="off"></div>`;
 }
@@ -882,7 +882,7 @@ const long = () => {
   s.tasks = s.tasks.filter(t => !t.backlog);
   const now = Date.now(), by = ["p1", "p4", "p1", "p4"];
   [
-    ["Fix flaky S40 status e2e", "S40 waits 5s for 'working' after answering the mock agent, but work(1) lasts a second; make the wait follow the status"],
+    ["Fix flaky agent_status e2e", "agent_status waits 5s for 'working' after answering the mock agent, but work(1) lasts a second; make the wait follow the status"],
     ["Swap keeps the task", "Swapping two Desks' tasks with ⌘1 loses the parked one's width; keep it with the task"],
     ["Resume every agent's session", "Only claude comes back to its conversation; give codex its own session ID and resume it"],
     ["Upgrade the keeper in place", "Installing a new build restarts the keeper and drops every terminal; hand its sockets over instead"],
