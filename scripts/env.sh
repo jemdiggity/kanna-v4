@@ -85,6 +85,10 @@ kanna_ghostty_source() {
     echo "$GHOSTTY_SOURCE_DIR"
     return
   fi
+  if main="$(kanna_main_checkout "$1")" && kanna_ghostty_pinned "$main/target/ghostty-source"; then
+    echo "$main/target/ghostty-source"
+    return
+  fi
   dir="$1/target/ghostty-source"
   if [ ! -f "$dir/build.zig" ]; then
     mkdir -p "$1/target"
@@ -96,6 +100,12 @@ kanna_ghostty_source() {
     git -C "$dir" checkout -q --detach "$KANNA_GHOSTTY_COMMIT" >&2 || return 1
   fi
   echo "$dir"
+}
+
+kanna_ghostty_pinned() {
+  [ -f "$1/build.zig" ] &&
+    [ "$(git -C "$1" rev-parse HEAD 2>/dev/null)" = "$KANNA_GHOSTTY_COMMIT" ] &&
+    [ -z "$(git -C "$1" status --porcelain 2>/dev/null)" ]
 }
 
 kanna_ghostty_rev() {
