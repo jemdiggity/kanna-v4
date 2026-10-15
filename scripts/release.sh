@@ -33,8 +33,7 @@ cd "$repo_root"
 git fetch --quiet --tags origin main || fail "can't fetch origin ($source_repo)"
 problems=()
 [[ -z "$(git status --porcelain)" ]] || problems+=("the working tree has uncommitted changes: commit or remove them")
-[[ "$(git symbolic-ref --short -q HEAD || true)" == main ]] || problems+=("HEAD is $(git symbolic-ref --short -q HEAD || git rev-parse --short HEAD), not main: release from the main checkout")
-git merge-base --is-ancestor HEAD origin/main || problems+=("HEAD $(git rev-parse --short HEAD) isn't on origin/main yet: push it first")
+git merge-base --is-ancestor HEAD origin/main || problems+=("HEAD $(git rev-parse --short HEAD) isn't on origin/main: merge it into main and push, then release from main")
 if [[ ${#problems[@]} -gt 0 ]]; then
   if $dry_run; then
     for p in "${problems[@]}"; do echo "    warning: $p (allowed in a dry run)"; done

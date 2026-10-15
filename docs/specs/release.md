@@ -17,7 +17,7 @@
 
 ```mermaid
 flowchart TB
-    P["Preflight<br/>clean main on origin/main, Developer ID,<br/>notary credential, gh, claude"] --> V["Version<br/>last v* tag + bump, or VERSION"]
+    P["Preflight<br/>clean, HEAD on origin/main, Developer ID,<br/>notary credential, gh, claude"] --> V["Version<br/>last v* tag + bump, or VERSION"]
     V --> L{{"for arm64, x86_64"}}
     L --> B["scripts/build.sh production --arch A<br/>KANNA_VERSION=X.Y.Z"]
     B --> S["Sign Helpers, then the app<br/>Developer ID, hardened runtime, timestamp"]
@@ -41,12 +41,12 @@ Every check runs before any build, and each failure says what to do.
 | Check | How |
 |---|---|
 | The working tree is clean | `git status --porcelain` is empty |
-| HEAD is main, already pushed | the branch is `main`, and HEAD is an ancestor of `origin/main` after a fetch |
+| HEAD is on main, already pushed | HEAD is an ancestor of `origin/main` after a fetch, in any checkout or worktree |
 | A Developer ID identity | `security find-identity -v -p codesigning` has a "Developer ID Application" identity; it signs by its hash |
 | The notary credential works | `~/.kanna/.env.release.local` (shared with Kanna v2) names `APPLE_KEYCHAIN_PROFILE` and `APPLE_KEYCHAIN_PATH`; `xcrun notarytool history` with them succeeds |
 | gh and claude | `gh auth status` succeeds; `claude` is on PATH |
 
-- **`--dry-run` only warns** about the first two, so a branch can be dry-run from its worktree.
+- **`--dry-run` only warns** about the first two, so an unmerged branch can be dry-run.
 - **No secrets:** the env file is read for those two keys only, never sourced or printed; the credential stays in its keychain.
 
 ## Versions
