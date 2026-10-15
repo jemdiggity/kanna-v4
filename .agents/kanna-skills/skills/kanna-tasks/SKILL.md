@@ -66,6 +66,8 @@ When the work is done, before you end your turn, set up your window to show the 
 3. **Close tabs that don't help** (`kanna close PANE`): scratch shells, finished builds.
 4. **End your turn with a short summary in the chat:** what changed, why, what's in the tabs, and what's left for the user (merge, a decision, a check).
 
+**Nothing worth a tab** (a small fix, a question in words)? Close your tabs and zoom your own pane (`kanna zoom $KANNA_PANE`), so your summary is what the user sees.
+
 If you stop to ask the user something, set up what the question is about the same way first. Terminals you leave running are stopped with you and run again when the task starts; what they were in the middle of is lost.
 
 ## Commands

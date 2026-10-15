@@ -36,6 +36,7 @@ sequenceDiagram
 
 - **The agent decides how it presents itself.** Kanna sets no default layout and zooms nothing: the agent picks what to open, which tab is shown and focused, and whether to zoom. The directions are in the `kanna-tasks` skill ("Present your work"), since they apply to every task, watched or not.
 - **The same when it stops to ask:** it sets up what the question is about.
+- **Nothing worth a tab:** the agent closes its tabs and zooms its own pane, so its summary is what you see.
 - **Stop keeps the whole layout:** every tab, the shown tab, focus and zoom; markdown, web and code tabs with their comments. Every terminal is hung up and stays in place, exited, like the agent's.
 - **Start brings the terminals back:** starting the task again (`kanna task start`, or Move to Shelf) restarts each terminal that was running when it stopped, with its command and folder. One that had exited before the stop stays exited. What a terminal was in the middle of is lost.
 

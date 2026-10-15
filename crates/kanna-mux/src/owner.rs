@@ -617,6 +617,13 @@ mod tests {
         command(&mut owner, "task", json!({ "action": "pull", "task": "p1" }));
         let again = owner.view()["windows"][0].clone();
         assert_eq!((again["focused"].clone(), again["zoomed"].clone()), (json!("p4"), Value::Null), "{again}");
+
+        command(&mut owner, "task", json!({ "action": "hold", "task": "p1" }));
+        assert_eq!(command(&mut owner, "zoom", json!({ "pane": "p1" }))["zoomed"], true, "an agent zooms its own pane while hidden");
+        command(&mut owner, "task", json!({ "action": "release", "task": "p1" }));
+        command(&mut owner, "task", json!({ "action": "pull", "task": "p1" }));
+        let agent = owner.view()["windows"][0].clone();
+        assert_eq!((agent["focused"].clone(), agent["zoomed"].clone()), (json!("p1"), json!("p1")), "{agent}");
     }
 
     #[test]
