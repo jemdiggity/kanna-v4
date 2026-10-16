@@ -31,7 +31,7 @@ stateDiagram-v2
 - **Oldest first,** skipping a [blocked](task-dependencies.md) task until what it waits for is Done.
 - **Every backlog task runs.** A task that needs you (a mockup to discuss, a question) runs until it asks.
 - **So tasks are written to be done in one go:** the [planning agent](planning-agent.md#2-what-it-is) reads the code, asks you until the outcome, scope, decisions and how to judge it done are settled, writes a first message that says all of it and what to do when stuck, and reads it back to you before it makes the task (the `kanna-planning` skill).
-- **A runner frees when a turn ends:** the agent's [status](agent-status.md) goes from working to needs you or idle and stays there 3s. Kanna quits the agent, keeps its session, and starts the next.
+- **A runner frees when a turn ends:** the agent's [status](agent-status.md) goes from working to needs you or idle and stays there 3s, or, for an agent that [reports its own status](agent-status.md#4-the-agents-own-report-osc-7501), its report goes from working to idle or done, which ends the turn at once. Kanna quits the agent, keeps its session, and starts the next.
 - **Nothing shows it:** backlog rows and `kanna task list` look as they do for any backlog task, and the Shelf isn't re-sorted. Why a task stopped (needs you, finished) is kept in its events only (`backlog events`).
 - **Moved to the backlog running, a task counts as a runner,** and Kanna stops it when its turn ends, at once if it arrives idle. That can leave more running than `backlog.runners` for a while: Kanna stops none to make room, and starts no more until fewer run.
 - **Resume on the Shelf:** Move to Shelf (or `kanna task start`) resumes a stopped task's session where it stopped.

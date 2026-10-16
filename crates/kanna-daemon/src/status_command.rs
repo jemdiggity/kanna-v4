@@ -1,4 +1,5 @@
-use crate::status::Detector;
+use crate::status::{from_record, Detector};
+use kanna_vt::{Need, ProgramStatus};
 use crate::Event;
 use kanna_detect::{Agent, Config, Report, Screen, Verdict, RULES_SITE};
 use kanna_mux::json::{json, Map, Value};
@@ -72,6 +73,9 @@ impl StatusCommand {
             out.insert("executable".into(), json!(explained.executable));
             out.insert("status".into(), json!(pane.status()));
             describe(&mut out, explained.verdict.as_ref(), &explained.screen);
+            out.insert("source".into(), json!(if explained.reported.is_some() { "osc7501" } else { "rules" }));
+            out.insert("reported".into(), explained.reported.as_ref().map_or(Value::Null, record));
+            out.insert("records".into(), Value::Array(explained.records.iter().map(record).collect()));
             return Ok(out);
         }
         let agent = args.get("agent").and_then(Value::as_str).ok_or_else(|| bad("say which pane, or give a screen and its agent"))?;
@@ -144,6 +148,19 @@ fn read_screen(file: &str) -> Result<Value, KmuxError> {
     Ok(match serde_json::from_str::<Value>(&text) {
         Ok(case) if case.get("rows").is_some_and(Value::is_array) => case,
         _ => json!({ "text": text }),
+    })
+}
+
+fn record(status: &ProgramStatus) -> Value {
+    json!({
+        "id": status.id,
+        "state": status.state.as_str(),
+        "kind": status.need.map(Need::as_str),
+        "progress": status.progress,
+        "app": status.app,
+        "title": status.title,
+        "message": status.message,
+        "status": from_record(status.state).as_str(),
     })
 }
 

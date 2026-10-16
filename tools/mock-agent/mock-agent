@@ -107,7 +107,7 @@ def main():
         print(VERSION)
         return 0
     id, resumed = session(sys.argv[1:])
-    out("\x1b]0;mock-agent\x07mock-agent: type turn, work N, run SCRIPT, ask or exit\r\n")
+    out("\x1b]0;mock-agent\x07mock-agent: type turn, work N, run SCRIPT, ask, report STATUS or exit\r\n")
     if sys.argv[1:]:
         out("args: " + " ".join(sys.argv[1:]) + "\r\n")
     out(f"{'resumed' if resumed else 'session'} {id}\r\n")
@@ -152,6 +152,9 @@ def answer(line):
             out("TURN_DONE\r\n")
         else:
             out("Declined.\r\n")
+    elif words[:1] == ["report"]:
+        out(f"\x1b]7501;{words[1] if len(words) > 1 else ''}\x1b\\")
+        out(f"reported: {words[1] if len(words) > 1 else ''}\r\n")
     else:
         out(f"echo: {line.strip()}\r\n")
     composer()

@@ -695,9 +695,14 @@ impl Backlog {
         self.refill();
     }
 
-    pub fn status(&self, pane: &str, status: Option<&str>) {
+    pub fn status(&self, pane: &str, status: Option<&str>, ended: bool) {
         if let Some(turn) = self.turns.borrow_mut().get_mut(pane) {
-            turn.see(status.and_then(Status::parse), Instant::now());
+            let status = status.and_then(Status::parse);
+            if ended {
+                turn.reported_end(status, Instant::now());
+            } else {
+                turn.see(status, Instant::now());
+            }
         }
     }
 

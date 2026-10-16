@@ -497,7 +497,7 @@ pub static COMMANDS: &[Command] = &[
             ("--file SCREEN", "A saved screen: text (as `kanna read` prints it) or a corpus case (JSON with rows, title, progress and cliVersion)."),
             ("--agent AGENT", "Whose rules judge the saved screen: claude, codex, …"),
         ],
-        notes: "An agent pane's status (working, needs-you, idle, exited) is in `kanna list`. explain shows the agent and its version, the rules file and where it came from, the rule that matched and the text it matched.\nRules: bundled in Kanna, from the rules site (checked every 30 minutes), or your own in ~/.config/kanna/agent-rules/<agent>.json, which always wins and reloads when you save it.",
+        notes: "An agent pane's status (working, needs-you, idle, exited) is in `kanna list`. explain shows the agent and its version, where its status came from (the agent's own OSC 7501 report, with the record, which wins when there is one, or the rules), the rules file and where it came from, the rule that matched and the text it matched.\nRules: bundled in Kanna, from the rules site (checked every 30 minutes), or your own in ~/.config/kanna/agent-rules/<agent>.json, which always wins and reloads when you save it.",
         examples: &[
             ("kanna status explain p3", "Why p3's agent shows the status it does."),
             ("kanna status explain --file screen.txt --agent claude", "How Claude's rules judge a saved screen."),
