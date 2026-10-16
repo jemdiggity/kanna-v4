@@ -125,6 +125,9 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .r.fold { background: var(--fold); color: var(--muted); font: 11.5px/24px var(--sans); cursor: pointer; }
 .r.fold .t { padding-left: 8px; }
 .r.fold:hover { color: var(--accent); }
+.r.fold.big { font: 12px/34px var(--sans); }
+.r.fold.big .t { padding-left: 22px; }
+.r.fold.big a { color: var(--accent); margin-left: 6px; }
 .r.fold .n { background: var(--fold); }
 .r.fold .scope { font: 11.5px var(--mono); color: var(--muted); margin-left: 10px; opacity: .8; }
 .r.fresh { animation: freshrow 2.4s ease-out; }
@@ -277,6 +280,8 @@ const FILES = [
       "         case .ios:",
     ]},
   ]},
+  { path: "Cargo.lock", st: "M", lang: "toml", committed: true, big: { add: 1186, del: 412, why: "Cargo.lock is a lock file" }, hunks: [] },
+  { path: "crates/kanna-syntax/tests/fixtures/huge.rs", st: "A", lang: "rust", committed: true, big: { add: 6240, del: 0, why: "6,240 changed lines" }, hunks: [] },
   { path: "scripts/old-diff.sh", st: "D", lang: "sh", committed: true, hunks: [
     { o: 1, w: 0, lines: [
       "-#!/bin/sh",
@@ -355,7 +360,7 @@ state = init();
 const files = () => FILES.map(f => f.path === "crates/kanna-mux/src/pane.rs" && state.edited ? { ...f, committed: state.committed, hunks: [...f.hunks, EDIT_HUNK], fresh: !state.committed } : f.st === "A" || f.path.endsWith("Contents.swift") ? { ...f, committed: state.committed } : f)
   .filter(f => state.scope === "branch" || !f.committed)
   .map(f => state.scope === "uncommitted" && f.path.endsWith("pane.rs") ? { ...f, hunks: [EDIT_HUNK] } : f);
-const count = f => { let a = 0, d = 0; f.hunks.forEach(h => h.lines.forEach(l => { if (l[0] === "+") a++; if (l[0] === "-") d++; })); return [a, d]; };
+const count = f => { if (f.big) return [f.big.add, f.big.del]; let a = 0, d = 0; f.hunks.forEach(h => h.lines.forEach(l => { if (l[0] === "+") a++; if (l[0] === "-") d++; })); return [a, d]; };
 const ct = ([a, d]) => `${a ? `<span class="add-n">+${a}</span>` : ""}${a && d ? " " : ""}${d ? `<span class="del-n">−${d}</span>` : ""}`;
 
 function rowsUnified(f, h) {
@@ -424,7 +429,8 @@ function render() {
   const body = fs.map((f, i) => {
     let prevEnd = 1, rows = "";
     for (const h of f.hunks) { rows += fold(h, prevEnd, split) + (split ? rowsSplit(f, h) : rowsUnified(f, h)); prevEnd = h.o + h.lines.filter(l => l[0] !== "+").length; }
-    if (f.st === "M") rows += `<div class="r fold">${split ? "" : `<span class="n o"></span><span class="n w"></span>`}<span class="t">⋯</span></div>`;
+    if (f.big) rows += `<div class="r fold big"><span class="t">${escH(f.big.why)}: not shown. <a>Show the diff</a></span></div>`;
+    else if (f.st === "M") rows += `<div class="r fold">${split ? "" : `<span class="n o"></span><span class="n w"></span>`}<span class="t">⋯</span></div>`;
     return `<div class="file ${state.closed.has(f.path) ? "closed" : ""} ${f.fresh ? "fresh" : ""}" data-i="${i}" id="file${i}">
       <div class="fh" data-path="${f.path}"><span class="chev">${state.closed.has(f.path) ? "▶" : "▼"}</span><span class="st ${f.st}">${f.st}</span><span class="path">${pathHTML(f.path)}</span><span class="ct">${ct(count(f))}</span><span class="spacer"></span>${f.st === "D" ? "" : `<span class="open">Open in code pane</span>`}</div>
       <div class="rows ${split ? "split" : ""}">${rows}</div></div>`;
