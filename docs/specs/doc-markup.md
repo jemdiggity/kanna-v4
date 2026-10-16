@@ -53,9 +53,9 @@ Every doc works the same way; only what you can point at differs.
 | ⌘-click an image | the whole image | the image, as a part |
 | Plain click | follows a link, or opens a thread's mark | uses the page, closing an open thread; a thread's dot opens it |
 
-![A box drawn on an image, with its thread selected in the list](doc-markup-image.png)
+![A box drawn on an image](doc-markup-image.png)
 
-![A mockup in a web pane: a dot on each commented part or box, one grey for a resolved thread, the threads listed beside it](doc-markup-page.png)
+![A page in a web pane: a dot on each commented part or box, two holding typing dots while the agent works, the threads listed beside it](doc-markup-page.png)
 
 - **On a page, a mark is a dot.** Each commented part or box shows only a small dot at its top-left corner (grey once resolved), so the page stays as it is and works as it does: clicking the thing uses the page; clicking the dot opens the thread. Pointing at the thing outlines it, dashed; selecting the thread outlines it solid, tinted unless it covers most of the view.
 
@@ -171,7 +171,7 @@ flowchart LR
 - **Sending** uses the daemon's existing `send`, wrapped as a bracketed paste so a multi-line comment arrives whole (plain `send` would submit it at its first newline). `kanna markup` passes the pane it runs in (`$KANNA_PANE`, which Kanna sets in every terminal), and the doc remembers it. Comments on or off are the pane's `markup` flag, set by `open` or the `markup` command, which restarts the pane's view as `navigate` does.
 - **The app** adds the thread panel, marks and the comment box to a markdown or web pane with comments on, one shared set of views (`KannaDocs`), and gets thread changes over the app link like any other pane update. A page is worked from a script world of its own (`WKContentWorld`), which the page's scripts can't see or call; its marked-up copy is the web view's own screenshot.
 - **Stored** in `<repo>/.kanna/docs/`, one file per doc, so threads survive restarts.
-- **Built so far:** both panes have the native comment UI, matching the reference model (e2e `md_comments` drives the markdown pane, `page_comments` a page, and both screenshot it). Until the daemon's doc store lands, the app reads and writes the reference model's files directly, so the prototype's `kanna-doc reply` and `resolve` (and the skill) work with it unchanged.
+- **Built so far:** both panes have the native comment UI, with the [mockup](../../references/mockups/doc-markup.html)'s thread cards and waiting states (e2e `md_comments` drives the markdown pane, `page_comments` a page, and both screenshot it); the panes get the agent's status from the app's `status` notices. Until the daemon's doc store lands, the app reads and writes the reference model's files directly, so the prototype's `kanna-doc reply` and `resolve` (and the skill) work with it unchanged.
 
 ## 7. Glossary
 

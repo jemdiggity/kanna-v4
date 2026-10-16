@@ -34,6 +34,7 @@ extension AppController {
 
     func statusChanged(_ pane: String, _ status: String?) {
         agentStatuses.set(pane, status, looking: lookingAt.contains(pane))
+        contents.agentStatusChanged(pane, status)
         if isTask(pane) { refresh() }
     }
 

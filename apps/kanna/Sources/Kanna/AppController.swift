@@ -123,6 +123,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         panes.onDrag = { [weak self] pane in self?.dragPane(pane) }
         panes.contextMenu = { [weak self] in self?.paneMenu?.copy() as? NSMenu }
         contents.onFocus = { [weak self] pane in self?.userFocused(pane) }
+        contents.agentStatus = { [weak self] pane in self?.agentStatuses.statuses[pane] }
         contents.contextMenu = { [weak self] in self?.paneMenu?.copy() as? NSMenu }
         runtime.onAction = { [weak self] view, action in
             guard let self, let id = panes.id(of: view) else { return false }

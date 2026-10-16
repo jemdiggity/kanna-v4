@@ -40,6 +40,7 @@ final class Contents {
     var onCall: ((String, [String: JSON], @escaping (JSON) -> Void) -> Void)?
     var onFocus: ((String) -> Void)?
     var contextMenu: (() -> NSMenu?)?
+    var agentStatus: ((String) -> String?)?
     private var markdownSpots: [String: [String: (y: CGFloat, zoom: CGFloat)]] = [:]
     private var markdownZoom: [String: CGFloat] = [:]
     private var codeZoom: [String: CGFloat] = [:]
@@ -49,6 +50,13 @@ final class Contents {
         let slot = PaneSlot(frame: .zero)
         slots[id] = slot
         return slot
+    }
+
+    func agentStatusChanged(_ pane: String, _ status: String?) {
+        for id in ids {
+            if let markdown = markdown(id), markdown.agent == pane { markdown.agentStatus = status }
+            if let web = web(id), web.agent == pane { web.agentStatus = status }
+        }
     }
 
     func shows(_ id: String) -> Bool { slots[id]?.content != nil }
@@ -100,6 +108,7 @@ final class Contents {
                 }
                 markdown.onFocus = { [weak self] in self?.onFocus?(id) }
                 markdown.agent = pane["agent"]?.string
+                markdown.agentStatus = markdown.agent.flatMap { self.agentStatus?($0) }
                 markdown.onSend = { [weak self] agent, text, done in self?.send(text, to: agent, done: done) }
                 markdown.contextMenu = { [weak self] in self?.contextMenu?() }
                 markdown.onOpenMarkdown = { [weak self] target in self?.onRequest?("navigate", ["pane": .string(id), "path": .string(target)]) }
@@ -129,6 +138,7 @@ final class Contents {
             web.onNavigate = { [weak self] url in self?.onRequest?("navigate", ["pane": .string(id), "url": .string(url)]) }
             web.onURLChange = { [weak self] url in self?.onUpdate?(id, ["url": .string(url)]) }
             web.agent = pane["agent"]?.string
+            web.agentStatus = web.agent.flatMap { self.agentStatus?($0) }
             web.onSend = { [weak self] agent, text, done in self?.send(text, to: agent, done: done) }
             content = web
         case "ios":

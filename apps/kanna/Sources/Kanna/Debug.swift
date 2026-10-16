@@ -145,7 +145,8 @@ extension AppController {
                 guard let rect = await markup.rect(of: selector) else { throw KannaError("not_found", "nothing matches \(selector)") }
                 return ["at": point(rect), "width": .number(Double(rect.width)), "height": .number(Double(rect.height))]
             }
-            reply["cards"] = .object(markup.cardRects.mapValues { ["at": point($0.rect), "reply": .bool($0.reply)] })
+            reply["cards"] = .object(markup.cards.mapValues { ["at": point($0.rect), "field": point($0.field), "reply": .bool($0.reply), "typing": .bool($0.typing), "waiting": $0.waiting.map { .string($0) } ?? .null] })
+            reply["dot_typing"] = .array(markup.typingDots.map { .string($0) })
             reply["threads"] = .array(markup.threads.map { thread in
                 var fields: [String: JSON] = ["id": .string(thread.id), "quote": .string(thread.quote), "line": .number(Double(thread.line)), "state": .string(thread.state),
                                               "status": thread.status.map { .string($0) } ?? .null, "error": thread.error.map { .string($0) } ?? .null,
@@ -186,7 +187,8 @@ extension AppController {
                     "layout_width": .number(Double(markdown.layoutWidth)), "threads": .array(threads),
                     "box": markdown.commentBoxThread.map { .string($0) } ?? .null, "box_text": markdown.commentBoxText.map { .string($0) } ?? .null,
                     "active": markdown.activeThread.map { .string($0) } ?? .null, "agent": markdown.agent.map { .string($0) } ?? .null,
-                    "markup": .bool(markdown.markup)]
+                    "markup": .bool(markdown.markup),
+                    "cards": .object(markdown.cards.mapValues { ["typing": .bool($0.typing), "waiting": $0.waiting.map { .string($0) } ?? .null, "reply": .bool($0.reply)] })]
         }
         commands["debug.code"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let code = contents.code(id) else { throw KannaError("wrong_type", "not a running code pane") }

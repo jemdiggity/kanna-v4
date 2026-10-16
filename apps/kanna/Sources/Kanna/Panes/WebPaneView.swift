@@ -15,6 +15,7 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
     private let relay: PageMarkupRelay
     private(set) var markup: PageMarkupView?
     var agent: String? { didSet { markup?.agent = agent } }
+    var agentStatus: String? { didSet { markup?.agentStatus = agentStatus } }
     var onSend: ((String, String, @escaping (String?) -> Void) -> Void)? { didSet { markup?.onSend = onSend } }
 
     let markable: Bool
@@ -59,6 +60,7 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
         if let page {
             let view = PageMarkupView(path: page, webView: webView)
             view.agent = agent
+            view.agentStatus = agentStatus
             view.onSend = onSend
             addSubview(view, positioned: .below, relativeTo: notice)
             markup = view

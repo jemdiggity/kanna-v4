@@ -970,6 +970,9 @@ print(len(v) if isinstance(v, list) else v)' "$1" "$2"; }
   check test "$(md_comments_md | field box_text)" == "Please fix" || return 1
   key cmd+return
   check wait_for 5 eval '[[ "$(md_comments_thread c4 status)" == sent ]]' || { md_comments_md; return 1; }
+  check test "$(md_comments_md | field cards.c4.typing)" == True || { md_comments_md; return 1; }
+  check wait_for 8 eval '[[ "$(md_comments_md | field cards.c4.waiting)" == "Not answered · the agent stopped" ]]' || { md_comments_md; return 1; }
+  check test "$(md_comments_md | field cards.c4.typing)" == False || return 1
   check test "$(md_comments_thread c4 line)" == 22 || return 1
   check wait_for 5 eval 'kanna read agent | sed "s/^IN //" | tr -d "\\n " | grep -qF "^[200~[kannacommentc4·review.md:22]>SENDMEPleasefix^[201~"' || { kanna read agent; return 1; }
   xy="$(md_comments_md ',"mark":"c1"')"
@@ -989,6 +992,7 @@ print(len(v) if isinstance(v, list) else v)' "$1" "$2"; }
   check test "$(md_comments_count)" == 4 || return 1
   kanna markup reply c4 --doc "$dir/review.md" "Fixed the wording." >/dev/null || return 1
   check wait_for 5 eval '[[ "$(md_comments_thread c4 messages)" == 2 ]]' || return 1
+  check wait_for 5 eval '[[ "$(md_comments_md | field cards.c4.waiting)" == None && "$(md_comments_md | field cards.c4.typing)" == False ]]' || { md_comments_md; return 1; }
   kanna markup resolve c4 --doc "$dir/review.md" >/dev/null || return 1
   check wait_for 5 eval '[[ "$(md_comments_thread c4 state)" == resolved ]]' || return 1
   raw '{"id":1,"cmd":"debug.app","args":{"appearance":"dark"}}' >/dev/null
@@ -1155,6 +1159,7 @@ print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
   raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"Bigger"}}' >/dev/null
   key cmd+return
   check wait_for 5 eval '[[ "$(page_comments_thread c1 status)" == sent ]]' || { page_comments_web; return 1; }
+  check wait_for 3 eval 'page_comments_web | field dot_typing | grep -q c1' || { page_comments_web; return 1; }
   check test "$(page_comments_thread c1 page.selector)" == "#go" || return 1
   check test "$(page_comments_thread c1 page.text)" == "Ship it" || return 1
   check test "$(page_comments_thread c1 line)" == 6 || return 1
@@ -1189,7 +1194,10 @@ print(len(t) if isinstance(t, list) else t)' "$1" "$2"; }
   check test "$(page_comments_web | field cards.c2.reply)" == False || { page_comments_web; return 1; }
   page_comments_click "\"at\":$(page_comments_web | field cards.c2.at)"
   check wait_for 5 eval '[[ "$(page_comments_web | field active)" == c2 ]]' || { page_comments_web; return 1; }
+  check test "$(page_comments_web | field cards.c2.reply)" == False || { page_comments_web; return 1; }
+  page_comments_click "\"at\":$(page_comments_web | field cards.c2.field)"
   check wait_for 5 eval '[[ "$(page_comments_web | field cards.c2.reply)" == True ]]' || { page_comments_web; return 1; }
+  page_comments_click '"at":[150,450]'
   kanna markup reply c2 --doc "$dir/page.html" "Filled it." >/dev/null || return 1
   check wait_for 5 eval '[[ "$(page_comments_thread c2 messages)" == 2 ]]' || return 1
   sed -i '' 's|<p>A page to mark up.</p>|<p>A page to mark up.</p><p>More above the button.</p>|' "$dir/page.html"
