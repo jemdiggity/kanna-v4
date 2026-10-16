@@ -24,6 +24,8 @@ flowchart LR
     K -->|"APFS clone, workspace-state paths rewritten"| K2
 ```
 
+A worktree whose `target/` is on another volume ([build targets](build-targets.md)) copies instead of cloning.
+
 | Borrowed | When | How | Saves |
 |---|---|---|---|
 | Ghostty's source (`kanna_ghostty_source`) | the worktree builds Ghostty itself (another arch, or main's builds are stale) and the main checkout's `ghostty-source` is clean at the pinned commit | used where it is, read-only | cloning the fork |
@@ -48,40 +50,7 @@ flowchart LR
 
 SwiftPM's release build compiles each module whole, on one core: the `Kanna` module (6k lines) takes ~10s whatever changed. Debug compiles files in parallel batches and only what an edit affects. Rust stays release everywhere: its dependencies cost the same either way, the daemon parses every terminal byte, and a dev build's `target/release` is what a worktree borrows. `KANNA_CONFIGURATION=release scripts/build.sh` builds a dev app in release.
 
-## 3. Where `target/` lives
-
-A task worktree's build outputs can live on another volume, so builds stop filling the internal disk: set `build.targets` in your `~/.kanna-v4/config.json` ([settings](settings.md#3-keys)) to a folder there.
-
-```json
-{ "build": { "targets": "/Volumes/VHS/kanna-targets" } }
-```
-
-```mermaid
-flowchart LR
-    subgraph I["internal disk"]
-        M["~/work/kanna-v4/target/<br/>(Kanna.app, daemon, keeper run here)"]
-        W1["…/.kanna-worktrees/task-1dfb12c2/target"]
-        W2["…/.kanna-worktrees/task-3f9a1c2e/target"]
-    end
-    subgraph V["/Volumes/VHS"]
-        T1["kanna-targets/kanna-v4/task-1dfb12c2/"]
-        T2["kanna-targets/kanna-v4/task-3f9a1c2e/"]
-    end
-    W1 -->|symlink| T1
-    W2 -->|symlink| T2
-    M -.->|"borrow: copy across volumes,<br/>APFS clone on the same one"| T1
-```
-
-- **Only worktrees move.** A worktree's `target/` becomes a symlink to `ROOT/REPO/WORKTREE` (the main checkout's folder name, then the worktree's). Its sources stay in `.kanna-worktrees`.
-- **The main checkout's `target/` stays on the internal disk.** Kanna.app, its daemon and keeper run from it; on a drive that gets unplugged, the keeper and every terminal would die with it.
-- **Unset, nothing changes:** `target/` is a folder in the worktree.
-- **Set by `kanna_targets`** in `scripts/env.sh`, which `build.sh` and each `build-*.sh` run first. It reads only your file (`$KANNA_AGENTS_HOME/.kanna-v4/config.json` when that's set): the drive belongs to this Mac, not the repo, so a repo's `.kanna/config.json` can't set it.
-- **A worktree with a real `target/` moves it over on its next build** (`mv` to `DEST.moving`, rename, link), keeping what it built. A link to another root moves the same way.
-- **A missing volume stops the build.** When the root is under `/Volumes/NAME` and `NAME` isn't mounted (absent, or an empty folder left on the internal disk), or `target/` is a link to a folder that isn't there, `build.sh` fails with `build.targets is ROOT, but the volume NAME isn't mounted`, before writing anything. It never falls back to the internal disk.
-- **Borrowing copies across volumes.** `cp -c` can't clone across volumes, so `kanna_borrow_cargo` and `kanna_borrow_swiftpm` fall back to `cp -R -p`: ~850 MB over the USB SSD instead of an instant clone. On one volume they still clone. Measured, case (a) below on a USB SSD: **31s** (20.7s on the internal disk); a no-op rebuild 2s.
-- **Everything reads it through the link:** cargo, SwiftPM (its `workspace-state.json` paths and module cache keep the worktree's `target/` path), Zig's `--cache-dir`s, `e2e-kanna.sh`, and `--bg` instances launched from the worktree's `target/Kanna.app`. Launch Services runs the app from the volume's real path, so `e2e-kanna.sh` matches either path when it stops an app. `.gitignore` ignores `/target` as well as `target/`, since git doesn't count a symlink as a folder.
-
-## 4. Measured
+## 3. Measured
 
 `scripts/build.sh`, dev channel, in a task worktree, on a 10-core Apple Silicon Mac, the main checkout already built.
 
@@ -96,7 +65,7 @@ flowchart LR
 
 Before, the fresh worktree's 71s was cargo 43s (285 units, 275 CPU-seconds, ~7 of 10 cores), SwiftPM resolve 5s and a release Swift compile of 22s on ~1 core. The merman stack (merman-render, -elk-layered, -core, dugong) is a third of cargo's cold CPU time and its critical path; borrowed dependencies take it off the table.
 
-## 5. Not done
+## 4. Not done
 
 - **sccache:** the borrowed dependencies already cover what it would cache, and it can't share our crates between worktrees (their paths differ).
 - **A shared `CARGO_TARGET_DIR`:** concurrent tasks would serialise on cargo's lock and overwrite each other's `kanna-*` builds.
