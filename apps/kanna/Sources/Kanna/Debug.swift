@@ -126,7 +126,7 @@ extension AppController {
                     "strip": .bool(!controller.shelfStrip.isHidden), "page": .bool(!controller.shelfPage.isHidden), "title": .string(controller.window.title),
                     "header": controller.agentHeader.isHidden ? .null : .string(controller.agentHeader.text),
                     "backlog": .array(controller.backlog.map { .string($0.id) }), "running": .number(Double(controller.running)),
-                    "waiting": .string(controller.shelfStrip.waitingText), "stripLayout": controller.shelfStrip.geometry, "note": .string(controller.note),
+                    "waiting": .string(controller.shelfStrip.waitingText), "stripLayout": controller.shelfStrip.geometry, "note": .string(controller.note), "cheer": .string(controller.cheer),
                     "planner": controller.plannerShown.map { .string($0) } ?? .null, "window": window(id) ?? .null, "scroll": scrolled, "search": search,
                     "responder": .string(controller.window.firstResponder.map { String(describing: type(of: $0)) } ?? "")]
         }
