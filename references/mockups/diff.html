@@ -413,7 +413,7 @@ function render() {
   const head = `<div class="dhead">
     <span class="what">${what}</span><span class="tot">${fs.length} files · ${ct(tot)}</span>
     <span class="spacer"></span>
-    <span class="live ${state.busy ? "busy" : ""}" title="Re-diffs when the worktree changes"><i></i>${state.busy ? "updating" : "live"}</span>
+    ${state.busy ? `<span class="live busy"><i></i>updating</span>` : ""}
     <span class="seg" id="mode"><span data-v="unified" class="${state.mode === "unified" ? "on" : ""}">Unified</span><span data-v="split" class="${state.mode === "split" ? "on" : ""}">Split</span></span>
   </div>`;
   if (!fs.length) { el.innerHTML = head + `<div class="empty"><b>No changes</b>git diff shows nothing: the worktree matches the index.</div>`; bind(); return; }
