@@ -1,6 +1,7 @@
 .playwright-mcp/
 .claude/settings.local.json
 target/
+/target
 .worktrees/
 .kanna/
 .DS_Store

@@ -137,10 +137,11 @@ stop_keeper() {
   wait_for 5 eval "! kill -0 $pid"
 }
 stop_folder() {
-  local dir="$1" pid
+  local dir="$1" pid command
   [[ -d "$dir" ]] || return 0
   pid="$(sed -n 's/.*the app attached (pid \([0-9]*\)).*/\1/p' "$dir/daemon.log" 2>/dev/null | tail -1)"
-  if [[ "$pid" =~ ^[0-9]+$ && "$(ps -o command= -p "$pid" 2>/dev/null)" == *"$repo_root/target/Kanna.app/Contents/MacOS/Kanna"* ]]; then
+  command="$(ps -o command= -p "$pid" 2>/dev/null)"
+  if [[ "$pid" =~ ^[0-9]+$ && ( "$command" == *"$repo_root/target/Kanna.app/Contents/MacOS/Kanna"* || "$command" == *"$(cd "$repo_root/target" && pwd -P)/Kanna.app/Contents/MacOS/Kanna"* ) ]]; then
     kill "$pid" 2>/dev/null; wait_for 5 eval "! kill -0 $pid"
   fi
   pid="$(cat "$dir/daemon.pid" 2>/dev/null)"

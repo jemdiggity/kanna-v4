@@ -18,6 +18,7 @@ done
 case "$channel" in production|staging|dev) export KANNA_CHANNEL="$channel" ;; *) usage ;; esac
 echo "==> Channel: $KANNA_CHANNEL"
 . "$scripts/env.sh"
+kanna_targets "$repo_root" || exit 1
 macos_target="$(kanna_macos_target "$repo_root")"
 echo "==> macOS deployment target: $macos_target"
 host="$(kanna_host_triple)"
