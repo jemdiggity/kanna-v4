@@ -435,10 +435,11 @@ fn states(t: &Terminal) -> Vec<(String, ProgramState)> {
 #[test]
 fn the_program_status_query_is_answered_and_nothing_is_echoed() {
     let mut t = Terminal::new(20, 5, 0).unwrap();
+    let answer = "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth";
     t.write(b"\x1b]7501;?\x1b\\");
-    assert_eq!(t.take_replies(), b"\x1b]7501;?\x1b\\");
+    assert_eq!(String::from_utf8(t.take_replies()).unwrap(), format!("{answer}\x1b\\"));
     t.write(b"\x1b]7501;?\x07");
-    assert_eq!(t.take_replies(), b"\x1b]7501;?\x07");
+    assert_eq!(String::from_utf8(t.take_replies()).unwrap(), format!("{answer}\x07"));
     t.write(b"\x1b]7501;state=blocked:kind=permission:app=terraform:msg=QXBwbHk/\x1b\\");
     assert!(t.take_replies().is_empty());
     assert_eq!(t.program_status_serial(), 1);
@@ -516,4 +517,12 @@ fn the_oldest_record_goes_past_the_limit() {
     let ids: Vec<String> = t.program_statuses().into_iter().map(|r| r.id).collect();
     assert_eq!(ids.len(), MAX_PROGRAM_STATUSES);
     assert!(ids.contains(&"r0".into()) && ids.contains(&"new".into()) && !ids.contains(&"r1".into()));
+}
+
+#[test]
+fn a_record_without_an_app_takes_its_nearest_ancestor_s() {
+    let mut t = Terminal::new(20, 5, 0).unwrap();
+    t.write(b"\x1b]7501;state=working:app=deploy\x1b\\\x1b]7501;state=working:id=us\x1b\\\x1b]7501;state=working:id=eu:app=eu-tool\x1b\\\x1b]7501;state=done:id=eu/db\x1b\\");
+    let apps: Vec<(String, String)> = t.program_statuses().into_iter().map(|r| (r.id, r.app)).collect();
+    assert_eq!(apps, [("", "deploy"), ("eu", "eu-tool"), ("eu/db", "eu-tool"), ("us", "deploy")].map(|(i, a)| (i.to_string(), a.to_string())));
 }

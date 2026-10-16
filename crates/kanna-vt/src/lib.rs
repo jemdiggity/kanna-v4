@@ -459,6 +459,17 @@ impl Terminal {
     pub fn program_statuses(&self) -> Vec<ProgramStatus> {
         let mut records: Vec<ProgramStatus> = unsafe { &(*self.hooks.as_ptr()).statuses }.records.iter().map(|(_, r)| r.clone()).collect();
         records.sort_by(|a, b| a.id.cmp(&b.id));
+        let apps: Vec<(String, String)> = records.iter().filter(|r| !r.app.is_empty()).map(|r| (r.id.clone(), r.app.clone())).collect();
+        for record in records.iter_mut().filter(|r| r.app.is_empty()) {
+            let mut id = record.id.as_str();
+            while !id.is_empty() {
+                id = id.rfind('/').map_or("", |slash| &id[..slash]);
+                if let Some((_, app)) = apps.iter().find(|(i, _)| i == id) {
+                    record.app = app.clone();
+                    break;
+                }
+            }
+        }
         records
     }
 

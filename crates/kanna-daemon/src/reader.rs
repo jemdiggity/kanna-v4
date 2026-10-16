@@ -421,7 +421,7 @@ mod tests {
     fn the_program_status_probe_is_answered() {
         let f = Feed::new(20, 5, &Settings::default()).unwrap();
         let (_, replies) = Feed::lock(&f).push(b"\x1b]7501;?\x1b\\");
-        assert_eq!(replies, b"\x1b]7501;?\x1b\\");
+        assert!(replies.starts_with(b"\x1b]7501;?:states=") && replies.ends_with(b"\x1b\\"), "{replies:?}");
     }
 
     #[test]

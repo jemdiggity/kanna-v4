@@ -80,7 +80,7 @@ flowchart LR
 
 ## 4. The agent's own report (OSC 7501)
 
-The [Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) (draft rev 0.4) lets a program tell its terminal what it's doing: `ESC ] 7501 ; state=working|blocked|idle|done|error[:kind=…][:progress=N][:id=…][:app=…][:title=b64][:msg=b64] ST`. Claude Code sends it (since 2.1.295) once its terminal answers the probe `OSC 7501 ; ?`. Codex and the others don't, and keep the rules.
+The [Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) (draft rev 0.4) lets a program tell its terminal what it's doing: `ESC ] 7501 ; state=working|blocked|idle|done|error[:kind=…][:progress=N][:id=…][:app=…][:title=b64][:msg=b64] ST`. Claude Code sends it (since 2.1.295) once its terminal answers the probe `OSC 7501 ; ?`; Codex (since 0.163.0) sends it without asking, whenever its output is a terminal. Kanna takes reports whether or not the program asked. Agents that don't report (OpenCode, Copilot, older releases) keep the rules.
 
 ```mermaid
 flowchart LR
@@ -97,7 +97,7 @@ flowchart LR
 
 - **Precedence:** the pane's root record (no `id`) decides whenever there is one: working is working, blocked (any kind) is needs you, idle, done and error are idle. With no record, the [rules](#3-detection-rules) decide as before. It shows at once: no settling and no 300 ms hold.
 - **Only the daemon's terminal answers the probe,** so the agent gets one answer; the app's Ghostty parses the reports and ignores them.
-- **Records** are kept per pane, one per id, each report replacing its record whole (children such as `build/test` too; `state=clear` removes a record and those beneath it). At most 256; the one updated longest ago goes.
+- **Records** are kept per pane, one per id, each report replacing its record whole (children such as `build/test` too; `state=clear` removes a record and those beneath it; one without an `app` takes its nearest ancestor's). At most 256; the one updated longest ago goes.
 - **When records go:** working and blocked ones when a new prompt starts (OSC 133 A) or the program ends (another process group takes the terminal's foreground, or the pane exits); all of them at a full reset (RIS). A record counts only while the process group that reported it is in the foreground, so a `done` left by one program never speaks for the next.
 - **A turn's end:** a record going from working to idle or done ends a [backlog task's turn](backlog-runners.md) at once, alongside the 3s rule.
 - **Untrusted text:** `msg`, `title` and `app` are shown only by `kanna status explain`, with control and invisible formatting characters taken out, and never sent back to the program.

@@ -19,7 +19,7 @@ flowchart TB
 
 ## Build
 
-Kanna builds against Ghostty from the `kanna4` branch of [jemdiggity/ghostty](https://github.com/jemdiggity/ghostty/tree/kanna4), which the scripts clone and pin (`scripts/env.sh`).
+Kanna builds against Ghostty from the `kanna4` branch of [jemdiggity/ghostty](https://github.com/jemdiggity/ghostty/tree/kanna4), which the scripts clone and pin (`scripts/env.sh`). `kanna4` follows Ghostty's `main` by merging it ([Ghostty fork](docs/specs/ghostty-fork.md)).
 
 ```sh
 scripts/build.sh                  # everything, on a fresh clone or worktree: target/Kanna.app and the CLI, daemon and keeper
