@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "agent": "claude",
-  "version": "2026.10.10.1",
+  "version": "2026.10.15.1",
   "engine": 1,
   "versionProbe": {
     "pattern": "(\\d+\\.\\d+(?:\\.\\d+)*)"
@@ -71,6 +71,10 @@
       "bypass permissions on",
       "⏵⏵",
       "⏸"
+    ],
+    "questionMenuFooter": [
+      "Enter to select",
+      "to navigate"
     ]
   },
   "rules": [
@@ -221,6 +225,51 @@
             },
             {
               "regex": "^\\s*[^\\s]\\s+\\d+[.)]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "claude/waiting/question-menu",
+      "status": "needs-you",
+      "priority": 200,
+      "versions": "*",
+      "when": {
+        "region": "screen",
+        "when": {
+          "all": [
+            {
+              "region": {
+                "lastNonEmptyLines": 3
+              },
+              "when": {
+                "anyLineWrapped": {
+                  "containsAllOf": "questionMenuFooter"
+                }
+              }
+            },
+            {
+              "region": {
+                "linesAbove": {
+                  "anchor": {
+                    "contains": "Enter to select"
+                  },
+                  "n": 80
+                }
+              },
+              "when": {
+                "anyLine": {
+                  "allOf": [
+                    {
+                      "startsWithGlyph": "menuCaretGlyphs"
+                    },
+                    {
+                      "regex": "^\\s*[^\\s]\\s+\\d+[.)]"
+                    }
+                  ]
+                }
+              }
             }
           ]
         }
