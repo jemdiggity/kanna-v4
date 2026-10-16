@@ -277,8 +277,8 @@ public final class DiffPaneView: NSView {
             case .note:
                 let link = " Show the diff"
                 if text.hasSuffix(link) {
-                    out.append(NSAttributedString(string: String(text.dropLast(link.count)), attributes: muted))
-                    out.append(NSAttributedString(string: link, attributes: [.font: font, .foregroundColor: DiffTheme.accent, .link: "kanna-diff-show:\(row.file)"]))
+                    out.append(NSAttributedString(string: String(text.dropLast(link.count)) + " ", attributes: muted))
+                    out.append(NSAttributedString(string: String(link.dropFirst()), attributes: [.font: font, .foregroundColor: DiffTheme.accent, .link: "kanna-diff-show:\(row.file)"]))
                 } else {
                     out.append(NSAttributedString(string: text, attributes: muted))
                 }
@@ -306,14 +306,13 @@ public final class DiffPaneView: NSView {
         let missing = files.enumerated().filter { highlighted[$0.element.path] == nil && $0.element.fold == nil && $0.element.binary != true }
         guard !missing.isEmpty else { applyHighlights(); return }
         highlightTask = Task { [weak self] in
-            var found: [String: [Int: [(NSRange, String)]]] = [:]
             for (_, file) in missing {
                 if Task.isCancelled { return }
-                found[file.path] = await Task.detached { Self.spans(for: file) }.value
+                let found = await Task.detached { Self.spans(for: file) }.value
+                guard let self, !Task.isCancelled else { return }
+                self.highlighted[file.path] = found
+                self.applyHighlights(only: file.path)
             }
-            guard let self, !Task.isCancelled else { return }
-            self.highlighted.merge(found) { _, new in new }
-            self.applyHighlights()
         }
     }
 
@@ -346,13 +345,13 @@ public final class DiffPaneView: NSView {
         return out
     }
 
-    private func applyHighlights() {
+    private func applyHighlights(only path: String? = nil) {
         guard let result else { return }
         for (column, rows) in zip(columns, document.columns) {
             guard let storage = column.textView.textStorage else { continue }
             storage.beginEditing()
             for (index, row) in rows.enumerated() {
-                guard let at = row.at, let file = result.files[safe: row.file], let found = highlighted[file.path]?[at] else { continue }
+                guard let at = row.at, let file = result.files[safe: row.file], path == nil || file.path == path, let found = highlighted[file.path]?[at] else { continue }
                 let start = column.textView.start(ofRow: index)
                 for (range, capture) in found {
                     guard let color = CodeTheme.color(capture: capture) else { continue }

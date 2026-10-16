@@ -21,15 +21,17 @@ final class DiffFileList: NSView {
     func show(_ files: [DiffFile]) {
         self.files = files
         entries = []
-        var folder: String?
+        var order: [String] = []
+        var groups: [String: [Int]] = [:]
         for (index, file) in files.enumerated() {
             let slash = (file.path as NSString).range(of: "/", options: .backwards)
             let here = slash.location == NSNotFound ? "" : (file.path as NSString).substring(to: slash.location + 1)
-            if here != folder {
-                if !here.isEmpty { entries.append(.folder(here)) }
-                folder = here
-            }
-            entries.append(.file(index))
+            if groups[here] == nil { order.append(here) }
+            groups[here, default: []].append(index)
+        }
+        for folder in order {
+            if !folder.isEmpty { entries.append(.folder(folder)) }
+            entries += groups[folder, default: []].map(Entry.file)
         }
         frame.size.height = max(superview?.bounds.height ?? 0, CGFloat(entries.count) * Self.rowHeight + 12)
         needsDisplay = true
