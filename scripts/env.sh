@@ -134,6 +134,68 @@ kanna_main_checkout() {
   echo "$main"
 }
 
+kanna_targets() {
+  if main="$(kanna_main_checkout "$1")"; then worktree=1; else main="$1"; worktree=""; fi
+  config="${KANNA_AGENTS_HOME:-$HOME}/.kanna-v4/config.json"
+  root=""
+  if [ -f "$config" ] && [ "$(plutil -extract version raw -o - "$config" 2>/dev/null || echo 1)" -le 1 ] 2>/dev/null; then
+    root="$(plutil -extract build.targets raw -o - "$config" 2>/dev/null)" || root=""
+  fi
+  root="${root%/}"
+  case "$root" in
+    ""|/*) ;;
+    *) echo "==> build.targets in $config is $root, not an absolute folder: building in target/" >&2; root="" ;;
+  esac
+  case "$root" in
+    /Volumes/*)
+      volume="${root#/Volumes/}"; volume="/Volumes/${volume%%/*}"
+      if [ ! -d "$volume" ] || [ "$(stat -L -f %d "$volume")" = "$(stat -f %d /Volumes)" ]; then
+        echo "==> The volume ${volume#/Volumes/} isn't mounted: building in target/ on this disk until it is" >&2
+        root=""
+      fi
+      ;;
+  esac
+  repo="$root/$(basename "$main")"
+  if [ -n "$worktree" ]; then
+    kanna_target_link "$1/target" "$repo/$(basename "$1")" "$root"
+    return
+  fi
+  [ -n "$root" ] && mkdir -p "$1/target"
+  for entry in "$1"/target/* "$1"/target/.[!.]*; do
+    case "$entry" in *.app) continue ;; esac
+    if [ -L "$entry" ] || [ -d "$entry" ]; then
+      kanna_target_link "$entry" "$repo/_main/$(basename "$entry")" "$root" || return 1
+    fi
+  done
+}
+
+kanna_target_link() {
+  if [ -z "$3" ]; then
+    if [ -L "$1" ] && [ ! -e "$1" ]; then rm "$1"; fi
+    return 0
+  fi
+  if [ -L "$1" ] && [ "$(readlink "$1")" = "$2" ]; then mkdir -p "$2"; return; fi
+  mkdir -p "$(dirname "$2")" || return 1
+  if [ -L "$1" ] && [ ! -e "$1" ]; then rm "$1"; fi
+  if [ -e "$1" ]; then
+    echo "==> Moving ${1#"$(dirname "$(dirname "$1")")/"} to $2" >&2
+    if [ -L "$1" ]; then moving="$(readlink "$1")"; else moving="$1"; fi
+    rm -rf "$2.moving" "$2.old"
+    mv "$moving" "$2.moving" || return 1
+    if [ -e "$2" ]; then mv "$2" "$2.old" || return 1; fi
+    mv "$2.moving" "$2" || return 1
+    if [ -L "$1" ]; then rm "$1"; fi
+    rm -rf "$2.old"
+  fi
+  mkdir -p "$2" && ln -s "$2" "$1"
+}
+
+kanna_clone() {
+  cp -c -R -p "$1" "$2" 2>/dev/null && return
+  rm -rf "$2"
+  cp -R -p "$1" "$2"
+}
+
 kanna_borrow_cargo() {
   borrow_triple="${2:-$(kanna_host_triple)}"
   here="$(kanna_arch_dir "$1" "$borrow_triple")/release"
@@ -141,11 +203,12 @@ kanna_borrow_cargo() {
   main="$(kanna_main_checkout "$1")" || return 0
   from="$(kanna_arch_dir "$main" "$borrow_triple")/release"
   [ -d "$from/.fingerprint" ] || return 0
+  from="$(cd "$from" && pwd -P)"
   mkdir -p "$(dirname "$here")"
-  if cp -c -R -p "$from" "$here.borrowing" 2>/dev/null; then
+  if kanna_clone "$from" "$here.borrowing"; then
     rm -rf "$here.borrowing"/.fingerprint/kanna-*
     mv "$here.borrowing" "$here"
-    echo "Cloned $from's dependencies"
+    echo "Borrowed $from's dependencies"
   else
     rm -rf "$here.borrowing"
   fi
@@ -159,10 +222,10 @@ kanna_borrow_swiftpm() {
   from="$main/target/kanna-build"
   [ -f "$from/workspace-state.json" ] && [ -d "$from/checkouts" ] && [ -d "$from/repositories" ] || return 0
   mkdir -p "$here.borrowing"
-  if cp -c -R -p "$from/repositories" "$from/checkouts" "$here.borrowing/" 2>/dev/null &&
+  if kanna_clone "$from/repositories" "$here.borrowing/repositories" && kanna_clone "$from/checkouts" "$here.borrowing/checkouts" &&
      sed "s#$main/#$1/#g" "$from/workspace-state.json" > "$here.borrowing/workspace-state.json"; then
     mv "$here.borrowing" "$here"
-    echo "Cloned $from's Swift packages"
+    echo "Borrowed $from's Swift packages"
   else
     rm -rf "$here.borrowing"
   fi

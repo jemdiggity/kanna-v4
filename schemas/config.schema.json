@@ -52,6 +52,18 @@
         }
       },
       "additionalProperties": false
+    },
+    "build": {
+      "description": "Building Kanna from a checkout (scripts/build.sh).",
+      "type": "object",
+      "properties": {
+        "targets": {
+          "description": "An absolute folder, usually on another volume, where build outputs live: a task worktree's target/ becomes a symlink to TARGETS/REPO/WORKTREE, and each folder in the main checkout's target/ except its .app bundles becomes a symlink to TARGETS/REPO/_main/NAME; real folders move there on the next build. While the folder's volume isn't mounted, builds go to the internal disk and move over on the next build with the volume. Only read from ~/.kanna-v4/config.json, not a repo's. Unset, target/ is a folder in the worktree.",
+          "type": "string",
+          "pattern": "^/"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

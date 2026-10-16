@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$repo_root/scripts/env.sh"
+kanna_targets "$repo_root" || exit 1
 usage() { echo "usage: scripts/build-kanna-app.sh [production|staging|dev] [--arch arm64|x86_64]   (default: dev, or \$KANNA_CHANNEL; this Mac's architecture)" >&2; exit 2; }
 channel="${KANNA_CHANNEL:-dev}"
 arch=""

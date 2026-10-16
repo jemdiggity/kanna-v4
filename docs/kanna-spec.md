@@ -95,5 +95,5 @@ flowchart TB
 | Spec | What it covers |
 |---|---|
 | [Deployment target](specs/deployment-target.md) | Everything built for the app's macOS |
-| [Build speed](specs/build-speed.md) · [build architectures](specs/build-architectures.md) | Fast worktree builds; arm64 and x86_64 |
+| [Build speed](specs/build-speed.md) · [build architectures](specs/build-architectures.md) · [build targets](specs/build-targets.md) | Fast worktree builds; arm64 and x86_64; worktree builds on another volume |
 | [Release](specs/release.md) | Signed, notarized DMGs published on GitHub |
