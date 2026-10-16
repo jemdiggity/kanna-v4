@@ -142,40 +142,37 @@ kanna_targets() {
   if [ -f "$config" ] && [ "$(plutil -extract version raw -o - "$config" 2>/dev/null || echo 1)" -le 1 ] 2>/dev/null; then
     root="$(plutil -extract build.targets raw -o - "$config" 2>/dev/null)" || root=""
   fi
-  if [ -z "$root" ]; then
-    if [ -L "$here" ] && [ ! -d "$here" ]; then
-      echo "target/ links to $(readlink "$here"), which isn't there: is its volume mounted?" >&2
-      return 1
-    fi
-    return 0
-  fi
-  case "$root" in
-    /*) ;;
-    *) echo "build.targets in $config is $root: make it an absolute folder" >&2; return 1 ;;
-  esac
   root="${root%/}"
+  case "$root" in
+    ""|/*) ;;
+    *) echo "==> build.targets in $config is $root, not an absolute folder: building in target/" >&2; root="" ;;
+  esac
   case "$root" in
     /Volumes/*)
       volume="${root#/Volumes/}"; volume="/Volumes/${volume%%/*}"
       if [ ! -d "$volume" ] || [ "$(stat -L -f %d "$volume")" = "$(stat -f %d /Volumes)" ]; then
-        echo "build.targets is $root, but the volume ${volume#/Volumes/} isn't mounted: plug it in, or unset build.targets in $config" >&2
-        return 1
+        echo "==> The volume ${volume#/Volumes/} isn't mounted: building in target/ on this disk until it is" >&2
+        root=""
       fi
       ;;
   esac
-  dest="$root/$(basename "$main")/$(basename "$1")"
-  [ -L "$here" ] && [ "$(readlink "$here")" = "$dest" ] && mkdir -p "$dest" && return
-  mkdir -p "$(dirname "$dest")" || return 1
-  if [ -e "$here" ] && [ ! -e "$dest" ]; then
-    echo "==> Moving target/ to $dest" >&2
-    rm -rf "$dest.moving"
-    if [ -L "$here" ]; then from="$(readlink "$here")"; else from="$here"; fi
-    mv "$from" "$dest.moving" && mv "$dest.moving" "$dest" || return 1
+  if [ -z "$root" ]; then
+    if [ -L "$here" ] && [ ! -d "$here" ]; then rm "$here"; fi
+    return 0
   fi
-  [ -L "$here" ] && rm "$here"
-  if [ -d "$here" ]; then
-    echo "target/ is a folder and $dest is already there: move or remove one of them" >&2
-    return 1
+  dest="$root/$(basename "$main")/$(basename "$1")"
+  if [ -L "$here" ] && [ "$(readlink "$here")" = "$dest" ]; then mkdir -p "$dest"; return; fi
+  mkdir -p "$(dirname "$dest")" || return 1
+  if [ -L "$here" ] && [ ! -e "$here" ]; then rm "$here"; fi
+  if [ -e "$here" ]; then
+    echo "==> Moving target/ to $dest" >&2
+    if [ -L "$here" ]; then from="$(readlink "$here")"; else from="$here"; fi
+    rm -rf "$dest.moving" "$dest.old"
+    mv "$from" "$dest.moving" || return 1
+    if [ -e "$dest" ]; then mv "$dest" "$dest.old" || return 1; fi
+    mv "$dest.moving" "$dest" || return 1
+    if [ -L "$here" ]; then rm "$here"; fi
+    rm -rf "$dest.old"
   fi
   mkdir -p "$dest" && ln -s "$dest" "$here"
 }
