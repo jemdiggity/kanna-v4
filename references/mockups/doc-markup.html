@@ -78,9 +78,6 @@ mark.flash { animation: flash .9s; }
 .card .msg { margin: 4px 0; font-size: 12.5px; color: var(--soft); }
 .card .msg b { color: var(--text); font-weight: 600; }
 .card .msg b.agent { color: #d18ae6; }
-.state { display: inline-block; font-size: 11px; border-radius: 10px; padding: 0 7px; border: 1px solid; margin: 2px 0 6px; }
-.state.sent { color: var(--ok); }
-.state.replied { color: #d18ae6; }
 .card .reply { display: flex; gap: 6px; margin-top: 6px; }
 .card .reply input { flex: 1; min-width: 0; background: #1b1c21; border: 1px solid var(--line); border-radius: 5px; color: var(--text); padding: 3px 6px; font: 12px var(--sans); }
 .card .reply button { padding: 2px 7px; }
@@ -232,9 +229,7 @@ function render() {
 
 function chip(t) {
   if (t.status === "sent") return waiting(t);
-  if (t.status === "replied") return "";
-  const label = { agent: "from p1" }[t.status];
-  return `<span class="state ${t.status}">${label}</span>`;
+  return "";
 }
 
 function working() { return s.agent === "working" || s.agent === "busy"; }
