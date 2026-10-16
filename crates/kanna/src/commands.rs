@@ -320,7 +320,7 @@ pub static COMMANDS: &[Command] = &[
             ("--agent CMD", "new: the agent to start (default: claude)."),
             ("--after TASK,...|none", "new, edit: the tasks it waits for; it can't start until they're all done. edit: replaces the list, and none clears it."),
         ],
-        notes: "A task is a window's docked pane (usually an agent) and its tabs; TASK is that pane's name or ID. Parking moves the task's agent and tabs to the Shelf, still running, and leaves the Desk empty; pulling puts it back on a Desk as it was, parking whatever that Desk held. Pulling a task that's on another Desk brings that window forward instead. Done closes the task's panes, ending its agent and terminals; its Desk stays, empty. Whether a task runs and where it is are separate. Start runs a task where it is: a backlog task gets its worktree, branch and agent and stays in the backlog, running, and any number can run there; a stopped task's agent comes back, and a claude agent resumes its conversation. Stop ends a task's agent and hangs up its terminals, and leaves it where it is, its tabs, focus and zoom as they were and its worktree and branch kept; starting it again reruns the terminals that were running. Shelve (Move to Shelf) moves a backlog task to the Shelf, starting it if it's stopped; the Shelf holds three tasks per repo, counting the Desk's. Defer (Move to Backlog) moves a task back to the backlog as it is, running or stopped, freeing its place on the Shelf. A backlog task can wait for other tasks (--after): it's blocked, and starting or shelving it is refused until they're all done; `task edit` changes what it waits for until it starts, and `task done` names the tasks it frees. A task's name is its docked pane's name; `task name` sets it. Run from a task's terminal, `task park`, `task name` and `task done` mean that task, and `kanna open` with no placement opens a tab on its Desk; from a task kept off-screen (the backlog, the Shelf), `kanna open`, `kanna comment`, `kanna focus` and `kanna zoom` act in its own window, for the user to see when they pull it.",
+        notes: "A task is a window's docked pane (usually an agent) and its tabs; TASK is that pane's name or ID. Parking moves the task's agent and tabs to the Shelf, still running, and leaves the Desk empty; pulling puts it back on a Desk as it was, parking whatever that Desk held. Pulling a task that's on another Desk brings that window forward instead. Done closes the task's panes, ending its agent and terminals; its Desk stays, empty. Whether a task runs and where it is are separate. Start runs a task where it is: a backlog task gets its worktree, branch and agent and stays in the backlog, running, and any number can run there; a stopped task's agent comes back, and a claude agent resumes its conversation. Stop ends a task's agent and hangs up its terminals, and leaves it where it is, its tabs, focus and zoom as they were and its worktree and branch kept; starting it again reruns the terminals that were running. Shelve (Move to Shelf) moves a backlog task to the Shelf, starting it if it's stopped; the Shelf holds three tasks per repo, counting the Desk's. Defer (Move to Backlog) moves a task back to the backlog as it is, running or stopped, freeing its place on the Shelf. A backlog task can wait for other tasks (--after): it's blocked, and starting or shelving it is refused until they're all done; `task edit` changes what it waits for until it starts, and `task done` names the tasks it frees. A task's name is its docked pane's name, and a backlog task's own until it starts; `task name` sets either, and a backlog task keeps its new name when it starts. A backlog task's first message never changes: to change it, make a new task and take the old one off with `task done`. Run from a task's terminal, `task park`, `task name` and `task done` mean that task, and `kanna open` with no placement opens a tab on its Desk; from a task kept off-screen (the backlog, the Shelf), `kanna open`, `kanna comment`, `kanna focus` and `kanna zoom` act in its own window, for the user to see when they pull it.",
         examples: &[
             ("kanna task new \"Fix the page_comments pinch\" \"The mark drifts when you pinch; find out why and add a test\"", "Add a task to this repo's backlog."),
             ("kanna task new \"Release notes\" \"Write the 0.9 notes\" --after t8,t12", "Add a task that can't start until t8 and t12 are done."),
@@ -333,6 +333,7 @@ pub static COMMANDS: &[Command] = &[
             ("kanna task park", "Park this task (run from its terminal), or the key window's."),
             ("kanna task pull agent", "Put the task docked as agent back on this Desk."),
             ("kanna task name agent \"Tab bar light mode\"", "Name the task docked as agent; from its terminal, leave out agent."),
+            ("kanna task name t47 \"Search the backlog\"", "Rename t47, waiting in the backlog; it starts with that name."),
             ("kanna task defer agent", "Move the task docked as agent back to the backlog; from its terminal, leave out agent."),
             ("kanna task done agent", "End the task docked as agent: close its agent and tabs."),
         ],
@@ -406,7 +407,7 @@ pub static COMMANDS: &[Command] = &[
                         Some(name) => (first, name),
                         None => (std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()).ok_or_else(|| usage("task", "say which task: kanna task name TASK NAME"))?, first),
                     };
-                    out["pane"] = json!(task);
+                    out[if is_backlog_task(&task) { "task" } else { "pane" }] = json!(task);
                     out["name"] = json!(name);
                 }
                 "done" => {
@@ -421,7 +422,7 @@ pub static COMMANDS: &[Command] = &[
             if let Some(window) = window {
                 out["window"] = json!(window);
             }
-            if ["edit", "start", "stop", "shelve", "defer", "done", "park", "pull"].contains(&action.as_str()) {
+            if ["edit", "start", "stop", "shelve", "defer", "done", "park", "pull"].contains(&action.as_str()) || (action == "name" && out.get("task").is_some()) {
                 if let Some(by) = std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()) {
                     out["by"] = json!(by);
                 }

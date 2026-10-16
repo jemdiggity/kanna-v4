@@ -2903,6 +2903,28 @@ PY
   check test "$(tail -1 "$KANNA_STATE_DIR/shelved.sizes")" == "$wider" || return 1
 }
 
+scenario backlog_rename M4
+backlog_rename() {
+  local agent="$repo_root/tools/mock-agent/mock-agent" repo="$KANNA_STATE_DIR/repo"
+  mkdir -p "$repo/.kanna" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "backlog_rename line $LINENO"; return 1; }
+  printf '{"version": 1, "backlog": {"runners": 0}}\n' >"$repo/.kanna/config.json"
+  repo="$(cd "$repo" && pwd -P)"
+  start_daemon || { echo "backlog_rename line $LINENO"; return 1; }
+  in_repo() { (cd "$repo" && kanna "$@"); }
+  named() { raw '{"id":1,"cmd":"backlog","args":{"action":"list"}}' | python3 -c 'import json, sys; t = json.load(sys.stdin)["tasks"][0]; print(t["name"], "|", t["message"])'; }
+  in_repo task new "Old name" "work 1" --agent "$agent" >/dev/null || { echo "backlog_rename line $LINENO"; return 1; }
+  check test "$(in_repo task name t1 "New name")" == 'named t1 "New name"' || { echo "backlog_rename: task name on a backlog task"; return 1; }
+  check test "$(named)" == "New name | work 1" || { echo "backlog_rename: the entry kept its old name, or its first message changed"; named; return 1; }
+  env -u KANNA_NO_INITIAL_WINDOW KANNA_START_DIR="$repo" "$app" --bg >>"$out/app.log" 2>&1 &
+  app_pid=$!
+  wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
+  desk() { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}' | field "$1"; }
+  check wait_for 10 eval '[[ "$(desk backlog)" == "[\"t1\"]" ]]' || { desk backlog; return 1; }
+  in_repo task shelve t1 >/dev/null || { echo "backlog_rename line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ "$(desk shelf.0.title)" == "New name" ]]' || { echo "backlog_rename: the Shelf doesn't show the new name"; desk shelf; return 1; }
+  kanna list --json | python3 -c 'import json, sys; sys.exit(not any(p.get("name") == "New name" for p in json.load(sys.stdin)["panes"]))' || { echo "backlog_rename: the started task's pane isn't named from its entry"; kanna list; return 1; }
+}
+
 for s in ${only[@]+"${only[@]}"}; do due "$s" >/dev/null || { echo "e2e-kanna: no scenario named $s (see --help)" >&2; exit 2; }; done
 if [[ ${#only[@]} -gt 0 ]]; then run=("${only[@]}"); else run=("${scenarios[@]%%:*}"); fi
 passed=0 failed=0
