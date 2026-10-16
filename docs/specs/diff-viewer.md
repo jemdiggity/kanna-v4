@@ -60,7 +60,7 @@ sequenceDiagram
 
 - **Files list** on the left, grouped by folder: each file's status (`M` modified, `A` added or untracked, `D` deleted, `R` renamed) and its lines added and removed. Clicking one scrolls to it; it follows the current line.
 - **Each file has a header** that stays at the top while you're in it, with its path, status and counts. Clicking it folds the file; ⌥-click folds or unfolds them all.
-- **Unchanged lines between changes** fold to one row naming how many and the function or block the next change is in (from [`kanna-syntax`](code-viewer.md#5-how-its-built)'s scopes).
+- **Unchanged lines between changes** fold to one row naming how many and the function or block the next change is in, as git's hunk header names it.
 - **Highlighting** as in the code pane, by file extension, in light and dark; the words that changed in a changed line are marked more strongly.
 
 ![The same diff in light mode](diff-viewer-light.png)
@@ -97,12 +97,12 @@ sequenceDiagram
 | Command | Does |
 |---|---|
 | `kanna open diff [GIT-DIFF-ARGS] [placement]` | opens a diff pane on `git diff` with those arguments, in the current folder |
-| `kanna navigate PANE [GIT-DIFF-ARGS]` | shows another diff in the same pane |
+| `kanna navigate PANE diff [GIT-DIFF-ARGS]` | shows another diff in the same pane |
 | `kanna list` | shows a diff pane's folder and arguments |
 | `kanna capabilities` | lists `diff` among the pane types |
 | `kanna raw '{"cmd":"debug.diff","args":{"pane":"p231"}}'` | for tests: the command, the files (path, status, counts, folded), the rows (kind, old and new line, text), the current line, the mode, whether it's updating; `keys: "nn"` presses keys |
 
-The pane's record in `layout.json` is `{type: "diff", path, args, split, zoom}`: `path` is the folder git runs in, `args` git's arguments. It comes back after a relaunch where it was.
+The pane's record in `layout.json` is `{type: "diff", path, args, view, zoom}`: `path` is the folder git runs in, `args` git's arguments, `view` `unified` or `split`. It comes back after a relaunch where it was.
 
 ## 5. How it's built
 
@@ -144,7 +144,7 @@ flowchart TB
 | Piece | Where | What's new |
 |---|---|---|
 | CLI | `crates/kanna` | the `diff` kind of `open`, git's arguments passed through, `navigate` with arguments |
-| Pane records | `crates/kanna-mux` | `PaneType::Diff` with `path`, `args`, `split`, `zoom`; `debug.diff` passed to the app |
+| Pane records | `crates/kanna-mux` | `PaneType::Diff` with `path`, `args`, `view`, `zoom`; `debug.diff` passed to the app |
 | Model | `apps/kanna/Sources/KannaDiff` (new target) | runs git, parses its patch, adds untracked files, decides what folds |
 | Pane | the same target | the view, files list, rows, keys, following the worktree |
 | Highlighting, theme, find | `KannaCode`, `kanna-syntax` | shared with the code pane, not copied |
@@ -162,7 +162,9 @@ flowchart TB
   A library would be worth it for something git's command line can't answer cheaply, such as a diff per keystroke or blame; not here.
 - **The app runs git, not the daemon**, as the code pane reads its file itself: the daemon keeps the record and answers commands ([app panes](app-panes.md)); what the pane shows is the app's business.
 - **Off the main thread.** `git diff --numstat -z` gives the files list first, so it shows at once; the patch for files that aren't folded comes next and is parsed and highlighted on a background queue, then swapped in at the same place.
-- **Following the worktree** is FSEvents on the folder and on its git directory (for a worktree, its own `.git/worktrees/NAME` and the shared refs), at most one re-diff every 200 ms.
+- **Following the worktree, without polling:** FSEvents on the folder and on its git directory (for a worktree, its own `.git/worktrees/NAME` and the shared refs); git runs only when something there changes, at most once every 200 ms. Changes to files git ignores (a build's `target/`) are dropped (`git check-ignore`). git runs with `GIT_OPTIONAL_LOCKS=0`, so a diff never refreshes the index: its own run can't set off another, and it never holds the lock the agent's git needs.
+- **Parsing git's output**, only formats made for it: `--numstat -z` and `ls-files -z` are NUL-separated lists for scripts; the patch is the format `git apply` reads. The pane pins the format so the user's config can't change it: `--no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/` and `-c core.quotepath=false`.
+- **The line a change is in** (the "⋯ 17 unchanged lines `pub enum PaneType {`" row) is git's own hunk header context, as `git diff` prints it.
 - **Highlighting** is `kanna-syntax` on each side of each change (its context, removed and added lines, as old and new text), coloured by the code pane's theme. **[Assumption]** Highlighting a change's lines alone is close enough; if it colours wrongly, highlight the whole old and new file instead.
 - **Not in kmux**, as the code pane isn't: `open diff` is Kanna's.
 - **Checks:** unit tests for the parser and the folds (`KannaDiffTests`); `crates/kanna-daemon/tests/panes.rs` for the record and `open diff`; `crates/kanna/tests/cli.rs` for passing git's arguments through; an e2e scenario (`diff_pane`) that opens a diff in a scratch repo, reads `debug.diff`, edits a file and adds an untracked one and sees both arrive, switches to Split and relaunches.
