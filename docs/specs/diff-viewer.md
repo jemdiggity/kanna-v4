@@ -150,6 +150,16 @@ flowchart TB
 | Highlighting, theme, find | `KannaCode`, `kanna-syntax` | shared with the code pane, not copied |
 
 - **Git is the truth.** The app runs the `git` on the user's `PATH` with the pane's arguments (adding `--no-color --no-ext-diff`, so a user's pager, colours or external diff tool don't change what's parsed), never its own diff. That's how "follow how git works" holds: whatever `git diff ARGS` means, the pane means.
+- **Why the `git` binary, not a git library** (libgit2, gitoxide):
+
+| | `git` binary | libgit2 (git2) | gitoxide (gix) |
+|---|---|---|---|
+| `git diff ARGS` means what it means in a terminal | yes, it is `git diff` | no: its command line rebuilt on the library | the same |
+| User's config, `.gitattributes`, new repo formats (sparse index, sha256) | always | lags git | lags git; diff still young |
+| Already in Kanna | yes: worktrees, branches, tasks | no | no |
+| Cost per refresh | two processes, milliseconds | in-process | in-process |
+
+  A library would be worth it for something git's command line can't answer cheaply, such as a diff per keystroke or blame; not here.
 - **The app runs git, not the daemon**, as the code pane reads its file itself: the daemon keeps the record and answers commands ([app panes](app-panes.md)); what the pane shows is the app's business.
 - **Off the main thread.** `git diff --numstat -z` gives the files list first, so it shows at once; the patch for files that aren't folded comes next and is parsed and highlighted on a background queue, then swapped in at the same place.
 - **Following the worktree** is FSEvents on the folder and on its git directory (for a worktree, its own `.git/worktrees/NAME` and the shared refs), at most one re-diff every 200 ms.
