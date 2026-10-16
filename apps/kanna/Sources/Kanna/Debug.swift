@@ -161,6 +161,8 @@ extension AppController {
             reply["marks"] = .object(markup.markRects.mapValues(point))
             reply["areas"] = .object(markup.areaRects.mapValues(point))
             reply["box"] = markup.commentBoxThread.map { .string($0) } ?? .null
+            reply["box_parts"] = Self.boxParts(markup.commentBoxParts)
+            reply["box_shown"] = .bool(markup.commentBoxShown)
             reply["active"] = markup.activeThread.map { .string($0) } ?? .null
             reply["agent"] = markup.agent.map { .string($0) } ?? .null
             reply["hash"] = .string(markup.pageHash)
@@ -168,6 +170,7 @@ extension AppController {
         }
         commands["debug.md"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let markdown = contents.markdown(id) else { throw KannaError("wrong_type", "not a running md pane") }
+            if let step = args["zoom"]?.number { markdown.zoom(by: Int(step)) }
             if let y = args["scroll"]?.number { markdown.scroll(toY: CGFloat(y)) }
             if case .array(let pick)? = args["select"], pick.count == 2, let at = pick[0].number, let length = pick[1].number {
                 markdown.select(NSRange(location: Int(at), length: Int(length)))
@@ -187,7 +190,7 @@ extension AppController {
                     "layout_width": .number(Double(markdown.layoutWidth)), "threads": .array(threads),
                     "box": markdown.commentBoxThread.map { .string($0) } ?? .null, "box_text": markdown.commentBoxText.map { .string($0) } ?? .null,
                     "active": markdown.activeThread.map { .string($0) } ?? .null, "agent": markdown.agent.map { .string($0) } ?? .null,
-                    "markup": .bool(markdown.markup),
+                    "markup": .bool(markdown.markup), "box_parts": Self.boxParts(markdown.commentBoxParts), "box_shown": .bool(markdown.commentBoxShown),
                     "cards": .object(markdown.cards.mapValues { ["typing": .bool($0.typing), "waiting": $0.waiting.map { .string($0) } ?? .null, "reply": .bool($0.reply)] })]
         }
         commands["debug.code"] = { [weak self] args in
@@ -220,6 +223,11 @@ extension AppController {
             if args["home"]?.bool == true { screen.pressHome() }
             return ["width": .number(screen.pixelSize.width), "height": .number(screen.pixelSize.height)]
         }
+    }
+
+    private static func boxParts(_ parts: [String: NSRect]?) -> JSON {
+        guard let parts else { return .null }
+        return .object(parts.mapValues { .array([$0.minX, $0.minY, $0.width, $0.height].map { .number(Double($0)) }) })
     }
 
     private func terminal(_ reference: String?) throws -> TerminalSurfaceView {

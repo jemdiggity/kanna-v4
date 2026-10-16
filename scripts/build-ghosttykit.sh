@@ -7,14 +7,17 @@ source_dir="$(kanna_ghostty_source "$repo_root")"
 zig="$(kanna_zig "$repo_root")"
 
 optimize="${KANNA_GHOSTTY_OPTIMIZE:-ReleaseSafe}"
-(cd "$source_dir" && "$zig" build -Demit-xcframework=true -Demit-macos-app=false -Doptimize="$optimize")
+work="$repo_root/target/ghosttykit-build"
+mkdir -p "$work/macos"
+(cd "$work" && "$zig" build --build-file "$source_dir/build.zig" --cache-dir "$work/.zig-cache" -p "$work/zig-out" \
+  -Demit-xcframework=true -Demit-macos-app=false -Doptimize="$optimize")
 
 out="$repo_root/target/ghosttykit"
 xcframework="$out/GhosttyKit.xcframework"
 [[ -L "$out" ]] && rm "$out"  # a worktree's link to the main checkout's: build its own
 mkdir -p "$out"
 rm -rf "$xcframework"
-cp -R "$source_dir/macos/GhosttyKit.xcframework" "$out/"
+cp -R "$work/macos/GhosttyKit.xcframework" "$out/"
 kanna_ghostty_rev "$source_dir" > "$out/ghostty.rev"
 
 add_lib_prefix_swiftpm_needs() {

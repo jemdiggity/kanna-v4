@@ -822,3 +822,186 @@ fn programs_start_from_the_session_not_from_whoever_started_the_keeper() {
     assert!(out.contains("E=[] K=[] L=[C]"), "{out}");
     assert!(out.contains("/usr/bin"), "{out}");
 }
+
+#[track_caller]
+fn exits_reading(c: &mut Client, masters: &[&OwnedFd], n: usize) -> Vec<Exited> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut exits = Vec::new();
+    while exits.len() < n {
+        exits.extend(c.poll_events().unwrap());
+        assert!(Instant::now() < deadline, "only {exits:?}");
+        let mut pfds: Vec<_> = masters.iter().map(|m| libc::pollfd { fd: m.as_raw_fd(), events: libc::POLLIN, revents: 0 }).collect();
+        pfds.push(libc::pollfd { fd: c.as_raw_fd(), events: libc::POLLIN, revents: 0 });
+        unsafe { libc::poll(pfds.as_mut_ptr(), pfds.len() as _, 50) };
+        for p in &pfds[..masters.len()] {
+            if p.revents & libc::POLLIN != 0 {
+                let mut buf = [0u8; 4096];
+                unsafe { libc::read(p.fd, buf.as_mut_ptr().cast(), buf.len()) };
+            }
+        }
+    }
+    exits.sort_by(|a, b| a.id.cmp(&b.id));
+    exits
+}
+
+fn new_build(f: &Fixture) -> PathBuf {
+    let bin = f.dir.join("new-build").join("kanna-keeper");
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    std::fs::copy(BIN, &bin).unwrap();
+    bin
+}
+
+fn ps(pid: i32, field: &str) -> String {
+    let out = Command::new("ps").args(["-o", &format!("{field}="), "-p", &pid.to_string()]).output().unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[test]
+fn an_upgrade_keeps_every_session_running_and_parented() {
+    let f = Fixture::new();
+    let mut c = f.client();
+    let before = c.info().unwrap();
+    assert!(before.build.as_ref().is_some_and(|b| b.len() == 64), "{before:?}");
+    let shell = c.spawn(&SpawnRequest::command("shell", "echo shell-ready; read line; echo \"got:$line\"; read code; exit $code")).unwrap();
+    read_until(&shell.master, "shell-ready");
+    let agent = c.spawn(&SpawnRequest::command("agent", "echo agent-ready; while read line; do echo \"agent:$line\"; done")).unwrap();
+    read_until(&agent.master, "agent-ready");
+    let done = c.spawn(&SpawnRequest::command("done", "exit 3")).unwrap();
+    assert_eq!(exits_reading(&mut c, &[&done.master], 1)[0].status, ExitStatus::Code(3));
+
+    let bin = new_build(&f);
+    let after = c.upgrade(&bin).unwrap();
+    assert_eq!(after.pid, before.pid);
+    assert_eq!(after.version, kanna_keeper::PROTOCOL_VERSION);
+    assert!(ps(f.keeper_pid(), "command").starts_with(&bin.display().to_string()), "{}", ps(f.keeper_pid(), "command"));
+    assert_eq!(std::fs::read_to_string(f.state().join("keeper.pid")).unwrap().trim(), before.pid.to_string());
+    for pid in [shell.pid, agent.pid] {
+        assert!(alive(pid));
+        assert_eq!(ps(pid, "ppid"), before.pid.to_string());
+    }
+    assert_eq!(c.info().unwrap().pid, before.pid);
+
+    write(&agent.master, "still-here\n");
+    read_until(&agent.master, "agent:still-here");
+    let mut fresh = f.client();
+    assert_eq!(fresh.wait_event(Some(Duration::from_secs(5))).unwrap().map(|e| e.status), Some(ExitStatus::Code(3)));
+    let mut adopted = fresh.adopt().unwrap();
+    adopted.sort_by(|a, b| a.id.cmp(&b.id));
+    let ids: Vec<_> = adopted.iter().map(|p| (p.id.as_str(), p.pid, p.exit)).collect();
+    assert_eq!(ids[0], ("agent", agent.pid, None));
+    assert_eq!(ids[1].0, "done");
+    assert_eq!(ids[1].2, Some(ExitStatus::Code(3)));
+    assert_eq!(ids[2], ("shell", shell.pid, None));
+    write(&adopted[2].master, "after\n");
+    read_until(&shell.master, "got:after");
+    write(&shell.master, "7\n");
+    let exit = exits_reading(&mut c, &[&shell.master], 1).remove(0);
+    assert_eq!((exit.id.as_str(), exit.pid, exit.status), ("shell", shell.pid, ExitStatus::Code(7)));
+    assert_eq!(next_exit(&mut fresh).status, ExitStatus::Code(7));
+
+    let again = c.spawn(&SpawnRequest::command("later", "echo later-ok; sleep 30")).unwrap();
+    read_until(&again.master, "later-ok");
+    assert_eq!(ps(again.pid, "ppid"), before.pid.to_string());
+    c.close("later").unwrap();
+    c.close("agent").unwrap();
+    wait_for("the agent to end", || !alive(agent.pid));
+}
+
+#[test]
+fn an_exit_straight_after_an_upgrade_reports_its_code() {
+    let f = Fixture::new();
+    let mut c = f.client();
+    let pty = c.spawn(&SpawnRequest::command("t1", "echo ready; read x; exit 42")).unwrap();
+    read_until(&pty.master, "ready");
+    let quick = c.spawn(&SpawnRequest::command("quick", "sleep 0.2; exit 9")).unwrap();
+    c.upgrade(&new_build(&f)).unwrap();
+    write(&pty.master, "\n");
+    let exits = exits_reading(&mut c, &[&pty.master, &quick.master], 2);
+    assert_eq!((exits[0].id.as_str(), exits[0].pid, exits[0].status), ("quick", quick.pid, ExitStatus::Code(9)));
+    assert_eq!((exits[1].id.as_str(), exits[1].pid, exits[1].status), ("t1", pty.pid, ExitStatus::Code(42)));
+}
+
+#[test]
+#[cfg_attr(not(debug_assertions), ignore = "needs the keeper's debug-build test hooks")]
+fn a_spawn_waiting_for_its_exec_is_answered_by_the_new_code() {
+    let f = Fixture::with(&[("KANNA_KEEPER_TEST_SPAWN_DELAY_MS", "1500")]);
+    let mut spawner = f.client();
+    let keeper = f.keeper_pid();
+    let spawning = std::thread::spawn(move || spawner.spawn(&SpawnRequest::command("slow", "echo slow-ok; read x; exit 5")).map(|p| (p, spawner)));
+    std::thread::sleep(Duration::from_millis(300));
+    let mut c = f.client();
+    let bin = new_build(&f);
+    c.upgrade(&bin).unwrap();
+    let (pty, mut spawner) = spawning.join().unwrap().unwrap();
+    assert!(ps(keeper, "command").starts_with(&bin.display().to_string()));
+    assert_eq!(ps(pty.pid, "ppid"), keeper.to_string());
+    read_until(&pty.master, "slow-ok");
+    write(&pty.master, "\n");
+    assert_eq!(exits_reading(&mut spawner, &[&pty.master], 1)[0].status, ExitStatus::Code(5));
+}
+
+#[test]
+fn a_binary_that_cant_take_over_leaves_the_old_code_running() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let mut c = f.client();
+    let pty = c.spawn(&SpawnRequest::command("t1", "echo ready; read x; exit 6")).unwrap();
+    read_until(&pty.master, "ready");
+    let before = ps(f.keeper_pid(), "command");
+    let refuser = f.dir.join("refuser");
+    std::fs::write(&refuser, "#!/bin/sh\necho 'kanna-keeper: state 99 only' >&2\nexit 1\n").unwrap();
+    std::fs::set_permissions(&refuser, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let error = c.upgrade(&refuser).unwrap_err().to_string();
+    assert!(error.contains("can't take over") && error.contains("state 99 only"), "{error}");
+    let error = c.upgrade(&f.dir.join("missing")).unwrap_err().to_string();
+    assert!(error.contains("can't run"), "{error}");
+    assert!(c.upgrade(Path::new("relative/kanna-keeper")).is_err());
+    assert_eq!(ps(f.keeper_pid(), "command"), before);
+    write(&pty.master, "\n");
+    assert_eq!(exits_reading(&mut c, &[&pty.master], 1)[0].status, ExitStatus::Code(6));
+    let later = c.spawn(&SpawnRequest::command("t2", "echo works; sleep 30")).unwrap();
+    read_until(&later.master, "works");
+    c.close("t2").unwrap();
+}
+
+#[test]
+fn upgrade_by_hand_and_a_state_too_new_is_refused() {
+    let f = Fixture::new();
+    let mut c = f.client();
+    let pty = c.spawn(&SpawnRequest::command("t1", "echo ready; sleep 30")).unwrap();
+    read_until(&pty.master, "ready");
+    let bin = new_build(&f);
+    let out = Command::new(&bin).arg("--state-dir").arg(f.state()).arg("--upgrade").output().unwrap();
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{said} {}", String::from_utf8_lossy(&out.stderr));
+    assert!(said.contains(&format!("upgraded the keeper (pid {})", f.keeper_pid())), "{said}");
+    assert!(ps(f.keeper_pid(), "command").starts_with(&bin.display().to_string()));
+    assert!(alive(pty.pid));
+    c.close("t1").unwrap();
+
+    let mut check = Command::new(BIN).arg("--check-upgrade").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    use std::io::Write;
+    check.stdin.take().unwrap().write_all(br#"{"state": 999}"#).unwrap();
+    let out = check.wait_with_output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("newer"), "{}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+#[cfg_attr(not(debug_assertions), ignore = "needs the keeper's debug-build test hooks")]
+fn the_upgrades_pause_counts_against_a_waiting_spawns_timeout() {
+    let f = Fixture::with(&[
+        ("KANNA_KEEPER_TEST_SPAWN_DELAY_MS", "10000"),
+        ("KANNA_KEEPER_SPAWN_TIMEOUT_MS", "2000"),
+        ("KANNA_KEEPER_TEST_PROBE_DELAY_MS", "1500"),
+    ]);
+    let mut spawner = f.client();
+    let asked = Instant::now();
+    let spawning = std::thread::spawn(move || spawner.spawn(&SpawnRequest::command("stuck", "true")).map(|p| p.pid));
+    std::thread::sleep(Duration::from_millis(300));
+    f.client().upgrade(&new_build(&f)).unwrap();
+    let error = spawning.join().unwrap().unwrap_err().to_string();
+    let took = asked.elapsed();
+    assert!(error.contains("timed out"), "{error}");
+    assert!(took < Duration::from_millis(3000), "the spawn failed after {took:?}, its timeout is 2 s");
+}

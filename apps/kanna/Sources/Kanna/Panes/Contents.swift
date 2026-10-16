@@ -137,6 +137,7 @@ final class Contents {
             web.webView.contextMenu = { [weak self] in self?.contextMenu?() }
             web.onNavigate = { [weak self] url in self?.onRequest?("navigate", ["pane": .string(id), "url": .string(url)]) }
             web.onURLChange = { [weak self] url in self?.onUpdate?(id, ["url": .string(url)]) }
+            web.onTitleChange = { [weak self] title in self?.onUpdate?(id, ["title": .string(title)]) }
             web.agent = pane["agent"]?.string
             web.agentStatus = web.agent.flatMap { self.agentStatus?($0) }
             web.onSend = { [weak self] agent, text, done in self?.send(text, to: agent, done: done) }

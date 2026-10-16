@@ -141,6 +141,7 @@ package final class DocBar: FlippedView {
 @MainActor
 package final class BoxField: NSTextView {
     package var onKey: ((NSEvent) -> Bool)?
+    package var onText: (() -> Void)?
     package var placeholder = ""
 
     package convenience init(placeholder: String) {
@@ -171,6 +172,7 @@ package final class BoxField: NSTextView {
     package override func didChangeText() {
         super.didChangeText()
         needsDisplay = true
+        onText?()
     }
 
     package override func draw(_ dirtyRect: NSRect) {
@@ -181,6 +183,53 @@ package final class BoxField: NSTextView {
     }
 
     package var trimmed: String { string.trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
+@MainActor
+package final class GrowField: NSScrollView {
+    package static let most: CGFloat = 160
+    package let field: BoxField
+    package let least: CGFloat
+    package var onGrow: (() -> Void)?
+
+    package init(_ field: BoxField, width: CGFloat, least: CGFloat) {
+        self.field = field
+        self.least = least
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: least))
+        drawsBackground = false
+        borderType = .noBorder
+        hasVerticalScroller = true
+        hasHorizontalScroller = false
+        autohidesScrollers = true
+        scrollerStyle = .overlay
+        field.frame = NSRect(x: 0, y: 0, width: width, height: least)
+        field.minSize = NSSize(width: 0, height: least)
+        field.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        field.isVerticallyResizable = true
+        field.isHorizontallyResizable = false
+        field.autoresizingMask = [.width]
+        field.textContainer?.widthTracksTextView = true
+        field.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        documentView = field
+        field.onText = { [weak self] in self?.fit() }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    package var wanted: CGFloat {
+        guard let manager = field.layoutManager, let container = field.textContainer else { return least }
+        manager.ensureLayout(for: container)
+        let used = manager.usedRect(for: container).height + field.textContainerInset.height * 2
+        return min(Self.most, max(least, ceil(used)))
+    }
+
+    package func fit() {
+        let height = wanted
+        guard height != frame.height else { return }
+        frame.size.height = height
+        field.scrollRangeToVisible(field.selectedRange())
+        onGrow?()
+    }
 }
 
 package enum DocWait: Equatable {
@@ -382,29 +431,49 @@ package final class ActButton: FlippedView {
 
 @MainActor
 package final class ReplyRow: FlippedView {
-    package let field = BoxField(placeholder: "Reply")
-    package let send = Chip("⌘↵")
+    package let field: BoxField
+    package let grow: GrowField
+    package let send: Chip
     package let act: ActButton
+    package var onResize: (() -> Void)?
     private let box = FlippedView()
 
     package init(resolve: Bool, width: CGFloat) {
-        act = ActButton(resolve: resolve)
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 24))
+        let act = ActButton(resolve: resolve), send = Chip("⌘↵"), field = BoxField(placeholder: "Reply")
         send.fill = DocTheme.button
         send.label.textColor = DocTheme.text
         send.identifier = NSUserInterfaceItemIdentifier("send")
         act.identifier = NSUserInterfaceItemIdentifier("act")
-        act.frame.origin = NSPoint(x: width - act.frame.width, y: 1)
-        send.frame.origin = NSPoint(x: act.frame.minX - 6 - send.frame.width, y: 1)
-        box.frame = NSRect(x: 0, y: 0, width: send.frame.minX - 6, height: 24)
+        field.font = DocTheme.small
+        let boxWidth = width - act.frame.width - 6 - send.frame.width - 6
+        self.act = act
+        self.send = send
+        self.field = field
+        grow = GrowField(field, width: boxWidth - 14, least: 16)
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 24))
         box.fill = DocTheme.field
         box.stroke = DocTheme.line
         box.radius = 5
-        field.font = DocTheme.small
-        field.frame = NSRect(x: 7, y: 4, width: box.frame.width - 14, height: 16)
-        box.addSubview(field)
+        box.frame = NSRect(x: 0, y: 0, width: boxWidth, height: 24)
+        grow.frame.origin = NSPoint(x: 7, y: 4)
+        box.addSubview(grow)
         for view in [box, send, act] { addSubview(view) }
+        grow.onGrow = { [weak self] in
+            self?.place()
+            self?.onResize?()
+        }
+        place()
     }
+
+    private func place() {
+        box.frame.size.height = grow.frame.height + 8
+        frame.size.height = box.frame.height
+        act.frame.origin = NSPoint(x: frame.width - act.frame.width, y: frame.height - 23)
+        send.frame.origin = NSPoint(x: act.frame.minX - 6 - send.frame.width, y: frame.height - 23)
+        box.needsDisplay = true
+    }
+
+    package var fieldFrame: NSRect { box.convert(grow.frame, to: self) }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -417,16 +486,22 @@ package final class ReplyRow: FlippedView {
 package final class CommentBox: FlippedView {
     package static let width: CGFloat = 360
     package let field: BoxField
+    package let grow: GrowField
     package var threadID: String?
+    package var onResize: ((CommentBox) -> Void)?
     private var row: ReplyRow?
+    private var below: [NSView] = []
+    private var fieldTop: CGFloat = 8
 
-    package init(composer: Void) {
+    package init(composer: Void, width: CGFloat = CommentBox.width) {
         field = BoxField(placeholder: "Comment")
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 100))
+        grow = GrowField(field, width: width - 16, least: 54)
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 100))
         decorate()
-        field.frame = NSRect(x: 8, y: 8, width: Self.width - 16, height: 54)
-        addSubview(field)
+        grow.frame.origin = NSPoint(x: 8, y: 8)
+        addSubview(grow)
         let hint = NSTextField(labelWithString: "⌘↵ posts · Esc cancels")
+        hint.identifier = NSUserInterfaceItemIdentifier("hint")
         hint.font = DocTheme.tiny
         hint.textColor = DocTheme.dim
         hint.sizeToFit()
@@ -435,27 +510,50 @@ package final class CommentBox: FlippedView {
         post.stroke = DocTheme.accent
         post.label.textColor = .white
         post.identifier = NSUserInterfaceItemIdentifier("post")
-        post.frame.origin = NSPoint(x: Self.width - 8 - post.frame.width, y: 66)
-        hint.frame.origin = NSPoint(x: post.frame.minX - 6 - hint.frame.width, y: 66 + ((22 - hint.frame.height) / 2).rounded())
+        post.frame.origin.x = width - 8 - post.frame.width
+        hint.frame.origin.x = post.frame.minX - 6 - hint.frame.width
+        hint.isHidden = hint.frame.minX < 8
         addSubview(hint)
         addSubview(post)
-        frame.size.height = 96
+        below = [hint, post]
+        grow.onGrow = { [weak self] in self?.regrow() }
+        place()
     }
 
-    package init(thread: DocThread, wait: DocWait?, note: String?) {
-        let row = ReplyRow(resolve: thread.isOpen, width: Self.width - 24)
+    package init(thread: DocThread, wait: DocWait?, note: String?, width: CGFloat = CommentBox.width) {
+        let row = ReplyRow(resolve: thread.isOpen, width: width - 24)
         field = row.field
+        grow = row.grow
         self.row = row
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 100))
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 100))
         threadID = thread.id
         decorate()
-        let y = stack(threadViews(thread, wait: wait, note: note, width: Self.width - 24), in: self, x: 12, y: 10, gap: 6)
+        let y = stack(threadViews(thread, wait: wait, note: note, width: width - 24), in: self, x: 12, y: 10, gap: 6)
         row.frame.origin = NSPoint(x: 12, y: y + 10)
         addSubview(row)
-        frame.size.height = row.frame.maxY + 10
+        row.onResize = { [weak self] in self?.regrow() }
+        place()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private func place() {
+        if let row {
+            frame.size.height = row.frame.maxY + 10
+            return
+        }
+        let bottom = fieldTop + grow.frame.height
+        for view in below {
+            view.frame.origin.y = bottom + 4 + ((22 - view.frame.height) / 2).rounded()
+        }
+        frame.size.height = bottom + 4 + 22 + 8
+    }
+
+    private func regrow() {
+        place()
+        needsDisplay = true
+        onResize?(self)
+    }
 
     private func decorate() {
         fill = DocTheme.card
@@ -474,6 +572,13 @@ package final class CommentBox: FlippedView {
     package func button(_ name: String) -> NSView? {
         subviews.first { $0.identifier?.rawValue == name } ?? row?.subviews.first { $0.identifier?.rawValue == name }
     }
+
+    package var parts: [String: NSRect] {
+        let fieldFrame = row.map { $0.convert($0.fieldFrame, to: self) } ?? grow.frame
+        var parts = ["box": bounds, "field": fieldFrame, "text": NSRect(origin: fieldFrame.origin, size: field.frame.size)]
+        for name in ["hint", "post"] { parts[name] = subviews.first { $0.identifier?.rawValue == name }.flatMap { $0.isHidden ? nil : $0.frame } }
+        return parts
+    }
 }
 
 @MainActor
@@ -482,7 +587,9 @@ package final class ThreadCard: FlippedView {
     package let row: ReplyRow
     package var field: BoxField { row.field }
     package var act: ActButton { row.act }
+    package var grow: GrowField { row.grow }
     package var onSelect: (() -> Void)?
+    package var onResize: (() -> Void)?
     private let active: Bool
 
     package init(thread: DocThread, active: Bool, wait: DocWait?, note: String?, width: CGFloat) {
@@ -498,6 +605,12 @@ package final class ThreadCard: FlippedView {
         row.frame.origin = NSPoint(x: 10, y: y + 8)
         addSubview(row)
         frame.size.height = row.frame.maxY + 9
+        row.onResize = { [weak self] in
+            guard let self else { return }
+            frame.size.height = row.frame.maxY + 9
+            needsDisplay = true
+            onResize?()
+        }
         alphaValue = thread.isOpen ? 1 : 0.55
     }
 
@@ -630,6 +743,8 @@ package final class ThreadPanel: FlippedView {
             card.onSelect = { [weak self] in self?.onSelect?(thread.id) }
             card.act.onPress = { [weak self] in self?.onAct?(thread) }
             card.field.string = drafts[thread.id] ?? ""
+            card.grow.fit()
+            card.onResize = { [weak self] in self?.restack() }
             let submit: () -> Void = { [weak self, weak card] in
                 guard let card else { return }
                 let text = card.field.trimmed
@@ -653,6 +768,16 @@ package final class ThreadPanel: FlippedView {
             window?.makeFirstResponder(card.field)
             card.field.setSelectedRange(NSRange(location: (card.field.string as NSString).length, length: 0))
         }
+    }
+
+    private func restack() {
+        guard var y = cards.first?.frame.minY else { return }
+        for card in cards {
+            card.frame.origin.y = y
+            y += card.frame.height + 8
+        }
+        content.frame.size.height = max(y + 2, scroll.contentSize.height)
+        if let card = cards.first(where: { window?.firstResponder === $0.field }) { content.scrollToVisible(card.frame) }
     }
 
     package func reveal(_ id: String) {

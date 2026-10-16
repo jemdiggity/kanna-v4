@@ -40,10 +40,11 @@ public final class CodePaneView: NSView {
         container.widthTracksTextView = false
         container.lineFragmentPadding = 0
         layoutManager.addTextContainer(container)
-        layoutManager.allowsNonContiguousLayout = true
+        layoutManager.allowsNonContiguousLayout = false
         textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), textContainer: container)
         gutter = CodeGutter(scrollView: scrollView, orientation: .verticalRuler)
         super.init(frame: .zero)
+        layoutManager.delegate = self
         configure()
         gutter.textView = textView
         load()
@@ -207,8 +208,7 @@ public final class CodePaneView: NSView {
 
     private func placeComment() {
         guard let box, let comment = textView.comment, let storage = textView.textStorage else { return }
-        let width = min(CodeCommentBox.widest, max(200, bounds.width - gutter.ruleThickness - textView.textContainerInset.width - 32))
-        let gap = box.height(width: width) + CodeCommentBox.margin * 2
+        let gap = box.height(width: commentWidth) + CodeCommentBox.margin * 2
         if gap != textView.gap {
             let start = file.start(ofLine: comment.first)
             let end = comment.first < file.lineCount ? file.start(ofLine: comment.first + 1) : storage.length
@@ -221,12 +221,17 @@ public final class CodePaneView: NSView {
             textView.gap = gap
             sizeText()
         }
-        if let raw = textView.rawRect(forLine: comment.first) {
-            box.place(at: NSPoint(x: textView.textContainerInset.width + 8, y: raw.minY + CodeCommentBox.margin), width: width)
-        }
+        placeBox()
         textView.needsDisplay = true
         gutter.needsDisplay = true
     }
+
+    private func placeBox() {
+        guard let box, let comment = textView.comment, let raw = textView.rawRect(forLine: comment.first) else { return }
+        box.place(at: NSPoint(x: textView.textContainerInset.width + 8, y: raw.minY + CodeCommentBox.margin), width: commentWidth)
+    }
+
+    private var commentWidth: CGFloat { min(CodeCommentBox.widest, max(200, bounds.width - gutter.ruleThickness - textView.textContainerInset.width - 32)) }
 
     public func revealComment() {
         guard let comment = textView.comment, let raw = textView.rawRect(forLine: comment.first) else { return }
@@ -398,7 +403,8 @@ public final class CodePaneView: NSView {
                 "clip_x": Double(clip.frame.minX), "clip_width": Double(clip.frame.width), "scroll_x": Double(clip.bounds.minX),
                 "scroll_y": Double(clip.bounds.minY), "changed": Double(textView.changed.min() ?? 0), "pinned": Double(pinned.count), "indent_unit": Double(textView.indentUnit), "text_x": Double(textView.frame.minX), "text_width": Double(textView.frame.width),
                 "comment_first": Double(textView.comment?.first ?? 0), "comment_last": Double(textView.comment?.last ?? 0), "comment_gap": Double(textView.gap),
-                "comment_box_height": Double(box?.frame.height ?? 0), "comment_box_visible": box.map { clip.bounds.intersects($0.frame) && $0.frame.minY >= clip.bounds.minY ? 1 : 0 } ?? 0]
+                "comment_box_height": Double(box?.frame.height ?? 0), "comment_box_top": Double(box?.frame.minY ?? -1), "comment_box_bottom": Double(box?.frame.maxY ?? -1),
+                "comment_gap_top": Double(textView.comment.flatMap { textView.rawRect(forLine: $0.first)?.minY } ?? -1), "comment_line_top": Double(textView.comment.flatMap { textView.rect(forLine: $0.first)?.minY } ?? -1), "comment_box_visible": box.map { clip.bounds.intersects($0.frame) && $0.frame.minY >= clip.bounds.minY ? 1 : 0 } ?? 0]
     }
 
     public var commentText: String? { box?.text }
@@ -688,6 +694,15 @@ final class CodeGutter: NSRulerView {
             guard let fragment = textView.rect(forLine: line) else { continue }
             let y = convert(NSPoint(x: 0, y: fragment.minY), from: textView).y
             textView.marks(forLine: line).drawGutter(line: line, in: NSRect(x: 0, y: y, width: bounds.width, height: fragment.height), font: font)
+        }
+    }
+}
+
+extension CodePaneView: NSLayoutManagerDelegate {
+    public nonisolated func layoutManager(_ manager: NSLayoutManager, didCompleteLayoutFor textContainer: NSTextContainer?, atEnd layoutFinishedFlag: Bool) {
+        MainActor.assumeIsolated {
+            guard let comment = textView.comment, self.layoutManager.firstUnlaidCharacterIndex() > file.start(ofLine: comment.first) else { return }
+            placeBox()
         }
     }
 }

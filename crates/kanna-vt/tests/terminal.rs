@@ -1,4 +1,4 @@
-use kanna_vt::{Changed, Colors, CursorStyle, Lines, Mode, Progress, Scheme, Terminal};
+use kanna_vt::{Changed, Colors, CursorStyle, Lines, Mode, Need, ProgramState, ProgramStatus, Progress, Scheme, Terminal, MAX_PROGRAM_STATUSES};
 
 fn terminal(cols: u16, rows: u16, output: &str) -> Terminal {
     let mut t = Terminal::new(cols, rows, 1000).unwrap();
@@ -426,4 +426,103 @@ fn a_resize_is_reported_in_band_when_asked() {
     t.set_cell_pixels(10, 20);
     t.resize(30, 7).unwrap();
     assert_eq!(t.take_replies(), b"\x1b[48;7;30;140;300t");
+}
+
+fn states(t: &Terminal) -> Vec<(String, ProgramState)> {
+    t.program_statuses().into_iter().map(|r| (r.id, r.state)).collect()
+}
+
+#[test]
+fn the_program_status_query_is_answered_and_nothing_is_echoed() {
+    let mut t = Terminal::new(20, 5, 0).unwrap();
+    let answer = "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth";
+    t.write(b"\x1b]7501;?\x1b\\");
+    assert_eq!(String::from_utf8(t.take_replies()).unwrap(), format!("{answer}\x1b\\"));
+    t.write(b"\x1b]7501;?\x07");
+    assert_eq!(String::from_utf8(t.take_replies()).unwrap(), format!("{answer}\x07"));
+    t.write(b"\x1b]7501;state=blocked:kind=permission:app=terraform:msg=QXBwbHk/\x1b\\");
+    assert!(t.take_replies().is_empty());
+    assert_eq!(t.program_status_serial(), 1);
+}
+
+#[test]
+fn a_program_status_report_is_parsed_whole() {
+    let mut t = Terminal::new(20, 5, 0).unwrap();
+    t.write(b"\x1b]7501;state=blocked:kind=permission:progress=40:app=terraform:title=QnVpbGQ=:msg=QXBwbHk/\x1b\\");
+    let root = ProgramStatus {
+        id: String::new(),
+        state: ProgramState::Blocked,
+        need: Some(Need::Permission),
+        progress: Some(40),
+        app: "terraform".into(),
+        title: "Build".into(),
+        message: "Apply?".into(),
+    };
+    assert_eq!(t.program_status(), Some(root.clone()));
+    assert_eq!(t.program_statuses(), vec![root]);
+    t.write(b"\x1b]7501;state=idle:kind=question:progress=10\x1b\\");
+    let idle = t.program_status().unwrap();
+    assert_eq!((idle.state, idle.need, idle.progress, idle.app.as_str()), (ProgramState::Idle, None, None, ""), "a report replaces its record");
+    t.write(b"\x1b]7501;state=working:msg=YeKArmLigItj\x07");
+    assert_eq!(t.program_status().unwrap().message, "abc", "invisible formatting is dropped");
+    let serial = t.program_status_serial();
+    t.write(b"\x1b]7501;state=sleeping\x1b\\\x1b]7501;progress=5\x1b\\");
+    assert_eq!(t.program_status_serial(), serial, "a report that fails the spec's checks is ignored");
+    assert_eq!(t.program_status().unwrap().state, ProgramState::Working);
+}
+
+#[test]
+fn records_are_kept_per_id_and_cleared_with_their_children() {
+    let mut t = Terminal::new(20, 5, 0).unwrap();
+    t.write(b"\x1b]7501;state=working\x1b\\\x1b]7501;state=working:id=build\x1b\\\x1b]7501;state=done:id=build/test\x1b\\\x1b]7501;state=error:id=builder\x1b\\");
+    assert_eq!(states(&t).len(), 4);
+    t.write(b"\x1b]7501;state=clear:id=build\x1b\\");
+    assert_eq!(states(&t), vec![(String::new(), ProgramState::Working), ("builder".into(), ProgramState::Error)]);
+    t.write(b"\x1b]7501;state=clear\x1b\\");
+    assert!(states(&t).is_empty());
+}
+
+#[test]
+fn a_new_prompt_or_the_program_ending_drops_working_and_blocked() {
+    let mut t = Terminal::new(20, 5, 0).unwrap();
+    let all = b"\x1b]7501;state=working\x1b\\\x1b]7501;state=blocked:id=a\x1b\\\x1b]7501;state=done:id=b\x1b\\\x1b]7501;state=error:id=c\x1b\\\x1b]7501;state=idle:id=d\x1b\\";
+    t.write(all);
+    t.write(b"\x1b]133;A;k=s\x07");
+    assert_eq!(states(&t).len(), 5, "only a primary prompt is a new prompt");
+    t.write(b"\x1b]133;A\x07");
+    assert_eq!(states(&t), vec![("b".into(), ProgramState::Done), ("c".into(), ProgramState::Error), ("d".into(), ProgramState::Idle)]);
+    t.write(all);
+    t.end_program();
+    assert_eq!(states(&t), vec![("b".into(), ProgramState::Done), ("c".into(), ProgramState::Error), ("d".into(), ProgramState::Idle)]);
+    t.write(b"\x1b]7501;state=working\x1b\\prompt\x1b]133;A\x07\x1b]7501;state=working:id=e\x1b\\");
+    assert_eq!(states(&t).last(), Some(&("e".into(), ProgramState::Working)), "reports and prompts apply in order");
+    assert!(t.program_status().is_none());
+}
+
+#[test]
+fn a_full_reset_clears_every_record() {
+    let mut t = Terminal::new(20, 5, 0).unwrap();
+    t.write(b"\x1b]7501;state=done\x1b\\\x1b]7501;state=error:id=x\x1b\\");
+    t.write(b"\x1bc");
+    assert!(t.program_statuses().is_empty());
+}
+
+#[test]
+fn the_oldest_record_goes_past_the_limit() {
+    let mut t = Terminal::new(20, 5, 0).unwrap();
+    for i in 0..MAX_PROGRAM_STATUSES {
+        t.write(format!("\x1b]7501;state=working:id=r{i}\x1b\\").as_bytes());
+    }
+    t.write(b"\x1b]7501;state=done:id=r0\x1b\\\x1b]7501;state=working:id=new\x1b\\");
+    let ids: Vec<String> = t.program_statuses().into_iter().map(|r| r.id).collect();
+    assert_eq!(ids.len(), MAX_PROGRAM_STATUSES);
+    assert!(ids.contains(&"r0".into()) && ids.contains(&"new".into()) && !ids.contains(&"r1".into()));
+}
+
+#[test]
+fn a_record_without_an_app_takes_its_nearest_ancestor_s() {
+    let mut t = Terminal::new(20, 5, 0).unwrap();
+    t.write(b"\x1b]7501;state=working:app=deploy\x1b\\\x1b]7501;state=working:id=us\x1b\\\x1b]7501;state=working:id=eu:app=eu-tool\x1b\\\x1b]7501;state=done:id=eu/db\x1b\\");
+    let apps: Vec<(String, String)> = t.program_statuses().into_iter().map(|r| (r.id, r.app)).collect();
+    assert_eq!(apps, [("", "deploy"), ("eu", "eu-tool"), ("eu/db", "eu-tool"), ("us", "deploy")].map(|(i, a)| (i.to_string(), a.to_string())));
 }

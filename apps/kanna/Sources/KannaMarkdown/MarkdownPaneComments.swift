@@ -28,6 +28,8 @@ extension MarkdownPaneView {
 
     public var threads: [DocThread] { record.threads }
     public var commentBoxText: String? { box?.field.string }
+    public var commentBoxParts: [String: NSRect]? { box?.parts }
+    public var commentBoxShown: Bool { box.map { scrollView.contentView.bounds.contains($0.frame) } ?? false }
     public var commentBoxThread: String? { box.map { $0.threadID ?? "new" } }
     public var activeThread: String? { active }
     public var threadsShown: Bool { threadsVisible }
@@ -142,12 +144,14 @@ extension MarkdownPaneView {
         openPop(thread.id)
     }
 
+    var boxWidth: CGFloat { max(200, min(CommentBox.width, scrollView.contentView.bounds.width - 16)) }
+
     func boxOrigin(for range: NSRange, height: CGFloat) -> NSPoint {
         let origin = textView.textContainerOrigin
         let rects = layoutManager.markRects(range).map { $0.offsetBy(dx: origin.x, dy: origin.y) }
         let union = rects.reduce(NSRect.null) { $0.union($1) }
         let visible = scrollView.contentView.bounds
-        let x = max(visible.minX + 8, min(union.minX, visible.maxX - CommentBox.width - 8))
+        let x = max(visible.minX + 8, min(union.minX, visible.maxX - boxWidth - 8))
         return NSPoint(x: x, y: union.maxY + 6)
     }
 
@@ -166,8 +170,8 @@ extension MarkdownPaneView {
         let suffix = whole.substring(with: NSRange(location: end, length: min(32, whole.length - end)))
         pending = (quote, prefix, suffix, DocStore.line(of: quote, in: source, near: hint), range)
         textView.setSelectedRange(NSRange(location: start, length: 0))
-        let box = CommentBox(composer: ())
-        box.frame.origin = boxOrigin(for: range, height: box.frame.height)
+        let box = CommentBox(composer: (), width: boxWidth)
+        anchor(box, to: range)
         (box.button("post") as? Chip)?.onPress = { [weak self] in self?.post() }
         box.field.onKey = { [weak self] event in
             if event.keyCode == 36, event.modifierFlags.contains(.command) { self?.post(); return true }
@@ -181,8 +185,8 @@ extension MarkdownPaneView {
     func openPop(_ id: String) {
         guard let thread = record.threads.first(where: { $0.id == id }), let range = anchors[id] else { return }
         closeBox()
-        let box = CommentBox(thread: thread, wait: waits()[id], note: notes()[id])
-        box.frame.origin = boxOrigin(for: range, height: box.frame.height)
+        let box = CommentBox(thread: thread, wait: waits()[id], note: notes()[id], width: boxWidth)
+        anchor(box, to: range)
         (box.button("act") as? ActButton)?.onPress = { [weak self] in
             self?.closeBox()
             self?.setState(id, open: !thread.isOpen)
@@ -204,11 +208,28 @@ extension MarkdownPaneView {
         show(box)
     }
 
+    private func anchor(_ box: CommentBox, to range: NSRange) {
+        box.frame.origin = boxOrigin(for: range, height: box.frame.height)
+        box.onResize = { [weak self] box in
+            guard let self else { return }
+            box.frame.origin = boxOrigin(for: range, height: box.frame.height)
+            keepInView(box)
+        }
+    }
+
+    private func keepInView(_ box: CommentBox) {
+        textView.scrollToVisible(box.frame.insetBy(dx: 0, dy: -8))
+        let visible = scrollView.contentView.bounds
+        if box.frame.maxY > visible.maxY - 8 {
+            box.frame.origin.y = max(visible.minY + 8, visible.maxY - 8 - box.frame.height)
+        }
+    }
+
     private func show(_ box: CommentBox) {
         self.box = box
         textView.addSubview(box)
         textView.frame.size = textView.frame.size
-        textView.scrollToVisible(box.frame.insetBy(dx: 0, dy: -8))
+        keepInView(box)
         window?.makeFirstResponder(box.field)
         DispatchQueue.main.async { [weak self, weak box] in
             guard let box, self?.box === box else { return }

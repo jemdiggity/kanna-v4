@@ -20,6 +20,23 @@ pub struct Pty {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hello {
+    pub version: u64,
+    pub pid: i32,
+    pub build: Option<String>,
+}
+
+impl Hello {
+    fn from_reply(reply: &Value) -> Hello {
+        Hello {
+            version: reply["version"].as_u64().unwrap_or(0),
+            pid: reply["pid"].as_i64().unwrap_or(0) as i32,
+            build: reply["build"].as_str().map(String::from),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Exited {
     pub id: String,
     pub pid: i32,
@@ -140,8 +157,17 @@ impl Client {
     }
 
     pub fn hello(&mut self) -> io::Result<(u64, i32)> {
+        self.info().map(|h| (h.version, h.pid))
+    }
+
+    pub fn info(&mut self) -> io::Result<Hello> {
         let (reply, _) = self.request(json!({"op": "hello"}), |_, _| {})?;
-        Ok((reply["version"].as_u64().unwrap_or(0), reply["pid"].as_i64().unwrap_or(0) as i32))
+        Ok(Hello::from_reply(&reply))
+    }
+
+    pub fn upgrade(&mut self, binary: &Path) -> io::Result<Hello> {
+        let (reply, _) = self.request(json!({"op": "upgrade", "binary": binary.to_string_lossy()}), |_, _| {})?;
+        Ok(Hello::from_reply(&reply))
     }
 
     pub fn spawn(&mut self, req: &SpawnRequest) -> io::Result<Pty> {

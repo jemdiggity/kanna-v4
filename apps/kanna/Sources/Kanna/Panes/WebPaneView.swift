@@ -8,6 +8,8 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
     var onFocus: (() -> Void)? { didSet { webView.onFocus = onFocus } }
     var onNavigate: ((String) -> Void)?
     var onURLChange: ((String) -> Void)?
+    var onTitleChange: ((String) -> Void)?
+    private var titled: NSKeyValueObservation?
     private(set) var url: URL?
     private let notice = NSTextField(wrappingLabelWithString: "")
     private var editor: NSTextField?
@@ -28,6 +30,9 @@ final class WebPaneView: NSView, WKNavigationDelegate, NSTextFieldDelegate {
         webView = FocusReportingWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
         webView.navigationDelegate = self
+        titled = webView.observe(\.title, options: [.new]) { [weak self] view, _ in
+            MainActor.assumeIsolated { self?.onTitleChange?(view.title ?? "") }
+        }
         addSubview(webView)
         notice.alignment = .center
         notice.font = .systemFont(ofSize: 13)
