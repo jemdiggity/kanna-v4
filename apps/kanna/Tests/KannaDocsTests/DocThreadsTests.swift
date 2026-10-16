@@ -21,6 +21,28 @@ struct DocThreadsTests {
         #expect(DocStore.line(of: "missing", in: source, near: 4) == 4)
     }
 
+    @Test func aThreadWaitsWhileItsLastMessageIsYours() {
+        let posted = DocStore.date("2026-10-16T10:00:00")!
+        var t = thread("x")
+        t.messages = [DocMessage(who: "you", text: "Fix it", at: "2026-10-16T10:00:00")]
+        let later = posted.addingTimeInterval(60)
+        #expect(DocWait.of(t, agent: "p1", status: "working", now: later) == .typing)
+        #expect(DocWait.of(t, agent: "p1", status: "idle", now: later) == .note("Not answered · the agent stopped", warn: false))
+        #expect(DocWait.of(t, agent: "p1", status: nil, now: later) == .note("Not answered · the agent stopped", warn: false))
+        #expect(DocWait.of(t, agent: "p1", status: "needs-you", now: later) == .note("Not answered · the agent is waiting on you", warn: true))
+        #expect(DocWait.of(t, agent: nil, status: nil, now: later) == .note("Not answered · no agent", warn: false))
+        #expect(DocWait.of(t, agent: "p1", status: "idle", now: posted.addingTimeInterval(2)) == .typing)
+        t.status = "unsent"
+        t.error = "no agent"
+        #expect(DocWait.of(t, agent: nil, status: nil, now: later) == .note("Not sent · no agent", warn: false))
+        t.status = "replied"
+        t.messages.append(DocMessage(who: "agent", text: "Done", at: "2026-10-16T10:01:00"))
+        #expect(DocWait.of(t, agent: "p1", status: "working", now: later) == nil)
+        t.messages.append(DocMessage(who: "you", text: "Thanks", at: "2026-10-16T10:02:00"))
+        t.state = "resolved"
+        #expect(DocWait.of(t, agent: "p1", status: "working", now: later) == nil)
+    }
+
     @Test func cleanDropsControlCharactersButKeepsLines() {
         #expect(DocStore.clean("a\u{1b}[201~b\r\nc\td\u{9b}") == "a[201~b\nc\td")
     }

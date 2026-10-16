@@ -33,6 +33,7 @@ extension MarkdownPaneView {
     public var commentBoxThread: String? { box.map { $0.threadID ?? "new" } }
     public var activeThread: String? { active }
     public var threadsShown: Bool { threadsVisible }
+    public var cards: [String: CardState] { panel.cardStates }
 
     public func select(_ range: NSRange) {
         window?.makeFirstResponder(textView)
@@ -83,17 +84,22 @@ extension MarkdownPaneView {
         if let pending { marks.append(DocMark(range: pending.range, kind: .active)) } else if let active, let range = anchors[active] { marks.append(DocMark(range: range, kind: .active)) }
         layoutManager.marks = marks
         textView.needsDisplay = true
-        panel.show(record.threads, active: active, notes: notes())
+        refreshPanel()
         bar.threads.set("Threads \(record.threads.filter(\.isOpen).count)")
         bar.needsLayout = true
     }
 
+    func refreshPanel() {
+        guard markup else { return }
+        panel.show(record.threads, active: active, waits: waits(), notes: notes())
+    }
+
+    func waits() -> [String: DocWait] { DocWait.all(record.threads, agent: agent, status: agentStatus) }
+
     func notes() -> [String: String] {
         var out: [String: String] = [:]
         for thread in record.threads where thread.isOpen {
-            if thread.status == "unsent" {
-                out[thread.id] = "not sent" + (thread.error.map { ": \($0)" } ?? "")
-            } else if anchors[thread.id] == nil {
+            if anchors[thread.id] == nil {
                 out[thread.id] = "its text is no longer in the doc"
             }
         }
@@ -179,19 +185,24 @@ extension MarkdownPaneView {
     func openPop(_ id: String) {
         guard let thread = record.threads.first(where: { $0.id == id }), let range = anchors[id] else { return }
         closeBox()
-        let box = CommentBox(thread: thread, note: notes()[id], width: boxWidth)
+        let box = CommentBox(thread: thread, wait: waits()[id], note: notes()[id], width: boxWidth)
         anchor(box, to: range)
         (box.button("act") as? ActButton)?.onPress = { [weak self] in
             self?.closeBox()
             self?.setState(id, open: !thread.isOpen)
         }
-        box.field.onKey = { [weak self, weak box] event in
-            if event.keyCode == 53 { self?.closeBox(); return true }
-            guard event.keyCode == 36, !event.modifierFlags.contains(.shift), let box else { return false }
+        let send: () -> Void = { [weak self, weak box] in
+            guard let box else { return }
             let text = box.field.trimmed
-            guard !text.isEmpty else { return true }
+            guard !text.isEmpty else { return }
             self?.reply(id, text)
             self?.openPop(id)
+        }
+        (box.button("send") as? Chip)?.onPress = send
+        box.field.onKey = { [weak self] event in
+            if event.keyCode == 53 { self?.closeBox(); return true }
+            guard event.keyCode == 36, !event.modifierFlags.contains(.shift) else { return false }
+            send()
             return true
         }
         show(box)

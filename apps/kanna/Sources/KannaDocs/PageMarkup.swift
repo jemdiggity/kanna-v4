@@ -33,6 +33,7 @@ public final class PageMarkupView: NSView {
     public let path: String
     public let webView: WKWebView
     public var agent: String? { didSet { agentChanged() } }
+    public var agentStatus: String? { didSet { if agentStatus != oldValue { drawMarks() } } }
     public var onSend: ((String, String, @escaping (String?) -> Void) -> Void)?
 
     let bar = DocBar()
@@ -53,6 +54,7 @@ public final class PageMarkupView: NSView {
     private var flags: Any?
     private var refreshing = 0
     private var hovering = 0
+    private var shownWaits: [String: DocWait] = [:]
 
     public init(path: String, webView: WKWebView) {
         self.path = path
@@ -146,6 +148,7 @@ public final class PageMarkupView: NSView {
             record = store.read()
             refresh()
         }
+        if waits() != shownWaits { drawMarks() }
     }
 
     func pageChanged() { refresh() }
@@ -160,9 +163,9 @@ public final class PageMarkupView: NSView {
     }
     public var areaRects: [String: NSRect] { overlay.areas.mapValues { overlay.convert($0.frame, to: self) } }
     public var pageHash: String { pageHashValue }
-    public var cardRects: [String: (rect: NSRect, reply: Bool)] {
-        Dictionary(panel.cards.map { ($0.thread.id, ($0.convert($0.bounds, to: self), $0.grow.superview != nil)) }, uniquingKeysWith: { a, _ in a })
-    }
+    public var cards: [String: CardState] { panel.cardStates.mapValues { var card = $0; card.rect = convert(card.rect, from: nil); card.field = convert(card.field, from: nil); return card } }
+
+    public var typingDots: [String] { overlay.marks.filter { $0.typing }.compactMap(\.thread) }
 
     public func rect(of selector: String) async -> NSRect? {
         Self.rect(await call("return kannaMarkup.rectOf(selector)", ["selector": selector])).map { overlay.convert($0, to: self) }
@@ -199,6 +202,8 @@ public final class PageMarkupView: NSView {
     func onPage(_ thread: DocThread) -> Bool { thread.page.map { $0.hash == pageHashValue } ?? false }
 
     func drawMarks() {
+        let waits = waits()
+        shownWaits = waits
         overlay.marks.forEach { $0.removeFromSuperview() }
         overlay.areas.values.forEach { $0.removeFromSuperview() }
         overlay.marks = []
@@ -213,6 +218,7 @@ public final class PageMarkupView: NSView {
             area.large = rect.width * rect.height > view.width * view.height / 2
             let dot = MarkBox(kind: thread.id == active ? .active : thread.isOpen ? .open : .resolved, dot: true)
             dot.thread = thread.id
+            dot.typing = waits[thread.id] == .typing
             dot.toolTip = thread.id
             dot.frame = NSRect(x: min(max(rect.minX - 8, 0), view.width - 16), y: min(max(rect.minY - 8, 0), view.height - 16), width: 16, height: 16)
             dot.onPress = { [weak self] in
@@ -228,17 +234,17 @@ public final class PageMarkupView: NSView {
             overlay.areas[thread.id] = area
         }
         overlay.point(at: overlay.pointer)
-        panel.show(record.threads, active: active, notes: notes())
+        panel.show(record.threads, active: active, waits: waits, notes: notes())
         bar.threads.set("Threads \(record.threads.filter(\.isOpen).count)")
         bar.needsLayout = true
     }
 
+    func waits() -> [String: DocWait] { DocWait.all(record.threads, agent: agent, status: agentStatus) }
+
     func notes() -> [String: String] {
         var out: [String: String] = [:]
         for thread in record.threads where thread.isOpen {
-            if thread.status == "unsent" {
-                out[thread.id] = "not sent" + (thread.error.map { ": \($0)" } ?? "")
-            } else if let page = thread.page, page.hash != pageHashValue {
+            if let page = thread.page, page.hash != pageHashValue {
                 out[thread.id] = "on the page at \(page.hash.isEmpty ? "its start" : page.hash)"
             }
         }
@@ -328,19 +334,24 @@ public final class PageMarkupView: NSView {
     func openPop(_ id: String) {
         guard let thread = record.threads.first(where: { $0.id == id }), let rect = boxes[id] else { return }
         closeBox()
-        let box = CommentBox(thread: thread, note: notes()[id])
+        let box = CommentBox(thread: thread, wait: waits()[id], note: notes()[id])
         anchor(box, below: rect)
         (box.button("act") as? ActButton)?.onPress = { [weak self] in
             self?.closeBox()
             self?.setState(id, open: !thread.isOpen)
         }
-        box.field.onKey = { [weak self, weak box] event in
-            if event.keyCode == 53 { self?.closeBox(); return true }
-            guard event.keyCode == 36, !event.modifierFlags.contains(.shift), let box else { return false }
+        let send: () -> Void = { [weak self, weak box] in
+            guard let box else { return }
             let text = box.field.trimmed
-            guard !text.isEmpty else { return true }
+            guard !text.isEmpty else { return }
             self?.reply(id, text)
             self?.openPop(id)
+        }
+        (box.button("send") as? Chip)?.onPress = send
+        box.field.onKey = { [weak self] event in
+            if event.keyCode == 53 { self?.closeBox(); return true }
+            guard event.keyCode == 36, !event.modifierFlags.contains(.shift) else { return false }
+            send()
             return true
         }
         show(box)
@@ -700,6 +711,27 @@ final class MarkBox: FlippedView {
     let dot: Bool
     var thread: String?
     var onPress: (() -> Void)?
+    var typing = false {
+        didSet {
+            guard typing != oldValue else { return }
+            dots?.removeFromSuperview()
+            dots = nil
+            if typing {
+                let dots = TypingDots(size: 3, gap: 1.5, color: .white)
+                dots.identifier = NSUserInterfaceItemIdentifier("typing")
+                addSubview(dots)
+                self.dots = dots
+                needsLayout = true
+            }
+            needsDisplay = true
+        }
+    }
+    private var dots: TypingDots?
+
+    override func layout() {
+        super.layout()
+        dots?.frame.origin = NSPoint(x: ((bounds.width - (dots?.frame.width ?? 0)) / 2).rounded(), y: ((bounds.height - 3) / 2).rounded())
+    }
 
     init(kind: Kind, dot: Bool = false) {
         self.kind = kind
@@ -731,6 +763,11 @@ final class MarkBox: FlippedView {
         if dot {
             let center = NSPoint(x: bounds.midX, y: bounds.midY)
             let circle = { (r: CGFloat) in NSBezierPath(ovalIn: NSRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)) }
+            if typing {
+                (kind == .active ? DocTheme.accent : DocTheme.accent.withAlphaComponent(0.92)).setFill()
+                circle(8).fill()
+                return
+            }
             if kind == .active {
                 DocTheme.accent.setFill()
                 circle(8).fill()

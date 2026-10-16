@@ -51,23 +51,23 @@ struct CommentBoxTests {
     @Test func replyGrowsWithItsText() {
         let thread = DocThread(id: "c1", quote: "q", prefix: "", suffix: "", line: 1, state: "open", status: "sent",
                                messages: [DocMessage(who: "user", text: "First", at: "")], error: nil)
-        let box = CommentBox(thread: thread, note: nil)
+        let box = CommentBox(thread: thread, wait: nil, note: nil)
         let before = box.parts
-        #expect(before["field"]!.height == 18)
+        #expect(before["field"]!.height == 16)
         type(long, into: box.field)
         let after = box.parts
         #expect(after["field"]!.height == GrowField.most)
-        #expect(after["box"]!.height - before["box"]!.height == GrowField.most - 18)
+        #expect(after["box"]!.height - before["box"]!.height == GrowField.most - 16)
         expectLaidOut(after)
     }
 
     @Test func cardReplyGrowsTheCard() {
         let thread = DocThread(id: "c1", quote: "q", prefix: "", suffix: "", line: 1, state: "open", status: "sent",
                                messages: [DocMessage(who: "user", text: "First", at: "")], error: nil)
-        let card = ThreadCard(thread: thread, active: true, note: nil, width: 260)
+        let card = ThreadCard(thread: thread, active: true, wait: nil, note: nil, width: 260)
         let before = card.frame.height
         type(long, into: card.field)
-        #expect(card.frame.height - before == GrowField.most - 18)
-        #expect(card.bounds.contains(card.grow.frame))
+        #expect(card.frame.height - before == GrowField.most - 16)
+        #expect(card.bounds.contains(card.convert(card.grow.bounds, from: card.grow)))
     }
 }

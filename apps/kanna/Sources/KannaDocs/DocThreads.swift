@@ -204,11 +204,15 @@ public struct DocStore {
         id.count > 1 && id.count < 12 && id.first == "c" && id.dropFirst().allSatisfy(\.isASCII) && id.dropFirst().allSatisfy(\.isNumber)
     }
 
-    public static func now() -> String {
+    public static func now() -> String { stamp.string(from: Date()) }
+
+    public static func date(_ text: String) -> Date? { stamp.date(from: text) }
+
+    private static var stamp: DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        return formatter.string(from: Date())
+        return formatter
     }
 
     public static func clean(_ text: String) -> String {
