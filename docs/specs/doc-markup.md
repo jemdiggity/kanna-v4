@@ -4,16 +4,17 @@
 
 **Doc markup** lets you comment on a doc in Kanna, a markdown file or an HTML page (a mockup), and have the agent working beside it read, answer and resolve those comments. You review a spec or a mockup with an agent the way you would with a colleague: point at something, say what's wrong, see it fixed.
 
-![A markdown pane with two comment threads, beside the agent's terminal they were sent to](doc-markup.png)
+![A markdown pane with two comment threads, beside the agent's terminal they were sent to: c1 answered, c2 waiting while the agent works](doc-markup.png)
 
 ## Contents
 
 1. [The loop](#1-the-loop)
 2. [Rules](#2-rules)
 3. [Reaching the agent](#3-reaching-the-agent)
-4. [CLI](#4-cli)
-5. [How it's built](#5-how-its-built)
-6. [Glossary](#6-glossary)
+4. [Waiting on the agent](#4-waiting-on-the-agent)
+5. [CLI](#5-cli)
+6. [How it's built](#6-how-its-built)
+7. [Glossary](#7-glossary)
 
 ## 1. The loop
 
@@ -113,7 +114,29 @@ stateDiagram-v2
     resolved --> sent: reopen
 ```
 
-## 4. CLI
+## 4. Waiting on the agent
+
+**A thread you've posted or replied to shows what the agent is doing about it** until the reply lands, from the agent's [status](agent-status.md).
+
+![One waiting thread four ways: the agent working, stopped, waiting on you, and no agent](doc-markup-waiting.png)
+
+| The agent is | The thread shows |
+|---|---|
+| working (on it or on anything else) | typing dots where the reply will land |
+| idle, or its program has exited | Not answered · the agent stopped |
+| needs you (asking something in its terminal) | Not answered · the agent is waiting on you |
+| none, or sending failed | Not sent · no agent (or why it failed) |
+
+- **Waiting** means open, and the last message is yours. The reply replaces the dots; resolving or the agent's reply ends the wait.
+- **Kanna can't tell what the agent is working on**, so the dots show while it works at all; a thread it never answers turns to *not answered* when it stops.
+- **One set of dots per thread**: in its card, nowhere else in the list. On a page, a waiting thread's dot holds the dots while the agent works, since the card is out of sight:
+
+![A page's thread dot holding the typing dots, beside a replied thread's plain dot](doc-markup-page-waiting.png)
+
+- **Reduce Motion** (macOS accessibility) holds the dots still.
+- **Cards carry no status labels**: no thread ID, line or *replied* chip; the agent's reply says it. The ✓ at the bottom of a card resolves it.
+
+## 5. CLI
 
 Run in the doc's repo, the doc is found from the thread ID, the docs whose comments come to this pane first; or pass `--doc FILE`.
 
@@ -126,7 +149,7 @@ Run in the doc's repo, the doc is found from the thread ID, the docs whose comme
 | `kanna markup reply cN TEXT` | Answer a thread |
 | `kanna markup resolve cN` / `reopen cN` | Resolve or reopen a thread |
 
-## 5. How it's built
+## 6. How it's built
 
 ```mermaid
 flowchart LR
@@ -150,7 +173,7 @@ flowchart LR
 - **Stored** in `<repo>/.kanna/docs/`, one file per doc, so threads survive restarts.
 - **Built so far:** both panes have the native comment UI, matching the reference model (e2e `md_comments` drives the markdown pane, `page_comments` a page, and both screenshot it). Until the daemon's doc store lands, the app reads and writes the reference model's files directly, so the prototype's `kanna-doc reply` and `resolve` (and the skill) work with it unchanged.
 
-## 6. Glossary
+## 7. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -161,3 +184,4 @@ flowchart LR
 | **Detached** | A thread whose mark can no longer be found in the doc |
 | **View** | Which state of a page a thread is on: the part of its URL after `#` |
 | **Agent** | The terminal that opened the doc; its comments are typed into it |
+| **Waiting** | An open thread whose last message is yours, not yet answered |
