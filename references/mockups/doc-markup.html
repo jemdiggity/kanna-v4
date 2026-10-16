@@ -114,7 +114,6 @@ body.picture .pagestrip { display: none; }
       <span class="seg" id="agentState"><button data-a="working">Agent working</button><button data-a="busy">Busy with something else</button><button data-a="idle">Idle, no reply</button><button data-a="needs">Needs you</button><button data-a="none">No agent</button></span>
       <button id="agentReply">Agent replies to c2</button>
       <button id="motion">Reduce Motion: off</button>
-      <button id="agentComment">Agent comments with kanna comment</button>
       <button id="toggle">Hide / show threads</button>
       <button id="reset">Reset</button>
     </div>
@@ -271,10 +270,6 @@ function renderTerm() {
   ];
   const lines = [`<span class="c">~/work/kanna-v4</span> <span class="p">❯</span> claude`, ``];
   s.threads.forEach(t => {
-    if (t.status === "agent") {
-      lines.push(`<span class="a">●</span> The key idea is in section 1; I've put a comment on it.`, `  kanna comment docs/specs/tab-container.md:${t.line} "${t.messages[0].text.slice(0, 38)}…"`, `  ⎿ c3 · tab-container.md:${t.line}`, ``, `<span class="a">●</span> Reply there or here; tell me when to go on.`, ``);
-      return;
-    }
     lines.push(...pasted(t), ``);
     if (t.status === "replied") lines.push(`<span class="a">●</span> Updated docs/specs/tab-container.md`, `  kanna markup reply ${t.id} "${t.messages[t.messages.length - 1].text}"`, ...(t.state === "resolved" ? [`  kanna markup resolve ${t.id}`] : []), ``);
   });
@@ -338,22 +333,12 @@ document.getElementById("agentReply").onclick = () => {
 };
 document.querySelectorAll("#agentState button").forEach(b => b.onclick = () => { s.agent = b.dataset.a; render(); });
 document.getElementById("motion").onclick = () => { document.body.classList.toggle("still"); render(); };
-document.getElementById("agentComment").onclick = () => {
-  if (s.threads.some(t => t.id === "c3")) return;
-  s.threads.push({ id: "c3", line: 9, quote: "Today a window tab holds a tree of splits, and every leaf is a pane. A container is a new kind of leaf: it holds a list of panes and shows the active one.", state: "open", status: "agent", messages: [
-    { who: "agent", text: "This is the whole idea: a container is just another kind of leaf in the split tree, so splits, focus and every pane command keep working unchanged." }] });
-  s.active = "c3";
-  render();
-  const mk = document.querySelector('mark[data-t="c3"]');
-  if (mk) mk.scrollIntoView({ block: "center" });
-};
 document.getElementById("toggle").onclick = () => { s.showThreads = !s.showThreads; render(); };
 document.getElementById("reset").onclick = () => { s = initial(); render(); };
 if (location.hash.startsWith("#picture")) document.body.classList.add("picture");
 for (const a of ["working", "busy", "idle", "needs", "none"]) if (location.hash.includes("," + a)) s.agent = a;
 if (location.hash.includes(",still")) document.body.classList.add("still");
 render();
-if (location.hash.includes("agent")) document.getElementById("agentComment").click();
 </script>
 </body>
 </html>
