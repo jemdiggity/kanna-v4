@@ -162,11 +162,33 @@ kanna_targets() {
   fi
   [ -n "$root" ] && mkdir -p "$1/target"
   for entry in "$1"/target/* "$1"/target/.[!.]*; do
-    case "$entry" in *.app) continue ;; esac
+    case "$(basename "$entry")" in *.app|ghosttykit|ghostty-vt|.offline) continue ;; esac
     if [ -L "$entry" ] || [ -d "$entry" ]; then
       kanna_target_link "$entry" "$repo/_main/$(basename "$entry")" "$root" || return 1
     fi
   done
+  offline="$1/target/.offline"
+  if [ -z "$root" ]; then
+    if [ ! -e "$1/target/release" ] && [ -d "$offline/release" ]; then
+      kanna_clone "$offline/release" "$1/target/release" && echo "==> Restored target/release from target/.offline" >&2
+    fi
+    if [ ! -e "$1/target/kanna-build" ] && [ -f "$offline/kanna-build/workspace-state.json" ]; then
+      kanna_clone "$offline/kanna-build" "$1/target/kanna-build" && echo "==> Restored target/kanna-build's packages from target/.offline" >&2
+    fi
+  fi
+  return 0
+}
+
+kanna_targets_offline() {
+  kanna_main_checkout "$1" >/dev/null && return 0
+  release="$1/target/release" kanna_build="$1/target/kanna-build" offline="$1/target/.offline"
+  [ -L "$release" ] && [ -d "$release/.fingerprint" ] || return 0
+  mkdir -p "$offline/kanna-build"
+  rsync -a --delete "$release/" "$offline/release/" || return 1
+  if [ -L "$kanna_build" ] && [ -f "$kanna_build/workspace-state.json" ]; then
+    rsync -a --delete "$kanna_build/repositories" "$kanna_build/checkouts" "$offline/kanna-build/" &&
+      cp -p "$kanna_build/workspace-state.json" "$offline/kanna-build/" || return 1
+  fi
 }
 
 kanna_target_link() {
@@ -202,6 +224,7 @@ kanna_borrow_cargo() {
   [ -e "$here" ] && return
   main="$(kanna_main_checkout "$1")" || return 0
   from="$(kanna_arch_dir "$main" "$borrow_triple")/release"
+  if [ ! -d "$from/.fingerprint" ] && [ "$borrow_triple" = "$(kanna_host_triple)" ]; then from="$main/target/.offline/release"; fi
   [ -d "$from/.fingerprint" ] || return 0
   from="$(cd "$from" && pwd -P)"
   mkdir -p "$(dirname "$here")"
@@ -220,6 +243,7 @@ kanna_borrow_swiftpm() {
   [ -e "$here" ] && return
   main="$(kanna_main_checkout "$1")" || return 0
   from="$main/target/kanna-build"
+  [ -f "$from/workspace-state.json" ] || from="$main/target/.offline/kanna-build"
   [ -f "$from/workspace-state.json" ] && [ -d "$from/checkouts" ] && [ -d "$from/repositories" ] || return 0
   mkdir -p "$here.borrowing"
   if kanna_clone "$from/repositories" "$here.borrowing/repositories" && kanna_clone "$from/checkouts" "$here.borrowing/checkouts" &&
