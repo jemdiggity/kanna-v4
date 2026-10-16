@@ -89,8 +89,17 @@ final class DiffColumn {
         if gutter.ruleThickness != thickness {
             gutter.ruleThickness = thickness
             scrollView.tile()
+            placed = false
+        }
+        let clip = scrollView.contentView
+        if !placed, clip.contentInsets.left > 0 {
+            placed = true
+            clip.scroll(to: NSPoint(x: -clip.contentInsets.left, y: max(-clip.contentInsets.top, clip.bounds.minY)))
+            scrollView.reflectScrolledClipView(clip)
         }
     }
+
+    private var placed = false
 }
 
 @MainActor
@@ -103,6 +112,8 @@ final class DiffTextView: NSTextView {
     var onMarks: (() -> Void)?
     var onKey: ((String) -> Bool)?
     var onClickRow: ((Int) -> Void)?
+    var onHeader: ((Int, Bool) -> Void)?
+    var onLink: ((String) -> Void)?
     var contextMenu: (() -> NSMenu?)?
 
     var starts: [Int] = []
@@ -146,7 +157,7 @@ final class DiffTextView: NSTextView {
         super.drawBackground(in: rect)
         guard let visible = visibleRows(in: rect) else { return }
         var cache: [Int: Int] = [:]
-        for index in visible {
+        for index in visible where index < rows.count {
             guard let fragment = rowRect(index, cache: &cache), fragment.intersects(rect) else { continue }
             let row = rows[index]
             switch row.kind {
@@ -157,8 +168,9 @@ final class DiffTextView: NSTextView {
             case .blank: drawHatch(fragment)
             case .context: break
             }
-            if let word = row.word, let manager = layoutManager, let container = textContainer {
-                let range = NSRange(location: cache[index]! + word.location, length: word.length)
+            if let word = row.word, let manager = layoutManager, let container = textContainer, let storage = textStorage,
+               start(ofRow: index) + NSMaxRange(word) <= storage.length {
+                let range = NSRange(location: start(ofRow: index) + word.location, length: word.length)
                 var box = manager.boundingRect(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: container)
                 box.origin.y = fragment.minY
                 box.size.height = fragment.height
@@ -209,8 +221,21 @@ final class DiffTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let manager = layoutManager, let container = textContainer, (textStorage?.length ?? 0) > 0 {
+            let glyph = manager.glyphIndex(for: NSPoint(x: 0, y: point.y), in: container)
+            let index = row(at: manager.characterIndexForGlyph(at: glyph))
+            if let rect = rect(ofRow: index), rect.minY <= point.y, point.y < rect.maxY, rows[safe: index]?.kind == .header {
+                onHeader?(index, event.modifierFlags.contains(.option))
+                return
+            }
+        }
         super.mouseDown(with: event)
         if selectedRange().length == 0 { onClickRow?(row(at: selectedRange().location)) }
+    }
+
+    override func clicked(onLink link: Any, at charIndex: Int) {
+        if let link = link as? String { onLink?(link) }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -277,7 +302,7 @@ final class DiffGutter: NSRulerView {
         let column = digitWidth(font) * CGFloat(digits) + 16
         let signX = numbers == .both ? column * 2 : column
         for index in visible {
-            guard let fragment = textView.rect(ofRow: index) else { continue }
+            guard index < textView.rows.count, let fragment = textView.rect(ofRow: index) else { continue }
             let y = convert(NSPoint(x: 0, y: fragment.minY), from: textView).y
             let box = NSRect(x: 0, y: y, width: bounds.width, height: fragment.height)
             let row = textView.rows[index]
@@ -326,6 +351,6 @@ final class DiffGutter: NSRulerView {
     }
 }
 
-extension Array {
+public extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }

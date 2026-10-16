@@ -1809,6 +1809,8 @@ assert {"kind": "added", "text": "fn f5() -> u32 { 500 }", "new": 5} in rows, ro
 rows, current = json.loads(sys.argv[1]), int(sys.argv[2])
 assert rows[current]["kind"] in ("added", "removed") and rows[current]["text"].startswith("fn f5"), rows[current]' "$(diffpane rows)" "$(diffpane current)" || return 1
   diffpane current ',"keys":"]"' >/dev/null
+  check test "$(diffpane selected)" == b.rs || { echo "selected $(diffpane selected)"; return 1; }
+  check test "$(diffpane list)" == True || { echo "no files list"; return 1; }
   check python3 -c 'import json, sys
 rows, current = json.loads(sys.argv[1]), int(sys.argv[2])
 assert rows[current]["text"] == "fn new() {}", rows[current]' "$(diffpane rows)" "$(diffpane current)" || return 1
@@ -1819,6 +1821,23 @@ assert rows[current]["text"] == "fn new() {}", rows[current]' "$(diffpane rows)"
   check wait_for 5 is changes view split || { echo "view $(pane changes view)"; return 1; }
   check eval '[[ "$(diffpane rows)" == *"\"right\": \"blank\""* || "$(diffpane rows)" == *"\"left\": \"blank\""* ]]' || { echo "no blank side in split"; return 1; }
   raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"diff_pane.png"}}' >/dev/null; cp "$KANNA_STATE_DIR/diff_pane.png" "$out/diff_pane.png" 2>/dev/null
+  diffpane view ',"fold":"a.rs"' >/dev/null
+  check python3 -c 'import json, sys
+rows = json.loads(sys.argv[1])
+assert not any(r["text"].startswith("fn f5") for r in rows), "a.rs still open"' "$(diffpane rows)" || return 1
+  diffpane view ',"fold":"a.rs"' >/dev/null
+  diffpane view ',"zoom":12' >/dev/null
+  diffpane view ',"keys":"gG"' >/dev/null
+  check wait_for 5 eval '[[ "$(diffpane sticky)" != None ]]' || { echo "no sticky header at the bottom: current $(diffpane current) of $(diffpane rows | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"; raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"diff_pane-sticky.png"}}' >/dev/null; cp "$KANNA_STATE_DIR/diff_pane-sticky.png" "$out/" 2>/dev/null; return 1; }
+  raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"diff_pane-sticky.png"}}' >/dev/null; cp "$KANNA_STATE_DIR/diff_pane-sticky.png" "$out/" 2>/dev/null
+  check python3 -c 'import json, sys
+for c in json.loads(sys.argv[1]): assert c["x"] == -c["inset_left"] and c["inset_left"] == c["gutter"], c' "$(diffpane columns)" || return 1
+  diffpane view ',"zoom":0' >/dev/null
+  printf 'one\r\ntwo\xe2\x80\xa8three\r\n' >"$repo/crlf.txt"
+  check wait_for 5 eval '[[ "$(diffpane files)" == *crlf.txt* ]]' || { echo "crlf.txt didn't arrive"; return 1; }
+  check python3 -c 'import json, sys
+rows = json.loads(sys.argv[1])
+assert {"kind": "added", "text": "one\r", "new": 1, "left": "blank", "right": "added"} in rows, [r for r in rows if r.get("new") == 1]' "$(diffpane rows)" || return 1
   printf 'fn later() {}\n' >"$repo/c.rs"
   check wait_for 5 eval '[[ "$(diffpane files)" == *c.rs* ]]' || { echo "the untracked c.rs didn't arrive"; return 1; }
   stop_app; start_app || return 1

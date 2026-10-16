@@ -20,6 +20,9 @@ public final class DiffPaneView: NSView {
     public var fresh: Set<Int> { columns[0].textView.fresh }
 
     let header = DiffHeader()
+    let fileList = DiffFileList()
+    private let fileScroll = NSScrollView()
+    let sticky = DiffStickyHeader()
     private var columns: [DiffColumn] = []
     private var fontSize = CodeTheme.fontSize
     private var shown: Set<String> = []
@@ -41,6 +44,14 @@ public final class DiffPaneView: NSView {
         message.font = DiffTheme.sans(size: 14)
         message.isHidden = true
         addSubview(message)
+        fileScroll.documentView = fileList
+        fileScroll.hasVerticalScroller = true
+        fileScroll.autohidesScrollers = true
+        fileScroll.drawsBackground = true
+        fileScroll.backgroundColor = DiffTheme.background
+        addSubview(fileScroll)
+        fileList.onPick = { [weak self] file in self?.go(toFile: file) }
+        sticky.onClick = { [weak self] all in self?.foldTop(all: all) }
         makeColumns()
     }
 
@@ -67,15 +78,74 @@ public final class DiffPaneView: NSView {
             column.textView.onClickRow = { [weak self] row in self?.setCurrent(row, scroll: false) }
             column.textView.onMarks = { [weak self] in self?.columns.forEach { $0.gutter.needsDisplay = true } }
             column.textView.contextMenu = contextMenu
+            column.textView.onHeader = { [weak self] row, all in self?.foldRow(row, all: all) }
+            column.textView.onLink = { [weak self] link in self?.follow(link: link) }
             column.scrollView.onTile = { [weak self] in self?.needsLayout = true }
             observers.append(NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: column.scrollView.contentView, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.follow(index)
                     self?.columns[index].gutter.needsDisplay = true
+                    self?.updateSticky()
                 }
             })
         }
         if first { window?.makeFirstResponder(columns[0].textView) }
+        addSubview(sticky, positioned: .above, relativeTo: nil)
+        addSubview(header, positioned: .above, relativeTo: nil)
+    }
+
+    public var debugColumns: [[String: Double]] {
+        columns.map { column in
+            let clip = column.scrollView.contentView
+            return ["x": clip.bounds.minX, "y": clip.bounds.minY, "inset_left": clip.contentInsets.left, "inset_top": clip.contentInsets.top,
+                    "gutter": column.gutter.ruleThickness, "clip_x": clip.frame.minX, "frame_x": column.scrollView.frame.minX, "text_x": column.textView.frame.minX]
+        }
+    }
+
+    public var listShown: Bool { bounds.width >= 640 && (result?.files.count ?? 0) > 0 }
+    public var selectedFile: String? { fileList.selected.flatMap { result?.files[safe: $0]?.path } }
+    public var stickyFile: String? { sticky.isHidden ? nil : sticky.file?.path }
+
+    private func go(toFile file: Int) {
+        guard let index = document.rows.firstIndex(where: { $0.file == file && $0.kind == .header }) else { return }
+        scroll(toRow: index, top: true)
+        let first = navigable.first { $0 > index && document.rows[$0].file == file }
+        if let first { setCurrent(first, scroll: false) } else { fileList.selected = file }
+    }
+
+    private func foldRow(_ index: Int, all: Bool) {
+        guard let file = document.rows[safe: index].flatMap({ result?.files[safe: $0.file] }) else { return }
+        toggle(file: file.path, all: all)
+        if let header = document.rows.firstIndex(where: { $0.kind == .header && result?.files[safe: $0.file]?.path == file.path }) { scroll(toRow: header, top: true) }
+    }
+
+    private func foldTop(all: Bool) {
+        guard let top = topRow, let row = document.rows[safe: top] else { return }
+        if let header = document.rows.firstIndex(where: { $0.kind == .header && $0.file == row.file }) { foldRow(header, all: all) }
+    }
+
+    private func follow(link: String) {
+        guard link.hasPrefix("kanna-diff-show:"), let number = Int(link.dropFirst("kanna-diff-show:".count)), let file = result?.files[safe: number] else { return }
+        showFolded(file.path)
+    }
+
+    func updateSticky() {
+        guard let column = columns.first, let top = topRow, let row = document.rows[safe: top], let file = result?.files[safe: row.file] else {
+            sticky.isHidden = true
+            return
+        }
+        let height = column.textView.rect(ofRow: top)?.height ?? 18
+        let clip = column.scrollView.contentView
+        let headerRect = column.textView.rect(ofRow: document.rows.firstIndex { $0.kind == .header && $0.file == row.file } ?? top)
+        let headerVisible = headerRect.map { $0.minY >= clip.bounds.minY + clip.contentInsets.top - 1 } ?? false
+        sticky.isHidden = headerVisible
+        sticky.file = file
+        sticky.font = CodeTheme.font(size: fontSize)
+        sticky.gutterWidth = column.gutter.ruleThickness
+        let left = columns.first!.scrollView.frame.minX
+        let right = columns.last!.scrollView.frame.maxX
+        let edge = convert(clip.frame, from: column.scrollView).maxY - clip.contentInsets.top
+        sticky.frame = NSRect(x: left, y: edge - height, width: right - left, height: height)
     }
 
     private func follow(_ index: Int) {
@@ -93,14 +163,23 @@ public final class DiffPaneView: NSView {
         super.layout()
         let headerHeight: CGFloat = 34
         header.frame = NSRect(x: 0, y: bounds.height - headerHeight, width: bounds.width, height: headerHeight)
-        let body = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - headerHeight)
+        var body = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - headerHeight)
+        fileScroll.isHidden = !listShown
+        if listShown {
+            fileScroll.frame = NSRect(x: 0, y: 0, width: DiffFileList.width, height: body.height)
+            fileList.frame.size.width = DiffFileList.width
+            fileList.show(result?.files ?? [])
+            body.origin.x = DiffFileList.width + 1
+            body.size.width -= DiffFileList.width + 1
+        }
         let width = (body.width / CGFloat(columns.count)).rounded(.down)
         for (index, column) in columns.enumerated() {
-            let x = CGFloat(index) * width
-            column.scrollView.frame = NSRect(x: x, y: 0, width: index == columns.count - 1 ? body.width - x : width - 1, height: body.height)
+            let x = body.minX + CGFloat(index) * width
+            column.scrollView.frame = NSRect(x: x, y: 0, width: index == columns.count - 1 ? body.maxX - x : width - 1, height: body.height)
             column.size(minimumHeight: body.height / 2, font: CodeTheme.font(size: fontSize))
         }
-        message.frame = NSRect(x: 20, y: body.height / 2 - 40, width: body.width - 40, height: 60)
+        message.frame = NSRect(x: body.minX + 20, y: body.height / 2 - 40, width: body.width - 40, height: 60)
+        updateSticky()
     }
 
     public override func draw(_ dirtyRect: NSRect) {
@@ -109,6 +188,7 @@ public final class DiffPaneView: NSView {
             let x = columns[0].scrollView.frame.maxX
             NSRect(x: x, y: 0, width: 1, height: bounds.height - 34).fill()
         }
+        if listShown { NSRect(x: DiffFileList.width, y: 0, width: 1, height: bounds.height - 34).fill() }
     }
 
     public func show(_ data: Data, serial: Int) {
@@ -130,6 +210,7 @@ public final class DiffPaneView: NSView {
         rebuild()
         let fresh = old.rows.isEmpty ? [] : changedRows(from: old, files: oldFiles)
         columns.forEach { $0.textView.fresh = fresh }
+        fileList.fresh = Set(fresh.compactMap { document.rows[safe: $0]?.file })
         if let (path, row) = anchor, let index = find(path, row) { columns.forEach { $0.textView.current = index } }
         if let (path, row) = top, let index = find(path, row) { scroll(toRow: index, top: true) }
         highlight()
@@ -175,7 +256,7 @@ public final class DiffPaneView: NSView {
         let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: DiffTheme.text]
         let muted: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: DiffTheme.muted]
         for (index, row) in rows.enumerated() {
-            let text = row.text.replacingOccurrences(of: "\r", with: "")
+            let text = Self.oneLine(row.text)
             switch row.kind {
             case .header:
                 let file = files[safe: row.file]
@@ -207,6 +288,15 @@ public final class DiffPaneView: NSView {
             if index < rows.count - 1 { out.append(NSAttributedString(string: "\n", attributes: plain)) }
         }
         return out
+    }
+
+    nonisolated static func oneLine(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+            switch scalar {
+            case "\r", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}": return "\u{2424}"
+            default: return scalar
+            }
+        }))
     }
 
     private func highlight() {
@@ -329,6 +419,8 @@ public final class DiffPaneView: NSView {
     func setCurrent(_ index: Int, scroll: Bool = true) {
         guard index >= 0, index < document.rows.count else { return }
         columns.forEach { $0.textView.current = index }
+        fileList.selected = document.rows[index].file
+        if let rect = fileList.entryRect(file: document.rows[index].file) { fileList.scrollToVisible(rect) }
         if scroll { self.scroll(toRow: index, top: false) }
     }
 
