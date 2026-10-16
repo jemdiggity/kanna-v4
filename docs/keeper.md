@@ -2,7 +2,7 @@
 
 > **Status:** built (`crates/kanna-keeper`), step 0.5 of [the build plan](plans/mux-build.md) · **Last updated:** 2026-10-15
 >
-> **Related:** [kanna spec §4](kanna-spec.md#4-kannaapp), [upgrading the keeper](specs/keeper-upgrade.md), [mux architecture §8 (restarting the daemon)](research/mux-architecture.md#8-restarting-the-daemon).
+> **Related:** [architecture](specs/architecture.md), [upgrading the keeper](specs/keeper-upgrade.md), [mux architecture §8 (restarting the daemon)](research/mux-architecture.md#8-restarting-the-daemon).
 
 ## Table of Contents
 
@@ -216,7 +216,7 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 - signals: dispositions the keeper inherited as ignored are default in its children; a closed process stays a zombie until its SIGKILL;
 - races: concurrent `connect_or_start`, connecting while the keeper goes idle; `--detach` failing when the keeper can't listen; the keeper's own settings stay out of spawned environments.
 - idle exit only with no process and no client; `connect_or_start` with a detached keeper.
-- upgrade: see [upgrading the keeper](specs/keeper-upgrade.md#7-testing).
+- upgrade: see [upgrading the keeper](specs/keeper-upgrade.md#8-testing).
 
 ## 12. Glossary
 

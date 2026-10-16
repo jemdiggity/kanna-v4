@@ -765,7 +765,7 @@ impl Backlog {
         let keys = quit.as_ref().map_or(vec![], |q| q.keys.clone());
         self.quitting.borrow_mut().insert(pane.to_string(), Quitting { why, by: Instant::now() + QUIT_WAIT, quit, hung_up: keys.is_empty() });
         let (weak, pane) = (core.weak(), pane.to_string());
-        core.handle(json!({ "cmd": "close", "args": { "task": pane, "tabs": true } }), move |_| {
+        core.hang_up(&pane.clone(), move |_| {
             let Some(core) = weak.upgrade() else { return };
             if keys.is_empty() {
                 return core.end(&pane, |_| {});
@@ -1131,9 +1131,9 @@ impl Backlog {
             let backlog = Rc::downgrade(&this);
             this.turns.borrow_mut().remove(&pane);
             this.stopping.borrow_mut().insert(pane.clone());
-            core.handle(json!({ "cmd": "close", "args": { "task": pane, "tabs": true } }), move |closed| {
+            core.hang_up(&pane.clone(), move |hung_up| {
                 let forget = |backlog: &std::rc::Weak<Backlog>, pane: &str| backlog.upgrade().map(|b| b.stopping.borrow_mut().remove(pane));
-                if let Some(error) = failed(&closed) {
+                if let Err(error) = hung_up {
                     forget(&backlog, &pane);
                     return responder.reply(Err(error));
                 }
@@ -1193,7 +1193,19 @@ impl Backlog {
         if let Some(command) = command {
             core.set_command(pane, command);
         }
-        core.handle(json!({ "cmd": "restart", "args": { "pane": pane } }), move |reply| done(failed(&reply).map_or(Ok(()), Err)));
+        let (weak, task) = (core.weak(), pane.to_string());
+        core.handle(json!({ "cmd": "restart", "args": { "pane": pane } }), move |reply| {
+            if let Some(error) = failed(&reply) {
+                return done(Err(error));
+            }
+            let Some(core) = weak.upgrade() else { return done(Ok(())) };
+            core.wake(&task.clone(), move |woken| {
+                if let Err(error) = woken {
+                    eprintln!("kanna-daemon: couldn't start {task}'s terminals again: {}", error.message);
+                }
+                done(Ok(()))
+            });
+        });
     }
 
     fn room(self: &Rc<Self>, entry: Entry, window: Option<String>, by: Option<String>, responder: Answer) {

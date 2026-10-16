@@ -1,6 +1,6 @@
 # kmux Subtree
 
-**Status:** decided (2026-10-14) · **Part of:** [kmux Is the Reference Model](../kanna-spec.md#43-kmux-is-the-reference-model)
+**Status:** decided (2026-10-14) · **Part of:** [kmux Is the Reference Model](kmux-reference.md)
 
 `references/kmux` is kmux's source, a squashed git subtree of [tampopogk/kmux](https://github.com/tampopogk/kmux). A change to kmux is made there, in kanna-v4, and pushed upstream as a kmux PR, so there's one place to edit and Kanna's checks run against it straight away.
 
@@ -37,7 +37,7 @@ A pull's squash commit holds kmux's tree exactly, and its message names the kmux
 - **kmux files only** in a commit for kmux: its message becomes the kmux commit's, so a commit that's half Kanna puts Kanna's story in kmux's history.
 - **Always a branch and a PR** on kmux, never its `main`. Run kmux's tests on the branch (a kmux worktree builds them; `references/kmux` isn't built).
 - **Pull when the PR merges**, even if it changed nothing here, so the subtree points at kmux's `main` again.
-- **kmux changes for kmux's sake:** a change goes upstream only if kmux should have it. What Kanna decides differently stays in Kanna's code ([4.3](../kanna-spec.md#43-kmux-is-the-reference-model)).
+- **kmux changes for kmux's sake:** a change goes upstream only if kmux should have it. What Kanna decides differently stays in Kanna's code ([kmux is the reference model](kmux-reference.md)).
 
 ## 3. The drift check
 
