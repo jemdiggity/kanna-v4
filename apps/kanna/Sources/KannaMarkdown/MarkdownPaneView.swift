@@ -40,6 +40,7 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
     var showThreads = true
     var forcedThreads = false
     public var agent: String? { didSet { agentChanged() } }
+    public var agentStatus: String? { didSet { if agentStatus != oldValue { refreshPanel() } } }
     public var onSend: ((String, String, @escaping (String?) -> Void) -> Void)?
 
     public init(path: String, zoom: CGFloat = 1, markup: Bool = false) {
@@ -157,6 +158,7 @@ public final class MarkdownPaneView: NSView, NSTextViewDelegate {
 
     private func reloadIfChanged() {
         reloadThreadsIfChanged()
+        refreshPanel()
         guard pending == nil, let now = fileStamp() else { return }
         if let stamp, stamp == now { return }
         load()
