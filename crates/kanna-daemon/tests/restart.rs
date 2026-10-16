@@ -233,3 +233,27 @@ fn an_app_from_another_build_stops_the_daemon_and_the_next_keeps_its_terminals()
     let shell = instance.pane("shell");
     assert_eq!((shell["id"].as_str(), shell["pid"].as_i64()), (Some(pane.as_str()), Some(pid)), "{shell}");
 }
+
+#[test]
+fn a_terminal_started_again_after_a_restart_keeps_its_size_even_without_its_screen() {
+    let mut instance = Instance::start();
+    let pane = instance.open("sized", Some("read line; stty size"));
+    let mut app = instance.app();
+    app.tell("attach", json!({"pane": pane}));
+    app.tell("resize", json!({"pane": pane, "cols": 101, "rows": 31, "width": 0, "height": 0}));
+    app.until("the new grid", |m| is(m, "grid", &pane) && m["args"]["cols"] == 101);
+    instance.call("send", json!({"pane": "sized", "text": ""}));
+    wait_for("the size", || shows(&instance, &pane, "31 101"));
+    drop(app);
+    wait_for("the exit", || instance.pane("sized")["state"] == "exited");
+
+    instance.stop(libc::SIGTERM);
+    assert_eq!(saved(&instance)["terminals"][0]["cols"], 101, "{}", saved(&instance));
+    let _ = std::fs::remove_file(instance.dir.join(format!("state/terminals/{pane}.snap")));
+    instance.start_again();
+
+    instance.call("restart", json!({"pane": "sized"}));
+    wait_for("the program again", || instance.pane("sized")["state"] == "running");
+    instance.call("send", json!({"pane": "sized", "text": ""}));
+    wait_for("the size again", || shows(&instance, &pane, "31 101"));
+}

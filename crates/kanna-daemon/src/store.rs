@@ -42,6 +42,7 @@ pub struct Record {
     pub exit_code: Option<i64>,
     pub pid: i64,
     pub keeper: String,
+    pub size: Option<(u16, u16)>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -62,6 +63,8 @@ impl Record {
             "exitCode": self.exit_code.map_or(Value::Null, |c| num(c as f64)),
             "pid": num(self.pid as f64),
             "keeper": self.keeper,
+            "cols": self.size.map_or(Value::Null, |(cols, _)| num(cols as f64)),
+            "rows": self.size.map_or(Value::Null, |(_, rows)| num(rows as f64)),
         })
     }
 
@@ -80,8 +83,13 @@ impl Record {
             state: string(value, "state").and_then(PaneState::parse)?,
             exit_code: value.get("exitCode").and_then(Value::as_f64).map(|c| c as i64),
             pid: value.get("pid").and_then(Value::as_f64)? as i64,
+            size: side(value, "cols").zip(side(value, "rows")),
         })
     }
+}
+
+fn side(value: &Value, key: &str) -> Option<u16> {
+    value.get(key).and_then(Value::as_f64).filter(|n| n.fract() == 0.0 && (1.0..=f64::from(u16::MAX)).contains(n)).map(|n| n as u16)
 }
 
 pub fn pane_number(id: &str) -> Option<usize> {
@@ -350,6 +358,7 @@ mod tests {
             exit_code: None,
             pid: 42,
             keeper: id.into(),
+            size: Some((120, 40)),
         }
     }
 
@@ -358,7 +367,7 @@ mod tests {
         let dir = folder("records");
         let store = Store::open(&dir).unwrap();
         let mut exited = record("p3", None);
-        (exited.state, exited.exit_code) = (PaneState::Exited, Some(3));
+        (exited.state, exited.exit_code, exited.size) = (PaneState::Exited, Some(3), None);
         let saved = Saved { counter: 7, records: vec![record("p1", Some("logs")), exited] };
         store.save(&saved).unwrap();
         assert_eq!(store.load(), saved);

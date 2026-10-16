@@ -57,7 +57,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         syncSurfaceGeometry()
     }
 
-    private var visible: Bool { window.map { Self.ignoresOcclusion || $0.occlusionState.contains(.visible) } ?? false }
+    private var visible: Bool { !isHiddenOrHasHiddenAncestor && window.map { Self.ignoresOcclusion || $0.occlusionState.contains(.visible) } ?? false }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        updateVisibility()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateVisibility()
+    }
 
     func updateVisibility() {
         guard let surface else { return }
@@ -73,11 +83,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         ghostty_surface_set_occlusion(surface, true)
     }
 
+    var pixels: (width: UInt32, height: UInt32)? {
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        let backing = convertToBacking(bounds)
+        return (UInt32(max(1, backing.width)), UInt32(max(1, backing.height)))
+    }
+
     private func syncSurfaceGeometry() {
-        guard let surface, bounds.width > 0, bounds.height > 0 else { return }
+        guard let surface, let pixels else { return }
         let backing = convertToBacking(bounds)
         ghostty_surface_set_content_scale(surface, backing.width / bounds.width, backing.height / bounds.height)
-        ghostty_surface_set_size(surface, UInt32(max(1, backing.width)), UInt32(max(1, backing.height)))
+        ghostty_surface_set_size(surface, pixels.width, pixels.height)
     }
 
     override func setFrameSize(_ newSize: NSSize) {

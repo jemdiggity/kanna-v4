@@ -120,6 +120,7 @@ final class ExternalIOBackend: TerminalBackend {
         }
         options.io_resize_request_cb = { userdata, cols, rows, width, height in
             ExternalIOBackend.onMain(userdata) { backend, terminal in
+                guard let pixels = terminal.view?.pixels, pixels == (width, height) else { return }
                 backend.link.resizeRequested(terminal, cols: cols, rows: rows, width: width, height: height)
             }
         }

@@ -279,6 +279,7 @@ impl Terminals {
     fn saved(&self) -> Option<Saved> {
         let core = self.core.borrow().as_ref().and_then(WeakCore::upgrade)?;
         let live = self.live.borrow();
+        let sizes = self.sizes.borrow();
         Some(core.with_panes(|panes| Saved {
             counter: panes.counter(),
             records: panes
@@ -299,6 +300,7 @@ impl Terminals {
                         exit_code,
                         pid: terminal.pid as i64,
                         keeper: terminal.keeper.clone(),
+                        size: sizes.get(&pane.id).copied(),
                     })
                 })
                 .collect(),
@@ -451,7 +453,10 @@ impl Terminals {
         let settings = self.settings();
         let feed = match snapshot.map(|snapshot| Feed::restore(&snapshot, &settings)) {
             Some(Ok(feed)) => feed,
-            _ => Feed::new(COLS, ROWS, &settings)?,
+            _ => {
+                let (cols, rows) = record.size.unwrap_or((COLS, ROWS));
+                Feed::new(cols.min(MAX_SIDE), rows.min(MAX_SIDE), &settings)?
+            }
         };
         let (cols, rows) = {
             let screen = Feed::lock(&feed);
