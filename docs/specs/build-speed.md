@@ -24,7 +24,7 @@ flowchart LR
     K -->|"APFS clone, workspace-state paths rewritten"| K2
 ```
 
-A worktree whose `target/` is on another volume ([build targets](build-targets.md)) copies instead of cloning.
+With build outputs on another volume ([build targets](build-targets.md)), a worktree clones from the main checkout's copy there.
 
 | Borrowed | When | How | Saves |
 |---|---|---|---|

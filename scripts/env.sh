@@ -135,8 +135,7 @@ kanna_main_checkout() {
 }
 
 kanna_targets() {
-  here="$1/target"
-  main="$(kanna_main_checkout "$1")" || return 0
+  if main="$(kanna_main_checkout "$1")"; then worktree=1; else main="$1"; worktree=""; fi
   config="${KANNA_AGENTS_HOME:-$HOME}/.kanna-v4/config.json"
   root=""
   if [ -f "$config" ] && [ "$(plutil -extract version raw -o - "$config" 2>/dev/null || echo 1)" -le 1 ] 2>/dev/null; then
@@ -156,25 +155,39 @@ kanna_targets() {
       fi
       ;;
   esac
-  if [ -z "$root" ]; then
-    if [ -L "$here" ] && [ ! -d "$here" ]; then rm "$here"; fi
+  repo="$root/$(basename "$main")"
+  if [ -n "$worktree" ]; then
+    kanna_target_link "$1/target" "$repo/$(basename "$1")" "$root"
+    return
+  fi
+  [ -n "$root" ] && mkdir -p "$1/target"
+  for entry in "$1"/target/* "$1"/target/.[!.]*; do
+    case "$entry" in *.app) continue ;; esac
+    if [ -L "$entry" ] || [ -d "$entry" ]; then
+      kanna_target_link "$entry" "$repo/_main/$(basename "$entry")" "$root" || return 1
+    fi
+  done
+}
+
+kanna_target_link() {
+  if [ -z "$3" ]; then
+    if [ -L "$1" ] && [ ! -e "$1" ]; then rm "$1"; fi
     return 0
   fi
-  dest="$root/$(basename "$main")/$(basename "$1")"
-  if [ -L "$here" ] && [ "$(readlink "$here")" = "$dest" ]; then mkdir -p "$dest"; return; fi
-  mkdir -p "$(dirname "$dest")" || return 1
-  if [ -L "$here" ] && [ ! -e "$here" ]; then rm "$here"; fi
-  if [ -e "$here" ]; then
-    echo "==> Moving target/ to $dest" >&2
-    if [ -L "$here" ]; then from="$(readlink "$here")"; else from="$here"; fi
-    rm -rf "$dest.moving" "$dest.old"
-    mv "$from" "$dest.moving" || return 1
-    if [ -e "$dest" ]; then mv "$dest" "$dest.old" || return 1; fi
-    mv "$dest.moving" "$dest" || return 1
-    if [ -L "$here" ]; then rm "$here"; fi
-    rm -rf "$dest.old"
+  if [ -L "$1" ] && [ "$(readlink "$1")" = "$2" ]; then mkdir -p "$2"; return; fi
+  mkdir -p "$(dirname "$2")" || return 1
+  if [ -L "$1" ] && [ ! -e "$1" ]; then rm "$1"; fi
+  if [ -e "$1" ]; then
+    echo "==> Moving ${1#"$(dirname "$(dirname "$1")")/"} to $2" >&2
+    if [ -L "$1" ]; then moving="$(readlink "$1")"; else moving="$1"; fi
+    rm -rf "$2.moving" "$2.old"
+    mv "$moving" "$2.moving" || return 1
+    if [ -e "$2" ]; then mv "$2" "$2.old" || return 1; fi
+    mv "$2.moving" "$2" || return 1
+    if [ -L "$1" ]; then rm "$1"; fi
+    rm -rf "$2.old"
   fi
-  mkdir -p "$dest" && ln -s "$dest" "$here"
+  mkdir -p "$2" && ln -s "$2" "$1"
 }
 
 kanna_clone() {
@@ -190,6 +203,7 @@ kanna_borrow_cargo() {
   main="$(kanna_main_checkout "$1")" || return 0
   from="$(kanna_arch_dir "$main" "$borrow_triple")/release"
   [ -d "$from/.fingerprint" ] || return 0
+  from="$(cd "$from" && pwd -P)"
   mkdir -p "$(dirname "$here")"
   if kanna_clone "$from" "$here.borrowing"; then
     rm -rf "$here.borrowing"/.fingerprint/kanna-*
