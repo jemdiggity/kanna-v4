@@ -1803,6 +1803,14 @@ assert {"kind": "added", "text": "fn f5() -> u32 { 500 }", "new": 5} in rows, ro
   sed -i '' 's/fn f20() -> u32 { 20 }/fn f20() -> u32 { 2000 }/' "$repo/a.rs"
   check wait_for 5 eval '[[ "$(diffpane rows)" == *"{ 2000 }"* ]]' || { echo "the edit didn't arrive"; return 1; }
   check eval '[[ "$(diffpane fresh)" != "[]" ]]' || { echo "nothing marked fresh"; return 1; }
+  touch "$repo/a.rs"
+  check wait_for 5 eval '[[ "$(diffpane updating)" == False ]]' || { echo "still updating after a re-diff with nothing new"; return 1; }
+  diffpane view ',"keys":"g"' >/dev/null
+  raw '{"id":1,"cmd":"debug.key","args":{"key":"cmd+f"}}' >/dev/null
+  local typed; typed=$(raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"2000"}}')
+  check eval '[[ "$typed" == *NSFindPatternFieldEditor* ]]' || { echo "⌘F showed no find field: $typed"; return 1; }
+  raw '{"id":1,"cmd":"debug.key","args":{"key":"return"}}' >/dev/null
+  raw '{"id":1,"cmd":"debug.key","args":{"key":"escape"}}' >/dev/null
   raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"diff_pane-unified.png"}}' >/dev/null; cp "$KANNA_STATE_DIR/diff_pane-unified.png" "$out/diff_pane-unified.png" 2>/dev/null
   diffpane current ',"keys":"gn"' >/dev/null
   check python3 -c 'import json, sys

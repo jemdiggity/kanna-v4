@@ -226,7 +226,11 @@ final class Contents {
     }
 
     func received(diff message: JSON, for id: String) {
-        guard let view = diff(id), let found = message["diff"], found != .null else { return }
+        guard let view = diff(id) else { return }
+        guard let found = message["diff"], found != .null else {
+            if let updating = message["updating"]?.bool { view.setUpdating(updating) }
+            return
+        }
         view.show(found.encoded(), serial: Int(message["serial"]?.number ?? 0))
         if message["updating"]?.bool == true { view.setUpdating(true) }
     }

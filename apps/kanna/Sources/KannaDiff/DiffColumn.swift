@@ -49,6 +49,8 @@ final class DiffColumn {
         textView.autoresizingMask = []
         textView.textContainerInset = NSSize(width: 0, height: 0)
         textView.selectedTextAttributes = [.backgroundColor: NSColor.selectedTextBackgroundColor]
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true

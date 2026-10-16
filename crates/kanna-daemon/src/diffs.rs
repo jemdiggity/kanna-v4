@@ -93,6 +93,9 @@ impl Diffs {
         if let Some(watch) = self.watches.borrow_mut().get_mut(pane) {
             watch.updating = true;
         }
+        if let Some(on_diff) = self.on_diff.borrow().as_ref() {
+            on_diff(pane, &json!({ "pane": pane, "updating": true }));
+        }
     }
 
     pub fn loaded(&self, pane: &str, diff: Value) {
@@ -101,6 +104,10 @@ impl Diffs {
             let Some(watch) = watches.get_mut(pane) else { return };
             watch.updating = false;
             if watch.diff.as_ref() == Some(&diff) {
+                drop(watches);
+                if let Some(on_diff) = self.on_diff.borrow().as_ref() {
+                    on_diff(pane, &json!({ "pane": pane, "updating": false }));
+                }
                 return;
             }
             watch.serial += 1;
