@@ -71,6 +71,18 @@ impl Feed {
         self.screen.encode_key(key)
     }
 
+    pub fn paste(&self, text: &str) -> Vec<u8> {
+        if text.is_empty() || !self.screen.mode(Mode::BRACKETED_PASTE) {
+            return text.as_bytes().to_vec();
+        }
+        let text = text.replace("\x1b[200~", "").replace("\x1b[201~", "");
+        format!("\x1b[200~{text}\x1b[201~").into_bytes()
+    }
+
+    pub fn enter(&self) -> Vec<u8> {
+        "return".parse::<Key>().ok().and_then(|key| self.encode_key(&key).ok()).filter(|bytes| !bytes.is_empty()).unwrap_or_else(|| b"\r".to_vec())
+    }
+
     pub fn lock(feed: &Mutex<Feed>) -> MutexGuard<'_, Feed> {
         feed.lock().unwrap_or_else(PoisonError::into_inner)
     }

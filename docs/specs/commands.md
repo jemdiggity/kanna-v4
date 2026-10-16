@@ -16,7 +16,7 @@ Every command, option, output and error is kmux's CLI's, except where [the CLI's
 | | `kanna focus PANE` / `--tab TAB` / `--window WINDOW` | Bring a pane, tab or window to the front. |
 | | `kanna zoom PANE` | Toggle zoom: the pane fills its tab ([zoom](zoom.md)). |
 | | `kanna restart PANE` | Restart what's inside a pane. |
-| | `kanna send PANE TEXT` | Type text into a terminal pane. |
+| | `kanna send PANE TEXT` | Type text into a terminal pane and press Return on its own, so agents submit it ([kanna send](kanna-send.md)). |
 | | `kanna send-key PANE KEY...` | Press keys in a terminal pane ([3](#3-send-key)). Kanna's. |
 | | `kanna read PANE [--lines N]` | Print a terminal pane's screen as text; with `--lines`, its last N lines, counting scrollback. Kanna's. |
 | | `kanna screenshot [PANE\|--window WINDOW] [-o FILE] [--force]` | Save a PNG of a pane or a window and print its path ([screenshot](screenshot.md)). Kanna's. |

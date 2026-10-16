@@ -2297,7 +2297,6 @@ print(sum(1 for l in lines if l.get("turn") and sys.argv[2] in l["prompt"] and (
     sleep 3
     [[ "$(asked "$first")" == 1 ]] || { echo "real_agent_tasks: $agent started again with its first message instead of resuming"; return 1; }
     kanna send "$agent task" "$second" || { echo "real_agent_tasks line $LINENO"; return 1; }
-    kanna send-key "$agent task" return || { echo "real_agent_tasks line $LINENO"; return 1; }
     check wait_for 60 eval '[[ "$(asked "$second" "$first")" -ge 1 ]]' || { echo "real_agent_tasks: $agent's next message didn't carry its conversation"; kanna read "$agent task"; tail -3 "$agents/mock.jsonl" | cut -c1-300; return 1; }
   done
   stop_agents
@@ -2323,13 +2322,52 @@ real_agent_program_status() {
     kanna open --name "$pane" --cwd "$repo" --cmd "$agents/bin/$agent" >/dev/null || { echo "real_agent_program_status line $LINENO"; return 1; }
     check wait_for 60 shows "$pane" "for shortcuts\\|shift+tab" || { echo "real_agent_program_status: $agent didn't start"; kanna read "$pane"; return 1; }
     kanna send "$pane" "PLAIN_TURN" || { echo "real_agent_program_status line $LINENO"; return 1; }
-    check wait_for 10 shows "$pane" "PLAIN_TURN" || { echo "real_agent_program_status: $agent didn't take the message"; kanna read "$pane"; return 1; }
-    sleep 3
-    kanna send-key "$pane" return || { echo "real_agent_program_status line $LINENO"; return 1; }
     check wait_for 30 eval '[[ "$(reported "$pane")" == "osc7501 working working" ]]' || { echo "real_agent_program_status: $agent's turn wasn't working from OSC 7501 but $(reported "$pane")"; kanna status explain "$pane"; kanna read "$pane"; tail -2 "$agents/mock.jsonl" | cut -c1-300; return 1; }
     kanna status explain "$pane" | grep -qF "source: OSC 7501" || { kanna status explain "$pane"; return 1; }
     check wait_for 60 eval '[[ "$(reported "$pane")" =~ ^"osc7501 "(idle|done)" idle"$ ]]' || { echo "real_agent_program_status: $agent's turn didn't end idle from OSC 7501 but $(reported "$pane")"; kanna status explain "$pane"; kanna read "$pane"; return 1; }
     shows "$pane" "slow streamed answer" || { echo "real_agent_program_status: $agent didn't show the mock's answer"; kanna read "$pane"; return 1; }
+  done
+  stop_agents
+}
+
+scenario send_submits M4
+send_submits() {
+  local claude="${KANNA_E2E_CLAUDE:-$(command -v claude)}" codex="${KANNA_E2E_CODEX:-$(command -v codex)}"
+  [[ -x "$claude" ]] || { echo "send_submits: claude isn't installed (or set KANNA_E2E_CLAUDE)"; return 1; }
+  start_daemon || return 1
+  local shell name
+  for shell in "zsh -f" "bash --norc --noprofile"; do
+    name="send_${shell%% *}"
+    kanna open --name "$name" --cmd "exec $shell" >/dev/null || return 1
+    kanna send "$name" "echo $name-\$((40+2))" || return 1
+    check wait_for 5 shows "$name" "^$name-42" || { kanna read "$name"; return 1; }
+  done
+  kanna open --name send_cat --cmd "exec cat" >/dev/null || return 1
+  kanna send send_cat send_cat-LINE || return 1
+  check wait_for 5 eval '[[ "$(kanna read send_cat | grep -c send_cat-LINE)" == 2 ]]' || { kanna read send_cat; return 1; }
+  local agents="$KANNA_STATE_DIR/agents" repo="$KANNA_STATE_DIR/repo" harness="$repo_root/tools/agent-harness"
+  mkdir -p "$agents" "$repo" && git -C "$repo" init -q -b main || return 1
+  repo="$(cd "$repo" && pwd -P)"
+  python3 -I "$harness/mock_server.py" --log "$agents/mock.jsonl" >"$agents/port" 2>"$agents/mock.log" &
+  check wait_for 10 eval '[[ -s "$agents/port" ]]' || { echo "send_submits: the mock model didn't start"; return 1; }
+  sent() { python3 -c 'import json, sys
+print(sum(1 for l in map(json.loads, open(sys.argv[1])) if l.get("turn") and any(sys.argv[2] in h for h in l["history"])))' "$agents/mock.jsonl" "$1"; }
+  local agent real i rounds="${KANNA_E2E_SEND_ROUNDS:-10}" long
+  long="$(printf 'a long message, as a planner writes one, %.0s' $(seq 12))"
+  for agent in claude codex; do
+    [[ $agent == claude ]] && real="$claude" || real="$codex"
+    [[ -x "$real" ]] || { echo "send_submits: $agent isn't installed, so only the others were checked"; continue; }
+    python3 -I "$harness/isolate.py" --agent $agent --real "$real" --home "$agents/$agent-home" --port "$(cat "$agents/port")" --trust "$repo" --out "$agents/bin/$agent" || return 1
+    kanna open --name "send_$agent" --cwd "$repo" --cmd "$agents/bin/$agent" >/dev/null || return 1
+    check wait_for 60 is "send_$agent" status idle || { kanna read "send_$agent"; return 1; }
+    sleep 2
+    for i in $(seq "$rounds"); do
+      kanna send "send_$agent" "SEND_IDLE $agent $i: $long" || return 1
+      kanna send "send_$agent" "SEND_BUSY $agent $i: $long" || return 1
+      check wait_for 30 eval '[[ "$(sent "SEND_IDLE $agent $i:")" -ge 1 ]]' || { echo "send_submits: a message sent to idle $agent wasn't submitted"; kanna read "send_$agent"; return 1; }
+      check wait_for 30 eval '[[ "$(sent "SEND_BUSY $agent $i:")" -ge 1 ]]' || { echo "send_submits: a message sent to busy $agent wasn't submitted"; kanna read "send_$agent"; return 1; }
+      check wait_for 30 is "send_$agent" status idle || { kanna read "send_$agent"; return 1; }
+    done
   done
   stop_agents
 }

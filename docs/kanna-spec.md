@@ -71,6 +71,7 @@ flowchart TB
 |---|---|
 | [The kanna CLI](specs/cli.md) | A port of kmux's CLI; where it differs; reaching Kanna; errors and exit codes |
 | [Commands](specs/commands.md) | Every command and option; `send-key` |
+| [kanna send](specs/kanna-send.md) | Return pressed on its own, after a bracketed paste, so agents submit |
 | [Sizing and arranging panes](specs/arranging-panes.md) | Fractions, the layout expression, `kanna.yaml` |
 | [Mux backends](specs/backends.md) | kmux, tmux, cmux; choosing one; the adapter interface; open questions |
 | [Instances](specs/instances.md) · [build channels](specs/build-channels.md) | Separate Kannas for developing Kanna |
