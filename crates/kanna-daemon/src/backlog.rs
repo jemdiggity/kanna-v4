@@ -654,6 +654,46 @@ impl Backlog {
         Ok(Map::from_iter([("task".to_string(), value)]))
     }
 
+    fn name(self: &Rc<Self>, args: &Value, responder: Responder) {
+        let Some(core) = self.core.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
+        let Some(reference) = string(args, "task") else { return responder.reply(Err(bad("say which task"))) };
+        let Some(name) = string(args, "name").map(str::trim).filter(|n| !n.is_empty()).map(String::from) else { return responder.reply(Err(bad("a task needs a name"))) };
+        let waiting = self.entries.borrow().iter().find(|e| e.id == reference).cloned();
+        let Some(entry) = waiting else {
+            let running = self.running.borrow().iter().find(|r| r.entry.id == reference).map(|r| r.pane.clone());
+            let Some(pane) = running else { return responder.reply(Err(KmuxError::new("not_found", format!("no task \"{reference}\" in the backlog or on the Shelf")))) };
+            let id = reference.to_string();
+            return core.handle(json!({ "cmd": "rename-pane", "args": { "pane": pane, "name": name } }), move |reply| match failed(&reply) {
+                Some(error) => responder.reply(Err(error)),
+                None => responder.reply(Ok(Map::from_iter([("task".to_string(), json!({ "id": id, "name": name, "pane": pane }))]))),
+            });
+        };
+        let (by, label, held) = (who(args).map(String::from), name.clone(), entry.held.clone().filter(|pane| core.pane(pane).is_some()));
+        let this = Rc::downgrade(self);
+        let rename = move |reply: Value| {
+            let Some(this) = this.upgrade() else { return };
+            if let Some(error) = failed(&reply) {
+                return responder.reply(Err(error));
+            }
+            let old = entry.name.clone();
+            let entry = Entry { name: Some(name), ..entry };
+            let change = Change::new("renamed").by(by.as_deref()).with("from", opt(old.as_deref()));
+            if let Err(error) = this.store(&entry, Place::Backlog, entry.held.as_deref(), Some(change)) {
+                return responder.reply(Err(error));
+            }
+            let value = this.described(&entry);
+            if let Some(found) = this.entries.borrow_mut().iter_mut().find(|e| e.id == entry.id) {
+                found.name = entry.name.clone();
+            }
+            this.changed();
+            responder.reply(Ok(Map::from_iter([("task".to_string(), value)])));
+        };
+        match held {
+            Some(pane) => core.handle(json!({ "cmd": "rename-pane", "args": { "pane": pane, "name": label } }), rename),
+            None => rename(json!({ "ok": true })),
+        }
+    }
+
     fn store(&self, entry: &Entry, place: Place, pane: Option<&str>, change: Option<Change>) -> Result<(), KmuxError> {
         self.db.put(&entry.row(place, pane), change.as_ref()).map_err(|error| {
             eprintln!("kanna-daemon: couldn't save {} in {}: {error}", entry.id, db::FILE);
@@ -925,6 +965,7 @@ impl Backlog {
                 match args.get("action").and_then(Value::as_str) {
                     Some("new") => responder.reply(this.add(&args)),
                     Some("edit") => responder.reply(this.edit(&args)),
+                    Some("name") => this.name(&args, responder),
                     Some("list") => responder.reply(Ok(this.list(&args))),
                     Some("done") => this.remove(&args, responder),
                     Some("start") => this.start(&args, responder),
@@ -937,7 +978,7 @@ impl Backlog {
                         this.moved(&args, who(&args));
                         responder.reply(Ok(Map::new()))
                     }
-                    _ => responder.reply(Err(bad("backlog needs an action: new, edit, list, done, start, stop, shelve, defer, plan, events or moved"))),
+                    _ => responder.reply(Err(bad("backlog needs an action: new, edit, name, list, done, start, stop, shelve, defer, plan, events or moved"))),
                 }
             }),
         );
@@ -1311,8 +1352,15 @@ impl Backlog {
             let mut ran = entry.clone();
             ran.folder = Some(folder.clone());
             ran.session = ran.session.or(session);
+            let renamed = this.entries.borrow().iter().find(|e| e.id == ran.id).map(|e| e.name.clone()).filter(|now| *now != ran.name);
             if let Some(core) = weak.upgrade() {
                 core.set_command(&pane, ran.command(None));
+                if let Some(Some(now)) = &renamed {
+                    core.handle(json!({ "cmd": "rename-pane", "args": { "pane": pane, "name": now } }), |_| {});
+                }
+            }
+            if let Some(now) = renamed {
+                ran.name = now;
             }
             if backlog {
                 return this.running_here(pane, ran, branch, by, responder);

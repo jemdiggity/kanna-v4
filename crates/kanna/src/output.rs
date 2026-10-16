@@ -196,7 +196,7 @@ pub fn task(request: &Value, reply: &Value) -> String {
             reply["task"]["id"].as_str().unwrap_or("?"),
             if reply["running"] == Value::Bool(false) { "stopped" } else { "still running" }
         ),
-        Some("name") => format!("named {} \"{}\"", request["pane"].as_str().unwrap_or("?"), request["name"].as_str().unwrap_or("")),
+        Some("name") => format!("named {} \"{}\"", request["task"].as_str().or(request["pane"].as_str()).unwrap_or("?"), request["name"].as_str().unwrap_or("")),
         Some("done") => format!("{} is done: closed {}{}", request["task"].as_str().unwrap_or("?"), join(&reply["closed"]), freed_lines(reply)),
         _ => String::new(),
     }

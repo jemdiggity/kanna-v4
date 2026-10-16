@@ -37,6 +37,7 @@ A backlog task runs by itself, unattended, until its agent finishes or has to as
 4. **Read it back** to the user in short (name, what it does, the decisions, how it's done), and make it once they agree.
 
 - **Name:** two to five words, what the work is ("Fix login redirect").
+- **To change a task, make a new one:** a backlog task's first message never changes, only its name (`kanna task name TASK NAME`). If what it says has to change, make a new task with the new first message and take the old one off with `kanna task done TASK`.
 - **One task, one agent's work:** if two tasks touch the same files, say so in both, or make one wait for the other.
 
 ## Show it in a tab
@@ -67,6 +68,7 @@ Run the `kanna` on your PATH, from this terminal, as it is: its `KANNA_*` variab
 | `kanna task list [QUERY]` | Every task: ID, name, where it is, its state (working, idle, needs you, stopped, or blocked, with what it waits for), repo; QUERY keeps those whose name or first message has every word |
 | `kanna task new NAME [FIRST-MESSAGE] [--agent CMD] [--after TASK,...]` | Add a task to this repo's backlog; `--after`: blocked until those tasks are done |
 | `kanna task edit TASK --after TASK,...\|none` | Change what a backlog task waits for; `none` unblocks it |
+| `kanna task name TASK NAME` | Rename a task, running or waiting in the backlog; a backlog task starts with the new name |
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, branch and agent with the first message, and stays in the backlog; a stopped task resumes |
 | `kanna task stop TASK` | End a task's agent and tabs, leaving it where it is, its worktree and conversation kept |
 | `kanna task shelve TASK` | Move a backlog task to the Shelf, starting it if it's stopped (three per repo) |

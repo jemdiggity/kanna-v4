@@ -745,9 +745,9 @@ function run(t, line) {
     return render();
   }
   if (cmd === "task" && sub === "name") {
-    const quoted = line.match(/"([^"]*)"/);
-    t.title = quoted ? quoted[1] : words.slice(3).join(" ");
-    say(`named ${t.id} "${t.title}"`);
+    const quoted = line.match(/"([^"]*)"/), named = task(words[3]) && (quoted || words.length > 4) ? task(words[3]) : t;
+    named.title = quoted ? quoted[1] : words.slice(named === t ? 3 : 4).join(" ");
+    say(`named ${named.id} "${named.title}"${named.backlog ? " in the backlog" : ""}`);
     return render();
   }
   if (cmd === "task" && sub === "list") {

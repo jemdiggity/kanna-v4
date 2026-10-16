@@ -205,6 +205,7 @@ fn wire(command: &Command, request: &Value) -> &'static str {
         "task" if ["new", "edit", "start", "stop", "shelve", "defer"].contains(&request["action"].as_str().unwrap_or("")) => "backlog",
         "task" if request["action"] == "done" && request["task"].as_str().is_some_and(commands::is_backlog_task) => "backlog",
         "task" if request["action"] == "done" => "close",
+        "task" if request["action"] == "name" && request.get("task").is_some() => "backlog",
         "task" if request["action"] == "name" => "rename-pane",
         name => name,
     }
