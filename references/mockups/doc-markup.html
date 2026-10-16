@@ -276,7 +276,7 @@ function renderTerm() {
       return;
     }
     lines.push(...pasted(t), ``);
-    if (t.status === "replied") lines.push(`<span class="a">●</span> Updated docs/specs/tab-container.md`, `  kanna doc reply ${t.id} "${t.messages[t.messages.length - 1].text}"`, ...(t.state === "resolved" ? [`  kanna doc resolve ${t.id}`] : []), ``);
+    if (t.status === "replied") lines.push(`<span class="a">●</span> Updated docs/specs/tab-container.md`, `  kanna markup reply ${t.id} "${t.messages[t.messages.length - 1].text}"`, ...(t.state === "resolved" ? [`  kanna markup resolve ${t.id}`] : []), ``);
   });
   if (s.agent === "busy") lines.push(`<span class="a">●</span> Running the e2e suite for the tab strip…`, ``);
   if (s.agent === "needs") lines.push(`<span class="w">Do you want to run cargo test?</span>`, `  <span class="p">❯</span> 1. Yes`, `    2. No`, ``);
