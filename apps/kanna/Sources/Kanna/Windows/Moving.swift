@@ -38,7 +38,7 @@ extension AppController {
             hint.show(window.convertToScreen(bar.convert(frame, to: nil)), text: tab == nil ? "+" : "")
             return tab.map(Drop.tab) ?? .newTab(window: controller.id)
         }
-        for view in panes.all where view.window === window && view.superview != nil && view.id != id {
+        for view in panes.all where view.window === window && view.superview != nil && !view.isHiddenOrHasHiddenAncestor && view.id != id {
             let p = view.convert(inWindow, from: nil), b = view.bounds
             guard b.contains(p) else { continue }
             if frozen(view.id) {

@@ -91,7 +91,7 @@ Through `kanna_layout_call`, besides `serve`, `attach`, `save` and the rest of [
 
 ## 4. Terminal views
 
-A terminal's surface is made the first time its pane is on screen, and stays (attached to the daemon, drawing its output) until the pane leaves the layout, so switching tabs shows a live screen at once; a terminal in a tab never shown since launch keeps the size its pty has. Web, markdown and iOS views start when the daemon says `start` ([app panes](app-panes.md)) and are placed when shown. How the surfaces behave: [terminal](terminal.md).
+A terminal's surface is made the first time its pane is on screen, and stays (attached to the daemon, drawing its output) until the pane leaves the layout, so switching tabs shows a live screen at once; a terminal in a tab never shown since launch keeps the size its pty has. A Desk window also holds, hidden and attached, the agent of each of its project's tasks on the Shelf or running in the backlog, at the size it would have on the Desk, so it runs at that size ([pane sizes](pane-sizes.md)). Web, markdown and iOS views start when the daemon says `start` ([app panes](app-panes.md)) and are placed when shown. How the surfaces behave: [terminal](terminal.md).
 
 ## 5. Debug commands
 

@@ -205,6 +205,12 @@ extension AppController {
         }
     }
 
+    func runningBacklog(in root: String?) -> [JSON] {
+        backlog.filter { $0["running"]?.bool == true && (root == nil || $0["repo"]?.string.map(canonical) == root) }.compactMap { entry in
+            entry["held"]?.string.map { ["task": .string($0), "type": "term"] }
+        }
+    }
+
     func runningTasks(in root: String?) -> Int {
         let docked = windows.compactMap { $0["dock"]?["pane"]?.string } + shelfEntries.compactMap { $0["task"]?.string }
         return docked.filter { root == nil || projectRoot($0) == root }.count

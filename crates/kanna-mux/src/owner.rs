@@ -242,6 +242,8 @@ impl LayoutOwner {
                     "task": parked.id,
                     "type": self.panes.get(&parked.id).map_or("term", |p| p.kind.as_str()),
                     "parkedAt": parked.parked_at.map_or(Value::Null, num),
+                    "edge": parked.dock.as_ref().map_or(Value::Null, |d| d.edge.as_str().into()),
+                    "width": parked.dock.as_ref().map_or(Value::Null, |d| num(d.width)),
                     "tabs": parked.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>(),
                     "name": self.panes.get(&parked.id).and_then(|p| p.name.clone()).map_or(Value::Null, Value::String),
                     "panes": parked.tabs.iter().flat_map(|t| crate::model::pane_ids(t.root.as_ref())).chain(parked.dock.iter().map(|d| d.pane.clone())).collect::<Vec<_>>(),
@@ -639,6 +641,7 @@ mod tests {
         assert_eq!((empty["desk"].clone(), empty["dock"].clone(), empty["tabs"].clone()), (json!(true), Value::Null, json!([])));
         assert_eq!(owner.view()["shelf"][0]["task"], "p1");
         assert_eq!(owner.view()["shelf"][0]["tabs"], json!(["Tab 1", "Tab 2"]));
+        assert_eq!((owner.view()["shelf"][0]["edge"].clone(), owner.view()["shelf"][0]["width"].clone()), (json!("left"), json!(0.3)), "a parked task keeps its dock's edge and width");
         assert_eq!(owner.handle(&json!({ "call": "attach", "panes": table(&["p1", "p2", "p3"]) }))["placed"], json!([]));
         owner.save().unwrap();
 

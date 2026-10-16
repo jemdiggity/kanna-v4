@@ -173,6 +173,7 @@ p = [p for p in json.load(sys.stdin)["panes"] if sys.argv[1] in (p.get("name"), 
 print(json.dumps(p.get(sys.argv[2])) if isinstance(p.get(sys.argv[2]), (dict, list)) else p.get(sys.argv[2]))' "$1" "$2"
 }
 shows() { kanna read "$1" | grep -q -- "$2"; }
+unwrapped() { kanna read "$1" | tr -d '\r\n' | grep -qF -- "$2"; }
 is() { [[ "$(pane "$1" "$2")" == "$3" ]]; }
 check() { "$@" || { echo "failed: $*"; return 1; }; }
 layout() { kanna list --json | field windows.0.tabs.0.layout; }
@@ -2785,7 +2786,7 @@ for t in tasks: print(t["id"], "running" if t.get("running") else "stopped:" + (
   local asks sid; asks="$(of t2 3)" sid="$(of t1 4)"
   [[ "$sid" =~ ^[0-9a-f-]{36}$ && "$(kanna read "$(of t1 3)")" == *$'\n'"session $sid"$'\n'* ]] || { echo "backlog_runners: t1's session isn't the one it started ($sid)"; kanna read "$(of t1 3)"; return 1; }
   sid="$(of t2 4)"
-  [[ "$sid" =~ ^[0-9a-f-]{36}$ ]] && shows "$asks" "To continue this session, run: codex resume $sid" || { echo "backlog_runners: the session codex said as it quit wasn't recorded ($sid)"; backlog; kanna read "$asks"; return 1; }
+  [[ "$sid" =~ ^[0-9a-f-]{36}$ ]] && unwrapped "$asks" "To continue this session, run: codex resume $sid" || { echo "backlog_runners: the session codex said as it quit wasn't recorded ($sid)"; backlog; kanna read "$asks"; return 1; }
   check is "$asks" state exited || { echo "backlog_runners: the stopped agent still runs"; return 1; }
   in_repo task list | grep -qE '^t2 +Asks +Backlog +stopped +made ' || { echo "backlog_runners: task list shows how far a backlog task got"; in_repo task list; return 1; }
   raw '{"id":1,"cmd":"backlog","args":{"action":"events","task":"t2"}}' | grep -q '"why": *"needs-you"' || { echo "backlog_runners: why t2 stopped isn't in its events"; return 1; }
@@ -2797,7 +2798,7 @@ for t in tasks: print(t["id"], "running" if t.get("running") else "stopped:" + (
   check wait_for 10 eval '[[ "$(of t3 2)" != waiting ]]' || { echo "backlog_runners: the blocked task didn't run once it was free"; backlog; return 1; }
   [[ "$(kanna task shelve t2)" == "moved t2 to the Shelf: "* ]] || { echo "backlog_runners: the stopped task didn't move to the Shelf"; return 1; }
   check wait_for 10 shows "$asks" "resumed $sid" || { echo "backlog_runners: the stopped task didn't resume its session on the Shelf"; kanna read "$asks"; return 1; }
-  shows "$asks" "args: --yolo --no-daemon resume $sid" || { kanna read "$asks"; return 1; }
+  unwrapped "$asks" "args: --yolo --no-daemon resume $sid" || { kanna read "$asks"; return 1; }
   sleep 6
   check is "$asks" state running || { echo "backlog_runners: a task on the Shelf was stopped"; return 1; }
   [[ "$(kanna task defer "$asks")" == *"to the backlog as t2"* ]] || { echo "backlog_runners: the resumed task didn't move back to the backlog"; return 1; }
@@ -2846,6 +2847,60 @@ ids.update({p["id"]: p["id"] for p in listed["panes"]})
 w = next(w for w in listed["windows"] if ids.get((w.get("dock") or {}).get("pane")) == sys.argv[1])
 print(len(w["tabs"]), ids.get(w.get("focused")), ids.get(w.get("zoomed")))' "$presenter"; }
   check test "$(shown)" == "3 $md $md" || { echo "backlog_runners: the pulled task doesn't show what it presented: $(shown)"; state; return 1; }
+}
+
+scenario pane_sizes M4
+pane_sizes() {
+  local repo="$KANNA_STATE_DIR/repo" want
+  mkdir -p "$repo" && git -C "$repo" init -q -b main && git -C "$repo" -c user.email=e@e -c user.name=e commit -q --allow-empty -m first || { echo "pane_sizes line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  sizer() {
+    cat >"$KANNA_STATE_DIR/$1" <<PY
+#!/usr/bin/env python3
+import os, signal, time
+def draw(*_):
+    cols, rows = os.get_terminal_size(0)
+    open("$KANNA_STATE_DIR/$1.sizes", "a").write(f"{rows}x{cols}\n")
+    os.write(1, f"\033[?1049h\033[2J\033[H{rows}x{cols}".encode())
+signal.signal(signal.SIGWINCH, draw)
+draw()
+while True: time.sleep(1)
+PY
+    chmod +x "$KANNA_STATE_DIR/$1"
+  }
+  sizer docked && sizer shelved && sizer backlogged
+  saw() { sort -u "$KANNA_STATE_DIR/$1.sizes" 2>/dev/null | xargs; }
+  view() { echo "$(terminal rows "{\"pane\":\"$1\"}")x$(terminal cols "{\"pane\":\"$1\"}")"; }
+  only() { [[ "$(saw docked)" == "$1" && "$(saw shelved)" == "$1" ]]; }
+  start_daemon && start_app || { echo "pane_sizes line $LINENO"; return 1; }
+  kanna open --name docked --dock --window new --cwd "$repo" --cmd "$KANNA_STATE_DIR/docked" >/dev/null || { echo "pane_sizes line $LINENO"; return 1; }
+  (cd "$repo" && kanna task new Shelved "go" --agent "$KANNA_STATE_DIR/shelved") >/dev/null && kanna task shelve t1 >/dev/null || { echo "pane_sizes line $LINENO"; return 1; }
+  check wait_for 10 eval '[[ -s "$KANNA_STATE_DIR/docked.sizes" && -s "$KANNA_STATE_DIR/shelved.sizes" ]]' || { echo "pane_sizes: the programs didn't start"; return 1; }
+  sleep 1; want="$(view docked)"
+  [[ "$want" =~ ^[0-9]+x[0-9]+$ && "$want" != 24x80 ]] || { echo "pane_sizes: the docked pane is $want"; return 1; }
+  check only "$want" || { echo "pane_sizes: the agents saw $(saw docked) and $(saw shelved), not only the Desk's $want"; return 1; }
+  (cd "$repo" && kanna task new Backlogged "go" --agent "$KANNA_STATE_DIR/backlogged") >/dev/null && kanna task start t2 >/dev/null || { echo "pane_sizes line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(tail -1 "$KANNA_STATE_DIR/backlogged.sizes" 2>/dev/null)" == "$want" ]]' || { echo "pane_sizes: the agent running in the backlog is $(tail -1 "$KANNA_STATE_DIR/backlogged.sizes" 2>/dev/null), not the Desk's $want"; return 1; }
+  stop_app; start_app || { echo "pane_sizes line $LINENO"; return 1; }
+  sleep 2
+  check only "$want" || { echo "pane_sizes: after a relaunch the agents saw $(saw docked) and $(saw shelved), not only $want"; return 1; }
+  stop_daemon; start_daemon || { echo "pane_sizes line $LINENO"; return 1; }
+  check wait_for 10 app_attached && sleep 2 || { echo "pane_sizes line $LINENO"; return 1; }
+  check only "$want" || { echo "pane_sizes: after a daemon restart the agents saw $(saw docked) and $(saw shelved), not only $want"; return 1; }
+  stop_app; stop_daemon; start_daemon || { echo "pane_sizes line $LINENO"; return 1; }
+  kanna restart Shelved >/dev/null || { echo "pane_sizes line $LINENO"; return 1; }
+  check wait_for 5 is Shelved state running && sleep 1 || { echo "pane_sizes line $LINENO"; return 1; }
+  check only "$want" || { echo "pane_sizes: started again with no app, the Shelf's agent saw $(saw shelved), not $want"; return 1; }
+  start_app && sleep 2 || { echo "pane_sizes line $LINENO"; return 1; }
+  check only "$want" || { echo "pane_sizes: back with the app, the agents saw $(saw docked) and $(saw shelved), not only $want"; return 1; }
+  raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1","size":[1100,700]}}' >/dev/null; sleep 1
+  local wider; wider="$(view docked)"
+  [[ "$wider" != "$want" ]] || { echo "pane_sizes: a bigger window left the docked pane $want"; return 1; }
+  last() { tail -1 "$KANNA_STATE_DIR/$1.sizes"; }
+  check wait_for 5 eval '[[ "$(last docked):$(last shelved):$(last backlogged)" == "$wider:$wider:$wider" ]]' || { echo "pane_sizes: in a bigger window the agents are $(last docked), $(last shelved) and $(last backlogged), not $wider"; return 1; }
+  kanna task pull Shelved >/dev/null && sleep 1 || { echo "pane_sizes line $LINENO"; return 1; }
+  check test "$(view Shelved)" == "$wider" || { echo "pane_sizes: pulled onto the Desk, the agent's view is $(view Shelved), not $wider"; return 1; }
+  check test "$(tail -1 "$KANNA_STATE_DIR/shelved.sizes")" == "$wider" || return 1
 }
 
 for s in ${only[@]+"${only[@]}"}; do due "$s" >/dev/null || { echo "e2e-kanna: no scenario named $s (see --help)" >&2; exit 2; }; done
