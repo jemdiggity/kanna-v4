@@ -103,6 +103,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             daemon.helloPanes = { [weak self] in self?.helloPanes() ?? [] }
             daemon.onStart = { [weak self] pane in self?.startContent(pane) }
             daemon.onStop = { [weak self] pane in self?.contents.stop(pane) }
+            daemon.onDiff = { [weak self] pane, message in self?.contents.received(diff: message, for: pane) }
             daemon.onPane = { [weak self] pane in self?.learn(pane) }
             daemon.onExited = { [weak self] pane, code in self?.panes.exited(pane, code: code) }
             daemon.onSnapshot = { [weak self] pane in self?.panes.restarted(pane) }
@@ -123,6 +124,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         panes.onDrag = { [weak self] pane in self?.dragPane(pane) }
         panes.contextMenu = { [weak self] in self?.paneMenu?.copy() as? NSMenu }
         contents.onFocus = { [weak self] pane in self?.userFocused(pane) }
+        contents.agentStatus = { [weak self] pane in self?.agentStatuses.statuses[pane] }
         contents.contextMenu = { [weak self] in self?.paneMenu?.copy() as? NSMenu }
         runtime.onAction = { [weak self] view, action in
             guard let self, let id = panes.id(of: view) else { return false }
@@ -261,6 +263,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     private var placed: Set<String> {
         var ids = Set<String>()
+        if case .array(let held)? = state["held"] { ids.formUnion(held.compactMap(\.string)) }
         for entry in shelfEntries {
             guard case .array(let list)? = entry["panes"] else { continue }
             ids.formUnion(list.compactMap(\.string))
@@ -301,7 +304,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func learn(_ pane: JSON) {
-        _ = appLayout?.call(["call": "pane", "pane": pane])
+        let reply = appLayout?.call(["call": "pane", "pane": pane])
+        if reply?["changed"]?.bool == true { refresh() }
         scheduleSave()
     }
 

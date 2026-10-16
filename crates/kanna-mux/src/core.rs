@@ -4,7 +4,7 @@ use crate::instance::{Instance, DEFAULT_NAME};
 use crate::json::{is_true, json, num, string, Map, Value};
 use crate::layout::{place_request, scope_request, Edge, LayoutHost, LayoutLink, LocalLayout, Scope, SplitSide};
 use crate::model::{fraction, Model};
-use crate::pane::{Comment, Pane, PaneState, PaneType, Panes};
+use crate::pane::{read_diff_args, read_view, Comment, Pane, PaneState, PaneType, Panes};
 use crate::state;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
@@ -284,6 +284,50 @@ impl CoreHandle {
         self.0.exec.run();
     }
 
+    pub fn hang_up(&self, task: &str, done: impl FnOnce(Result<Vec<String>, KmuxError>) + 'static) {
+        let core = self.clone();
+        let task = task.to_string();
+        self.0.exec.spawn(Box::pin(async move { done(core.hung_up(&task).await) }));
+        self.0.exec.run();
+    }
+
+    pub fn wake(&self, task: &str, done: impl FnOnce(Result<Vec<String>, KmuxError>) + 'static) {
+        let core = self.clone();
+        let task = task.to_string();
+        self.0.exec.spawn(Box::pin(async move { done(core.woken(&task).await) }));
+        self.0.exec.run();
+    }
+
+    async fn terminals_of(&self, task: &str, keep: impl Fn(&Pane) -> bool) -> Result<Vec<String>, KmuxError> {
+        let found = self.layout(scope_request(&Scope::Task(task.into()))).await?;
+        let s = self.state();
+        let ids = found.get("panes").and_then(Value::as_array).cloned().unwrap_or_default();
+        Ok(ids.iter().filter_map(Value::as_str).filter(|id| *id != task).filter(|id| s.panes.get(id).is_some_and(|p| p.kind == PaneType::Term && keep(p))).map(String::from).collect())
+    }
+
+    async fn hung_up(&self, task: &str) -> Result<Vec<String>, KmuxError> {
+        let live = self.terminals_of(task, |p| matches!(p.state, PaneState::Starting | PaneState::Running)).await?;
+        for id in &live {
+            self.with_pane_mut(id, |pane| pane.hung_up = true);
+        }
+        self.changed();
+        for id in &live {
+            self.ended(id).await?;
+        }
+        Ok(live)
+    }
+
+    async fn woken(&self, task: &str) -> Result<Vec<String>, KmuxError> {
+        let held = self.terminals_of(task, |p| p.hung_up && !matches!(p.state, PaneState::Starting | PaneState::Running)).await?;
+        for id in &held {
+            let snapshot = self.reload(id, true).await;
+            if let Err(error) = self.check_started(id, &snapshot) {
+                eprintln!("kanna-mux: {} didn't start again: {}", snapshot.label(), error.message);
+            }
+        }
+        Ok(held)
+    }
+
     async fn ended(&self, id: &str) -> Result<(), KmuxError> {
         let live = |core: &CoreHandle| core.state().panes.get(id).is_some_and(|p| matches!(p.state, PaneState::Starting | PaneState::Running));
         let pane = self.need_pane(Some(id))?;
@@ -546,9 +590,17 @@ impl CoreHandle {
         if kind == PaneType::Code && empty("path") {
             return Err(bad_request("code panes need a path"));
         }
-        if args.get("path").is_some() && !matches!(kind, PaneType::Md | PaneType::Code) {
-            return Err(bad_request("path is only for markdown and code panes"));
+        if kind == PaneType::Diff && empty("path") {
+            return Err(bad_request("diff panes need a path: the folder git runs in"));
         }
+        if args.get("path").is_some() && !matches!(kind, PaneType::Md | PaneType::Code | PaneType::Diff) {
+            return Err(bad_request("path is only for markdown, code and diff panes"));
+        }
+        if (args.get("args").is_some() || args.get("view").is_some()) && kind != PaneType::Diff {
+            return Err(bad_request("args and view are only for diff panes"));
+        }
+        let diff = read_diff_args(args.get("args"))?;
+        let view = read_view(args.get("view"))?;
         if args.get("line").is_some() && kind != PaneType::Code {
             return Err(bad_request("line is only for code panes"));
         }
@@ -617,13 +669,14 @@ impl CoreHandle {
         }
         let id = self.state().panes.next_id();
         let placeless = !new_tab && !planner && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none();
-        let from = string(args, "from").filter(|_| placeless).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
+        let opener = string(args, "from").filter(|_| !planner && dock.is_none() && args.get("window").is_none()).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
+        let from = opener.clone().filter(|_| placeless);
         let cwd = match string(args, "cwd") {
             Some(cwd) => Some(cwd.to_string()),
-            None if kind == PaneType::Term && dock.is_none() && !planner => self.task_folder(from.as_deref(), string(args, "window")).await,
+            None if kind == PaneType::Term && dock.is_none() && !planner => self.task_folder(opener.as_deref(), string(args, "window")).await,
             None => None,
         };
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), shelf, backlog, planner)).await?;
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), opener.as_deref(), shelf, backlog, planner)).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();
@@ -641,6 +694,10 @@ impl CoreHandle {
             pane.markup = is_true(args, "markup");
             if kind == PaneType::Code {
                 pane.comment = args.get("comment").and_then(Comment::from_json);
+            }
+            if kind == PaneType::Diff {
+                pane.diff = Some(diff.unwrap_or_default());
+                pane.view = view;
             }
             if (kind == PaneType::Web && is_true(args, "history")) || matches!(kind, PaneType::Md | PaneType::Code) {
                 pane.history = Some(Default::default());
@@ -880,6 +937,7 @@ impl CoreHandle {
         if let Some(pane) = self.state().panes.get_mut(id) {
             pane.state = PaneState::Starting;
             pane.pid = None;
+            pane.hung_up = false;
             if clear_exit {
                 pane.exit_code = None;
             }
@@ -958,7 +1016,12 @@ impl CoreHandle {
             None
         };
         let mut changed = pane.clone();
-        if matches!(pane.kind, PaneType::Md | PaneType::Code) {
+        if pane.kind == PaneType::Diff {
+            if step.is_some() {
+                return Err(bad_request("a diff pane keeps no history"));
+            }
+            changed.diff = Some(read_diff_args(args.get("args"))?.unwrap_or_default());
+        } else if matches!(pane.kind, PaneType::Md | PaneType::Code) {
             let code = pane.kind == PaneType::Code;
             if !code && args.get("line").is_some() {
                 return Err(bad_request("line is only for code panes"));
@@ -987,7 +1050,7 @@ impl CoreHandle {
             if pane.kind != PaneType::Web {
                 return Err(KmuxError::new(
                     "wrong_type",
-                    format!("{} is a {} pane; navigate only works on web, markdown and code panes", pane.label(), pane.kind.as_str()),
+                    format!("{} is a {} pane; navigate only works on web, markdown, code and diff panes", pane.label(), pane.kind.as_str()),
                 ));
             }
             if let Some(step) = step {
@@ -1013,6 +1076,7 @@ impl CoreHandle {
             pane.path = changed.path;
             pane.line = changed.line;
             pane.url = changed.url;
+            pane.diff = changed.diff;
         }
         let snapshot = self.reload(&pane.id, false).await;
         Ok(reply([("pane", self.summary(&pane.id, &snapshot))]))

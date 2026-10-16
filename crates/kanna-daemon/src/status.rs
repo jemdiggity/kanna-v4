@@ -2,6 +2,7 @@ use crate::reader::Feed;
 use crate::Event;
 use kanna_detect::program::{self, Program, Version};
 use kanna_detect::{Screen, Status, Store, Tracker, Verdict};
+use kanna_vt::{ProgramState, ProgramStatus};
 use std::collections::HashMap;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,6 +25,8 @@ struct Watch {
     looked: Option<Instant>,
     tracker: Tracker,
     fresh: bool,
+    group: Option<i32>,
+    reported: Option<ProgramState>,
 }
 
 struct Shared {
@@ -45,6 +48,20 @@ pub struct Explained {
     pub executable: Option<String>,
     pub verdict: Option<Verdict>,
     pub screen: Screen,
+    pub reported: Option<ProgramStatus>,
+    pub records: Vec<ProgramStatus>,
+}
+
+pub fn from_record(state: ProgramState) -> Status {
+    match state {
+        ProgramState::Working => Status::Working,
+        ProgramState::Blocked => Status::NeedsYou,
+        ProgramState::Idle | ProgramState::Done | ProgramState::Error => Status::Idle,
+    }
+}
+
+pub fn turn_ended(before: Option<ProgramState>, now: ProgramState) -> bool {
+    before == Some(ProgramState::Working) && matches!(now, ProgramState::Idle | ProgramState::Done)
 }
 
 impl Detector {
@@ -60,7 +77,7 @@ impl Detector {
     }
 
     pub fn watch(&self, pane: &str, serial: u64, feed: Arc<Mutex<Feed>>, master: OwnedFd) {
-        let watch = Watch { serial, feed, master, program: None, version: None, version_known: false, generation: 0, looked: None, tracker: Tracker::default(), fresh: true };
+        let watch = Watch { serial, feed, master, program: None, version: None, version_known: false, generation: 0, looked: None, tracker: Tracker::default(), fresh: true, group: None, reported: None };
         lock(&self.shared.watches).insert(pane.into(), watch);
         self.poke();
     }
@@ -75,7 +92,11 @@ impl Detector {
     pub fn explain(&self, pane: &str) -> Option<Explained> {
         let watches = lock(&self.shared.watches);
         let watch = watches.get(pane)?;
-        let screen = lock(&watch.feed).status_screen_peek();
+        let feed = lock(&watch.feed);
+        let screen = feed.status_screen_peek();
+        let records = feed.program_statuses();
+        let reported = watch.program.as_ref().and(feed.reported(program::foreground_group(watch.master.as_raw_fd())));
+        drop(feed);
         let rules = self.shared.store.rules();
         let agent = watch.program.as_ref().map(|p| p.agent.clone());
         let verdict = agent.as_deref().and_then(|a| rules.evaluate(a, &screen, watch.version.as_deref()));
@@ -84,6 +105,8 @@ impl Detector {
             executable: watch.program.as_ref().and_then(|p| p.executable.as_ref()).map(|p| p.display().to_string()),
             verdict,
             screen,
+            reported,
+            records,
         })
     }
 
@@ -128,9 +151,16 @@ fn tick(shared: &Shared, now: Instant) -> (bool, Option<Instant>) {
     let mut due: Option<Instant> = None;
     for (pane, watch) in watches.iter_mut() {
         let serial = watch.serial;
-        let send = |status: Option<Status>| {
-            let _ = shared.events.send(Event::Status { pane: pane.clone(), serial, status: status.map(Status::as_str) });
+        let send = |status: Option<Status>, ended: bool| {
+            let _ = shared.events.send(Event::Status { pane: pane.clone(), serial, status: status.map(Status::as_str), ended });
         };
+        let group = program::foreground_group(watch.master.as_raw_fd());
+        if group != watch.group {
+            if watch.group.is_some() {
+                lock(&watch.feed).foreground_changed(group);
+            }
+            watch.group = group;
+        }
         if watch.looked.is_none_or(|t| now.duration_since(t) >= LOOK_EVERY) {
             watch.looked = Some(now);
             let found = program::foreground_group(watch.master.as_raw_fd()).and_then(|group| program::identify(group, &rules));
@@ -142,8 +172,9 @@ fn tick(shared: &Shared, now: Instant) -> (bool, Option<Instant>) {
                 watch.version_known = false;
                 watch.tracker = Tracker::default();
                 watch.fresh = true;
+                watch.reported = None;
                 if had && watch.program.is_none() {
-                    send(None);
+                    send(None, false);
                 }
             }
         }
@@ -162,6 +193,20 @@ fn tick(shared: &Shared, now: Instant) -> (bool, Option<Instant>) {
             watch.fresh = true;
         }
         let mut feed = lock(&watch.feed);
+        if let Some(record) = feed.reported(group) {
+            feed.settle();
+            drop(feed);
+            watch.fresh = false;
+            let ended = turn_ended(watch.reported.replace(record.state), record.state);
+            let changed = watch.tracker.set(from_record(record.state));
+            if changed.is_some() || ended {
+                send(watch.tracker.status(), ended);
+            }
+            continue;
+        }
+        if watch.reported.take().is_some() {
+            watch.fresh = true;
+        }
         let activity = feed.activity();
         let recheck = watch.tracker.recheck();
         let pending = activity.dirty_since.is_some() || watch.fresh || recheck.is_some_and(|t| now >= t);
@@ -175,9 +220,34 @@ fn tick(shared: &Shared, now: Instant) -> (bool, Option<Instant>) {
         watch.fresh = false;
         let verdict = agent.evaluate(&screen, watch.version.as_deref());
         if let Some(status) = watch.tracker.judge(verdict.status, now) {
-            send(Some(status));
+            send(Some(status), false);
         }
         due = due.into_iter().chain(watch.tracker.recheck()).min();
     }
     (any, due)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_record_maps_to_a_status() {
+        assert_eq!(from_record(ProgramState::Working), Status::Working);
+        assert_eq!(from_record(ProgramState::Blocked), Status::NeedsYou);
+        for state in [ProgramState::Idle, ProgramState::Done, ProgramState::Error] {
+            assert_eq!(from_record(state), Status::Idle);
+        }
+    }
+
+    #[test]
+    fn working_to_idle_or_done_ends_the_turn() {
+        use ProgramState::*;
+        assert!(turn_ended(Some(Working), Idle));
+        assert!(turn_ended(Some(Working), Done));
+        assert!(!turn_ended(Some(Working), Error));
+        assert!(!turn_ended(Some(Working), Blocked));
+        assert!(!turn_ended(Some(Idle), Idle));
+        assert!(!turn_ended(None, Done));
+    }
 }

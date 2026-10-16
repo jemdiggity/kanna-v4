@@ -365,11 +365,18 @@ impl AppLink {
             core.page_moved(id, url);
         }
         core.with_pane_mut(id, |pane| {
+            if let Some(title) = string(args, "title").filter(|_| pane.kind == PaneType::Web) {
+                let title: String = title.chars().filter(|c| !c.is_control()).collect();
+                pane.title = Some(title.trim().to_string()).filter(|t| !t.is_empty());
+            }
             if let Some(device) = string(args, "device") {
                 pane.device = Some(device.into());
             }
             if let Some(zoom) = args.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0) {
                 pane.zoom = Some(zoom);
+            }
+            if let Some(view) = string(args, "view").filter(|v| *v == "unified" || *v == "split") {
+                pane.view = Some(view.into());
             }
         });
         if let Some(state) = string(args, "state").and_then(PaneState::parse) {
@@ -382,6 +389,10 @@ impl AppLink {
 
     pub fn show(&self, pane: &Pane) {
         self.notify("start", json!({ "pane": Value::Object(pane_record(pane)) }));
+    }
+
+    pub fn diff(&self, payload: &Value) {
+        self.notify("diff", payload.clone());
     }
 
     pub fn hide(&self, pane: &str) {

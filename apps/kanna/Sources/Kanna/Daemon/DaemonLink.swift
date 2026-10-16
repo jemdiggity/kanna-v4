@@ -18,6 +18,7 @@ final class DaemonLink: TerminalLink {
     var onStatus: ((String, String?) -> Void)?
     var onFolder: ((String, String) -> Void)?
     var onBacklog: (([JSON]) -> Void)?
+    var onDiff: ((String, JSON) -> Void)?
     private var requests = 0
     private var replies: [Int: (JSON) -> Void] = [:]
     private let starter: DaemonStarter?
@@ -133,6 +134,8 @@ final class DaemonLink: TerminalLink {
             }
         case "status":
             if let pane = args["pane"]?.string { onStatus?(pane, args["status"]?.string) }
+        case "diff":
+            if let pane = args["pane"]?.string { onDiff?(pane, args) }
         case "backlog":
             if case .array(let tasks)? = args["tasks"] { onBacklog?(tasks) }
         case "folder":

@@ -42,6 +42,7 @@ pub struct Record {
     pub exit_code: Option<i64>,
     pub pid: i64,
     pub keeper: String,
+    pub hung_up: bool,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -52,7 +53,7 @@ pub struct Saved {
 
 impl Record {
     fn to_value(&self) -> Value {
-        json!({
+        let mut out = json!({
             "id": self.id,
             "name": opt(self.name.as_deref()),
             "type": "term",
@@ -62,7 +63,11 @@ impl Record {
             "exitCode": self.exit_code.map_or(Value::Null, |c| num(c as f64)),
             "pid": num(self.pid as f64),
             "keeper": self.keeper,
-        })
+        });
+        if self.hung_up {
+            out["hungUp"] = Value::Bool(true);
+        }
+        out
     }
 
     fn from_value(value: &Value) -> Option<Record> {
@@ -80,6 +85,7 @@ impl Record {
             state: string(value, "state").and_then(PaneState::parse)?,
             exit_code: value.get("exitCode").and_then(Value::as_f64).map(|c| c as i64),
             pid: value.get("pid").and_then(Value::as_f64)? as i64,
+            hung_up: value.get("hungUp") == Some(&Value::Bool(true)),
         })
     }
 }
@@ -350,6 +356,7 @@ mod tests {
             exit_code: None,
             pid: 42,
             keeper: id.into(),
+            hung_up: false,
         }
     }
 
@@ -358,7 +365,7 @@ mod tests {
         let dir = folder("records");
         let store = Store::open(&dir).unwrap();
         let mut exited = record("p3", None);
-        (exited.state, exited.exit_code) = (PaneState::Exited, Some(3));
+        (exited.state, exited.exit_code, exited.hung_up) = (PaneState::Exited, Some(3), true);
         let saved = Saved { counter: 7, records: vec![record("p1", Some("logs")), exited] };
         store.save(&saved).unwrap();
         assert_eq!(store.load(), saved);

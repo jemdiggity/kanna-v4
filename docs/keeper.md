@@ -1,8 +1,8 @@
 # kanna-keeper — Specification
 
-> **Status:** built (`crates/kanna-keeper`), step 0.5 of [the build plan](plans/mux-build.md) · **Last updated:** 2026-10-09
+> **Status:** built (`crates/kanna-keeper`), step 0.5 of [the build plan](plans/mux-build.md) · **Last updated:** 2026-10-15
 >
-> **Related:** [kanna spec §4](kanna-spec.md#4-kannaapp), [mux architecture §8 (restarting the daemon)](research/mux-architecture.md#8-restarting-the-daemon).
+> **Related:** [architecture](specs/architecture.md), [upgrading the keeper](specs/keeper-upgrade.md), [mux architecture §8 (restarting the daemon)](research/mux-architecture.md#8-restarting-the-daemon).
 
 ## Table of Contents
 
@@ -73,11 +73,12 @@ One connection per daemon on `$KANNA_STATE_DIR/keeper.sock`. Each message is one
 
 | Request | Reply | Notes |
 |---|---|---|
-| `{"op":"hello"}` | `{"ok":true,"version":1,"pid":P}` | protocol version and the keeper's pid |
+| `{"op":"hello"}` | `{"ok":true,"version":1,"pid":P,"build":B}` | protocol version, the keeper's pid, and `build`: the SHA-256 of the binary it runs (read at start; absent from keepers that predate upgrades) |
 | `{"op":"spawn","id":ID,"command":CMD \| "shell":PATH,"cwd":DIR,"env":{K:V\|null},"cols":C,"rows":R}` | `{"ok":true,"id":ID,"pid":P,"cmd":[..],"fds":1}` + master | `command` and `shell` both optional, not both. Error if `ID` is in use. |
 | `{"op":"adopt"}` | one `{"req":..,"pty":{"id","pid","cmd","cwd","exit"?},"fds":1}` + master per pty, then `{"ok":true,"ptys":N}` | `exit` is present for an exited pty not yet acknowledged |
 | `{"op":"close","id":ID}` | `{"ok":true}` | ends the process group ([6](#6-exits-and-close)); the id is free at once |
 | `{"op":"ack","id":ID}` | `{"ok":true}` | forgets an exited pty; an error if it's still running |
+| `{"op":"upgrade","binary":PATH}` | `{"ok":true,"pid":P,"build":B,"from":OLD}`, sent by the new code | the keeper re-execs itself as `PATH` ([upgrading](specs/keeper-upgrade.md)); an error leaves the old code running |
 | — (event) | `{"exited":ID,"pid":P,"code":N}` or `{..,"signal":S}` | sent to every connection when a process exits, and on connect for every exit not yet acknowledged |
 
 Errors are `{"ok":false,"error":"…"}` and leave the connection usable. There is no `resize`: the daemon sets the size on its own copy with `TIOCSWINSZ`.
@@ -141,7 +142,7 @@ stateDiagram-v2
 
 | | |
 |---|---|
-| **Command line** | `kanna-keeper [--state-dir DIR] [--detach]`. DIR defaults to `$KANNA_STATE_DIR`, else `~/Library/Application Support/kanna` (macOS) or `$XDG_DATA_HOME/kanna`. |
+| **Command line** | `kanna-keeper [--state-dir DIR] [--detach \| --upgrade]`; `--upgrade` asks the keeper of DIR to become this binary ([upgrading](specs/keeper-upgrade.md)). DIR defaults to `$KANNA_STATE_DIR`, else `~/Library/Application Support/kanna` (macOS) or `$XDG_DATA_HOME/kanna`. |
 | **Starting** | The daemon runs `kanna-keeper --state-dir DIR --detach` (via the client's `connect_or_start`): it double-forks into its own session, changes to `/`, stdio on `/dev/null`, stderr appended to `keeper.log`, and returns once the socket listens (or it found another keeper listening). If the keeper fails before listening, `--detach` prints its error and exits 1; the keeper reports which over a pipe (`1` listening, `2` another keeper, `E` and the error). Without `--detach` it runs in the foreground. |
 | **One per directory** | `flock` on `keeper.lock`; a second keeper returns at once, successfully (with `--detach`, reporting another keeper). The lock's owner may still be starting or already stopping, so `connect_or_start` keeps connecting, and starting a keeper again, with backoff for up to 5 s. |
 | **Files** | `keeper.sock`, `keeper.lock`, `keeper.pid`, `keeper.log` in DIR. |
@@ -158,7 +159,8 @@ stateDiagram-v2
 | Call | Does |
 |---|---|
 | `Client::connect(socket)` / `Client::connect_or_start(state_dir, keeper_bin)` | connects (checking the keeper runs as the same user), starting a detached keeper if none listens; retries for up to `START_TIMEOUT` (5 s), and fails with the keeper's own error if `--detach` does |
-| `hello() -> (version, pid)` | the daemon compares `version` with its `PROTOCOL_VERSION` and refuses a keeper that differs, saying which pid to stop |
+| `hello() -> (version, pid)`, `info() -> Hello { version, pid, build }` | the daemon compares `build` and `version` with its own keeper's, upgrading it if they differ ([upgrading](specs/keeper-upgrade.md)) |
+| `upgrade(binary) -> Hello` | asks the keeper to re-exec as `binary`; the new code's `hello` |
 | `spawn(&SpawnRequest) -> Pty` | `SpawnRequest::shell(id)` / `::command(id, cmd)`, then set `shell`, `cwd`, `env`, `cols`, `rows` |
 | `adopt() -> Vec<Pty>` | every pty held; `Pty { id, pid, cmd, cwd, master: OwnedFd, exit }` |
 | `close(id)`, `ack(id)` | |
@@ -188,7 +190,10 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 
 ## 10. Known Limitations
 
-- **A keeper restart loses the processes' parent**, not the processes: if the keeper dies while a daemon holds the masters, the shells keep running but nobody reaps them or knows their exit code. Upgrading the keeper itself isn't covered.
+- **A keeper restart loses the processes' parent**, not the processes: if the keeper dies while a daemon holds the masters, the shells keep running but nobody reaps them or knows their exit code. An upgrade doesn't restart it ([upgrading](specs/keeper-upgrade.md)).
+- **An upgrade pauses the keeper** for the probe (up to 5 s) and the flush (up to 2 s); spawns wait meanwhile, well inside the daemon's 10 s reply timeout.
+- **A new keeper that crashes after accepting the state** loses the processes' parent, as any keeper crash would; the probe makes that unlikely, since it runs the same parsing first.
+- **A keeper built before upgrades existed can't be upgraded**: it keeps its code until it stops (once, the first time).
 - **On macOS a process can't finish exiting while its last output is unread** (closing the tty waits for output to drain). With no daemon connected, its exit is reported once a daemon adopts the pty and reads it.
 - **A full pty buffer stops the program** while no daemon is reading, as with any terminal nobody reads.
 - **Exits after an idle exit are lost**: unacknowledged exits don't keep the keeper alive.
@@ -211,6 +216,7 @@ Received masters are close-on-exec and blocking; the daemon sets what it needs.
 - signals: dispositions the keeper inherited as ignored are default in its children; a closed process stays a zombie until its SIGKILL;
 - races: concurrent `connect_or_start`, connecting while the keeper goes idle; `--detach` failing when the keeper can't listen; the keeper's own settings stay out of spawned environments.
 - idle exit only with no process and no client; `connect_or_start` with a detached keeper.
+- upgrade: see [upgrading the keeper](specs/keeper-upgrade.md#8-testing).
 
 ## 12. Glossary
 

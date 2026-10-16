@@ -52,7 +52,7 @@ flowchart LR
   - **What opens a tab:** the agent running `kanna open md|web FILE` from its pane, a markdown link, or **+**.
   - Opening a file that's already open shows its tab.
 - **The title bar** (top) shows only the task's title (or Shelf, with no task on the Desk).
-- **With no task on it, the Desk shows the planning agent and the Shelf in full** (pictured above) in place of the strip: the agent docked on the left, and on the right the project's tasks (click one to pull it) and backlog, live, under a short encouraging line that changes each time the Shelf comes up. ⌘F searches the backlog ([backlog search](backlog-search.md)). A blocked backlog task shows what it waits for and can't be moved to the Shelf ([blocked tasks](task-dependencies.md)). Backlog tasks run by themselves, and their rows don't show how far they got ([backlog runners](backlog-runners.md)). It holds no tabs: New Tab and the splits are off, and a pane opened onto it gets a plain window of its own ([planning agent](planning-agent.md#1-when-it-shows)).
+- **With no task on it, the Desk shows the planning agent and the Shelf in full** (pictured above) in place of the strip: the agent docked on the left, and on the right the project's tasks (click one to pull it) and backlog, live, under a short encouraging line: a random one when the window opens, the next each time its Desk is cleared (Park, Done or Move to Backlog), each window its own. ⌘F searches the backlog ([backlog search](backlog-search.md)). A blocked backlog task shows what it waits for and can't be moved to the Shelf ([blocked tasks](task-dependencies.md)). Backlog tasks run by themselves, and their rows don't show how far they got ([backlog runners](backlog-runners.md)). It holds no tabs: New Tab and the splits are off, and a pane opened onto it gets a plain window of its own ([planning agent](planning-agent.md#1-when-it-shows)).
 - **Plain windows stay** exactly as now, so every kmux behaviour is unchanged.
 
 ## 3. The Shelf
@@ -82,7 +82,7 @@ With no task on the Desk, the window's planning terminal, where you run your pla
 | `kanna task done ID` | End a task: close its panes |
 | `kanna task new`, `start`, `stop`, `shelve`, `defer`, `name` | Make, run, stop, move and name tasks: [tasks](tasks.md#6-cli) |
 
-A task's ID is its docked pane's ID. Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens a new tab on the task's Desk (or, while it's parked, among its parked tabs). `done` leaves its Desk empty.
+A task's ID is its docked pane's ID. Run from a task's terminal, `park` and `done` mean that task, and `kanna open` without a placement opens a new tab on the task's Desk (or, while it's parked or in the backlog, among its hidden tabs); with `--tab`, `--split` or `--size` it opens in the task's own window too, never the front one ([presenting](presenting.md#3-how-its-built)). `done` leaves its Desk empty.
 
 ## 6. How it's built
 
@@ -101,14 +101,14 @@ flowchart TB
 ```
 
 - **The mux layer does the layout.** A Desk is an ordinary window with a [docked pane](docked-pane.md) and tabs. Nothing in the mux layer knows about tasks.
-- **The Desk layer is chrome and the Shelf.** The app keeps parked tasks (their dock with its width, their tabs, and when they were parked), saved with the windows ([4.7](../kanna-spec.md#47-the-layout)). The title bar, agent header and Shelf are app views around the window's content.
+- **The Desk layer is chrome and the Shelf.** The app keeps parked tasks (their dock with its width, their tabs, and when they were parked), saved with the windows ([layout](layout.md)). The title bar, agent header and Shelf are app views around the window's content.
 - **Parking** moves the task's dock, tabs, focus and zoom off the window; the panes keep their IDs, and their terminals never notice. The window keeps the Shelf view's zoom ([zoom](zoom.md#4-how-its-built)).
 - **The planning terminal is the window's `planner`**: a pane the window holds beside its dock, shown on the left only while the dock is empty. Parking and pulling move the dock and tabs and leave it where it is. The app asks the daemon for one (`backlog` `plan`) when a Desk shows no task and has none; the daemon makes its command and opens it with the `planner` placement.
 - **`kanna task` commands** are layout commands: they go to the app like `open --split`, and start it if it's closed.
 
 ## 7. Rejected
 
-- **The planning terminal's alternatives:** [planning agent](planning-agent.md#8-rejected).
+- **The planning terminal's alternatives:** [planning agent](planning-agent.md#6-rejected).
 
 ## 8. Open questions
 

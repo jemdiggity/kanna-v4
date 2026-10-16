@@ -55,6 +55,14 @@ impl Tracker {
         })
     }
 
+    pub fn set(&mut self, status: Status) -> Option<Status> {
+        self.idle_since = None;
+        (self.status != Some(status)).then(|| {
+            self.status = Some(status);
+            status
+        })
+    }
+
     pub fn recheck(&self) -> Option<Instant> {
         self.idle_since.map(|t| t + CONFIRM_IDLE)
     }

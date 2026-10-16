@@ -21,8 +21,8 @@ pub static COMMANDS: &[Command] = &[
     Command {
         name: "open",
         group: "Panes",
-        summary: "Open a terminal, web, iOS, markdown or code pane and wait until it is running.",
-        usage: "kanna open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right] [--frozen]] [--no-wait]\n       kanna open web URL [--history] [same placement options]\n       kanna open md FILE [same placement options]\n       kanna open ios --app APP [--device DEVICE] [same placement options]\n       kanna open code FILE[:LINE] [same placement options]",
+        summary: "Open a terminal, web, iOS, markdown, code or diff pane and wait until it is running.",
+        usage: "kanna open [term] [--cmd CMD] [--cwd DIR] [--name NAME] [--split right|down|auto] [--size FRACTION] [--tab] [--window ID|new] [--dock [left|right] [--frozen]] [--no-wait]\n       kanna open web URL [--history] [same placement options]\n       kanna open md FILE [same placement options]\n       kanna open ios --app APP [--device DEVICE] [same placement options]\n       kanna open code FILE[:LINE] [same placement options]\n       kanna open diff [GIT-DIFF-ARGS] [same placement options]",
         options: &[
             ("--cmd CMD", "Shell command line to run in your login shell, e.g. \"npm run dev\". Put it in single quotes if it uses $VARS or ;, so your own shell leaves it alone. Default: an interactive shell."),
             ("--cwd DIR", "Working directory."),
@@ -38,7 +38,7 @@ pub static COMMANDS: &[Command] = &[
             ("--dock [left|right]", "Make the pane the window's docked pane: along its left (default) or right edge, outside its tabs, shown whichever tab is. Not with --split, --size or --tab. A pane already docked there moves to a new tab."),
             ("--frozen", "With --dock: the docked pane is frozen. It doesn't move, and nothing drops on it or docks in its place; it closes with its window."),
         ],
-        notes: "Prints the new pane's ID and name. A pane whose command exits stays on screen as `exited`. A docked pane closes only with its window.\nA terminal opened without --split, --size, --tab, --window or --dock opens even with Kanna.app closed, and takes its place when the app next opens; anything else starts the app.",
+        notes: "Prints the new pane's ID and name. A pane whose command exits stays on screen as `exited`. A docked pane closes only with its window.\nA terminal opened without --split, --size, --tab, --window or --dock opens even with Kanna.app closed, and takes its place when the app next opens; anything else starts the app.\nRun from a pane without --window or --dock, it opens in that pane's window, not the key one; from a task kept off-screen (the backlog, the Shelf), in a new tab of the task's window.",
         examples: &[
             ("kanna open --name server --cmd \"npm run dev\"", "Run a dev server in a pane named server."),
             ("kanna open --name logs --split right --size 1/3 --cmd \"tail -f app.log\"", "Put a log tail in the right third."),
@@ -49,6 +49,7 @@ pub static COMMANDS: &[Command] = &[
             ("kanna open md docs/spec.md --name spec --split right", "Show a markdown file (with mermaid diagrams) beside this pane; it reloads when the file changes."),
             ("kanna open --name agent --cmd claude --dock", "Dock an agent on the window's left edge; it stays while you switch tabs."),
             ("kanna open code src/main.rs:42", "Show a source file, highlighted, at line 42; it follows the file on disk."),
+            ("kanna open diff --merge-base main", "Show everything this branch changed since it left main, committed or not, with untracked files; it follows the worktree."),
         ],
         parse: parse_open,
         show: output::opened,
@@ -319,14 +320,14 @@ pub static COMMANDS: &[Command] = &[
             ("--agent CMD", "new: the agent to start (default: claude)."),
             ("--after TASK,...|none", "new, edit: the tasks it waits for; it can't start until they're all done. edit: replaces the list, and none clears it."),
         ],
-        notes: "A task is a window's docked pane (usually an agent) and its tabs; TASK is that pane's name or ID. Parking moves the task's agent and tabs to the Shelf, still running, and leaves the Desk empty; pulling puts it back on a Desk as it was, parking whatever that Desk held. Pulling a task that's on another Desk brings that window forward instead. Done closes the task's panes, ending its agent and terminals; its Desk stays, empty. Whether a task runs and where it is are separate. Start runs a task where it is: a backlog task gets its worktree, branch and agent and stays in the backlog, running, and any number can run there; a stopped task's agent comes back, and a claude agent resumes its conversation. Stop ends a task's agent and closes its tabs, and leaves it where it is, its worktree and branch kept. Shelve (Move to Shelf) moves a backlog task to the Shelf, starting it if it's stopped; the Shelf holds three tasks per repo, counting the Desk's. Defer (Move to Backlog) moves a task back to the backlog as it is, running or stopped, freeing its place on the Shelf. A backlog task can wait for other tasks (--after): it's blocked, and starting or shelving it is refused until they're all done; `task edit` changes what it waits for until it starts, and `task done` names the tasks it frees. A task's name is its docked pane's name; `task name` sets it. Run from a task's terminal, `task park`, `task name` and `task done` mean that task, and `kanna open` with no placement opens a tab on its Desk.",
+        notes: "A task is a window's docked pane (usually an agent) and its tabs; TASK is that pane's name or ID. Parking moves the task's agent and tabs to the Shelf, still running, and leaves the Desk empty; pulling puts it back on a Desk as it was, parking whatever that Desk held. Pulling a task that's on another Desk brings that window forward instead. Done closes the task's panes, ending its agent and terminals; its Desk stays, empty. Whether a task runs and where it is are separate. Start runs a task where it is: a backlog task gets its worktree, branch and agent and stays in the backlog, running, and any number can run there; a stopped task's agent comes back, and a claude agent resumes its conversation. Stop ends a task's agent and hangs up its terminals, and leaves it where it is, its tabs, focus and zoom as they were and its worktree and branch kept; starting it again reruns the terminals that were running. Shelve (Move to Shelf) moves a backlog task to the Shelf, starting it if it's stopped; the Shelf holds three tasks per repo, counting the Desk's. Defer (Move to Backlog) moves a task back to the backlog as it is, running or stopped, freeing its place on the Shelf. A backlog task can wait for other tasks (--after): it's blocked, and starting or shelving it is refused until they're all done; `task edit` changes what it waits for until it starts, and `task done` names the tasks it frees. A task's name is its docked pane's name; `task name` sets it. Run from a task's terminal, `task park`, `task name` and `task done` mean that task, and `kanna open` with no placement opens a tab on its Desk; from a task kept off-screen (the backlog, the Shelf), `kanna open`, `kanna comment`, `kanna focus` and `kanna zoom` act in its own window, for the user to see when they pull it.",
         examples: &[
             ("kanna task new \"Fix the page_comments pinch\" \"The mark drifts when you pinch; find out why and add a test\"", "Add a task to this repo's backlog."),
             ("kanna task new \"Release notes\" \"Write the 0.9 notes\" --after t8,t12", "Add a task that can't start until t8 and t12 are done."),
             ("kanna task edit t14 --after none", "Let a blocked task start: it waits for nothing now."),
             ("kanna task start t3", "Start a backlog task where it is: its own worktree and branch, and its agent with the first message."),
             ("kanna task shelve t3", "Move a backlog task to the Shelf, starting it if it's stopped."),
-            ("kanna task stop t3", "End a task's agent and tabs, leaving it where it is; start it again to resume its conversation."),
+            ("kanna task stop t3", "End a task's agent and hang up its terminals, leaving it and its tabs where they are; start it again to resume its conversation and rerun its terminals."),
             ("kanna task list", "Every task, where it is (a Desk window, the Shelf or the backlog) and whether it runs."),
             ("kanna task list resume agent", "Only the tasks with both words in their name or first message."),
             ("kanna task park", "Park this task (run from its terminal), or the key window's."),
@@ -432,8 +433,8 @@ pub static COMMANDS: &[Command] = &[
     Command {
         name: "navigate",
         group: "Panes",
-        summary: "Point a web pane at a new URL (or go back or forward), a markdown pane at another file, or a code pane at another file or line.",
-        usage: "kanna navigate PANE URL\n       kanna navigate PANE --back|--forward\n       kanna navigate PANE FILE.md\n       kanna navigate PANE FILE[:LINE]",
+        summary: "Point a web pane at a new URL (or go back or forward), a markdown pane at another file, a code pane at another file or line, or a diff pane at another diff.",
+        usage: "kanna navigate PANE URL\n       kanna navigate PANE --back|--forward\n       kanna navigate PANE FILE.md\n       kanna navigate PANE FILE[:LINE]\n       kanna navigate PANE diff [GIT-DIFF-ARGS]",
         options: &[
             ("--back", "Go back a page: in a markdown pane, or a web pane opened with `open web URL --history`."),
             ("--forward", "Go forward a page (after --back)."),
@@ -446,6 +447,10 @@ pub static COMMANDS: &[Command] = &[
         ],
         parse: |args| {
             let pane = pane(args, "navigate")?;
+            if args.first() == Some("diff") {
+                args.positional();
+                return Ok(json!({ "pane": pane, "args": args.remaining() }));
+            }
             let (back, forward) = (args.flag("--back"), args.flag("--forward"));
             match (back, forward, args.positional()) {
                 (true, false, None) => Ok(json!({ "pane": pane, "back": true })),
@@ -497,7 +502,7 @@ pub static COMMANDS: &[Command] = &[
             ("--file SCREEN", "A saved screen: text (as `kanna read` prints it) or a corpus case (JSON with rows, title, progress and cliVersion)."),
             ("--agent AGENT", "Whose rules judge the saved screen: claude, codex, …"),
         ],
-        notes: "An agent pane's status (working, needs-you, idle, exited) is in `kanna list`. explain shows the agent and its version, the rules file and where it came from, the rule that matched and the text it matched.\nRules: bundled in Kanna, from the rules site (checked every 30 minutes), or your own in ~/.config/kanna/agent-rules/<agent>.json, which always wins and reloads when you save it.",
+        notes: "An agent pane's status (working, needs-you, idle, exited) is in `kanna list`. explain shows the agent and its version, where its status came from (the agent's own OSC 7501 report, with the record, which wins when there is one, or the rules), the rules file and where it came from, the rule that matched and the text it matched.\nRules: bundled in Kanna, from the rules site (checked every 30 minutes), or your own in ~/.config/kanna/agent-rules/<agent>.json, which always wins and reloads when you save it.",
         examples: &[
             ("kanna status explain p3", "Why p3's agent shows the status it does."),
             ("kanna status explain --file screen.txt --agent claude", "How Claude's rules judge a saved screen."),
@@ -768,7 +773,7 @@ fn repo_here() -> Result<String, Failure> {
 }
 
 fn from_caller(out: &mut Map<String, Value>) {
-    if ["split", "size", "window", "dock", "tab"].iter().any(|k| out.contains_key(*k)) {
+    if ["window", "dock"].iter().any(|k| out.contains_key(*k)) {
         return;
     }
     if let Some(pane) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
@@ -1061,12 +1066,12 @@ fn parse_open(args: &mut Argv) -> Result<Value, Failure> {
     let history = args.flag("--history");
     let kind = match args.positional() {
         None => "term".to_string(),
-        Some(kind) if ["term", "web", "ios", "md", "code"].contains(&kind.as_str()) => kind,
+        Some(kind) if ["term", "web", "ios", "md", "code", "diff"].contains(&kind.as_str()) => kind,
         Some(other) if is_markdown(&other) => {
             return Err(usage("open", &format!("to show a markdown file use: kanna open md {other}")));
         }
         Some(other) => {
-            return Err(usage("open", &format!("unknown pane type \"{other}\" (term, web, ios, md or code). To run a command use --cmd \"{other}\"")));
+            return Err(usage("open", &format!("unknown pane type \"{other}\" (term, web, ios, md, code or diff). To run a command use --cmd \"{other}\"")));
         }
     };
     if kind == "web" {
@@ -1084,6 +1089,11 @@ fn parse_open(args: &mut Argv) -> Result<Value, Failure> {
         if let Some(line) = line {
             out.insert("line".into(), json!(line));
         }
+    }
+    if kind == "diff" {
+        let folder = out.remove("cwd").and_then(|cwd| cwd.as_str().map(String::from)).unwrap_or_else(|| absolute("."));
+        out.insert("path".into(), json!(folder));
+        out.insert("args".into(), json!(args.remaining()));
     }
     if kind == "ios" && !out.contains_key("app") {
         return Err(usage("open", "iOS panes need an app: kanna open ios --app MyApp.app (or a bundle ID)"));

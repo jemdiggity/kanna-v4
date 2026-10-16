@@ -38,6 +38,13 @@ pub fn set_cloexec(fd: libc::c_int) {
     }
 }
 
+pub fn clear_cloexec(fd: libc::c_int) {
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFD);
+        libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC);
+    }
+}
+
 pub fn open_fds() -> Vec<libc::c_int> {
     let Ok(dir) = std::fs::read_dir("/dev/fd") else { return Vec::new() };
     dir.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok()).collect()
