@@ -4,6 +4,8 @@
 
 The app owns the layout (windows, tabs, splits, focus, zoom, the docked pane, Desk and Shelf) and saves it; the daemon owns the terminals ([architecture](architecture.md#2-what-the-daemon-keeps-what-the-app-keeps)).
 
+**Planned:** [workspaces](workspaces.md): each task gets a workspace that windows show, instead of its tabs, focus and zoom being copied into a window and out to `parked`; `layout.json` goes to version 2.
+
 ## Contents
 
 1. [One layout model, in Rust, run by the app](#1-one-layout-model-in-rust-run-by-the-app)
