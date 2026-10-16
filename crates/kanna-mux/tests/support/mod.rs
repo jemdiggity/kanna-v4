@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use kanna_mux::json::{json, Value};
-use kanna_mux::{pane_table, responder, Core, LayoutCall, LayoutLink, LayoutOwner, Model, Pane, PaneHost, PaneState, Panes, WeakCore};
+use kanna_mux::{pane_table, responder, Core, LayoutCall, LayoutLink, LayoutOwner, Model, Pane, PaneHost, PaneState, Panes, Responder, WeakCore};
 use kanna_mux::LayoutHost;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -33,8 +33,9 @@ impl PaneHost for FakeHost {
         self.stopped.borrow_mut().push(pane.id.clone());
     }
 
-    fn send(&self, pane: &Pane, text: &str) {
+    fn send(&self, pane: &Pane, text: &str, done: Responder) {
         self.sent.borrow_mut().push(format!("{}: {text}", pane.id));
+        done.reply(Ok(Default::default()));
     }
 }
 

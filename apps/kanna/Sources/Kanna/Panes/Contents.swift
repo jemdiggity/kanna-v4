@@ -73,12 +73,9 @@ final class Contents {
 
     private func send(_ text: String, to agent: String, done: @escaping (String?) -> Void) {
         guard let onCall else { return done("not connected to the daemon") }
-        onCall("send", ["pane": .string(agent), "text": .string("\u{1b}[200~" + text + "\u{1b}[201~")]) { answer in
+        onCall("send", ["pane": .string(agent), "text": .string(text)]) { answer in
             guard answer["ok"]?.bool == true else { return done(answer["error"]?["message"]?.string ?? "send failed") }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                onCall("send", ["pane": .string(agent), "text": .string("")]) { _ in }
-                done(nil)
-            }
+            done(nil)
         }
     }
 

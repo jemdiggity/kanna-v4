@@ -33,6 +33,8 @@ const MAX_SIDE: u16 = 1000;
 
 const KEY_GAP: Duration = Duration::from_millis(50);
 
+const ENTER_GAP: Duration = Duration::from_millis(100);
+
 struct Pty {
     master: OwnedFd,
     input: Sender<Vec<u8>>,
@@ -528,8 +530,20 @@ impl PaneHost for Terminals {
         }
     }
 
-    fn send(&self, pane: &Pane, text: &str) {
-        self.write(&pane.id, format!("{text}\r").into_bytes());
+    fn send(&self, pane: &Pane, text: &str, done: Responder) {
+        let line = {
+            let live = self.live.borrow();
+            live.get(&pane.id).and_then(|terminal| {
+                let pty = terminal.running()?;
+                let feed = Feed::lock(&terminal.feed);
+                Some(Line { label: pane.label(), text: feed.paste(text), enter: feed.enter(), input: pty.input.clone() })
+            })
+        };
+        let Some(line) = line else { return done.reply(Err(KmuxError::new("bad_request", format!("{} has no running terminal", pane.label())))) };
+        let sent = std::thread::Builder::new().name(format!("kanna.send.{}", pane.id)).spawn(move || line.type_in(done));
+        if let Err(error) = sent {
+            eprintln!("kanna-daemon: couldn't start sending text: {error}");
+        }
     }
 
     fn send_keys(&self, pane: &Pane, names: Vec<String>, done: Responder) {
@@ -557,6 +571,28 @@ struct Presses {
     keys: Vec<Key>,
     feed: Arc<Mutex<Feed>>,
     input: Sender<Vec<u8>>,
+}
+
+struct Line {
+    label: String,
+    text: Vec<u8>,
+    enter: Vec<u8>,
+    input: Sender<Vec<u8>>,
+}
+
+impl Line {
+    fn type_in(self, done: Responder) {
+        if !self.text.is_empty() {
+            if self.input.send(self.text).is_err() {
+                return done.reply(Err(KmuxError::new("bad_request", format!("{} ended before the text was sent", self.label))));
+            }
+            std::thread::sleep(ENTER_GAP);
+        }
+        if self.input.send(self.enter).is_err() {
+            return done.reply(Err(KmuxError::new("bad_request", format!("{} ended before Return was pressed", self.label))));
+        }
+        done.reply(Ok(Map::new()));
+    }
 }
 
 impl Presses {

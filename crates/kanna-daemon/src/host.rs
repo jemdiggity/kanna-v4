@@ -63,8 +63,8 @@ impl PaneHost for Host {
         }
     }
 
-    fn send(&self, pane: &Pane, text: &str) {
-        self.terminals.send(pane, text);
+    fn send(&self, pane: &Pane, text: &str, done: Responder) {
+        self.terminals.send(pane, text, done);
     }
 
     fn send_keys(&self, pane: &Pane, keys: Vec<String>, done: Responder) {

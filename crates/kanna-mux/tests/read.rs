@@ -1,7 +1,7 @@
 mod support;
 
 use kanna_mux::json::{json, Value};
-use kanna_mux::{Core, KmuxError, Pane, PaneHost, PaneState, WeakCore};
+use kanna_mux::{Core, KmuxError, Pane, PaneHost, PaneState, Responder, WeakCore};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -17,7 +17,9 @@ impl PaneHost for Screens {
         core.later(move || reporter.update(&id, PaneState::Running, None, None));
     }
     fn stop(&self, _: &Pane) {}
-    fn send(&self, _: &Pane, _: &str) {}
+    fn send(&self, _: &Pane, _: &str, done: Responder) {
+        done.reply(Ok(Default::default()));
+    }
     fn read(&self, pane: &Pane, lines: Option<usize>) -> Result<String, KmuxError> {
         Ok(format!("screen of {} ({lines:?})", pane.id))
     }

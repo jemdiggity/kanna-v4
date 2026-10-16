@@ -51,7 +51,9 @@ impl kanna_mux::PaneHost for ExitsOnStop {
             core.update(&pane.id, kanna_mux::PaneState::Exited, Some(0), None);
         }
     }
-    fn send(&self, _: &kanna_mux::Pane, _: &str) {}
+    fn send(&self, _: &kanna_mux::Pane, _: &str, done: kanna_mux::Responder) {
+        done.reply(Ok(Default::default()));
+    }
 }
 
 #[test]

@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 pub trait PaneHost {
     fn start(&self, pane: &Pane);
     fn stop(&self, pane: &Pane);
-    fn send(&self, pane: &Pane, text: &str);
+    fn send(&self, pane: &Pane, text: &str, done: Responder);
     fn send_keys(&self, pane: &Pane, keys: Vec<String>, done: Responder) {
         let _ = keys;
         done.reply(Err(KmuxError::new("unsupported", format!("{} can't take keys here", pane.label()))));
@@ -478,7 +478,7 @@ impl CoreHandle {
             "list" => self.list().await,
             "close" => self.close(&args).await,
             "restart" => self.restart(&args).await,
-            "send" => self.send(&args),
+            "send" => self.send(&args).await,
             "send-key" => self.send_key(&args).await,
             "read" => self.read(&args),
             "navigate" => self.navigate(&args).await,
@@ -957,7 +957,7 @@ impl CoreHandle {
         Ok(reply([("pane", self.summary(&id, &snapshot))]))
     }
 
-    fn send(&self, args: &Value) -> Result<Map, KmuxError> {
+    async fn send(&self, args: &Value) -> Result<Map, KmuxError> {
         let pane = self.need_pane(string(args, "pane"))?;
         if pane.kind != PaneType::Term {
             return Err(KmuxError::new("wrong_type", format!("{} is a {} pane; send only works on term panes", pane.label(), pane.kind.as_str())));
@@ -965,10 +965,10 @@ impl CoreHandle {
         if pane.state != PaneState::Running {
             return Err(bad_request(format!("{} is {}", pane.label(), pane.state.as_str())));
         }
-        if let Some(host) = self.host() {
-            host.send(&pane, string(args, "text").unwrap_or(""));
-        }
-        Ok(Map::new())
+        let Some(host) = self.host() else { return Ok(Map::new()) };
+        let (responder, answer) = responder();
+        host.send(&pane, string(args, "text").unwrap_or(""), responder);
+        answer.await
     }
 
     async fn send_key(&self, args: &Value) -> Result<Map, KmuxError> {
