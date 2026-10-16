@@ -437,7 +437,7 @@ function render() {
     if (f.big) rows += `<div class="r fold big"><span class="t">${escH(f.big.why)}: not shown. <a>Show the diff</a></span></div>`;
     else if (f.st === "M") rows += `<div class="r fold">${split ? "" : `<span class="n o"></span><span class="n w"></span>`}<span class="t">⋯</span></div>`;
     return `<div class="file ${state.closed.has(f.path) ? "closed" : ""} ${f.fresh ? "fresh" : ""}" data-i="${i}" id="file${i}">
-      <div class="fh" data-path="${f.path}"><span class="chev">${state.closed.has(f.path) ? "▶" : "▼"}</span><span class="st ${f.st}">${f.st}</span><span class="path">${pathHTML(f.path)}</span><span class="ct">${ct(count(f))}</span><span class="spacer"></span>${f.st === "D" ? "" : `<span class="open">Open in code pane</span>`}</div>
+      <div class="fh" data-path="${f.path}"><span class="chev">${state.closed.has(f.path) ? "▶" : "▼"}</span><span class="st ${f.st}">${f.st}</span><span class="path">${pathHTML(f.path)}</span><span class="ct">${ct(count(f))}</span></div>
       <div class="rows ${split ? "split" : ""}">${rows}</div></div>`;
   }).join("");
   el.innerHTML = head + `<div class="dbody">${list}<div class="scroller" id="scroller">${body}</div></div>`;

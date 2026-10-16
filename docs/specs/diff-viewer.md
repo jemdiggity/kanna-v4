@@ -1,6 +1,6 @@
 # Diff Viewer
 
-**Status:** proposed · **Mockup:** [`references/mockups/diff.html`](../../references/mockups/diff.html) · **Builds on:** [code viewer](code-viewer.md), [app panes](app-panes.md)
+**Status:** built · **Mockup:** [`references/mockups/diff.html`](../../references/mockups/diff.html) · **Builds on:** [code viewer](code-viewer.md), [app panes](app-panes.md)
 
 A **diff pane** shows what `git diff` shows, natively, as a tab beside the agent. You review what a task's agent changed without leaving Kanna: file by file, highlighted, following the worktree as the agent works. It's read-only: you read, select, copy, and open a line in a code pane.
 
@@ -58,14 +58,14 @@ sequenceDiagram
 
 ![Split: old on the left, new on the right; a change's missing side is hatched](diff-viewer-split.png)
 
-- **Files list** on the left, grouped by folder: each file's status (`M` modified, `A` added or untracked, `D` deleted, `R` renamed) and its lines added and removed. Clicking one scrolls to it; it follows the current line.
+- **Files list** on the left (when the pane is at least 640 pt wide), grouped by folder: each file's status (`M` modified, `A` added or untracked, `D` deleted, `R` renamed) and its lines added and removed. Clicking one scrolls to it; it follows the current line.
 - **Each file has a header** that stays at the top while you're in it, with its path, status and counts. Clicking it folds the file; ⌥-click folds or unfolds them all.
 - **Unchanged lines between changes** fold to one row naming how many and the function or block the next change is in, as git's hunk header names it.
 - **Highlighting** as in the code pane, by file extension, in light and dark; the words that changed in a changed line are marked more strongly.
 
 ![The same diff in light mode](diff-viewer-light.png)
 
-- **Big diffs are folded**, not dropped: a lock file (`Cargo.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `poetry.lock`, `go.sum`), a file `.gitattributes` marks `linguist-generated`, or a file with more than 2,000 changed lines shows its header and **Show the diff**. A binary file shows "Binary file changed" with its old and new sizes.
+- **Big diffs are folded**, not dropped: a lock file (`Cargo.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `poetry.lock`, `go.sum`), a file `.gitattributes` marks `linguist-generated`, or a file with more than 2,000 changed lines shows its header and **Show the diff**. A binary file shows "Binary file changed".
 
 ![Cargo.lock and a 6,240-line file folded](diff-viewer-large.png)
 
