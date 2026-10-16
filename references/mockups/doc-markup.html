@@ -71,7 +71,6 @@ mark.flash { animation: flash .9s; }
 .threads .top { color: var(--dim); font-size: 11.5px; display: flex; justify-content: space-between; }
 .card { background: #23252b; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .card.on { border-color: var(--accent); }
-.card .head { display: flex; justify-content: space-between; color: var(--dim); font: 11px var(--mono); margin-bottom: 4px; }
 .card .reply .res { color: var(--dim); }
 .card .reply .res:hover { color: #5fbf7a; border-color: #5fbf7a; }
 .card .quote { color: var(--dim); border-left: 2px solid var(--accent); padding-left: 7px; margin: 2px 0 6px; font-size: 12px; cursor: pointer; }
@@ -249,8 +248,7 @@ function renderThreads() {
   s.threads.filter(t => t.state === "open").forEach(t => {
     const card = document.createElement("div");
     card.className = "card" + (t.id === s.active ? " on" : "");
-    card.innerHTML = `<div class="head"><span>${t.id} · line ${t.line}</span></div>
-      <div class="quote">${t.quote}</div>
+    card.innerHTML = `<div class="quote">${t.quote}</div>
       ${t.messages.map(m => `<div class="msg"><b class="${m.who}">${m.who}</b> ${m.text}</div>`).join("")}
       ${chip(t)}
       <div class="reply"><input placeholder="Reply"><button>⌘↵</button><button class="res" title="Resolve">✓</button></div>`;
