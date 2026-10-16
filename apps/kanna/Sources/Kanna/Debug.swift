@@ -211,6 +211,30 @@ extension AppController {
             out["captures"] = .array(code.highlights.spans.prefix(200).map { .array([.number(Double($0.range.location)), .number(Double($0.range.length)), .string($0.capture)]) })
             return out
         }
+        commands["debug.diff"] = { [weak self] args in
+            guard let self, let id = args["pane"]?.string, let diff = contents.diff(id) else { throw KannaError("wrong_type", "not a running diff pane") }
+            if let keys = args["keys"]?.string { for key in keys { _ = diff.press(key == "~" ? "\r" : String(key)) } }
+            if let view = args["view"]?.string { diff.setView(view) }
+            if let step = args["zoom"]?.number { diff.zoom(by: Int(step)) }
+            if let path = args["fold"]?.string { diff.toggle(file: path, all: false) }
+            if let path = args["show"]?.string { diff.showFolded(path) }
+            let rows: [JSON] = diff.debugRows.map { row in
+                .object(row.mapValues { value in
+                    if let text = value as? String { return .string(text) }
+                    if let number = value as? Int { return .number(Double(number)) }
+                    return .null
+                })
+            }
+            let files: [JSON] = (diff.result?.files ?? []).map { file in
+                ["path": .string(file.path), "status": .string(file.status), "added": .number(Double(file.added)), "removed": .number(Double(file.removed)),
+                 "fold": file.fold.map { .string($0) } ?? .null, "untracked": .bool(file.untracked == true)]
+            }
+            return ["command": .string(diff.result?.command ?? ""), "error": diff.result?.error.map { .string($0) } ?? .null, "files": .array(files), "rows": .array(rows),
+                    "current": diff.current.map { .number(Double($0)) } ?? .null, "view": .string(diff.view.rawValue), "updating": .bool(diff.updating),
+                    "serial": .number(Double(diff.serial)), "fresh": .array(diff.fresh.sorted().map { .number(Double($0)) }), "zoom": .number(Double(diff.zoom)),
+                    "highlighted": .number(Double(diff.highlightedFiles)),
+                    "colors": .array((args["colors"]?.number).map { diff.colors(atRow: Int($0)).map { .string($0) } } ?? [])]
+        }
         commands["debug.ios"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let screen = contents.ios(id)?.screen else { throw KannaError("wrong_type", "not a running ios pane") }
             if let x = args["x"]?.number, let y = args["y"]?.number {
