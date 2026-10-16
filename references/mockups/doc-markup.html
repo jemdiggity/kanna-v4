@@ -232,7 +232,8 @@ function render() {
 
 function chip(t) {
   if (t.status === "sent") return waiting(t);
-  const label = { replied: "agent replied", agent: "from p1" }[t.status];
+  if (t.status === "replied") return "";
+  const label = { agent: "from p1" }[t.status];
   return `<span class="state ${t.status}">${label}</span>`;
 }
 
