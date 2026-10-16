@@ -21,7 +21,9 @@ final class WindowController: NSObject, NSWindowDelegate {
     var note = ""
     var project = ""
     var projectRoot: String?
-    var cheer = ShelfPage.cheers[0]
+    private var cheerAt = Int.random(in: 0..<ShelfPage.cheers.count)
+    var cheer: String { ShelfPage.cheers[cheerAt] }
+    private var deskTask = false
     let agentHeader = AgentHeader()
     var headerText = ""
     var taskTitle: String?
@@ -83,6 +85,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         let ids = Self.paneIDs(root)
         shown = Self.shownPanes(state)
         emptyDesk = desk && task == nil && ids.isEmpty
+        if deskTask && emptyDesk { cheerAt = (cheerAt + 1) % ShelfPage.cheers.count }
+        deskTask = desk && task != nil
         let zoomed = state["zoomed"]?.string
         arrange(dock, zoomed: zoomed.map { $0 == docked ? .dock : .tab })
         let visible = Set(ids)

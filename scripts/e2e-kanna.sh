@@ -1434,7 +1434,9 @@ desk_shelf() {
   check wait_for 5 eval '[[ "$(win w1 dock.pane)" == agent ]]' || return 1
   check test "$(win w1 tabs.0.layout.pane)" == notes || return 1
   check test "$(desk empty)" == False || return 1
+  local cheer; cheer="$(desk cheer)"; [[ -n "$cheer" ]] || return 1
   kanna task park >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(desk empty)" == True && "$(desk cheer)" != "$cheer" ]]' || { desk cheer; return 1; }
   stop_app; start_app || return 1
   check wait_for 5 eval '[[ "$(desk shelf.0.task)" == p1 ]]' || return 1
   check test "$(pane notes state)" == running || return 1

@@ -660,7 +660,7 @@ function nextPane() {
 
 function done(id) {
   const w = deskOf(id);
-  if (w) w.desk = null;
+  if (w) { w.desk = null; cheerAt = (cheerAt + 1) % cheers.length; }
   s.tasks = s.tasks.filter(t => t.id !== id);
   s.order = s.order.filter(x => x !== id);
   render();
