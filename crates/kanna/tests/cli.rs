@@ -54,6 +54,76 @@ fn a_code_pane_opens_a_file_at_a_line_and_moves_between_lines() {
 }
 
 #[test]
+fn a_diff_pane_runs_git_diff_with_the_arguments_it_was_given_in_the_folder_it_was_opened_from() {
+    let daemon = Daemon::start();
+    let _app = daemon.app();
+    daemon.kanna(&["open", "--name", "a", "--cmd", "exec /bin/sh"]).ok();
+    let opened = daemon.kanna(&["open", "diff", "--merge-base", "main", "-U5", "--name", "changes", "--tab", "--", "src"]).ok();
+    assert_eq!(opened, "opened p2 (changes) in window w1, tab t2: running");
+    let listed = daemon.kanna(&["list", "--json"]).json()["panes"][1].clone();
+    assert_eq!(listed["type"], "diff");
+    assert_eq!(listed["path"], json!(daemon.dir.to_string_lossy()));
+    assert_eq!(listed["args"], json!(["--merge-base", "main", "-U5", "--", "src"]));
+    assert_eq!(listed["view"], "unified");
+    daemon.kanna(&["navigate", "changes", "diff", "--staged"]).ok();
+    assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][1]["args"], json!(["--staged"]));
+    daemon.kanna(&["navigate", "changes", "diff"]).ok();
+    assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][1]["args"], json!([]));
+    daemon.kanna(&["navigate", "changes", "--back"]).fails(2, "a diff pane keeps no history");
+    assert_eq!(daemon.kanna(&["open", "diff", "--cwd", "/tmp", "--tab"]).ok(), "opened p3 in window w1, tab t3: running");
+    assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][2]["path"], "/tmp");
+    daemon.kanna(&["raw", r#"{"cmd":"open","args":{"type":"diff"}}"#]).fails(2, "diff panes need a path: the folder git runs in");
+    daemon.kanna(&["raw", r#"{"cmd":"open","args":{"type":"diff","path":"/tmp","args":"--staged"}}"#]).fails(2, "args must be a list of strings");
+    daemon.kanna(&["raw", r#"{"cmd":"open","args":{"type":"diff","path":"/tmp","view":"sideways"}}"#]).fails(2, "view must be unified or split");
+    daemon.kanna(&["raw", r#"{"cmd":"open","args":{"type":"md","path":"/a.md","view":"split"}}"#]).fails(2, "args and view are only for diff panes");
+}
+
+#[test]
+fn the_daemon_diffs_a_diff_panes_folder_and_diffs_again_when_the_worktree_changes() {
+    let daemon = Daemon::start();
+    let _app = daemon.app();
+    let repo = daemon.dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "{status:?}");
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-qm", "first"]);
+    std::fs::write(repo.join("a.txt"), "one\n2\n").unwrap();
+    daemon.kanna(&["open", "--name", "a", "--cmd", "exec /bin/sh"]).ok();
+    daemon.kanna(&["open", "diff", "--cwd", &repo.to_string_lossy(), "--name", "changes", "--tab"]).ok();
+    let read = || daemon.kanna(&["raw", r#"{"cmd":"diff","args":{"pane":"changes"}}"#]).json();
+    wait_for("the first diff", || read()["serial"] == 1);
+    let first = read();
+    assert_eq!(first["diff"]["command"], "git diff");
+    assert_eq!(first["diff"]["files"][0]["path"], "a.txt");
+    assert_eq!(first["diff"]["files"][0]["hunks"][0]["lines"], json!([[" ", "one", 1, 1], ["-", "two", 2, null], ["+", "2", null, 2]]));
+    std::fs::write(repo.join("b.txt"), "new\n").unwrap();
+    wait_for("the untracked file", || read()["diff"]["files"].as_array().is_some_and(|f| f.len() == 2));
+    assert_eq!(read()["diff"]["files"][1]["untracked"], true);
+    std::fs::create_dir_all(repo.join("target")).unwrap();
+    std::fs::write(repo.join(".git/info/exclude"), "target/\n").unwrap();
+    wait_for("the exclude", || read()["serial"] == 2 || read()["serial"] == 3);
+    let serial = read()["serial"].clone();
+    std::fs::write(repo.join("target/out"), "built\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    assert_eq!(read()["serial"], serial);
+    daemon.kanna(&["navigate", "changes", "diff", "--staged"]).ok();
+    wait_for("the staged diff", || read()["diff"]["command"] == "git diff --staged");
+    assert_eq!(read()["diff"]["files"], json!([]));
+    daemon.kanna(&["close", "changes"]).ok();
+    daemon.kanna(&["raw", r#"{"cmd":"diff","args":{"pane":"changes"}}"#]).fails(4, "no pane \"changes\"");
+}
+
+#[test]
 fn every_command_works_through_the_daemon_and_the_app() {
     let daemon = Daemon::start();
     let _app = daemon.app();
@@ -61,7 +131,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["open", "--name", "b", "--split", "right", "--size", "1/3"]).ok(), "opened p2 (b) in window w1, tab t1: running");
     assert_eq!(layout(&daemon, 0, 0), "a:2/3 | b:1/3");
     let list = daemon.kanna(&["list"]).ok();
-    assert!(list.starts_with("*w1  focused: b\n  *t1 \"Tab 1\"  a:2/3 | b:1/3\n\nPANE  NAME  TYPE  STATE    COMMAND"), "{list}");
+    assert!(list.starts_with("*w1  focused: b\n  *t1 \"a\"  a:2/3 | b:1/3\n\nPANE  NAME  TYPE  STATE    COMMAND"), "{list}");
     assert!(list.contains("p1    a     term  running  exec /bin/sh"), "{list}");
     assert!(list.contains("p2    b     term  running  (shell)"), "{list}");
 
@@ -119,7 +189,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["markup", "doc", "--off"]).ok(), "comments off in p6 (doc)");
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();
-    assert!(capabilities.starts_with("pane types: term, web, ios, md, code\ncommands: agents, arrange, backlog, capabilities, close, comment, focus, list, markup, move, move-tab, navigate, open, quiz, read, rename-pane, rename-tab, resize, restart, screenshot, send, send-key, status, task, zoom"), "{capabilities}");
+    assert!(capabilities.starts_with("pane types: term, web, ios, md, code, diff\ncommands: agents, arrange, backlog, capabilities, close, comment, diff, focus, list, markup, move, move-tab, navigate, open, quiz, read, rename-pane, rename-tab, resize, restart, screenshot, send, send-key, status, task, zoom"), "{capabilities}");
     assert!(capabilities.ends_with("Kanna.app: attached"), "{capabilities}");
     let raw = daemon.kanna(&["raw", r#"{"cmd":"debug.anything","args":{"pane":"a"}}"#]).json();
     assert_eq!(raw, json!({ "cmd": "debug.anything", "args": { "pane": "p1" } }));
@@ -251,7 +321,7 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     assert!(overview.contains(&format!("Instance: default of {} at {}", kanna_build::Build::current().app_name(), nowhere.display())), "{overview}");
     assert!(overview.contains("6 needs Kanna.app, which isn't attached and wasn't started."), "{overview}");
     assert_eq!(kanna_at(&dir, Some(&nowhere), &["help"]).ok(), overview);
-    assert_eq!(kanna_at(&dir, Some(&nowhere), &["--version"]).ok(), format!("kanna {} ({})", env!("CARGO_PKG_VERSION"), kanna_build::Build::current().app_name()));
+    assert_eq!(kanna_at(&dir, Some(&nowhere), &["--version"]).ok(), format!("kanna {} ({})", kanna_build::VERSION, kanna_build::Build::current().app_name()));
     let open = kanna_at(&dir, Some(&nowhere), &["help", "open"]).ok();
     assert!(open.starts_with("kanna open — Open a terminal"), "{open}");
     assert_eq!(kanna_at(&dir, Some(&nowhere), &["open", "--help"]).ok(), open);

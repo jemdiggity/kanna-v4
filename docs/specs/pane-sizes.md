@@ -1,6 +1,6 @@
 # Pane sizes
 
-**Status:** built · **Tested:** e2e `pane_sizes`, `cargo test -p kanna-daemon --test restart` (a terminal started again after a restart keeps its size without its screen) · **Builds on:** [kanna spec 4.5](../kanna-spec.md#45-the-app-link), [4.8](../kanna-spec.md#48-restarting-the-daemon), [desk](desk.md)
+**Status:** built · **Tested:** e2e `pane_sizes`, `cargo test -p kanna-daemon --test restart` (a terminal started again after a restart keeps its size without its screen) · **Builds on:** [app link](app-link.md), [restarting the daemon](daemon-restart.md), [desk](desk.md)
 
 A terminal's program always sees the size of the view it's shown in, or would be shown in: across a relaunch of the app, a restart of the daemon, and for an agent you haven't looked at yet. A full-screen program such as Claude lays out what it prints at the size it has when it prints it, so a wrong size, even for a moment, stays in its scrollback.
 

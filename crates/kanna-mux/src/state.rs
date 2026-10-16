@@ -1,6 +1,6 @@
 use crate::error::KmuxError;
 use crate::json::{encode, is_true, num, opt, string, Map, Value};
-use crate::pane::{Comment, History, Pane, PaneType, Panes};
+use crate::pane::{diff_args, read_diff_args, read_view, Comment, History, Pane, PaneType, Panes};
 use std::collections::HashSet;
 
 pub const STATE_VERSION: u32 = 1;
@@ -37,6 +37,9 @@ pub fn pane_record(pane: &Pane) -> Map {
         PaneType::Web => {
             out.insert("url".into(), opt(pane.url.as_deref()));
             out.insert("history".into(), Value::Bool(pane.history.is_some()));
+            if let Some(title) = &pane.title {
+                out.insert("title".into(), Value::String(title.clone()));
+            }
             if pane.markup {
                 out.insert("markup".into(), Value::Bool(true));
             }
@@ -64,6 +67,12 @@ pub fn pane_record(pane: &Pane) -> Map {
                 out.insert("comment".into(), comment.to_json());
             }
         }
+        PaneType::Diff => {
+            out.insert("path".into(), opt(pane.path.as_deref()));
+            out.insert("args".into(), diff_args(pane.diff.as_deref()));
+            out.insert("view".into(), Value::String(pane.view.clone().unwrap_or_else(|| "unified".into())));
+            out.insert("zoom".into(), num(pane.zoom.unwrap_or(1.0)));
+        }
         PaneType::Ios => {
             out.insert("app".into(), opt(pane.app.as_deref()));
             out.insert("device".into(), opt(pane.device.as_deref()));
@@ -87,6 +96,7 @@ pub fn read_record(item: &Value, id: &str, kind: PaneType) -> Pane {
         }
         PaneType::Web => {
             pane.url = field("url");
+            pane.title = field("title");
             pane.agent = field("agent");
             pane.markup = is_true(item, "markup");
             if is_true(item, "history") {
@@ -106,6 +116,12 @@ pub fn read_record(item: &Value, id: &str, kind: PaneType) -> Pane {
             pane.comment = item.get("comment").and_then(Comment::from_json);
             pane.zoom = item.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0);
             pane.history = Some(History::default());
+        }
+        PaneType::Diff => {
+            pane.path = field("path");
+            pane.diff = read_diff_args(item.get("args")).ok().flatten();
+            pane.view = read_view(item.get("view")).ok().flatten();
+            pane.zoom = item.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0);
         }
         PaneType::Ios => {
             pane.app = field("app");
@@ -151,7 +167,7 @@ pub(crate) fn import_panes(state: &Value) -> Result<(Vec<Pane>, usize), KmuxErro
         }
         let needed = match kind {
             PaneType::Web => Some("url"),
-            PaneType::Md | PaneType::Code => Some("path"),
+            PaneType::Md | PaneType::Code | PaneType::Diff => Some("path"),
             PaneType::Ios => Some("app"),
             PaneType::Term => None,
         };

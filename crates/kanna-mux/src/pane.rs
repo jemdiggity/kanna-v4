@@ -9,10 +9,11 @@ pub enum PaneType {
     Ios,
     Md,
     Code,
+    Diff,
 }
 
 impl PaneType {
-    pub const ALL: [PaneType; 5] = [PaneType::Term, PaneType::Web, PaneType::Ios, PaneType::Md, PaneType::Code];
+    pub const ALL: [PaneType; 6] = [PaneType::Term, PaneType::Web, PaneType::Ios, PaneType::Md, PaneType::Code, PaneType::Diff];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -21,6 +22,7 @@ impl PaneType {
             PaneType::Ios => "ios",
             PaneType::Md => "md",
             PaneType::Code => "code",
+            PaneType::Diff => "diff",
         }
     }
 
@@ -100,11 +102,14 @@ pub struct Pane {
     pub cwd: Option<String>,
     pub opened_in: Option<String>,
     pub url: Option<String>,
+    pub title: Option<String>,
     pub app: Option<String>,
     pub device: Option<String>,
     pub path: Option<String>,
     pub line: Option<u64>,
     pub comment: Option<Comment>,
+    pub diff: Option<Vec<String>>,
+    pub view: Option<String>,
     pub agent: Option<String>,
     pub markup: bool,
     pub history: Option<History>,
@@ -112,6 +117,7 @@ pub struct Pane {
     pub session: Option<String>,
     pub pid: Option<i64>,
     pub status: Option<String>,
+    pub hung_up: bool,
 }
 
 impl Pane {
@@ -127,11 +133,14 @@ impl Pane {
             cwd: None,
             opened_in: None,
             url: None,
+            title: None,
             app: None,
             device: None,
             path: None,
             line: None,
             comment: None,
+            diff: None,
+            view: None,
             agent: None,
             markup: false,
             history: None,
@@ -139,6 +148,7 @@ impl Pane {
             session: None,
             pid: None,
             status: None,
+            hung_up: false,
         }
     }
 
@@ -155,6 +165,17 @@ impl Pane {
             Some(name) => format!("{name} ({})", self.id),
             None => self.id.clone(),
         }
+    }
+
+    pub fn tab_name(&self) -> Option<String> {
+        let name = match (&self.name, self.kind) {
+            (Some(name), _) => Some(name.clone()),
+            (None, PaneType::Md | PaneType::Code) => self.path.as_deref().and_then(file_name),
+            (None, PaneType::Web) => self.title.clone().filter(|t| !t.trim().is_empty()).or_else(|| self.url.as_deref().and_then(host)),
+            (None, PaneType::Diff) => Some(std::iter::once("diff").chain(self.diff.iter().flatten().map(String::as_str)).collect::<Vec<_>>().join(" ")),
+            (None, PaneType::Term | PaneType::Ios) => None,
+        };
+        name.map(|n| n.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string()).filter(|n| !n.is_empty())
     }
 
     pub fn summary(&self) -> Value {
@@ -201,6 +222,11 @@ impl Pane {
                     out.insert("comment".into(), comment.to_json());
                 }
             }
+            PaneType::Diff => {
+                out.insert("path".into(), opt(self.path.as_deref()));
+                out.insert("args".into(), diff_args(self.diff.as_deref()));
+                out.insert("view".into(), Value::String(self.view.clone().unwrap_or_else(|| "unified".into())));
+            }
         }
         if let Some(code) = self.exit_code {
             out.insert("exitCode".into(), num(code as f64));
@@ -213,6 +239,21 @@ impl Pane {
         }
         Value::Object(out)
     }
+}
+
+fn file_name(path: &str) -> Option<String> {
+    path.trim_end_matches('/').rsplit('/').next().filter(|n| !n.is_empty()).map(String::from)
+}
+
+fn host(url: &str) -> Option<String> {
+    let Some((_, rest)) = url.split_once("://") else { return file_name(url) };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let authority = authority.rsplit('@').next().unwrap_or("");
+    let host = match authority.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => authority.split(':').next().unwrap_or(""),
+    };
+    if host.is_empty() { file_name(rest.split(['?', '#']).next().unwrap_or("")) } else { Some(host.into()) }
 }
 
 #[derive(Debug, Default)]
@@ -315,5 +356,76 @@ mod pid_tests {
         assert!(pane.summary().get("pid").is_none());
         pane.pid = Some(4242);
         assert_eq!(pane.summary().get("pid").and_then(|v| v.as_f64()), Some(4242.0));
+    }
+}
+
+#[cfg(test)]
+mod tab_name_tests {
+    use super::*;
+
+    fn pane(kind: PaneType, name: Option<&str>) -> Pane {
+        Pane::new("p1", name.map(String::from), kind)
+    }
+
+    #[test]
+    fn a_pane_names_its_tab_by_its_name_then_its_file_or_page() {
+        let mut code = pane(PaneType::Code, None);
+        code.path = Some("/repo/crates/kanna-daemon/src/store.rs".into());
+        assert_eq!(code.tab_name().as_deref(), Some("store.rs"));
+        let mut md = pane(PaneType::Md, None);
+        md.path = Some("docs/specs/presenting.md".into());
+        assert_eq!(md.tab_name().as_deref(), Some("presenting.md"));
+        let mut named = pane(PaneType::Code, Some("diff"));
+        named.path = Some("/repo/a.rs".into());
+        assert_eq!(named.tab_name().as_deref(), Some("diff"));
+        assert_eq!(pane(PaneType::Term, None).tab_name(), None);
+        assert_eq!(pane(PaneType::Term, Some("logs")).tab_name().as_deref(), Some("logs"));
+        assert_eq!(pane(PaneType::Ios, None).tab_name(), None);
+        let mut diff = pane(PaneType::Diff, None);
+        assert_eq!(diff.tab_name().as_deref(), Some("diff"));
+        diff.diff = Some(vec!["--merge-base".into(), "main".into()]);
+        assert_eq!(diff.tab_name().as_deref(), Some("diff --merge-base main"));
+    }
+
+    #[test]
+    fn a_web_pane_is_its_page_title_or_its_host_until_the_title_loads() {
+        let mut web = pane(PaneType::Web, None);
+        web.url = Some("https://user@docs.rs:443/serde/latest?x=1".into());
+        assert_eq!(web.tab_name().as_deref(), Some("docs.rs"));
+        web.title = Some("serde - Rust".into());
+        assert_eq!(web.tab_name().as_deref(), Some("serde - Rust"));
+        web.title = Some("  ".into());
+        assert_eq!(web.tab_name().as_deref(), Some("docs.rs"));
+        web.title = Some("\u{1b}]0;owned\u{7}\u{1b}[2Jpage\n".into());
+        assert_eq!(web.tab_name().as_deref(), Some("]0;owned[2Jpage"), "no control characters reach a terminal through kanna list");
+        web.title = None;
+        web.url = Some("http://[::1]:5173/".into());
+        assert_eq!(web.tab_name().as_deref(), Some("::1"));
+        web.url = Some("file:///Users/me/mockups/tabs.html".into());
+        assert_eq!(web.tab_name().as_deref(), Some("tabs.html"));
+    }
+}
+
+pub fn diff_args(args: Option<&[String]>) -> Value {
+    Value::Array(args.unwrap_or_default().iter().cloned().map(Value::String).collect())
+}
+
+pub fn read_diff_args(value: Option<&Value>) -> Result<Option<Vec<String>>, KmuxError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| item.as_str().map(String::from).ok_or_else(|| KmuxError::new("bad_request", "args must be a list of strings")))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some),
+        Some(_) => Err(KmuxError::new("bad_request", "args must be a list of strings")),
+    }
+}
+
+pub fn read_view(value: Option<&Value>) -> Result<Option<String>, KmuxError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(view)) if view == "unified" || view == "split" => Ok(Some(view.clone())),
+        Some(_) => Err(KmuxError::new("bad_request", "view must be unified or split")),
     }
 }

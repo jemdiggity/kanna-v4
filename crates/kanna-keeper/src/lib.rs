@@ -6,6 +6,7 @@ mod pty;
 pub mod server;
 mod session;
 mod sig;
+pub mod upgrade;
 
 use serde_json::{json, Value};
 

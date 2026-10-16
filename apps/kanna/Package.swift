@@ -1,7 +1,7 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-let kannaFFI = LinkerSetting.unsafeFlags(["-L", Context.packageDirectory + "/../../target/release"])
+let kannaFFI = LinkerSetting.unsafeFlags(["-L", Context.environment["KANNA_RUST_RELEASE_DIR"] ?? Context.packageDirectory + "/../../target/release"])
 
 let package = Package(
     name: "kanna",
@@ -21,6 +21,8 @@ let package = Package(
         .testTarget(name: "KannaMarkdownTests", dependencies: ["KannaMarkdown"]),
         .target(name: "KannaCode", dependencies: ["KannaSyntaxC"], linkerSettings: [kannaFFI] + ["AppKit"].map { .linkedFramework($0) }),
         .testTarget(name: "KannaCodeTests", dependencies: ["KannaCode"]),
+        .target(name: "KannaDiff", dependencies: ["KannaCode"], linkerSettings: ["AppKit"].map { .linkedFramework($0) }),
+        .testTarget(name: "KannaDiffTests", dependencies: ["KannaDiff"]),
         .target(name: "KannaLinks"),
         .target(name: "KannaDrop"),
         .target(name: "KannaStatus"),
@@ -30,7 +32,7 @@ let package = Package(
         .target(name: "SimBridge", linkerSettings: ["AppKit", "IOSurface", "QuartzCore"].map { .linkedFramework($0) }),
         .executableTarget(
             name: "Kanna",
-            dependencies: ["GhosttyKit", "KannaLayoutC", "KannaDiagram", "KannaDocs", "KannaMarkdown", "KannaCode", "KannaLinks", "KannaDrop", "KannaStatus", "SimBridge"],
+            dependencies: ["GhosttyKit", "KannaLayoutC", "KannaDiagram", "KannaDocs", "KannaMarkdown", "KannaCode", "KannaDiff", "KannaLinks", "KannaDrop", "KannaStatus", "SimBridge"],
             linkerSettings: [.linkedLibrary("c++"), kannaFFI]
                 + ["AppKit", "Carbon", "CoreText", "IOSurface", "Metal", "QuartzCore", "UniformTypeIdentifiers", "WebKit"].map { .linkedFramework($0) }
         ),

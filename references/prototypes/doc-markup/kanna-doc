@@ -235,6 +235,32 @@ def message(doc, t, text):
     return f"{header}\n{quote}\n{text}"
 
 
+STATUS_CACHE = {}
+
+
+def agent_status(doc):
+    agent = doc.get("agent")
+    if not agent:
+        return None
+    key = (agent, doc.get("socket"))
+    at, status = STATUS_CACHE.get(key, (0, None))
+    if time.time() - at < 1:
+        return status
+    env = dict(os.environ)
+    if doc.get("socket"):
+        env["KANNA_SOCKET"] = doc["socket"]
+    status = None
+    try:
+        r = subprocess.run(["kanna", "list", "--json"], env=env, capture_output=True, text=True, timeout=3)
+        for pane in json.loads(r.stdout).get("panes", []) if r.returncode == 0 else []:
+            if agent in (pane.get("id"), pane.get("name")):
+                status = pane.get("status")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        status = None
+    STATUS_CACHE[key] = (time.time(), status)
+    return status
+
+
 def send_to_agent(doc, text):
     if not doc.get("agent"):
         return "no agent"
@@ -451,7 +477,7 @@ class Handler(BaseHTTPRequestHandler):
             doc = read_doc(p)
             return self.reply(200, {"file": str(p), "rel": rel_name(p), "kind": "page" if p.suffix.lower() in PAGES else "doc", "pages": f"{PageHandler.origin}/{PageHandler.token}",
                                     "source": "" if p.suffix.lower() in PAGES else p.read_text(errors="replace"),
-                                    "mtime": p.stat().st_mtime, "agent": doc.get("agent"), "threads": doc["threads"]})
+                                    "mtime": p.stat().st_mtime, "agent": doc.get("agent"), "status": agent_status(doc), "threads": doc["threads"]})
         if u.path == "/asset":
             target = (p.parent / q.get("path", [""])[0]).resolve()
             root = repo_root(p).resolve()

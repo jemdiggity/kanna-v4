@@ -126,7 +126,7 @@ extension AppController {
                     "strip": .bool(!controller.shelfStrip.isHidden), "page": .bool(!controller.shelfPage.isHidden), "title": .string(controller.window.title),
                     "header": controller.agentHeader.isHidden ? .null : .string(controller.agentHeader.text),
                     "backlog": .array(controller.backlog.map { .string($0.id) }), "running": .number(Double(controller.running)),
-                    "waiting": .string(controller.shelfStrip.waitingText), "stripLayout": controller.shelfStrip.geometry, "note": .string(controller.note),
+                    "waiting": .string(controller.shelfStrip.waitingText), "stripLayout": controller.shelfStrip.geometry, "note": .string(controller.note), "cheer": .string(controller.cheer),
                     "planner": controller.plannerShown.map { .string($0) } ?? .null, "window": window(id) ?? .null, "scroll": scrolled, "search": search,
                     "responder": .string(controller.window.firstResponder.map { String(describing: type(of: $0)) } ?? "")]
         }
@@ -145,7 +145,8 @@ extension AppController {
                 guard let rect = await markup.rect(of: selector) else { throw KannaError("not_found", "nothing matches \(selector)") }
                 return ["at": point(rect), "width": .number(Double(rect.width)), "height": .number(Double(rect.height))]
             }
-            reply["cards"] = .object(markup.cardRects.mapValues { ["at": point($0.rect), "reply": .bool($0.reply)] })
+            reply["cards"] = .object(markup.cards.mapValues { ["at": point($0.rect), "field": point($0.field), "reply": .bool($0.reply), "typing": .bool($0.typing), "waiting": $0.waiting.map { .string($0) } ?? .null] })
+            reply["dot_typing"] = .array(markup.typingDots.map { .string($0) })
             reply["threads"] = .array(markup.threads.map { thread in
                 var fields: [String: JSON] = ["id": .string(thread.id), "quote": .string(thread.quote), "line": .number(Double(thread.line)), "state": .string(thread.state),
                                               "status": thread.status.map { .string($0) } ?? .null, "error": thread.error.map { .string($0) } ?? .null,
@@ -160,6 +161,8 @@ extension AppController {
             reply["marks"] = .object(markup.markRects.mapValues(point))
             reply["areas"] = .object(markup.areaRects.mapValues(point))
             reply["box"] = markup.commentBoxThread.map { .string($0) } ?? .null
+            reply["box_parts"] = Self.boxParts(markup.commentBoxParts)
+            reply["box_shown"] = .bool(markup.commentBoxShown)
             reply["active"] = markup.activeThread.map { .string($0) } ?? .null
             reply["agent"] = markup.agent.map { .string($0) } ?? .null
             reply["hash"] = .string(markup.pageHash)
@@ -167,6 +170,7 @@ extension AppController {
         }
         commands["debug.md"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let markdown = contents.markdown(id) else { throw KannaError("wrong_type", "not a running md pane") }
+            if let step = args["zoom"]?.number { markdown.zoom(by: Int(step)) }
             if let y = args["scroll"]?.number { markdown.scroll(toY: CGFloat(y)) }
             if case .array(let pick)? = args["select"], pick.count == 2, let at = pick[0].number, let length = pick[1].number {
                 markdown.select(NSRange(location: Int(at), length: Int(length)))
@@ -186,7 +190,8 @@ extension AppController {
                     "layout_width": .number(Double(markdown.layoutWidth)), "threads": .array(threads),
                     "box": markdown.commentBoxThread.map { .string($0) } ?? .null, "box_text": markdown.commentBoxText.map { .string($0) } ?? .null,
                     "active": markdown.activeThread.map { .string($0) } ?? .null, "agent": markdown.agent.map { .string($0) } ?? .null,
-                    "markup": .bool(markdown.markup)]
+                    "markup": .bool(markdown.markup), "box_parts": Self.boxParts(markdown.commentBoxParts), "box_shown": .bool(markdown.commentBoxShown),
+                    "cards": .object(markdown.cards.mapValues { ["typing": .bool($0.typing), "waiting": $0.waiting.map { .string($0) } ?? .null, "reply": .bool($0.reply)] })]
         }
         commands["debug.code"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let code = contents.code(id) else { throw KannaError("wrong_type", "not a running code pane") }
@@ -208,6 +213,32 @@ extension AppController {
             out["captures"] = .array(code.highlights.spans.prefix(200).map { .array([.number(Double($0.range.location)), .number(Double($0.range.length)), .string($0.capture)]) })
             return out
         }
+        commands["debug.diff"] = { [weak self] args in
+            guard let self, let id = args["pane"]?.string, let diff = contents.diff(id) else { throw KannaError("wrong_type", "not a running diff pane") }
+            if let keys = args["keys"]?.string { for key in keys { _ = diff.press(key == "~" ? "\r" : String(key)) } }
+            if let view = args["view"]?.string { diff.setView(view) }
+            if let step = args["zoom"]?.number { diff.zoom(by: Int(step)) }
+            if let path = args["fold"]?.string { diff.toggle(file: path, all: false) }
+            if let path = args["show"]?.string { diff.showFolded(path) }
+            let rows: [JSON] = diff.debugRows.map { row in
+                .object(row.mapValues { value in
+                    if let text = value as? String { return .string(text) }
+                    if let number = value as? Int { return .number(Double(number)) }
+                    return .null
+                })
+            }
+            let files: [JSON] = (diff.result?.files ?? []).map { file in
+                ["path": .string(file.path), "status": .string(file.status), "added": .number(Double(file.added)), "removed": .number(Double(file.removed)),
+                 "fold": file.fold.map { .string($0) } ?? .null, "untracked": .bool(file.untracked == true)]
+            }
+            return ["command": .string(diff.result?.command ?? ""), "error": diff.result?.error.map { .string($0) } ?? .null, "files": .array(files), "rows": .array(rows),
+                    "current": diff.current.map { .number(Double($0)) } ?? .null, "view": .string(diff.view.rawValue), "updating": .bool(diff.updating),
+                    "serial": .number(Double(diff.serial)), "fresh": .array(diff.fresh.sorted().map { .number(Double($0)) }), "zoom": .number(Double(diff.zoom)),
+                    "highlighted": .number(Double(diff.highlightedFiles)), "list": .bool(diff.listShown),
+                    "selected": diff.selectedFile.map { .string($0) } ?? .null, "sticky": diff.stickyFile.map { .string($0) } ?? .null,
+                    "columns": .array(diff.debugColumns.map { .object($0.mapValues { .number($0) }) }),
+                    "colors": .array((args["colors"]?.number).map { diff.colors(atRow: Int($0)).map { .string($0) } } ?? [])]
+        }
         commands["debug.ios"] = { [weak self] args in
             guard let self, let id = args["pane"]?.string, let screen = contents.ios(id)?.screen else { throw KannaError("wrong_type", "not a running ios pane") }
             if let x = args["x"]?.number, let y = args["y"]?.number {
@@ -218,6 +249,11 @@ extension AppController {
             if args["home"]?.bool == true { screen.pressHome() }
             return ["width": .number(screen.pixelSize.width), "height": .number(screen.pixelSize.height)]
         }
+    }
+
+    private static func boxParts(_ parts: [String: NSRect]?) -> JSON {
+        guard let parts else { return .null }
+        return .object(parts.mapValues { .array([$0.minX, $0.minY, $0.width, $0.height].map { .number(Double($0)) }) })
     }
 
     private func terminal(_ reference: String?) throws -> TerminalSurfaceView {

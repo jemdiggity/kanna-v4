@@ -11,6 +11,8 @@ kanna-mux = { path = "../kanna-mux" }
 kanna-keeper = { path = "../kanna-keeper" }
 kanna-vt = { path = "../kanna-vt" }
 kanna-detect = { path = "../kanna-detect" }
+kanna-diff = { path = "../kanna-diff" }
+notify = "8"
 base64 = "0.22"
 libc = "0.2"
 rusqlite = { version = "0.40", features = ["bundled", "backup"] }

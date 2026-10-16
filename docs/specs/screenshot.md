@@ -1,6 +1,6 @@
 # Screenshot
 
-**Status:** built (2026-10-12), in Kanna · **Builds on:** [the kanna CLI](../kanna-spec.md#411-the-kanna-cli), [the app link](../kanna-spec.md#45-the-app-link) · **Why:** an agent checks its UI work (a diff, a web or markdown pane) by looking at it
+**Status:** built (2026-10-12), in Kanna · **Builds on:** [the kanna CLI](cli.md), [the app link](app-link.md) · **Why:** an agent checks its UI work (a diff, a web or markdown pane) by looking at it
 
 `kanna screenshot` saves a PNG of a pane or a whole window as it's drawn now, at the screen's resolution, and prints its path. It's an ordinary command: it works without `KANNA_DEBUG`, for every pane type.
 
