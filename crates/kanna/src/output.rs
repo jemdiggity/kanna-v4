@@ -485,8 +485,20 @@ pub fn status(args: &Value, reply: &Value) -> String {
             out.push(format!("{who}{agent}{version}{exe}"));
         }
     }
-    out.push(format!("rules: {} ({})", reply["rules"]["version"].as_str().unwrap_or("?"), reply["rules"]["source"].as_str().unwrap_or("?")));
     let judged = reply["judged"].as_str().unwrap_or("?");
+    if reply["source"].as_str() == Some("osc7501") {
+        out.push(format!("status: {}", reply["status"].as_str().or(reply["reported"]["status"].as_str()).unwrap_or("?")));
+        out.push("source: OSC 7501, the agent's own report".into());
+        out.push(format!("record: {}", program_record(&reply["reported"])));
+        for child in reply["records"].as_array().into_iter().flatten().filter(|r| r["id"].as_str().is_some_and(|id| !id.is_empty())) {
+            out.push(format!("record {:?}: {}", child["id"].as_str().unwrap_or_default(), program_record(child)));
+        }
+        let rule = reply["rule"].as_str().unwrap_or("none matched");
+        out.push(format!("rules: {} ({}), which would judge {judged} (rule: {rule})", reply["rules"]["version"].as_str().unwrap_or("?"), reply["rules"]["source"].as_str().unwrap_or("?")));
+        return out.join("\n");
+    }
+    out.push(format!("rules: {} ({})", reply["rules"]["version"].as_str().unwrap_or("?"), reply["rules"]["source"].as_str().unwrap_or("?")));
+    out.push("source: rules (no OSC 7501 report from the agent)".into());
     match reply["status"].as_str() {
         Some(status) if status != judged => out.push(format!("status: {status} (this screen judges {judged})")),
         _ => out.push(format!("status: {judged}")),
@@ -505,6 +517,22 @@ pub fn status(args: &Value, reply: &Value) -> String {
         out.push(format!("not for this version: {excluded}"));
     }
     out.join("\n")
+}
+
+fn program_record(record: &Value) -> String {
+    let mut parts = vec![format!("state={}", record["state"].as_str().unwrap_or("?"))];
+    if let Some(kind) = record["kind"].as_str() {
+        parts.push(format!("kind={kind}"));
+    }
+    if let Some(progress) = record["progress"].as_u64() {
+        parts.push(format!("progress={progress}"));
+    }
+    for (key, name) in [("app", "app"), ("title", "title"), ("message", "msg")] {
+        if let Some(text) = record[key].as_str().filter(|t| !t.is_empty()) {
+            parts.push(format!("{name}={text:?}"));
+        }
+    }
+    parts.join(" ")
 }
 
 #[cfg(test)]
@@ -532,7 +560,23 @@ mod status_tests {
             "rules": { "version": "2026.10.10.1", "source": "bundled" }, "judged": "working", "rule": "claude/working/title", "matched": "◐ Claude Code", "excluded": [] });
         assert_eq!(
             status(&json!({ "action": "explain" }), &reply),
-            "p3: claude 2.1.296 (/bin/claude)\nrules: 2026.10.10.1 (bundled)\nstatus: working\nrule: claude/working/title\nmatched: ◐ Claude Code"
+            "p3: claude 2.1.296 (/bin/claude)\nrules: 2026.10.10.1 (bundled)\nsource: rules (no OSC 7501 report from the agent)\nstatus: working\nrule: claude/working/title\nmatched: ◐ Claude Code"
+        );
+    }
+
+    #[test]
+    fn explain_shows_the_agents_own_report() {
+        let reply = json!({ "pane": "p3", "agent": "claude", "agentVersion": "2.1.300", "executable": "/bin/claude", "status": "needs-you",
+            "rules": { "version": "2026.10.10.1", "source": "bundled" }, "judged": "idle", "rule": null, "matched": null, "excluded": [],
+            "source": "osc7501",
+            "reported": { "id": "", "state": "blocked", "kind": "permission", "progress": null, "app": "claude-code", "title": "", "message": "Edit \"main.rs\"?", "status": "needs-you" },
+            "records": [
+                { "id": "", "state": "blocked", "kind": "permission", "progress": null, "app": "claude-code", "title": "", "message": "Edit \"main.rs\"?", "status": "needs-you" },
+                { "id": "build", "state": "working", "kind": null, "progress": 40, "app": "", "title": "", "message": "", "status": "working" }
+            ] });
+        assert_eq!(
+            status(&json!({ "action": "explain" }), &reply),
+            "p3: claude 2.1.300 (/bin/claude)\nstatus: needs-you\nsource: OSC 7501, the agent's own report\nrecord: state=blocked kind=permission app=\"claude-code\" msg=\"Edit \\\"main.rs\\\"?\"\nrecord \"build\": state=working progress=40\nrules: 2026.10.10.1 (bundled), which would judge idle (rule: none matched)"
         );
     }
 }

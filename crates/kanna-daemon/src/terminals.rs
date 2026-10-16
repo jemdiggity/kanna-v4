@@ -33,6 +33,8 @@ const MAX_SIDE: u16 = 1000;
 
 const KEY_GAP: Duration = Duration::from_millis(50);
 
+const ENTER_GAP: Duration = Duration::from_millis(100);
+
 struct Pty {
     master: OwnedFd,
     input: Sender<Vec<u8>>,
@@ -279,6 +281,7 @@ impl Terminals {
     fn saved(&self) -> Option<Saved> {
         let core = self.core.borrow().as_ref().and_then(WeakCore::upgrade)?;
         let live = self.live.borrow();
+        let sizes = self.sizes.borrow();
         Some(core.with_panes(|panes| Saved {
             counter: panes.counter(),
             records: panes
@@ -299,6 +302,8 @@ impl Terminals {
                         exit_code,
                         pid: terminal.pid as i64,
                         keeper: terminal.keeper.clone(),
+                        size: sizes.get(&pane.id).copied(),
+                        hung_up: pane.hung_up,
                     })
                 })
                 .collect(),
@@ -332,7 +337,7 @@ impl Terminals {
         let mut exits = Vec::new();
         for record in saved.records {
             let mut pane = Pane::new(&record.id, record.name.clone(), PaneType::Term);
-            (pane.command, pane.cwd, pane.pid) = (record.cmd.clone(), record.cwd.clone(), Some(record.pid));
+            (pane.command, pane.cwd, pane.pid, pane.hung_up) = (record.cmd.clone(), record.cwd.clone(), Some(record.pid), record.hung_up);
             let terminal = match ptys.remove(&record.keeper) {
                 Some(pty) => {
                     let snapshot = (i64::from(pty.pid) == record.pid).then(|| self.store.snapshot(&record.id)).flatten();
@@ -451,7 +456,10 @@ impl Terminals {
         let settings = self.settings();
         let feed = match snapshot.map(|snapshot| Feed::restore(&snapshot, &settings)) {
             Some(Ok(feed)) => feed,
-            _ => Feed::new(COLS, ROWS, &settings)?,
+            _ => {
+                let (cols, rows) = record.size.unwrap_or((COLS, ROWS));
+                Feed::new(cols.min(MAX_SIDE), rows.min(MAX_SIDE), &settings)?
+            }
         };
         let (cols, rows) = {
             let screen = Feed::lock(&feed);
@@ -527,8 +535,20 @@ impl PaneHost for Terminals {
         }
     }
 
-    fn send(&self, pane: &Pane, text: &str) {
-        self.write(&pane.id, format!("{text}\r").into_bytes());
+    fn send(&self, pane: &Pane, text: &str, done: Responder) {
+        let line = {
+            let live = self.live.borrow();
+            live.get(&pane.id).and_then(|terminal| {
+                let pty = terminal.running()?;
+                let feed = Feed::lock(&terminal.feed);
+                Some(Line { label: pane.label(), text: feed.paste(text), enter: feed.enter(), input: pty.input.clone() })
+            })
+        };
+        let Some(line) = line else { return done.reply(Err(KmuxError::new("bad_request", format!("{} has no running terminal", pane.label())))) };
+        let sent = std::thread::Builder::new().name(format!("kanna.send.{}", pane.id)).spawn(move || line.type_in(done));
+        if let Err(error) = sent {
+            eprintln!("kanna-daemon: couldn't start sending text: {error}");
+        }
     }
 
     fn send_keys(&self, pane: &Pane, names: Vec<String>, done: Responder) {
@@ -556,6 +576,28 @@ struct Presses {
     keys: Vec<Key>,
     feed: Arc<Mutex<Feed>>,
     input: Sender<Vec<u8>>,
+}
+
+struct Line {
+    label: String,
+    text: Vec<u8>,
+    enter: Vec<u8>,
+    input: Sender<Vec<u8>>,
+}
+
+impl Line {
+    fn type_in(self, done: Responder) {
+        if !self.text.is_empty() {
+            if self.input.send(self.text).is_err() {
+                return done.reply(Err(KmuxError::new("bad_request", format!("{} ended before the text was sent", self.label))));
+            }
+            std::thread::sleep(ENTER_GAP);
+        }
+        if self.input.send(self.enter).is_err() {
+            return done.reply(Err(KmuxError::new("bad_request", format!("{} ended before Return was pressed", self.label))));
+        }
+        done.reply(Ok(Map::new()));
+    }
 }
 
 impl Presses {

@@ -48,6 +48,11 @@ final class PaneView: NSView {
         }
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        content.frame = bounds
+    }
+
     override func layout() {
         super.layout()
         content.frame = bounds

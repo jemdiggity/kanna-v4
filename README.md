@@ -17,9 +17,13 @@ flowchart TB
 - **kanna-keeper** (`crates/kanna-keeper`, Rust) holds the ptys, so the programs survive the daemon restarting.
 - **kanna** (`crates/kanna`, Rust) is the CLI.
 
+## Download
+
+[Download Kanna](https://github.com/tampopogk/kanna/releases/latest): `Kanna-X.Y.Z-arm64.dmg` for Apple silicon, `Kanna-X.Y.Z-x86_64.dmg` for Intel. Open it and drag Kanna to Applications. Releases are cut with `scripts/release.sh` ([release](docs/specs/release.md)).
+
 ## Build
 
-Kanna builds against Ghostty from the `kanna4` branch of [jemdiggity/ghostty](https://github.com/jemdiggity/ghostty/tree/kanna4), which the scripts clone and pin (`scripts/env.sh`).
+Kanna builds against Ghostty from the `kanna4` branch of [jemdiggity/ghostty](https://github.com/jemdiggity/ghostty/tree/kanna4), which the scripts clone and pin (`scripts/env.sh`). `kanna4` follows Ghostty's `main` by merging it ([Ghostty fork](docs/specs/ghostty-fork.md)).
 
 ```sh
 scripts/build.sh                  # everything, on a fresh clone or worktree: target/Kanna.app and the CLI, daemon and keeper

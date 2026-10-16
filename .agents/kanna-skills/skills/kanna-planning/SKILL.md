@@ -70,7 +70,7 @@ Run the `kanna` on your PATH, from this terminal, as it is: its `KANNA_*` variab
 | `kanna task edit TASK --after TASK,...\|none` | Change what a backlog task waits for; `none` unblocks it |
 | `kanna task name TASK NAME` | Rename a task, running or waiting in the backlog; a backlog task starts with the new name |
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, branch and agent with the first message, and stays in the backlog; a stopped task resumes |
-| `kanna task stop TASK` | End a task's agent and tabs, leaving it where it is, its worktree and conversation kept |
+| `kanna task stop TASK` | End a task's agent and hang up its terminals, leaving it where it is with its tabs as they are, its worktree and conversation kept |
 | `kanna task shelve TASK` | Move a backlog task to the Shelf, starting it if it's stopped (three per repo) |
 | `kanna task pull TASK` | Put a task on this Desk (it hides you until it's parked) |
 | `kanna task defer TASK` | Move a task back to the backlog as it is, running or stopped |

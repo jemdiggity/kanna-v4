@@ -41,7 +41,7 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     let target = Target::resolve(&kanna_build::Build::current(), Choice { mux, instance, background, fresh }, env)?;
     let Some(name) = args.positional() else {
         if args.flag("--version") {
-            println!("kanna {} ({})", env!("CARGO_PKG_VERSION"), target.build.app_name());
+            println!("kanna {} ({})", kanna_build::VERSION, target.build.app_name());
             return Ok(());
         }
         if let Some(extra) = args.first() {

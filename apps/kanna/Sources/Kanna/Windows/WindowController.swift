@@ -10,18 +10,22 @@ final class WindowController: NSObject, NSWindowDelegate {
     private let stage = StageView()
     private let content = StageView()
     private let dockStage = NSView()
+    private let shelfStage = NSView()
     private(set) var dockDivider: DockDividerView?
     var relayout: (() -> Void)? { didSet { content.onLayout = relayout } }
     let tabBar = TabBar()
     let shelfStrip = ShelfStrip()
     let shelfPage = ShelfPage()
     var shelf: [ShelfTask] = []
+    var shelfDocks: [JSON] = []
     var backlog: [BacklogTask] = []
     var running = 0
     var note = ""
     var project = ""
     var projectRoot: String?
-    var cheer = ShelfPage.cheers[0]
+    private var cheerAt = Int.random(in: 0..<ShelfPage.cheers.count)
+    var cheer: String { ShelfPage.cheers[cheerAt] }
+    private var deskTask = false
     let agentHeader = AgentHeader()
     var headerText = ""
     var taskTitle: String?
@@ -57,6 +61,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         dockStage.addSubview(agentHeader)
         content.addSubview(shelfStrip)
         content.addSubview(shelfPage)
+        content.addSubview(shelfStage)
+        shelfStage.isHidden = true
         shelfStrip.isHidden = true
         shelfPage.isHidden = true
         window.contentView = content
@@ -83,6 +89,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         let ids = Self.paneIDs(root)
         shown = Self.shownPanes(state)
         emptyDesk = desk && task == nil && ids.isEmpty
+        if deskTask && emptyDesk { cheerAt = (cheerAt + 1) % ShelfPage.cheers.count }
+        deskTask = desk && task != nil
         let zoomed = state["zoomed"]?.string
         arrange(dock, zoomed: zoomed.map { $0 == docked ? .dock : .tab })
         let visible = Set(ids)
@@ -102,6 +110,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             agentHeader.frame = NSRect(x: 0, y: dockStage.bounds.height - header, width: dockStage.bounds.width, height: header)
             agentHeader.show(headerText)
         }
+        hold(shelfDocks, panes)
         window.invalidateCursorRects(for: content)
         let focusedID = state["focused"]?.string
         let visibleIDs = ids + (docked.map { [$0] } ?? [])
@@ -145,10 +154,9 @@ final class WindowController: NSObject, NSWindowDelegate {
                 side = .zero
             } else if zoomed != .tab {
                 let total = bounds.width - Self.divider
-                let low = min(DividerView.minimum, total / 2)
-                let width = min(max((total * CGFloat(dock["width"]?.number ?? 0.4)).rounded(), low), total - low)
                 let left = dock["edge"]?.string != "right"
-                dockStage.frame = NSRect(x: left ? 0 : bounds.width - width, y: bounds.minY, width: width, height: bounds.height)
+                dockStage.frame = Self.dockFrame(dock, in: bounds)
+                let width = dockStage.frame.width
                 side = NSRect(x: left ? width + Self.divider : 0, y: bounds.minY, width: total - width, height: bounds.height)
                 let line = NSRect(x: left ? width : side.maxX, y: bounds.minY, width: Self.divider, height: bounds.height)
                 let handle = DockDividerView(pane: pane, left: left, line: line, span: total, extent: bounds.width)
@@ -168,6 +176,30 @@ final class WindowController: NSObject, NSWindowDelegate {
         let bar = tabBar.isHidden ? 0 : TabBar.height
         tabBar.frame = NSRect(x: side.minX, y: side.maxY - TabBar.height, width: side.width, height: TabBar.height)
         stage.frame = NSRect(x: side.minX, y: side.minY, width: side.width, height: max(0, side.height - bar))
+    }
+
+    static func dockFrame(_ dock: JSON, in bounds: NSRect) -> NSRect {
+        let total = bounds.width - divider
+        let low = min(DividerView.minimum, total / 2)
+        let width = min(max((total * CGFloat(dock["width"]?.number ?? 0.4)).rounded(), low), total - low)
+        let left = dock["edge"]?.string != "right"
+        return NSRect(x: left ? 0 : bounds.width - width, y: bounds.minY, width: width, height: bounds.height)
+    }
+
+    private func hold(_ docks: [JSON], _ panes: PaneViews) {
+        let held = Set(docks.compactMap { $0["task"]?.string })
+        for case let view as PaneView in shelfStage.subviews where !held.contains(view.id) { view.removeFromSuperview() }
+        let bounds = content.bounds
+        shelfStage.frame = bounds
+        let desk = NSRect(x: 0, y: ShelfStrip.height, width: bounds.width, height: max(0, bounds.height - ShelfStrip.height))
+        for dock in docks {
+            guard let id = dock["task"]?.string, dock["type"]?.string ?? "term" == "term", let view = panes.view(id, type: "term") else { continue }
+            if view.superview !== shelfStage { shelfStage.addSubview(view) }
+            let frame = Self.dockFrame(dock, in: desk)
+            view.frame = NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: max(0, frame.height - AgentHeader.height))
+            view.autoresizingMask = []
+            panes.started(id)
+        }
     }
 
     private(set) var dividers: [DividerView] = []

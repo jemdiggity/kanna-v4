@@ -1,7 +1,7 @@
 use crate::settings::Settings;
 use crate::Event;
 use kanna_detect::{Activity, Screen};
-use kanna_vt::{Key, Lines, Mode, Terminal};
+use kanna_vt::{Key, Lines, Mode, ProgramStatus, Terminal};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -29,6 +29,8 @@ pub struct Feed {
     pub rows: u16,
     cwd: Option<String>,
     activity: Activity,
+    statuses_serial: u64,
+    statuses_owner: Option<i32>,
 }
 
 pub enum Taken {
@@ -52,7 +54,7 @@ impl Feed {
 
     fn with(screen: Terminal, unsaved: bool) -> io::Result<Arc<Mutex<Feed>>> {
         let (cols, rows) = screen.size();
-        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, unsaved, cols, rows, cwd: None, activity: Activity::default() })))
+        Ok(Arc::new(Mutex::new(Feed { screen, outbox: Vec::new(), overflowed: false, posted: false, unsaved, cols, rows, cwd: None, activity: Activity::default(), statuses_serial: 0, statuses_owner: None })))
     }
 
     pub fn apply(&mut self, settings: &Settings) -> Vec<u8> {
@@ -67,6 +69,18 @@ impl Feed {
 
     pub fn encode_key(&self, key: &Key) -> Result<Vec<u8>, kanna_vt::Error> {
         self.screen.encode_key(key)
+    }
+
+    pub fn paste(&self, text: &str) -> Vec<u8> {
+        if text.is_empty() || !self.screen.mode(Mode::BRACKETED_PASTE) {
+            return text.as_bytes().to_vec();
+        }
+        let text = text.replace("\x1b[200~", "").replace("\x1b[201~", "");
+        format!("\x1b[200~{text}\x1b[201~").into_bytes()
+    }
+
+    pub fn enter(&self) -> Vec<u8> {
+        "return".parse::<Key>().ok().and_then(|key| self.encode_key(&key).ok()).filter(|bytes| !bytes.is_empty()).unwrap_or_else(|| b"\r".to_vec())
     }
 
     pub fn lock(feed: &Mutex<Feed>) -> MutexGuard<'_, Feed> {
@@ -130,6 +144,33 @@ impl Feed {
         self.activity.changed = Some(now);
         self.activity.dirty_since.get_or_insert(now);
         self.activity.held_since = if self.screen.mode(Mode::SYNC_OUTPUT) { Some(self.activity.held_since.unwrap_or(now)) } else { None };
+    }
+
+    pub fn claim_statuses(&mut self, group: impl FnOnce() -> Option<i32>) {
+        let serial = self.screen.program_status_serial();
+        if serial != self.statuses_serial {
+            self.statuses_serial = serial;
+            self.statuses_owner = group();
+        }
+    }
+
+    pub fn foreground_changed(&mut self, group: Option<i32>) {
+        if self.statuses_owner != group {
+            self.screen.end_program();
+            self.statuses_serial = self.screen.program_status_serial();
+        }
+    }
+
+    pub fn reported(&self, group: Option<i32>) -> Option<ProgramStatus> {
+        self.screen.program_status().filter(|_| group.is_some() && self.statuses_owner == group)
+    }
+
+    pub fn program_statuses(&self) -> Vec<ProgramStatus> {
+        self.screen.program_statuses()
+    }
+
+    pub fn settle(&mut self) {
+        self.activity.dirty_since = None;
     }
 
     pub fn activity(&self) -> Activity {
@@ -290,7 +331,12 @@ fn read(mut pty: Pty) {
                 return;
             }
         };
-        let (post, replies) = Feed::lock(&pty.feed).push(&buffer[..n]);
+        let (post, replies) = {
+            let mut feed = Feed::lock(&pty.feed);
+            let pushed = feed.push(&buffer[..n]);
+            feed.claim_statuses(|| kanna_detect::program::foreground_group(pty.master.as_raw_fd()));
+            pushed
+        };
         if !replies.is_empty() {
             let _ = pty.replies.send(replies);
         }
@@ -377,5 +423,55 @@ mod tests {
         }
         let snapshot = f.snapshot().unwrap();
         assert!(snapshot.len() < crate::settings::MAX_SCROLLBACK_BYTES, "{} bytes", snapshot.len());
+    }
+
+    fn reported(f: &Feed, group: i32) -> Option<&'static str> {
+        f.reported(Some(group)).map(|r| r.state.as_str())
+    }
+
+    #[test]
+    fn the_program_status_probe_is_answered() {
+        let f = Feed::new(20, 5, &Settings::default()).unwrap();
+        let (_, replies) = Feed::lock(&f).push(b"\x1b]7501;?\x1b\\");
+        assert!(replies.starts_with(b"\x1b]7501;?:states=") && replies.ends_with(b"\x1b\\"), "{replies:?}");
+    }
+
+    #[test]
+    fn a_record_belongs_to_the_program_in_the_foreground_when_it_reported() {
+        let f = Feed::new(20, 5, &Settings::default()).unwrap();
+        let mut f = Feed::lock(&f);
+        f.push(b"\x1b]7501;state=working\x1b\\");
+        assert_eq!(f.reported(Some(7)), None, "unclaimed");
+        f.claim_statuses(|| Some(7));
+        assert_eq!(reported(&f, 7), Some("working"));
+        assert_eq!(reported(&f, 8), None);
+        assert_eq!(f.reported(None), None);
+        f.claim_statuses(|| panic!("nothing new was reported"));
+        f.foreground_changed(Some(7));
+        assert_eq!(reported(&f, 7), Some("working"), "the program reported before Kanna saw it take the foreground");
+    }
+
+    #[test]
+    fn working_and_blocked_go_when_the_program_ends_or_a_prompt_starts_and_a_reset_clears_all() {
+        let f = Feed::new(20, 5, &Settings::default()).unwrap();
+        let mut f = Feed::lock(&f);
+        f.push(b"\x1b]7501;state=blocked:kind=question\x1b\\");
+        f.claim_statuses(|| Some(7));
+        f.foreground_changed(Some(8));
+        assert_eq!(f.program_statuses(), vec![], "blocked ends with its program");
+        f.push(b"\x1b]7501;state=done\x1b\\");
+        f.claim_statuses(|| Some(7));
+        f.foreground_changed(Some(8));
+        assert_eq!(f.program_statuses().len(), 1, "done stays");
+        assert_eq!(reported(&f, 8), None, "but it's another program's");
+        f.push(b"\x1b]7501;state=working\x1b\\");
+        f.claim_statuses(|| Some(8));
+        assert_eq!(reported(&f, 8), Some("working"));
+        f.push(b"\x1b]133;A\x07$ ");
+        f.claim_statuses(|| Some(8));
+        assert_eq!(reported(&f, 8), None, "a new prompt");
+        f.push(b"\x1b]7501;state=idle\x1b\\\x1b]7501;state=error:id=x\x1b\\\x1bc");
+        f.claim_statuses(|| Some(8));
+        assert!(f.program_statuses().is_empty(), "a full reset");
     }
 }

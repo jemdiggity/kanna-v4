@@ -43,6 +43,15 @@ impl Argv {
         (!words.is_empty()).then(|| words.join(" "))
     }
 
+    pub fn remaining(&mut self) -> Vec<String> {
+        let mut words = self.options.take();
+        if !self.rest.is_empty() {
+            words.push("--".into());
+            words.extend(self.rest.drain(..));
+        }
+        words
+    }
+
     pub fn positionals(&mut self) -> Vec<String> {
         std::iter::from_fn(|| self.positional()).collect()
     }
@@ -95,6 +104,14 @@ mod tests {
         unclaimed.positional();
         assert_eq!(unclaimed.first(), Some("--json DOC"));
         assert_eq!(args(&["list", "--json"]).doc(), None);
+    }
+
+    #[test]
+    fn what_remains_keeps_its_options_and_double_dash_in_order() {
+        let mut argv = args(&["diff", "--merge-base", "main", "-U5", "--", "src", "--tab"]);
+        assert_eq!(argv.positional().as_deref(), Some("diff"));
+        assert_eq!(argv.remaining(), ["--merge-base", "main", "-U5", "--", "src", "--tab"]);
+        assert!(argv.remaining().is_empty());
     }
 
     #[test]

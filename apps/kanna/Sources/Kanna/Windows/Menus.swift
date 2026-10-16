@@ -190,6 +190,8 @@ extension AppController {
             markdown.zoom(by: step)
         } else if let code = contents.code(pane) {
             code.zoom(by: step)
+        } else if let diff = contents.diff(pane) {
+            diff.zoom(by: step)
         } else if let web = contents.web(pane) {
             web.zoom(by: step)
         } else if let surface = panes.terminal(pane)?.surface {

@@ -51,6 +51,7 @@ const TYPES: &[(&str, &str)] = &[
     ("md", "A markdown file."),
     ("ios", "An app in the iOS simulator."),
     ("code", "A source file, highlighted."),
+    ("diff", "What git diff shows, with untracked files."),
 ];
 
 pub fn wants(words: &[String]) -> Vec<Want> {
@@ -395,6 +396,7 @@ fn describe(pane: &Value) -> String {
             None => file(path),
         }),
         "ios" => pane["app"].as_str().map(String::from),
+        "diff" => Some(std::iter::once("git diff".to_string()).chain(pane["args"].as_array().into_iter().flatten().filter_map(|a| a.as_str().map(String::from))).collect::<Vec<_>>().join(" ")),
         _ => Some(pane["cmd"].as_str().map(short).unwrap_or_else(|| "shell".into())),
     };
     let mut parts = vec![kind.to_string()];
@@ -501,7 +503,7 @@ mod tests {
 
     #[test]
     fn open_completes_the_pane_type_then_its_file() {
-        assert_eq!(words(&at("open ")), ["term", "web", "md", "ios", "code"]);
+        assert_eq!(words(&at("open ")), ["term", "web", "md", "ios", "code", "diff"]);
         assert_eq!(at("open code "), [Want::Files(&[])]);
         assert_eq!(at("open md "), [Want::Files(MARKDOWN)]);
         assert_eq!(at("open md --name x "), [Want::Files(MARKDOWN)]);
@@ -538,7 +540,7 @@ mod tests {
         assert_eq!(words(&at("move p1 --side ")), ["left", "right", "top", "bottom", "swap"]);
         assert_eq!(at("rename-tab "), [Want::Tabs]);
         assert_eq!(at("navigate "), [Want::Panes]);
-        assert_eq!(at("navigate p1 "), [Want::Files(MARKDOWN), Want::Files(&[])]);
+        assert_eq!(at("navigate p1 "), [Want::Words(vec![("diff".into(), String::new())]), Want::Files(MARKDOWN), Want::Files(&[])]);
         assert_eq!(at("markup ")[1..], [Want::Files(MARKDOWN), Want::Files(HTML), Want::Panes]);
         assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(HTML)], &[String::new()], &|_| None), [":files md markdown mdown html htm"]);
         assert_eq!(lines(&[Want::Files(MARKDOWN), Want::Files(&[])], &[String::new()], &|_| None), [":files"]);
@@ -556,7 +558,7 @@ mod tests {
         let after = at("move p1 --tab ");
         assert!(after.contains(&Want::Tabs), "{after:?}");
         assert!(words(&after).contains(&"new".into()), "{after:?}");
-        assert_eq!(words(&at("open --dock ")), ["left", "right", "term", "web", "md", "ios", "code"]);
+        assert_eq!(words(&at("open --dock ")), ["left", "right", "term", "web", "md", "ios", "code", "diff"]);
         assert_eq!(at("open --dock left md "), [Want::Files(MARKDOWN)]);
     }
 

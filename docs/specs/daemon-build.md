@@ -1,6 +1,6 @@
 # The Daemon Follows the App's Build
 
-**Status:** built · **Builds on:** [the app link](../kanna-spec.md#45-the-app-link), [restarting the daemon](../kanna-spec.md#48-restarting-the-daemon) · **Why:** quitting the app leaves the daemon running, so a rebuilt app used to attach to the old daemon and run against its old commands until someone killed it by hand
+**Status:** built · **Builds on:** [the app link](app-link.md), [restarting the daemon](daemon-restart.md) · **Why:** quitting the app leaves the daemon running, so a rebuilt app used to attach to the old daemon and run against its old commands until someone killed it by hand
 
 A relaunched app whose bundled daemon differs from the one running replaces it. Nothing is lost: the keeper holds the ptys, and the next daemon adopts them.
 

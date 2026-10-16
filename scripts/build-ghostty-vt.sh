@@ -25,7 +25,8 @@ out="$repo_root/target/ghostty-vt/$target"
 stage="$repo_root/target/ghostty-vt/.stage-$target"
 rm -rf "$stage"
 optimize="${KANNA_GHOSTTY_OPTIMIZE:-ReleaseSafe}"
-(cd "$source_dir" && "$zig" build -Demit-lib-vt=true -Demit-xcframework=false \
+(cd "$source_dir" && "$zig" build --cache-dir "$repo_root/target/ghostty-vt/.zig-cache-$target" \
+  -Demit-lib-vt=true -Demit-xcframework=false \
   -Doptimize="$optimize" ${zig_target[@]+"${zig_target[@]}"} -p "$stage")
 
 rm -rf "$out"

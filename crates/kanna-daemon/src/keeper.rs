@@ -1,6 +1,6 @@
 use crate::pty::{Adopted, Spawned, Spawner, Spec};
 use crate::Event;
-use kanna_keeper::client::{Client, Exited, SpawnRequest};
+use kanna_keeper::client::{Client, Exited, Hello, SpawnRequest};
 use std::cell::RefCell;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -28,11 +28,47 @@ pub fn binary() -> PathBuf {
     beside_daemon.unwrap_or_else(|| PathBuf::from("kanna-keeper"))
 }
 
+fn short(build: &str) -> &str {
+    &build[..build.len().min(8)]
+}
+
+fn upgrade(client: &mut Client, bin: &Path) -> io::Result<Hello> {
+    let hello = client.info()?;
+    let wanted = bin.canonicalize().ok().and_then(|bin| kanna_build::build_id(&bin).map(|build| (bin, build)));
+    let Some((bin, wanted)) = wanted else {
+        return Ok(hello);
+    };
+    let Some(running) = hello.build.clone() else {
+        eprintln!("kanna-daemon: the keeper (pid {}) predates keeper upgrades, so it keeps its code until it stops", hello.pid);
+        return Ok(hello);
+    };
+    if running == wanted && hello.version == kanna_keeper::PROTOCOL_VERSION {
+        return Ok(hello);
+    }
+    match client.upgrade(&bin) {
+        Ok(upgraded) => {
+            eprintln!(
+                "kanna-daemon: upgraded the keeper (pid {}) from build {} to {}",
+                upgraded.pid,
+                short(&running),
+                upgraded.build.as_deref().map_or("unknown", short)
+            );
+            Ok(upgraded)
+        }
+        Err(error) if error.kind() == io::ErrorKind::Other => {
+            eprintln!("kanna-daemon: couldn't upgrade the keeper (pid {}) to {}: {error}; it keeps build {}", hello.pid, bin.display(), short(&running));
+            Ok(hello)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 impl Keeper {
     pub fn connect(state_dir: &Path, bin: &Path, events: Sender<Event>) -> io::Result<Keeper> {
         let mut client = Client::connect_or_start(state_dir, bin)?;
         client.set_timeout(Some(REPLY_TIMEOUT))?;
-        let (version, pid) = client.hello()?;
+        let hello = upgrade(&mut client, bin)?;
+        let (version, pid) = (hello.version, hello.pid);
         if version != kanna_keeper::PROTOCOL_VERSION {
             return Err(io::Error::other(format!(
                 "the keeper running for {} (pid {pid}) speaks protocol {version}, this daemon speaks {}; stop that keeper (its processes go with it) or run a matching daemon",
@@ -199,6 +235,43 @@ mod tests {
         assert!(message.contains("999") && message.contains(&kanna_keeper::PROTOCOL_VERSION.to_string()), "{message}");
         assert!(message.contains("4242"), "{message}");
         fake.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_keeper_of_another_build_is_asked_to_become_this_ones() {
+        let dir = std::env::temp_dir().join(format!("kdu{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("kanna-keeper");
+        std::fs::write(&bin, "a newer keeper").unwrap();
+        let bin = bin.canonicalize().unwrap();
+        let wanted = kanna_build::build_id(&bin).unwrap();
+        let listener = UnixListener::bind(dir.join("keeper.sock")).unwrap();
+        let fake = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(&stream);
+            let mut asked = Vec::new();
+            for reply in [serde_json::json!({"version": 1, "pid": 4242, "build": "0ld"}), serde_json::json!({"version": 1, "pid": 4242, "build": "n3w", "from": "0ld"})] {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+                let mut reply = reply;
+                reply["ok"] = true.into();
+                reply["req"] = req["req"].clone();
+                (&stream).write_all(format!("{reply}\n").as_bytes()).unwrap();
+                asked.push(req);
+            }
+            asked
+        });
+        let mut client = Client::connect(&dir.join("keeper.sock")).unwrap();
+        let hello = upgrade(&mut client, &bin).unwrap();
+        assert_eq!((hello.pid, hello.build.as_deref()), (4242, Some("n3w")));
+        let asked = fake.join().unwrap();
+        assert_eq!(asked[0]["op"], "hello");
+        assert_eq!(asked[1]["op"], "upgrade");
+        assert_eq!(asked[1]["binary"], bin.to_string_lossy().as_ref());
+        assert_ne!(wanted, "0ld");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
