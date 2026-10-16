@@ -117,7 +117,7 @@ impl Model {
         self.counters.0 += 1;
         let parked = &mut self.parked[at];
         parked.tab_count += 1;
-        let mut tab = Tab::new(format!("t{}", self.counters.0), format!("Tab {}", parked.tab_count));
+        let mut tab = Tab::new(format!("t{}", self.counters.0), parked.tab_count);
         tab.root = Some(Node::Pane(pane.into()));
         tab.last_focus = Some(pane.into());
         parked.active = Some(tab.id.clone());

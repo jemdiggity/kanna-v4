@@ -379,7 +379,7 @@ cli_commands() {
   expected="opened p2 (e2e) in window w1, tab t1: running"; says kanna open --name e2e --split right --size 1/3 || return 1
   check test "$(layout)" == '{"children": [{"pane": "cli_commands", "size": "2/3"}, {"pane": "e2e", "size": "1/3"}], "split": "row"}' || return 1
   check wait_for 5 app_text cli_commands "cli_commands READY" || return 1
-  check test "$(kanna list | head -2)" == $'*w1  focused: e2e\n  *t1 "Tab 1"  cli_commands:2/3 | e2e:1/3' || return 1
+  check test "$(kanna list | head -2)" == $'*w1  focused: e2e\n  *t1 "cli_commands"  cli_commands:2/3 | e2e:1/3' || return 1
   expected="focused cli_commands (key window w1)"; says kanna focus cli_commands || return 1
   expected="e2e is zoomed (run again to unzoom)"; says kanna zoom e2e || return 1
   check test "$(kanna list --json | field windows.0.zoomed)" == e2e || return 1
@@ -661,6 +661,34 @@ windows_tabs_ui() {
   [[ "$menus" == *'"item":"New Desk","menu":"File","shortcut":"⌘n"'* ]] || { echo "New Desk isn't File ⌘N: $menus"; return 1; }
   [[ "$menus" == *'"item":"New Window","menu":"Window","shortcut":""'* ]] || { echo "New Window has a shortcut: $menus"; return 1; }
   [[ "$menus" != *'"New Instance"'* && "$menus" != *'"Start a Task"'* ]] || { echo "a removed menu item is back: $menus"; return 1; }
+}
+
+scenario tab_names M4
+tab_names() {
+  start_daemon && start_app || return 1
+  local dir="$KANNA_STATE_DIR"
+  printf 'fn main() {}\n' >"$dir/tab_names.rs"
+  printf '<title>tab_names PAGE</title><p>tab_names</p>\n' >"$dir/tab_names.html"
+  printf '<title>tab_names NEXT</title><p>next</p>\n' >"$dir/tab_names_next.html"
+  kanna open >/dev/null || return 1
+  check test "$(win w1 tabs.0.title)" == "Tab 1" || return 1
+  kanna open code "$dir/tab_names.rs" --tab >/dev/null || return 1
+  check test "$(win w1 tabs.1.title)" == tab_names.rs || return 1
+  [[ "$(kanna list)" == *'"tab_names.rs"'* ]] || { echo "kanna list doesn't show the tab as tab_names.rs"; kanna list; return 1; }
+  kanna open web --name page "file://$dir/tab_names.html" --tab >/dev/null || return 1
+  check test "$(win w1 tabs.2.title)" == page || return 1
+  kanna rename-pane page "" >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(win w1 tabs.2.title)" == "tab_names PAGE" ]]' || { win w1 tabs; return 1; }
+  kanna navigate p3 "file://$dir/tab_names_next.html" >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(win w1 tabs.2.title)" == "tab_names NEXT" ]]' || { win w1 tabs; return 1; }
+  shown_tabs() { raw '{"id":1,"cmd":"debug.snapshot","args":{"window":"w1"}}' | field tabs; }
+  check test "$(shown_tabs)" == '["Tab 1", "tab_names.rs", "tab_names NEXT"]' || { shown_tabs; return 1; }
+  kanna rename-tab "$(win w1 tabs.2.id)" mine >/dev/null || return 1
+  kanna navigate p3 "file://$dir/tab_names.html" >/dev/null || return 1
+  sleep 1
+  check test "$(win w1 tabs.2.title)" == mine || return 1
+  stop_app; start_app || return 1
+  check wait_for 5 eval '[[ "$(win w1 tabs.2.title)" == mine && "$(win w1 tabs.1.title)" == tab_names.rs ]]' || { win w1 tabs; return 1; }
 }
 
 scenario resize_arrange M4
