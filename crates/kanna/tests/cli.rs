@@ -487,3 +487,24 @@ fn a_folder_for_a_command_opens_a_desk_on_its_project_without_a_task() {
     assert_eq!(list["windows"][0]["id"], json!("w1"), "{list}");
     daemon.kanna(&["nowhere"]).fails(2, "unknown command \"nowhere\"");
 }
+
+#[test]
+fn a_backlog_task_is_renamed_and_starts_with_its_new_name() {
+    let daemon = Daemon::start();
+    let _app = daemon.app();
+    let git = |args: &[&str]| assert!(std::process::Command::new("git").args(["-c", "user.email=e@e", "-c", "user.name=e"]).args(args).current_dir(&daemon.dir).status().unwrap().success());
+    git(&["init", "-q"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "first"]);
+    assert_eq!(daemon.kanna(&["task", "new", "Old name", "say hi", "--agent", "/bin/cat"]).ok(), format!("added t1 \"Old name\" to the backlog of {}", daemon.dir.display()));
+    assert_eq!(daemon.kanna(&["task", "name", "t1", "New name"]).ok(), "named t1 \"New name\"");
+    let listed = daemon.kanna(&["--json", "task", "list"]).json()["backlog"][0].clone();
+    assert_eq!((listed["name"].clone(), listed["message"].clone()), (json!("New name"), json!("say hi")));
+    daemon.kanna(&["task", "name", "t9", "x"]).fails(4, "no task \"t9\" in the backlog or on the Shelf");
+    daemon.kanna(&["task", "name", "t1", " "]).fails(2, "a task needs a name");
+    let started = daemon.kanna(&["--json", "task", "start", "t1"]).json();
+    let pane = started["pane"].as_str().unwrap().to_string();
+    wait_for("the started task's pane", || daemon.kanna(&["--json", "list"]).json()["panes"].as_array().unwrap().iter().any(|p| p["id"] == pane.as_str() && p["name"] == "New name"));
+    assert_eq!(daemon.kanna(&["task", "name", "t1", "Newer name"]).ok(), "named t1 \"Newer name\"");
+    assert!(daemon.kanna(&["--json", "list"]).json()["panes"].as_array().unwrap().iter().any(|p| p["id"] == pane.as_str() && p["name"] == "Newer name"));
+    assert_eq!(daemon.kanna(&["--json", "task", "list"]).json()["backlog"][0]["name"], json!("Newer name"));
+}
