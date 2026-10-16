@@ -375,6 +375,9 @@ impl AppLink {
             if let Some(zoom) = args.get("zoom").and_then(Value::as_f64).filter(|z| *z > 0.0) {
                 pane.zoom = Some(zoom);
             }
+            if let Some(view) = string(args, "view").filter(|v| *v == "unified" || *v == "split") {
+                pane.view = Some(view.into());
+            }
         });
         if let Some(state) = string(args, "state").and_then(PaneState::parse) {
             core.update(id, state, None, string(args, "error").map(String::from));
@@ -386,6 +389,10 @@ impl AppLink {
 
     pub fn show(&self, pane: &Pane) {
         self.notify("start", json!({ "pane": Value::Object(pane_record(pane)) }));
+    }
+
+    pub fn diff(&self, payload: &Value) {
+        self.notify("diff", payload.clone());
     }
 
     pub fn hide(&self, pane: &str) {

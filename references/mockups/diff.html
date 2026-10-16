@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diff Viewer Mockup</title>
+<style>
+:root {
+  --bg: #14161a; --panel: #1b1e24; --panel2: #22262d; --line: #2c313a; --text: #e6e8eb; --muted: #8b93a0;
+  --accent: #7aa2ff; --ok: #5fcf93; --warn: #f0b35a; --bad: #ef6b6b; --machine: #b48cff; --term: #16181c;
+  --tint: rgba(122, 162, 255, .18); --page: #0d0e10; --shadow: 0 20px 50px rgba(0,0,0,.5);
+  --num: #4b5260; --add-bg: rgba(95, 207, 147, .11); --add-word: rgba(95, 207, 147, .32); --add-num: rgba(95, 207, 147, .16);
+  --del-bg: rgba(239, 107, 107, .11); --del-word: rgba(239, 107, 107, .34); --del-num: rgba(239, 107, 107, .16);
+  --fold: #191c21; --sel: rgba(122,162,255,.28);
+  --keyword: #c792ea; --function: #7aa2ff; --type: #e5c07b; --string: #a5d6a7; --number: #f78c6c; --constant: #f78c6c;
+  --comment: #6b7280; --macro: #56b6c2; --attribute: #8b93a0; --property: #c9d1e0; --operator: #89ddff; --punctuation: #8b93a0;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace; --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+:root[data-theme="light"] {
+  --bg: #ffffff; --panel: #f4f5f7; --panel2: #eaecf0; --line: #d8dce2; --text: #1d2026; --muted: #6b7280;
+  --accent: #2f63d8; --ok: #1f9d5c; --warn: #b7791f; --bad: #cf3f3f; --machine: #7c4dcc; --term: #fbfbfc;
+  --tint: rgba(47, 99, 216, .14); --page: #dfe2e7; --shadow: 0 20px 50px rgba(0,0,0,.18);
+  --num: #b4bac4; --add-bg: rgba(31, 157, 92, .09); --add-word: rgba(31, 157, 92, .26); --add-num: rgba(31, 157, 92, .14);
+  --del-bg: rgba(207, 63, 63, .08); --del-word: rgba(207, 63, 63, .24); --del-num: rgba(207, 63, 63, .13);
+  --fold: #f6f7f9; --sel: rgba(47,99,216,.2);
+  --keyword: #8839c4; --function: #2f63d8; --type: #a15c00; --string: #2d7d3a; --number: #c2410c; --constant: #c2410c;
+  --comment: #8a919c; --macro: #0e7490; --attribute: #6b7280; --property: #374151; --operator: #0369a1; --punctuation: #6b7280;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 var(--sans); }
+main { padding: 20px; max-width: 1500px; margin: 0 auto; }
+body.picture main { padding: 0; max-width: none; }
+body.picture .intro { display: none; }
+.intro h1 { font-size: 15px; margin: 0 0 4px; }
+.intro p { color: var(--muted); margin: 0 0 12px; max-width: 920px; }
+.intro code { font: 12px var(--mono); }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; align-items: center; }
+.controls .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+button { font: 12px var(--sans); color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+.keys { color: var(--muted); font-size: 12px; margin: -6px 0 14px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.keys kbd { font: 11px var(--mono); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; background: var(--panel2); }
+
+.window { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: var(--shadow); background: var(--bg); height: 720px; display: flex; flex-direction: column; }
+body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 100vh; }
+.bar { height: 36px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--bg); }
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); display: block; }
+.where { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.where b { color: var(--text); font-weight: 600; }
+.content { flex: 1; display: flex; min-height: 0; }
+.agent { flex: 0 0 34%; min-width: 0; display: flex; flex-direction: column; }
+.agent .head { flex: none; height: 34px; padding: 0 8px 0 14px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.working { background: var(--accent); }
+.dot.idle { background: var(--ok); }
+.term { flex: 1; min-height: 0; background: var(--term); font: 12px/1.6 var(--mono); padding: 10px 12px; white-space: pre-wrap; overflow: hidden; color: var(--text); }
+.term .c { color: var(--accent); } .term .p { color: var(--warn); } .term .g { color: var(--muted); } .term .m { color: var(--machine); } .term .ok { color: var(--ok); }
+.docs { flex: 1; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+.dtabs { height: 34px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; overflow: hidden; border-bottom: 1px solid var(--line); }
+.dtab { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.dtab.on { color: var(--text); }
+.dtab .x { color: var(--muted); font-size: 11px; visibility: hidden; }
+.dtab.on .x { visibility: visible; }
+.dtabs .add { color: var(--muted); padding: 0 8px; font-size: 15px; }
+.shelf { height: 30px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.shelf .item { display: flex; align-items: center; gap: 7px; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+.shelf .backlog { margin-left: auto; }
+
+.diff { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+.dhead { height: 34px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.dhead .what { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dhead .what code { font: 11.5px var(--mono); }
+.dhead .tot { font: 11.5px var(--mono); white-space: nowrap; }
+.dhead .spacer { flex: 1; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex: none; }
+.seg span { padding: 2px 9px; cursor: pointer; color: var(--muted); white-space: nowrap; }
+.seg span + span { border-left: 1px solid var(--line); }
+.seg span.on { background: var(--panel2); color: var(--text); }
+.add-n { color: var(--ok); } .del-n { color: var(--bad); }
+.live { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.live i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.live.busy i { background: var(--accent); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+
+.dbody { flex: 1; min-height: 0; display: flex; }
+.files { flex: 0 0 230px; min-width: 0; overflow: auto; border-right: 1px solid var(--line); padding: 6px 0; font-size: 12px; background: var(--bg); }
+.files.hidden { display: none; }
+.files .dir { color: var(--muted); padding: 6px 12px 2px; font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.files .f { display: flex; align-items: center; gap: 7px; padding: 3px 10px 3px 12px; cursor: pointer; white-space: nowrap; }
+.files .f:hover { background: var(--panel); }
+.files .f.on { background: var(--tint); }
+.files .f .st { font: 600 10.5px var(--mono); width: 10px; text-align: center; flex: none; }
+.st.M { color: var(--warn); } .st.A { color: var(--ok); } .st.D { color: var(--bad); } .st.R { color: var(--accent); }
+.files .f .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.files .f.D .nm { text-decoration: line-through; color: var(--muted); }
+.files .f .ct { font: 10.5px var(--mono); flex: none; }
+.files .f.fresh { animation: fresh 2.4s ease-out; }
+@keyframes fresh { 0%, 40% { background: var(--add-word); } 100% { background: transparent; } }
+.files .sum { color: var(--muted); padding: 10px 12px 4px; border-top: 1px solid var(--line); margin-top: 8px; font-size: 11.5px; }
+
+.scroller { flex: 1; min-width: 0; overflow: auto; position: relative; }
+.file { border-bottom: 1px solid var(--line); }
+.fh { position: sticky; top: 0; z-index: 3; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 12px; cursor: pointer; }
+.fh .chev { color: var(--muted); width: 10px; font-size: 10px; }
+.fh .path { font: 12px var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fh .path i { font-style: normal; color: var(--muted); }
+.fh .spacer { flex: 1; }
+.fh .ct { font: 11px var(--mono); }
+.fh .open { color: var(--accent); font-size: 11.5px; white-space: nowrap; visibility: hidden; }
+.fh:hover .open { visibility: visible; }
+.file.closed .rows { display: none; }
+.file.fresh .fh { animation: freshhead 2.4s ease-out; }
+@keyframes freshhead { 0%, 40% { box-shadow: inset 0 0 0 999px var(--add-word); } 100% { box-shadow: inset 0 0 0 999px transparent; } }
+
+.rows { font: 12px/19px var(--mono); min-width: max-content; }
+.r { display: flex; white-space: pre; }
+.r .n { flex: none; width: 44px; padding-right: 8px; text-align: right; color: var(--num); user-select: none; position: sticky; z-index: 1; background: var(--bg); }
+.r .n.o { left: 0; } .r .n.w { left: 44px; }
+.r .sg { flex: none; width: 18px; text-align: center; user-select: none; color: var(--muted); }
+.r .t { padding-right: 24px; }
+.r.add { background: var(--add-bg); } .r.add .n { background: var(--add-num); color: var(--ok); } .r.add .sg { color: var(--ok); }
+.r.del { background: var(--del-bg); } .r.del .n { background: var(--del-num); color: var(--bad); } .r.del .sg { color: var(--bad); }
+.r.add .t .wd { background: var(--add-word); border-radius: 2px; }
+.r.del .t .wd { background: var(--del-word); border-radius: 2px; }
+.r.fold { background: var(--fold); color: var(--muted); font: 11.5px/24px var(--sans); }
+.r.fold .t { padding-left: 8px; }
+.r.fold.big { font: 12px/34px var(--sans); }
+.r.fold.big .t { padding-left: 22px; }
+.r.fold.big a { color: var(--accent); margin-left: 6px; }
+.r.fold .n { background: var(--fold); }
+.r.fold .scope { font: 11.5px var(--mono); color: var(--muted); margin-left: 10px; opacity: .8; }
+.r.cur { box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 999px var(--tint); }
+.r.cur .n { color: var(--text); }
+.toast { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 12px; color: var(--text); box-shadow: var(--shadow); z-index: 9; }
+.toast code { font: 11.5px var(--mono); color: var(--accent); }
+.r.fresh { animation: freshrow 2.4s ease-out; }
+@keyframes freshrow { 0%, 40% { box-shadow: inset 3px 0 0 var(--accent); } 100% { box-shadow: inset 3px 0 0 transparent; } }
+.split .r .n.o { left: 0; }
+.pair { display: flex; }
+.pair > .side { flex: 1 1 50%; min-width: 0; overflow: hidden; }
+.pair > .side + .side { border-left: 1px solid var(--line); }
+.side .r .n { position: static; }
+.side .r.blank { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--fold) 5px 10px); }
+.side .r.blank .n { background: transparent; }
+.rows.split { min-width: 0; }
+.pair > .side { flex: 1 1 0; overflow-x: auto; }
+.bin { padding: 14px 20px; color: var(--muted); font-size: 12px; }
+.empty { padding: 60px 40px; text-align: center; color: var(--muted); }
+.empty b { color: var(--text); display: block; font-size: 14px; margin-bottom: 6px; }
+::selection { background: var(--sel); }
+
+.tk-keyword { color: var(--keyword); } .tk-function { color: var(--function); } .tk-type { color: var(--type); }
+.tk-string { color: var(--string); } .tk-number { color: var(--number); } .tk-constant { color: var(--constant); }
+.tk-comment { color: var(--comment); font-style: italic; } .tk-macro { color: var(--macro); } .tk-attribute { color: var(--attribute); }
+.tk-property { color: var(--property); } .tk-operator { color: var(--operator); } .tk-punctuation { color: var(--punctuation); }
+.tk-heading { color: var(--function); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <div class="intro">
+    <h1>Diff viewer: what the task changed, as a tab beside its agent</h1>
+    <p><code>kanna open diff [ARGS]</code> opens a <b>diff pane</b> showing what <code>git diff [ARGS]</code> shows, in the task's worktree, file by file, highlighted. It takes git's arguments as git does: no arguments is what isn't staged; <code>--merge-base main</code> is everything the task changed since it left <code>main</code>, committed or not; <code>--staged</code>, <code>main...HEAD</code>, <code>-- PATH</code> as in git. It follows the worktree: when the agent edits or commits, the pane re-diffs and marks what moved. <b>Split</b> shows old and new side by side. Read-only: you review, select, copy, and open a file in a code pane.</p>
+    <div class="controls">
+      <button id="openIt">Agent: kanna open diff --merge-base main</button>
+      <button id="openPlain">Agent: kanna open diff</button>
+      <button id="edit">Agent edits pane.rs</button>
+      <button id="commit">Agent commits</button>
+      <span class="sep"></span>
+      <button id="theme">Light / dark</button>
+      <button id="reset">Reset</button>
+    </div>
+    <div class="keys">
+      <span><kbd>j</kbd> <kbd>k</kbd> lines</span>
+      <span><kbd>n</kbd> <kbd>p</kbd> next / previous change</span>
+      <span><kbd>]</kbd> <kbd>[</kbd> next / previous file</span>
+      <span><kbd>⌥-click</kbd> a file's header: fold every file</span>
+      <span><kbd>↩</kbd> open the line in a code pane</span>
+      <span><kbd>s</kbd> unified / split</span>
+      <span><kbd>g</kbd> <kbd>G</kbd> top / bottom</span>
+      <span><kbd>⌘F</kbd> find</span>
+    </div>
+  </div>
+  <div class="window" id="window">
+    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where"><b>Native diff viewer</b></span></div>
+    <div class="content">
+      <div class="agent">
+        <div class="head"><span class="dot working" id="adot"></span>claude · diff-viewer</div>
+        <div class="term" id="term"></div>
+      </div>
+      <div class="docs">
+        <div class="dtabs" id="dtabs"></div>
+        <div class="diff" id="diff"></div>
+      </div>
+    </div>
+    <div class="shelf"><span class="item"><span class="dot idle"></span>Pinch zoom in web panes</span><span class="item"><span class="dot idle"></span>Tab bar follows light mode</span><span class="backlog">Backlog 4</span></div>
+  </div>
+</main>
+<script>
+const FILES = [
+  { path: "crates/kanna-mux/src/pane.rs", st: "M", lang: "rust", committed: true, hunks: [
+    { o: 18, w: 18, scope: "pub enum PaneType {", lines: [
+      " pub enum PaneType {",
+      "     Term,",
+      "     Web,",
+      "     Ios,",
+      "     Markdown,",
+      "     Code,",
+      "+    Diff,",
+      " }",
+    ]},
+    { o: 64, w: 65, scope: "impl PaneType {", lines: [
+      "     pub fn name(&self) -> &'static str {",
+      "         match self {",
+      "             PaneType::Markdown => \"md\",",
+      "             PaneType::Code => \"code\",",
+      "+            PaneType::Diff => \"diff\",",
+      "         }",
+      "     }",
+    ]},
+    { o: 140, w: 142, scope: "pub struct PaneRecord {", lines: [
+      "     pub path: Option<PathBuf>,",
+      "     pub line: Option<u32>,",
+      "     pub zoom: Option<f64>,",
+      "+    #[serde(skip_serializing_if = \"Option::is_none\")]",
+      "+    pub base: Option<String>,",
+      " }",
+    ]},
+  ]},
+  { path: "crates/kanna/src/open.rs", st: "M", lang: "rust", committed: true, hunks: [
+    { o: 31, w: 31, scope: "fn parse_kind(word: &str) -> Option<Kind> {", lines: [
+      "     match word {",
+      "         \"md\" | \"markdown\" => Some(Kind::Markdown),",
+      "         \"code\" => Some(Kind::Code),",
+      "+        \"diff\" => Some(Kind::Diff),",
+      "         _ => None,",
+      "     }",
+    ]},
+    { o: 88, w: 89, scope: "pub fn run(args: OpenArgs) -> Result<()> {", lines: [
+      "     let target = match args.kind {",
+      "-        Kind::Code => code_target(&args.rest)?,",
+      "+        Kind::Code => code_target(&args.rest, args.line)?,",
+      "         Kind::Web => json!({ \"url\": args.rest[0] }),",
+      "+        Kind::Diff => json!({ \"base\": args.base.as_deref().unwrap_or(\"main\") }),",
+      "     };",
+    ]},
+  ]},
+  { path: "apps/kanna/Sources/KannaDiff/DiffPaneView.swift", st: "A", lang: "swift", committed: false, hunks: [
+    { o: 0, w: 1, lines: [
+      "+import AppKit",
+      "+import KannaCode",
+      "+",
+      "+public final class DiffPaneView: NSView {",
+      "+    public let worktree: URL",
+      "+    public private(set) var base: String",
+      "+    private let files = DiffFileList()",
+      "+    private let text = DiffTextView()",
+      "+",
+      "+    public init(worktree: URL, base: String) {",
+      "+        self.worktree = worktree",
+      "+        self.base = base",
+      "+        super.init(frame: .zero)",
+      "+        addSubview(files)",
+      "+        addSubview(text)",
+      "+        reload()",
+      "+    }",
+    ]},
+  ]},
+  { path: "docs/specs/diff-viewer.md", st: "A", lang: "md", committed: false, hunks: [
+    { o: 0, w: 1, lines: [
+      "+# Diff Viewer",
+      "+",
+      "+**Status:** proposed · **Mockup:** references/mockups/diff.html",
+      "+",
+      "+A **diff pane** shows what a task changed, beside its agent.",
+    ]},
+  ]},
+  { path: "apps/kanna/Sources/Kanna/Panes/Contents.swift", st: "M", lang: "swift", committed: false, hunks: [
+    { o: 52, w: 52, scope: "func makeView(for record: PaneRecord) -> NSView {", lines: [
+      "         case .code:",
+      "             return CodePaneView(path: record.path!, line: record.line)",
+      "+        case .diff:",
+      "+            return DiffPaneView(worktree: task.worktree, base: record.base ?? \"main\")",
+      "         case .ios:",
+    ]},
+  ]},
+  { path: "Cargo.lock", st: "M", lang: "toml", committed: true, big: { add: 1186, del: 412, why: "Cargo.lock is a lock file" }, hunks: [] },
+  { path: "crates/kanna-syntax/tests/fixtures/huge.rs", st: "A", lang: "rust", committed: true, big: { add: 6240, del: 0, why: "6,240 changed lines" }, hunks: [] },
+  { path: "scripts/old-diff.sh", st: "D", lang: "sh", committed: true, hunks: [
+    { o: 1, w: 0, lines: [
+      "-#!/bin/sh",
+      "-git diff main...HEAD | less -R",
+    ]},
+  ]},
+];
+const EDIT_HUNK = { o: 210, w: 214, scope: "impl PaneRecord {", fresh: true, lines: [
+  "     pub fn title(&self) -> String {",
+  "         match self.kind {",
+  "+            PaneType::Diff => format!(\"Diff vs {}\", self.base.as_deref().unwrap_or(\"main\")),",
+  "             _ => self.path_name(),",
+  "         }",
+]};
+
+const KW = {
+  rust: "as break const continue crate else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while dyn Some None Ok Err",
+  swift: "import public private final class struct enum let var func init super self return case switch if else guard nil true false override set get static",
+  sh: "if then else fi for do done case esac",
+};
+const RULES = [
+  [/^\/\/.*/, "comment"], [/^#!.*/, "comment"],
+  [/^#\[[^\]]*\]/, "attribute"],
+  [/^"(\\.|[^"\\])*"/, "string"], [/^'(\\.|[^'\\])'/, "string"],
+  [/^\d[\d_]*(\.\d+)?/, "number"],
+  [/^[a-z_][a-z0-9_]*!/, "macro"],
+  [/^[A-Z][A-Za-z0-9]*/, "type"],
+  [/^[a-z_][A-Za-z0-9_]*(?=\s*\()/, "function"],
+  [/^[a-z_][A-Za-z0-9_]*/, "ident"],
+  [/^(->|=>|::|&&|\|\||[=!<>]=|[-+*\/%&|^!<>=?])/, "operator"],
+  [/^[{}()\[\];,.:]/, "punctuation"],
+  [/^\s+/, null], [/^./, null],
+];
+const escH = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function tokens(line, lang) {
+  if (lang === "md") return [[line, /^#/.test(line) ? "heading" : null]];
+  const kw = new Set((KW[lang] || "").split(" "));
+  const out = []; let rest = line, prev = "";
+  while (rest.length) {
+    for (const [re, kind] of RULES) {
+      const m = rest.match(re); if (!m) continue;
+      let k = kind, t = m[0];
+      if (k === "ident" || k === "type" || k === "function") k = kw.has(t) ? "keyword" : k === "ident" ? (prev === "." ? "property" : null) : k;
+      out.push([t, k]); if (!/^\s+$/.test(t)) prev = t; rest = rest.slice(t.length); break;
+    }
+  }
+  return out;
+}
+function paint(line, lang, word) {
+  let out = "", at = 0;
+  for (const [t, k] of tokens(line, lang)) {
+    const cuts = [0, t.length];
+    if (word) for (const c of word) if (c > at && c < at + t.length) cuts.push(c - at);
+    cuts.sort((x, y) => x - y);
+    let s = "";
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const part = escH(t.slice(cuts[i], cuts[i + 1])), p = at + cuts[i];
+      s += word && p >= word[0] && p < word[1] ? `<span class="wd">${part}</span>` : part;
+    }
+    at += t.length;
+    out += k ? `<span class="tk-${k}">${s}</span>` : s;
+  }
+  return out || " ";
+}
+function wordRange(a, b) {
+  let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  let j = 0; while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
+  if (i === a.length && i === b.length) return [null, null];
+  return [[i, a.length - j], [i, b.length - j]];
+}
+
+let state;
+const init = () => ({ open: false, mode: "unified", scope: "branch", list: true, edited: false, committed: false, closed: new Set(), sel: 0, theme: document.documentElement.dataset.theme || "dark" });
+state = init();
+
+const files = () => FILES.map(f => f.path === "crates/kanna-mux/src/pane.rs" && state.edited ? { ...f, committed: state.committed, hunks: [...f.hunks, EDIT_HUNK], fresh: !state.committed } : f.st === "A" || f.path.endsWith("Contents.swift") ? { ...f, committed: state.committed } : f)
+  .filter(f => state.scope === "branch" || !f.committed)
+  .map(f => state.scope === "uncommitted" && f.path.endsWith("pane.rs") ? { ...f, hunks: [EDIT_HUNK] } : f);
+const count = f => { if (f.big) return [f.big.add, f.big.del]; let a = 0, d = 0; f.hunks.forEach(h => h.lines.forEach(l => { if (l[0] === "+") a++; if (l[0] === "-") d++; })); return [a, d]; };
+const ct = ([a, d]) => `${a ? `<span class="add-n">+${a}</span>` : ""}${a && d ? " " : ""}${d ? `<span class="del-n">−${d}</span>` : ""}`;
+
+function rowsUnified(f, h) {
+  let o = h.o, w = h.w, out = "";
+  const ls = h.lines;
+  for (let i = 0; i < ls.length; i++) {
+    const l = ls[i], sg = l[0], t = l.slice(1);
+    let word = null;
+    if (sg === "-" && ls[i + 1] && ls[i + 1][0] === "+") word = wordRange(t, ls[i + 1].slice(1))[0];
+    if (sg === "+" && ls[i - 1] && ls[i - 1][0] === "-") word = wordRange(ls[i - 1].slice(1), t)[1];
+    const cls = sg === "+" ? "add" : sg === "-" ? "del" : "";
+    const fr = h.fresh && sg !== " " ? " fresh" : "";
+    out += `<div class="r ${cls}${fr}" data-k="${sg === "-" ? "o" + o : "w" + w}"><span class="n o">${sg === "+" ? "" : o}</span><span class="n w">${sg === "-" ? "" : w}</span><span class="sg">${sg === " " ? "" : sg === "-" ? "−" : "+"}</span><span class="t">${paint(t, f.lang, word)}</span></div>`;
+    if (sg !== "+") o++; if (sg !== "-") w++;
+  }
+  return out;
+}
+function rowsSplit(f, h) {
+  let o = h.o, w = h.w, L = "", R = "";
+  const ls = h.lines;
+  const side = (cls, n, sg, t, word, fr, k) => `<div class="r ${cls}${fr}" data-k="${k}"><span class="n">${n}</span><span class="sg">${sg}</span><span class="t">${paint(t, f.lang, word)}</span></div>`;
+  const blank = `<div class="r blank"><span class="n"></span><span class="sg"></span><span class="t"> </span></div>`;
+  for (let i = 0; i < ls.length;) {
+    if (ls[i][0] === " ") { L += side("", o++, "", ls[i].slice(1), null, "", "w" + w); R += side("", w, "", ls[i].slice(1), null, "", "w" + w); w++; i++; continue; }
+    const dels = [], adds = [];
+    while (i < ls.length && ls[i][0] === "-") dels.push(ls[i++].slice(1));
+    while (i < ls.length && ls[i][0] === "+") adds.push(ls[i++].slice(1));
+    const fr = h.fresh ? " fresh" : "";
+    for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
+      const [wd, wa] = k < dels.length && k < adds.length ? wordRange(dels[k], adds[k]) : [null, null];
+      L += k < dels.length ? side("del", o, "−", dels[k], wd, fr, "o" + o++) : blank;
+      R += k < adds.length ? side("add", w, "+", adds[k], wa, fr, "w" + w++) : blank;
+    }
+  }
+  return `<div class="pair"><div class="side">${L}</div><div class="side">${R}</div></div>`;
+}
+function fold(h, prevEnd, split) {
+  const gap = h.o - prevEnd;
+  if (h.o === 0 || gap <= 0) return "";
+  const label = `⋯ ${gap} unchanged line${gap === 1 ? "" : "s"}`;
+  return `<div class="r fold">${split ? "" : `<span class="n o"></span><span class="n w"></span>`}<span class="t">${label}${h.scope ? `<span class="scope">${escH(h.scope)}</span>` : ""}</span></div>`;
+}
+const pathHTML = p => { const i = p.lastIndexOf("/"); return `<i>${escH(p.slice(0, i + 1))}</i>${escH(p.slice(i + 1))}`; };
+
+function render() {
+  document.documentElement.dataset.theme = state.theme;
+  const tabs = [["diff-viewer.md", false], ["diff.html", false]];
+  if (state.open) tabs.push([state.scope === "branch" ? "diff --merge-base main" : "diff", true]);
+  document.getElementById("dtabs").innerHTML = tabs.map(([n, on], i) => `<div class="dtab ${on || (!state.open && i === 0) ? "on" : ""}">${n}<span class="x">✕</span></div>`).join("") + `<span class="add">+</span>`;
+  const el = document.getElementById("diff");
+  if (!state.open) { el.innerHTML = `<div class="empty"><b>docs/specs/diff-viewer.md</b>(a markdown tab)</div>`; return; }
+  const fs = files();
+  const tot = fs.reduce((t, f) => { const [a, d] = count(f); return [t[0] + a, t[1] + d]; }, [0, 0]);
+  const what = `<code>git diff${state.scope === "branch" ? " --merge-base main" : ""}</code>`;
+  const head = `<div class="dhead">
+    <span class="what">${what}</span><span class="tot">${fs.length} files · ${ct(tot)}</span>
+    <span class="spacer"></span>
+    ${state.busy ? `<span class="live busy"><i></i>updating</span>` : ""}
+    <span class="seg" id="mode"><span data-v="unified" class="${state.mode === "unified" ? "on" : ""}">Unified</span><span data-v="split" class="${state.mode === "split" ? "on" : ""}">Split</span></span>
+  </div>`;
+  if (!fs.length) { el.innerHTML = head + `<div class="empty"><b>No changes</b>git diff shows nothing: the worktree matches the index.</div>`; bind(); return; }
+  const dirs = {};
+  fs.forEach((f, i) => { const d = f.path.slice(0, f.path.lastIndexOf("/") + 1); (dirs[d] = dirs[d] || []).push([f, i]); });
+  const list = `<div class="files ${state.list ? "" : "hidden"}">${Object.entries(dirs).map(([d, xs]) => `<div class="dir">${escH(d)}</div>` + xs.map(([f, i]) => `<div class="f ${f.st} ${i === state.sel ? "on" : ""} ${f.fresh ? "fresh" : ""}" data-i="${i}"><span class="st ${f.st}">${f.st}</span><span class="nm">${escH(f.path.slice(d.length))}</span><span class="ct">${ct(count(f))}</span></div>`).join("")).join("")}</div>`;
+  const split = state.mode === "split";
+  const body = fs.map((f, i) => {
+    let prevEnd = 1, rows = "";
+    for (const h of f.hunks) { rows += fold(h, prevEnd, split) + (split ? rowsSplit(f, h) : rowsUnified(f, h)); prevEnd = h.o + h.lines.filter(l => l[0] !== "+").length; }
+    if (f.big) rows += `<div class="r fold big"><span class="t">${escH(f.big.why)}: not shown. <a>Show the diff</a></span></div>`;
+    else if (f.st === "M") rows += `<div class="r fold">${split ? "" : `<span class="n o"></span><span class="n w"></span>`}<span class="t">⋯</span></div>`;
+    return `<div class="file ${state.closed.has(f.path) ? "closed" : ""} ${f.fresh ? "fresh" : ""}" data-i="${i}" id="file${i}">
+      <div class="fh" data-path="${f.path}"><span class="chev">${state.closed.has(f.path) ? "▶" : "▼"}</span><span class="st ${f.st}">${f.st}</span><span class="path">${pathHTML(f.path)}</span><span class="ct">${ct(count(f))}</span></div>
+      <div class="rows ${split ? "split" : ""}">${rows}</div></div>`;
+  }).join("");
+  el.innerHTML = head + `<div class="dbody">${list}<div class="scroller" id="scroller">${body}</div></div>`;
+  bind();
+}
+function bind() {
+  document.querySelectorAll("#mode span").forEach(s => s.onclick = () => { state.mode = s.dataset.v; render(); });
+  document.querySelectorAll(".files .f").forEach(f => f.onclick = () => { state.sel = +f.dataset.i; render(); const t = document.getElementById("file" + state.sel); document.getElementById("scroller").scrollTop = t.offsetTop; });
+  document.querySelectorAll(".fh").forEach(h => h.onclick = e => {
+    if (e.target.classList.contains("open")) return;
+    const p = h.dataset.path;
+    if (e.altKey) { const all = state.closed.has(p); files().forEach(f => all ? state.closed.delete(f.path) : state.closed.add(f.path)); }
+    else state.closed.has(p) ? state.closed.delete(p) : state.closed.add(p);
+    render();
+  });
+}
+
+const term = document.getElementById("term");
+const BASE = `<span class="c">~/work/kanna-v4/.kanna-worktrees/task-014adf47</span> <span class="p">❯</span> claude
+<span class="m">●</span> PaneType::Diff is in the mux and <span class="c">kanna open diff</span>
+  parses; the Swift pane is stubbed. Two commits so far.
+`;
+let log = "";
+function say(s) { log += s; term.innerHTML = BASE + log; }
+document.getElementById("openIt").onclick = () => {
+  if (state.open) return;
+  say(`
+<span class="g">  Bash(</span><span class="c">kanna open diff --merge-base main</span><span class="g">)</span>
+<span class="ok">  ⎿ p231 opened</span>
+
+<span class="m">●</span> That's everything on this branch against main, in
+  the Diff tab. The two new files aren't committed yet.
+`);
+  state.open = true; render();
+};
+document.getElementById("openPlain").onclick = () => {
+  say(`
+<span class="g">  Bash(</span><span class="c">kanna open diff</span><span class="g">)</span>
+<span class="ok">  ⎿ p232 opened</span>
+
+<span class="m">●</span> That's what I haven't staged yet.
+`);
+  state.open = true; state.scope = "uncommitted"; state.sel = 0; render();
+};
+document.getElementById("edit").onclick = () => {
+  if (!state.open) document.getElementById("openIt").click();
+  if (state.edited && !state.committed) return;
+  say(`
+<span class="g">  Update(</span><span class="c">crates/kanna-mux/src/pane.rs</span><span class="g">)</span>
+<span class="ok">  ⎿ Added 1 line</span>
+`);
+  state.edited = true; state.committed = false; state.busy = true; render();
+  setTimeout(() => { state.busy = false; render(); }, 600);
+};
+document.getElementById("commit").onclick = () => {
+  if (!state.open) document.getElementById("openIt").click();
+  say(`
+<span class="g">  Bash(</span><span class="c">git commit -am "Diff pane title"</span><span class="g">)</span>
+<span class="ok">  ⎿ [diff-viewer 3e1a9c2] Diff pane title</span>
+`);
+  state.committed = true; render();
+};
+document.getElementById("theme").onclick = () => { state.theme = state.theme === "light" ? "dark" : "light"; render(); };
+document.getElementById("reset").onclick = () => { const t = state.theme; state = init(); state.theme = t; log = ""; term.innerHTML = BASE; render(); };
+term.innerHTML = BASE;
+
+const q = new URLSearchParams(location.search);
+if (q.has("picture")) document.body.classList.add("picture");
+if (q.has("light")) state.theme = "light";
+if (q.has("open")) document.getElementById("openIt").click();
+if (q.has("split")) state.mode = "split";
+if (q.has("uncommitted")) state.scope = "uncommitted";
+if (q.has("edited")) { state.edited = true; }
+let cur = null;
+function navRows() {
+  const out = [];
+  document.querySelectorAll("#scroller .file").forEach(fe => {
+    if (fe.classList.contains("closed")) return;
+    const fi = +fe.dataset.i;
+    const push = r => out.push({ el: r, key: fi + ":" + r.dataset.k, file: fi, change: r.classList.contains("add") || r.classList.contains("del") });
+    fe.querySelectorAll(".rows > .r[data-k], .rows > .pair").forEach(x => {
+      if (!x.classList.contains("pair")) return push(x);
+      const [L, R] = [...x.children].map(sd => [...sd.children]);
+      for (let k = 0; k < Math.max(L.length, R.length); k++) {
+        if (L[k] && L[k].classList.contains("del")) push(L[k]);
+        if (R[k] && !R[k].classList.contains("blank")) push(R[k]);
+      }
+    });
+  });
+  return out;
+}
+function setCur(i, rows = navRows()) {
+  if (!rows.length) return;
+  i = Math.max(0, Math.min(rows.length - 1, i));
+  document.querySelectorAll(".r.cur").forEach(e => e.classList.remove("cur"));
+  const r = rows[i]; r.el.classList.add("cur"); cur = r.key;
+  const sc = document.getElementById("scroller"), top = r.el.getBoundingClientRect().top - sc.getBoundingClientRect().top;
+  if (top < 30 + 19) sc.scrollTop += top - 30 - 19 * 2;
+  else if (top > sc.clientHeight - 19 * 3) sc.scrollTop += top - sc.clientHeight + 19 * 4;
+  state.sel = r.file;
+  document.querySelectorAll(".files .f").forEach(f => f.classList.toggle("on", +f.dataset.i === r.file));
+}
+function curIndex(rows) { return rows.findIndex(r => r.key === cur); }
+function toast(html) {
+  const w = document.getElementById("window"); w.querySelector(".toast")?.remove();
+  const t = document.createElement("div"); t.className = "toast"; t.innerHTML = html; w.appendChild(t);
+  setTimeout(() => t.remove(), 2400);
+}
+const drawDiff = render;
+render = function () {
+  drawDiff();
+  if (cur) { const rows = navRows(), i = curIndex(rows); if (i >= 0) rows[i].el.classList.add("cur"); }
+  document.querySelectorAll("#scroller .r[data-k]").forEach(r => r.onclick = () => { const rows = navRows(); setCur(rows.findIndex(x => x.el === r), rows); });
+};
+document.addEventListener("keydown", e => {
+  if (!state.open || e.metaKey || e.ctrlKey || e.altKey) return;
+  const rows = navRows(); if (!rows.length) return;
+  const i = curIndex(rows);
+  const starts = rows.map((r, k) => r.change && !(k && rows[k - 1].change && rows[k - 1].file === r.file) ? k : -1).filter(k => k >= 0);
+  const fileStarts = rows.map((r, k) => !k || rows[k - 1].file !== r.file ? k : -1).filter(k => k >= 0);
+  const go = (xs, d) => { const t = d > 0 ? xs.find(k => k > i) : [...xs].reverse().find(k => k < i); if (t !== undefined) setCur(t, rows); };
+  const k = e.key;
+  if (k === "j" || k === "ArrowDown") setCur(i + 1, rows);
+  else if (k === "k" || k === "ArrowUp") setCur(i < 0 ? 0 : i - 1, rows);
+  else if (k === "n") go(starts, 1);
+  else if (k === "p") go(starts, -1);
+  else if (k === "]") go(fileStarts, 1);
+  else if (k === "[") go(fileStarts, -1);
+  else if (k === "g") setCur(0, rows);
+  else if (k === "G") setCur(rows.length - 1, rows);
+  else if (k === "s") { state.mode = state.mode === "split" ? "unified" : "split"; render(); }
+  else if (k === "Enter" && i >= 0) {
+    const r = rows[i], f = files()[r.file], line = r.key.split(":")[1];
+    if (line[0] === "o") toast("That line was removed: it isn't in the file any more");
+    else toast(`<code>kanna open code ${escH(f.path)}:${line.slice(1)}</code>`);
+  }
+  else return;
+  e.preventDefault();
+});
+render();
+if (q.has("keys")) for (const c of q.get("keys")) document.dispatchEvent(new KeyboardEvent("keydown", { key: c === "~" ? "Enter" : c }));
+</script>
+</body>
+</html>

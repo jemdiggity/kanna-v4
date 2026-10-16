@@ -34,7 +34,7 @@ fn with_no_app_only_terminals_are_known_and_other_panes_need_the_app() {
     let list = instance.call("list", json!({}));
     assert_eq!(names(&list), vec!["sh"]);
     let capabilities = instance.call("capabilities", json!({}));
-    assert_eq!(capabilities["paneTypes"], json!(["term", "web", "ios", "md", "code"]), "{capabilities}");
+    assert_eq!(capabilities["paneTypes"], json!(["term", "web", "ios", "md", "code", "diff"]), "{capabilities}");
 }
 
 #[test]

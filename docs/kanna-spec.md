@@ -60,6 +60,7 @@ flowchart TB
 | [Windows, tabs and splits](specs/windows.md) · [menus](specs/menus.md) · [zoom](specs/zoom.md) · [docked pane](specs/docked-pane.md) | The windows, their actions and debug commands |
 | [Web, markdown and iOS panes](specs/app-panes.md) · [markdown keys](specs/markdown-keys.md) | The app's panes, lent to the daemon |
 | [Code viewer](specs/code-viewer.md) · [code tour](specs/code-tour.md) | A highlighted code pane; the agent commenting on code |
+| [Diff viewer](specs/diff-viewer.md) | `git diff` in a native pane beside the agent, following the worktree |
 | [Doc markup](specs/doc-markup.md) | Commenting on a doc with the agent beside it |
 | [Terminal behaviour](specs/terminal.md) · [terminal links](specs/terminal-links.md) | What a terminal does, who answers the program; which links open |
 | [The shell a command runs in](specs/command-shell.md) | Commands start in an interactive login shell |

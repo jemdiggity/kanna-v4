@@ -9,10 +9,11 @@ pub enum PaneType {
     Ios,
     Md,
     Code,
+    Diff,
 }
 
 impl PaneType {
-    pub const ALL: [PaneType; 5] = [PaneType::Term, PaneType::Web, PaneType::Ios, PaneType::Md, PaneType::Code];
+    pub const ALL: [PaneType; 6] = [PaneType::Term, PaneType::Web, PaneType::Ios, PaneType::Md, PaneType::Code, PaneType::Diff];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -21,6 +22,7 @@ impl PaneType {
             PaneType::Ios => "ios",
             PaneType::Md => "md",
             PaneType::Code => "code",
+            PaneType::Diff => "diff",
         }
     }
 
@@ -106,6 +108,8 @@ pub struct Pane {
     pub path: Option<String>,
     pub line: Option<u64>,
     pub comment: Option<Comment>,
+    pub diff: Option<Vec<String>>,
+    pub view: Option<String>,
     pub agent: Option<String>,
     pub markup: bool,
     pub history: Option<History>,
@@ -135,6 +139,8 @@ impl Pane {
             path: None,
             line: None,
             comment: None,
+            diff: None,
+            view: None,
             agent: None,
             markup: false,
             history: None,
@@ -166,6 +172,7 @@ impl Pane {
             (Some(name), _) => Some(name.clone()),
             (None, PaneType::Md | PaneType::Code) => self.path.as_deref().and_then(file_name),
             (None, PaneType::Web) => self.title.clone().filter(|t| !t.trim().is_empty()).or_else(|| self.url.as_deref().and_then(host)),
+            (None, PaneType::Diff) => Some(std::iter::once("diff").chain(self.diff.iter().flatten().map(String::as_str)).collect::<Vec<_>>().join(" ")),
             (None, PaneType::Term | PaneType::Ios) => None,
         };
         name.map(|n| n.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string()).filter(|n| !n.is_empty())
@@ -214,6 +221,11 @@ impl Pane {
                 if let Some(comment) = &self.comment {
                     out.insert("comment".into(), comment.to_json());
                 }
+            }
+            PaneType::Diff => {
+                out.insert("path".into(), opt(self.path.as_deref()));
+                out.insert("args".into(), diff_args(self.diff.as_deref()));
+                out.insert("view".into(), Value::String(self.view.clone().unwrap_or_else(|| "unified".into())));
             }
         }
         if let Some(code) = self.exit_code {
@@ -369,6 +381,10 @@ mod tab_name_tests {
         assert_eq!(pane(PaneType::Term, None).tab_name(), None);
         assert_eq!(pane(PaneType::Term, Some("logs")).tab_name().as_deref(), Some("logs"));
         assert_eq!(pane(PaneType::Ios, None).tab_name(), None);
+        let mut diff = pane(PaneType::Diff, None);
+        assert_eq!(diff.tab_name().as_deref(), Some("diff"));
+        diff.diff = Some(vec!["--merge-base".into(), "main".into()]);
+        assert_eq!(diff.tab_name().as_deref(), Some("diff --merge-base main"));
     }
 
     #[test]
@@ -387,5 +403,29 @@ mod tab_name_tests {
         assert_eq!(web.tab_name().as_deref(), Some("::1"));
         web.url = Some("file:///Users/me/mockups/tabs.html".into());
         assert_eq!(web.tab_name().as_deref(), Some("tabs.html"));
+    }
+}
+
+pub fn diff_args(args: Option<&[String]>) -> Value {
+    Value::Array(args.unwrap_or_default().iter().cloned().map(Value::String).collect())
+}
+
+pub fn read_diff_args(value: Option<&Value>) -> Result<Option<Vec<String>>, KmuxError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| item.as_str().map(String::from).ok_or_else(|| KmuxError::new("bad_request", "args must be a list of strings")))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some),
+        Some(_) => Err(KmuxError::new("bad_request", "args must be a list of strings")),
+    }
+}
+
+pub fn read_view(value: Option<&Value>) -> Result<Option<String>, KmuxError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(view)) if view == "unified" || view == "split" => Ok(Some(view.clone())),
+        Some(_) => Err(KmuxError::new("bad_request", "view must be unified or split")),
     }
 }

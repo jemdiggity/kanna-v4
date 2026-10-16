@@ -1,0 +1,9 @@
+[package]
+name = "kanna-diff"
+version.workspace = true
+edition.workspace = true
+license = "FSL-1.1-MIT"
+description = "Kanna's diff panes: runs git diff with a pane's arguments, parses its patch, adds untracked files, and decides which files fold."
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }

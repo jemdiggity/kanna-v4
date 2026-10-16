@@ -38,7 +38,10 @@ fn from_kanna(text: &str) -> String {
 }
 
 fn without_code_panes(text: &str) -> String {
-    text.replace("\n       kanna open code FILE[:LINE] [same placement options]", "").replace("\n       kanna navigate PANE FILE[:LINE]", "")
+    text.replace("\n       kanna open code FILE[:LINE] [same placement options]", "")
+        .replace("\n       kanna open diff [GIT-DIFF-ARGS] [same placement options]", "")
+        .replace("\n       kanna navigate PANE FILE[:LINE]", "")
+        .replace("\n       kanna navigate PANE diff [GIT-DIFF-ARGS]", "")
 }
 
 fn words(line: &str) -> Vec<String> {
@@ -119,7 +122,7 @@ fn every_command_is_documented_as_kmux_documents_it() {
         for (field, kmux, kanna) in fields {
             let (kmux, kanna) = (from_kmux(&kmux), from_kanna(&kanna));
             if CODE_PANES.contains(&(theirs.name, field)) {
-                assert!(kanna.contains("code pane"), "{} {field}: kanna's names code panes\nkanna: {kanna}", theirs.name);
+                assert!(kanna.contains("code") && kanna.contains("diff pane"), "{} {field}: kanna's names code and diff panes\nkanna: {kanna}", theirs.name);
             } else if EXTENDED.contains(&(theirs.name, field)) {
                 let added = if field == "examples" { ours.examples.len() > theirs.examples.len() } else { kanna.len() > kmux.len() };
                 assert!(kanna.starts_with(&kmux) && added, "{} {field}: kanna should add to kmux's\nkmux:  {kmux}\nkanna: {kanna}", theirs.name);
@@ -226,11 +229,11 @@ fn usage_errors_are_kmux_errors() {
 }
 
 #[test]
-fn an_unknown_pane_type_lists_code_panes_too() {
+fn an_unknown_pane_type_lists_code_and_diff_panes_too() {
     let kmux = kmux_parse("kmux open top").expect_err("kmux");
     let kanna = kanna_parse("kmux open top").expect_err("kanna");
     assert_eq!(kanna.0, kmux.0);
-    assert_eq!(without_code_panes(&from_kanna(&kanna.1)), from_kmux(&kmux.1).replace("ios or md", "ios, md or code"));
+    assert_eq!(without_code_panes(&from_kanna(&kanna.1)), from_kmux(&kmux.1).replace("ios or md", "ios, md, code or diff"));
 }
 
 #[test]

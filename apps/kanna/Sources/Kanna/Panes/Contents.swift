@@ -1,5 +1,6 @@
 import AppKit
 import KannaCode
+import KannaDiff
 import KannaMarkdown
 
 @MainActor
@@ -43,6 +44,7 @@ final class Contents {
     private var markdownSpots: [String: [String: (y: CGFloat, zoom: CGFloat)]] = [:]
     private var markdownZoom: [String: CGFloat] = [:]
     private var codeZoom: [String: CGFloat] = [:]
+    private var diffZoom: [String: CGFloat] = [:]
 
     func slot(_ id: String) -> PaneSlot {
         if let slot = slots[id] { return slot }
@@ -58,7 +60,8 @@ final class Contents {
     func ios(_ id: String) -> IosPaneView? { slots[id]?.content as? IosPaneView }
     func markdown(_ id: String) -> MarkdownPaneView? { slots[id]?.content as? MarkdownPaneView }
     func code(_ id: String) -> CodePaneView? { slots[id]?.content as? CodePaneView }
-    func keyView(_ id: String) -> NSView? { web(id)?.webView ?? ios(id) ?? markdown(id)?.keyView ?? code(id)?.keyView }
+    func diff(_ id: String) -> DiffPaneView? { slots[id]?.content as? DiffPaneView }
+    func keyView(_ id: String) -> NSView? { web(id)?.webView ?? ios(id) ?? markdown(id)?.keyView ?? code(id)?.keyView ?? diff(id)?.keyView }
 
     private func send(_ text: String, to agent: String, done: @escaping (String?) -> Void) {
         guard let onCall else { return done("not connected to the daemon") }
@@ -122,6 +125,27 @@ final class Contents {
             code.contextMenu = { [weak self] in self?.contextMenu?() }
             failure = code.failure?.message
             content = code
+        case "diff":
+            let diff = DiffPaneView(view: pane["view"]?.string, zoom: diffZoom[id] ?? pane["zoom"]?.number.map { CGFloat($0) } ?? 1)
+            diff.onFocus = { [weak self] in self?.onFocus?(id) }
+            diff.contextMenu = { [weak self] in self?.contextMenu?() }
+            diff.onZoom = { [weak self, weak diff] in
+                guard let diff else { return }
+                self?.diffZoom[id] = diff.zoom
+                self?.onUpdate?(id, ["zoom": .number(Double(diff.zoom))])
+            }
+            diff.onView = { [weak self] view in self?.onUpdate?(id, ["view": .string(view)]) }
+            diff.onOpen = { [weak self] path, line in
+                self?.onCall?("open", ["type": "code", "path": .string(path), "line": .number(Double(line)), "from": .string(id)]) { _ in }
+            }
+            diff.onShowFiles = { [weak self] paths in
+                self?.onCall?("diff", ["pane": .string(id), "show": .array(paths.map { .string($0) })]) { _ in }
+            }
+            onCall?("diff", ["pane": .string(id)]) { [weak self, weak diff] answer in
+                guard let diff, self?.slots[id]?.content === diff else { return }
+                self?.received(diff: answer, for: id)
+            }
+            content = diff
         case "web":
             let web = WebPaneView(url: pane["url"]?.string ?? "about:blank", markup: pane["markup"]?.bool == true)
             web.onFocus = { [weak self] in self?.onFocus?(id) }
@@ -182,6 +206,7 @@ final class Contents {
         (content as? WebPaneView)?.stop()
         (content as? IosPaneView)?.stop()
         (content as? CodePaneView)?.stop()
+        (content as? DiffPaneView)?.stop()
         if let markdown = content as? MarkdownPaneView {
             markdown.stop()
             markdownZoom[id] = markdown.zoom
@@ -197,6 +222,17 @@ final class Contents {
         markdownSpots.removeValue(forKey: id)
         markdownZoom.removeValue(forKey: id)
         codeZoom.removeValue(forKey: id)
+        diffZoom.removeValue(forKey: id)
+    }
+
+    func received(diff message: JSON, for id: String) {
+        guard let view = diff(id) else { return }
+        guard let found = message["diff"], found != .null else {
+            if let updating = message["updating"]?.bool { view.setUpdating(updating) }
+            return
+        }
+        view.show(found.encoded(), serial: Int(message["serial"]?.number ?? 0))
+        if message["updating"]?.bool == true { view.setUpdating(true) }
     }
 
     static func absolute(_ path: String) -> String {

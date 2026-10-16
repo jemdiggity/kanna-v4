@@ -1768,6 +1768,92 @@ code_pane() {
   check test "$(code src font_size)" == 14.5 || { echo "font after relaunch $(code src font_size)"; return 1; }
 }
 
+scenario diff_pane M4
+diff_pane() {
+  start_daemon && start_app || return 1
+  local repo="$KANNA_STATE_DIR/diff_repo"
+  mkdir -p "$repo" && cd "$repo" || return 1
+  dgit() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" >/dev/null; }
+  dgit init -q -b main
+  for i in $(seq 40); do echo "fn f$i() -> u32 { $i }"; done >a.rs
+  echo 'x' >Cargo.lock
+  dgit add . && dgit commit -qm first && dgit checkout -qb task
+  sed -i '' 's/fn f5() -> u32 { 5 }/fn f5() -> u32 { 500 }/' a.rs && dgit commit -qam second
+  sed -i '' 's/fn f30() -> u32 { 30 }/fn f30() -> u64 { 30 }/' a.rs
+  echo 'y' >>Cargo.lock
+  printf 'fn new() {}\n' >b.rs
+  diffpane() { raw "{\"id\":1,\"cmd\":\"debug.diff\",\"args\":{\"pane\":\"changes\"${2:-}}}" | field "$1"; }
+  kanna open diff --merge-base main --name changes >/dev/null || { cd - >/dev/null; return 1; }
+  cd - >/dev/null
+  check wait_for 5 eval '[[ "$(diffpane files)" == *b.rs* ]]' || { echo "files $(diffpane files)"; return 1; }
+  check test "$(diffpane command)" == "git diff --merge-base main" || return 1
+  check python3 -c 'import json, sys
+files = json.loads(sys.argv[1])
+assert [f["path"] for f in files] == ["Cargo.lock", "a.rs", "b.rs"], files
+assert files[0]["fold"] == "lock" and files[2]["untracked"] and files[1]["added"] == 2, files' "$(diffpane files)" || return 1
+  check python3 -c 'import json, sys
+rows = json.loads(sys.argv[1])
+kinds = [r["kind"] for r in rows]
+assert kinds.count("header") == 3 and "note" in kinds and "fold" in kinds, kinds
+assert {"kind": "added", "text": "fn f5() -> u32 { 500 }", "new": 5} in rows, rows' "$(diffpane rows)" || return 1
+  check wait_for 5 eval '(( $(diffpane highlighted) >= 2 ))' || { echo "highlighted $(diffpane highlighted)"; return 1; }
+  local added
+  added="$(diffpane rows | python3 -c 'import json, sys; print([i for i, r in enumerate(json.load(sys.stdin)) if r["kind"] == "added"][0])')"
+  check eval '[[ "$(diffpane colors ",\"colors\":$added")" != "[]" ]]' || { echo "no colours on row $added"; return 1; }
+  sed -i '' 's/fn f20() -> u32 { 20 }/fn f20() -> u32 { 2000 }/' "$repo/a.rs"
+  check wait_for 5 eval '[[ "$(diffpane rows)" == *"{ 2000 }"* ]]' || { echo "the edit didn't arrive"; return 1; }
+  check eval '[[ "$(diffpane fresh)" != "[]" ]]' || { echo "nothing marked fresh"; return 1; }
+  touch "$repo/a.rs"
+  check wait_for 5 eval '[[ "$(diffpane updating)" == False ]]' || { echo "still updating after a re-diff with nothing new"; return 1; }
+  diffpane view ',"keys":"g"' >/dev/null
+  raw '{"id":1,"cmd":"debug.key","args":{"key":"cmd+f"}}' >/dev/null
+  local typed; typed=$(raw '{"id":1,"cmd":"debug.type","args":{"focused":true,"text":"2000"}}')
+  check eval '[[ "$typed" == *NSFindPatternFieldEditor* ]]' || { echo "⌘F showed no find field: $typed"; return 1; }
+  raw '{"id":1,"cmd":"debug.key","args":{"key":"return"}}' >/dev/null
+  raw '{"id":1,"cmd":"debug.key","args":{"key":"escape"}}' >/dev/null
+  raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"diff_pane-unified.png"}}' >/dev/null; cp "$KANNA_STATE_DIR/diff_pane-unified.png" "$out/diff_pane-unified.png" 2>/dev/null
+  diffpane current ',"keys":"gn"' >/dev/null
+  check python3 -c 'import json, sys
+rows, current = json.loads(sys.argv[1]), int(sys.argv[2])
+assert rows[current]["kind"] in ("added", "removed") and rows[current]["text"].startswith("fn f5"), rows[current]' "$(diffpane rows)" "$(diffpane current)" || return 1
+  diffpane current ',"keys":"]"' >/dev/null
+  check test "$(diffpane selected)" == b.rs || { echo "selected $(diffpane selected)"; return 1; }
+  check test "$(diffpane list)" == True || { echo "no files list"; return 1; }
+  check python3 -c 'import json, sys
+rows, current = json.loads(sys.argv[1]), int(sys.argv[2])
+assert rows[current]["text"] == "fn new() {}", rows[current]' "$(diffpane rows)" "$(diffpane current)" || return 1
+  diffpane current ',"keys":"~"' >/dev/null
+  check wait_for 5 eval 'kanna list --json | grep -q "diff_repo/b.rs"' || { echo "no code pane for b.rs"; kanna list; return 1; }
+  kanna focus changes >/dev/null
+  diffpane view ',"keys":"s"' >/dev/null
+  check wait_for 5 is changes view split || { echo "view $(pane changes view)"; return 1; }
+  check eval '[[ "$(diffpane rows)" == *"\"right\": \"blank\""* || "$(diffpane rows)" == *"\"left\": \"blank\""* ]]' || { echo "no blank side in split"; return 1; }
+  raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"diff_pane.png"}}' >/dev/null; cp "$KANNA_STATE_DIR/diff_pane.png" "$out/diff_pane.png" 2>/dev/null
+  diffpane view ',"fold":"a.rs"' >/dev/null
+  check python3 -c 'import json, sys
+rows = json.loads(sys.argv[1])
+assert not any(r["text"].startswith("fn f5") for r in rows), "a.rs still open"' "$(diffpane rows)" || return 1
+  diffpane view ',"fold":"a.rs"' >/dev/null
+  diffpane view ',"zoom":12' >/dev/null
+  diffpane view ',"keys":"gG"' >/dev/null
+  check wait_for 5 eval '[[ "$(diffpane sticky)" != None ]]' || { echo "no sticky header at the bottom: current $(diffpane current) of $(diffpane rows | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"; raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"diff_pane-sticky.png"}}' >/dev/null; cp "$KANNA_STATE_DIR/diff_pane-sticky.png" "$out/" 2>/dev/null; return 1; }
+  raw '{"id":1,"cmd":"debug.snapshot","args":{"path":"diff_pane-sticky.png"}}' >/dev/null; cp "$KANNA_STATE_DIR/diff_pane-sticky.png" "$out/" 2>/dev/null
+  check python3 -c 'import json, sys
+for c in json.loads(sys.argv[1]): assert c["x"] == -c["inset_left"] and c["inset_left"] == c["gutter"], c' "$(diffpane columns)" || return 1
+  diffpane view ',"zoom":0' >/dev/null
+  printf 'one\r\ntwo\xe2\x80\xa8three\r\n' >"$repo/crlf.txt"
+  check wait_for 5 eval '[[ "$(diffpane files)" == *crlf.txt* ]]' || { echo "crlf.txt didn't arrive"; return 1; }
+  check python3 -c 'import json, sys
+rows = json.loads(sys.argv[1])
+assert {"kind": "added", "text": "one\r", "new": 1, "left": "blank", "right": "added"} in rows, [r for r in rows if r.get("new") == 1]' "$(diffpane rows)" || return 1
+  printf 'fn later() {}\n' >"$repo/c.rs"
+  check wait_for 5 eval '[[ "$(diffpane files)" == *c.rs* ]]' || { echo "the untracked c.rs didn't arrive"; return 1; }
+  stop_app; start_app || return 1
+  check wait_for 5 eval '[[ "$(diffpane view)" == split && "$(diffpane files)" == *c.rs* ]]' || { echo "after relaunch: $(diffpane view) $(diffpane files)"; return 1; }
+  kanna navigate changes diff --staged >/dev/null || return 1
+  check wait_for 5 eval '[[ "$(diffpane command)" == "git diff --staged" && "$(diffpane files)" == "[]" ]]' || { echo "staged: $(diffpane command) $(diffpane files)"; return 1; }
+}
+
 scenario code_tour M4
 code_tour() {
   start_daemon && start_app || return 1
