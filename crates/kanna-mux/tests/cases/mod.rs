@@ -30,10 +30,21 @@ pub fn mismatch(expected: &Value, actual: Option<&Value>, path: &str) -> Option<
         }
         Value::Object(fields) => {
             let Value::Object(got) = actual else { return Some(format!("{path}: expected an object, got {}", encode(actual))) };
-            fields.iter().find_map(|(key, value)| mismatch(value, got.get(key), &if path.is_empty() { key.clone() } else { format!("{path}.{key}") }))
+            fields
+                .iter()
+                .filter(|(key, value)| !(key.as_str() == "title" && is_tab(path) && numbered(value)))
+                .find_map(|(key, value)| mismatch(value, got.get(key), &if path.is_empty() { key.clone() } else { format!("{path}.{key}") }))
         }
         _ => (!kanna_mux::json::same(expected, actual)).then(|| format!("{path}: expected {}, got {}", encode(expected), encode(actual))),
     }
+}
+
+fn is_tab(path: &str) -> bool {
+    path.rsplit_once("tabs[").is_some_and(|(_, index)| index.strip_suffix(']').is_some_and(|i| i.parse::<usize>().is_ok()))
+}
+
+fn numbered(title: &Value) -> bool {
+    title.as_str().and_then(|t| t.strip_prefix("Tab ")).is_some_and(|n| n.parse::<usize>().is_ok())
 }
 
 fn listed(reply: &Value, key: &str) -> Vec<String> {

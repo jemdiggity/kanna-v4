@@ -39,6 +39,14 @@ pub fn raise_nofile() {
     }
 }
 
+pub fn original_nofile() -> Option<(u64, u64)> {
+    ORIGINAL_NOFILE.get().map(|l| (l.rlim_cur as u64, l.rlim_max as u64))
+}
+
+pub fn keep_original_nofile((cur, max): (u64, u64)) {
+    let _ = ORIGINAL_NOFILE.set(libc::rlimit { rlim_cur: cur as libc::rlim_t, rlim_max: max as libc::rlim_t });
+}
+
 fn cstring(bytes: &[u8]) -> Result<CString> {
     CString::new(bytes).context("argument or environment entry contains NUL")
 }

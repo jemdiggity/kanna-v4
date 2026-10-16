@@ -56,6 +56,37 @@ fn an_agent_goes_working_needs_you_idle_and_exited_in_list_and_on_the_app_link()
 }
 
 #[test]
+fn an_agent_s_own_report_wins_over_the_rules_until_it_clears() {
+    let instance = Instance::start();
+    instance.open("agent", Some(&mock_agent()));
+    becomes(&instance, "agent", "idle");
+    let explained = instance.call("status", json!({"action": "explain", "pane": "agent"}));
+    assert_eq!(explained["source"], "rules", "{explained}");
+    instance.call("send", json!({"pane": "agent", "text": "report state=working:app=mock:msg=VGhpbmtpbmc="}));
+    becomes(&instance, "agent", "working");
+    let explained = instance.call("status", json!({"action": "explain", "pane": "agent"}));
+    assert_eq!(explained["source"], "osc7501", "{explained}");
+    assert_eq!(explained["judged"], "idle", "the screen alone says idle: {explained}");
+    assert_eq!(explained["reported"]["state"], "working");
+    assert_eq!(explained["reported"]["app"], "mock");
+    assert_eq!(explained["reported"]["message"], "Thinking");
+    instance.call("send", json!({"pane": "agent", "text": "report state=blocked:kind=permission"}));
+    becomes(&instance, "agent", "needs-you");
+    instance.call("send", json!({"pane": "agent", "text": "report state=working:id=sub"}));
+    instance.call("send", json!({"pane": "agent", "text": "report state=done"}));
+    becomes(&instance, "agent", "idle");
+    let explained = instance.call("status", json!({"action": "explain", "pane": "agent"}));
+    assert_eq!(explained["records"].as_array().map(Vec::len), Some(2), "{explained}");
+    instance.call("send", json!({"pane": "agent", "text": "report state=working"}));
+    becomes(&instance, "agent", "working");
+    instance.call("send", json!({"pane": "agent", "text": "report state=clear"}));
+    becomes(&instance, "agent", "idle");
+    let explained = instance.call("status", json!({"action": "explain", "pane": "agent"}));
+    assert_eq!(explained["source"], "rules", "{explained}");
+    assert_eq!(explained["records"], json!([]));
+}
+
+#[test]
 fn other_terminals_show_only_exited() {
     let instance = Instance::start();
     instance.open("shell", None);

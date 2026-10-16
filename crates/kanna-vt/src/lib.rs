@@ -14,6 +14,8 @@ const MAX_PENDING_REPLY_BYTES: usize = 1 << 20;
 
 const DA1_FEATURES: [u16; 2] = [22, 52];
 
+pub const MAX_PROGRAM_STATUSES: usize = 256;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Error {
     pub op: &'static str,
@@ -109,6 +111,103 @@ impl Progress {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgramState {
+    Idle,
+    Working,
+    Done,
+    Blocked,
+    Error,
+}
+
+impl ProgramState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProgramState::Idle => "idle",
+            ProgramState::Working => "working",
+            ProgramState::Done => "done",
+            ProgramState::Blocked => "blocked",
+            ProgramState::Error => "error",
+        }
+    }
+
+    fn ends_with_program(self) -> bool {
+        matches!(self, ProgramState::Working | ProgramState::Blocked)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Need {
+    Permission,
+    Question,
+    Auth,
+}
+
+impl Need {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Need::Permission => "permission",
+            Need::Question => "question",
+            Need::Auth => "auth",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgramStatus {
+    pub id: String,
+    pub state: ProgramState,
+    pub need: Option<Need>,
+    pub progress: Option<u8>,
+    pub app: String,
+    pub title: String,
+    pub message: String,
+}
+
+#[derive(Default)]
+struct ProgramStatuses {
+    records: Vec<(u64, ProgramStatus)>,
+    serial: u64,
+}
+
+impl ProgramStatuses {
+    fn bump(&mut self) -> u64 {
+        self.serial += 1;
+        self.serial
+    }
+
+    fn put(&mut self, status: ProgramStatus) {
+        let serial = self.bump();
+        if let Some(record) = self.records.iter_mut().find(|(_, r)| r.id == status.id) {
+            *record = (serial, status);
+            return;
+        }
+        if self.records.len() >= MAX_PROGRAM_STATUSES {
+            if let Some(oldest) = self.records.iter().enumerate().min_by_key(|(_, (s, _))| *s).map(|(i, _)| i) {
+                self.records.swap_remove(oldest);
+            }
+        }
+        self.records.push((serial, status));
+    }
+
+    fn clear(&mut self, id: &str) {
+        let beneath = |other: &str| id.is_empty() || other == id || other.strip_prefix(id).is_some_and(|rest| rest.starts_with('/'));
+        let before = self.records.len();
+        self.records.retain(|(_, r)| !beneath(&r.id));
+        if self.records.len() != before {
+            self.bump();
+        }
+    }
+
+    fn end_program(&mut self) {
+        let before = self.records.len();
+        self.records.retain(|(_, r)| !r.state.ends_with_program());
+        if self.records.len() != before {
+            self.bump();
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Changed {
     pub title: bool,
@@ -127,6 +226,7 @@ struct Hooks {
     scheme: Option<Scheme>,
     changed: Changed,
     progress: Progress,
+    statuses: ProgramStatuses,
 }
 
 unsafe impl Send for Terminal {}
@@ -193,6 +293,8 @@ impl Terminal {
         let title: ffi::GhosttyTerminalChangedFn = title_changed;
         let pwd: ffi::GhosttyTerminalChangedFn = pwd_changed;
         let progress: ffi::GhosttyTerminalProgressReportFn = progress_report;
+        let prompt: ffi::GhosttyTerminalSemanticPromptFn = semantic_prompt;
+        let status: ffi::GhosttyTerminalProgramStatusFn = program_status;
         unsafe {
             check(
                 "terminal userdata",
@@ -222,6 +324,14 @@ impl Terminal {
             check(
                 "terminal progress_report",
                 ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT, progress as *const c_void),
+            )?;
+            check(
+                "terminal semantic_prompt",
+                ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT, prompt as *const c_void),
+            )?;
+            check(
+                "terminal program_status",
+                ffi::ghostty_terminal_set(raw.as_ptr(), ffi::GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS, status as *const c_void),
             )?;
         }
         Ok(terminal)
@@ -344,6 +454,35 @@ impl Terminal {
 
     pub fn progress(&self) -> Progress {
         unsafe { (*self.hooks.as_ptr()).progress }
+    }
+
+    pub fn program_statuses(&self) -> Vec<ProgramStatus> {
+        let mut records: Vec<ProgramStatus> = unsafe { &(*self.hooks.as_ptr()).statuses }.records.iter().map(|(_, r)| r.clone()).collect();
+        records.sort_by(|a, b| a.id.cmp(&b.id));
+        let apps: Vec<(String, String)> = records.iter().filter(|r| !r.app.is_empty()).map(|r| (r.id.clone(), r.app.clone())).collect();
+        for record in records.iter_mut().filter(|r| r.app.is_empty()) {
+            let mut id = record.id.as_str();
+            while !id.is_empty() {
+                id = id.rfind('/').map_or("", |slash| &id[..slash]);
+                if let Some((_, app)) = apps.iter().find(|(i, _)| i == id) {
+                    record.app = app.clone();
+                    break;
+                }
+            }
+        }
+        records
+    }
+
+    pub fn program_status(&self) -> Option<ProgramStatus> {
+        unsafe { &(*self.hooks.as_ptr()).statuses }.records.iter().find(|(_, r)| r.id.is_empty()).map(|(_, r)| r.clone())
+    }
+
+    pub fn program_status_serial(&self) -> u64 {
+        unsafe { (*self.hooks.as_ptr()).statuses.serial }
+    }
+
+    pub fn end_program(&mut self) {
+        self.hooks().statuses.end_program();
     }
 
     pub fn take_changed(&mut self) -> Changed {
@@ -535,6 +674,69 @@ unsafe extern "C" fn progress_report(
     };
 }
 
+unsafe extern "C" fn semantic_prompt(
+    _terminal: ffi::GhosttyTerminal,
+    userdata: *mut c_void,
+    event: *const ffi::GhosttyTerminalSemanticPrompt,
+) {
+    if userdata.is_null() || event.is_null() {
+        return;
+    }
+    let event = &*event;
+    if event.kind == ffi::GHOSTTY_SEMANTIC_PROMPT_PROMPT_START && event.prompt_kind == ffi::GHOSTTY_SEMANTIC_PROMPT_PROMPT_PRIMARY {
+        (*(userdata as *mut Hooks)).statuses.end_program();
+    }
+}
+
+unsafe extern "C" fn program_status(
+    _terminal: ffi::GhosttyTerminal,
+    userdata: *mut c_void,
+    report: *const ffi::GhosttyTerminalProgramStatus,
+) {
+    if userdata.is_null() || report.is_null() {
+        return;
+    }
+    let report = &*report;
+    let statuses = &mut (*(userdata as *mut Hooks)).statuses;
+    let id = visible_text(report.id);
+    let state = match report.state {
+        ffi::GHOSTTY_PROGRAM_STATUS_STATE_IDLE => ProgramState::Idle,
+        ffi::GHOSTTY_PROGRAM_STATUS_STATE_WORKING => ProgramState::Working,
+        ffi::GHOSTTY_PROGRAM_STATUS_STATE_DONE => ProgramState::Done,
+        ffi::GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED => ProgramState::Blocked,
+        ffi::GHOSTTY_PROGRAM_STATUS_STATE_ERROR => ProgramState::Error,
+        ffi::GHOSTTY_PROGRAM_STATUS_STATE_CLEAR => return statuses.clear(&id),
+        _ => return,
+    };
+    let need = match report.kind {
+        ffi::GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION => Some(Need::Permission),
+        ffi::GHOSTTY_PROGRAM_STATUS_KIND_QUESTION => Some(Need::Question),
+        ffi::GHOSTTY_PROGRAM_STATUS_KIND_AUTH => Some(Need::Auth),
+        _ => None,
+    };
+    statuses.put(ProgramStatus {
+        id,
+        state,
+        need: need.filter(|_| state == ProgramState::Blocked),
+        progress: (0..=100).contains(&report.progress).then_some(report.progress as u8),
+        app: visible_text(report.app),
+        title: visible_text(report.title),
+        message: visible_text(report.message),
+    });
+}
+
+unsafe fn visible_text(text: ffi::GhosttyString) -> String {
+    if text.ptr.is_null() || text.len == 0 {
+        return String::new();
+    }
+    String::from_utf8_lossy(std::slice::from_raw_parts(text.ptr, text.len)).chars().filter(|c| !invisible(*c)).collect()
+}
+
+fn invisible(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{ad}' | '\u{61c}' | '\u{180e}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{fff9}'..='\u{fffb}')
+}
+
 unsafe extern "C" fn device_attributes(
     _terminal: ffi::GhosttyTerminal,
     _userdata: *mut c_void,
@@ -675,6 +877,36 @@ mod abi {
             ("sizeof GhosttyTerminalProgressReport", size_of::<GhosttyTerminalProgressReport>() as i64),
             ("GhosttyTerminalProgressReport.state", offset_of!(GhosttyTerminalProgressReport, state) as i64),
             ("GhosttyTerminalProgressReport.progress", offset_of!(GhosttyTerminalProgressReport, progress) as i64),
+            ("GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT", GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT as i64),
+            ("GHOSTTY_SEMANTIC_PROMPT_PROMPT_START", GHOSTTY_SEMANTIC_PROMPT_PROMPT_START as i64),
+            ("GHOSTTY_SEMANTIC_PROMPT_PROMPT_PRIMARY", GHOSTTY_SEMANTIC_PROMPT_PROMPT_PRIMARY as i64),
+            ("sizeof GhosttyTerminalSemanticPrompt", size_of::<GhosttyTerminalSemanticPrompt>() as i64),
+            ("GhosttyTerminalSemanticPrompt.kind", offset_of!(GhosttyTerminalSemanticPrompt, kind) as i64),
+            ("GhosttyTerminalSemanticPrompt.prompt_kind", offset_of!(GhosttyTerminalSemanticPrompt, prompt_kind) as i64),
+            ("GhosttyTerminalSemanticPrompt.has_exit_code", offset_of!(GhosttyTerminalSemanticPrompt, has_exit_code) as i64),
+            ("GhosttyTerminalSemanticPrompt.exit_code", offset_of!(GhosttyTerminalSemanticPrompt, exit_code) as i64),
+            ("GhosttyTerminalSemanticPrompt.command", offset_of!(GhosttyTerminalSemanticPrompt, command) as i64),
+            ("GhosttyTerminalSemanticPrompt.error", offset_of!(GhosttyTerminalSemanticPrompt, error) as i64),
+            ("GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS", GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS as i64),
+            ("GHOSTTY_PROGRAM_STATUS_STATE_IDLE", GHOSTTY_PROGRAM_STATUS_STATE_IDLE as i64),
+            ("GHOSTTY_PROGRAM_STATUS_STATE_WORKING", GHOSTTY_PROGRAM_STATUS_STATE_WORKING as i64),
+            ("GHOSTTY_PROGRAM_STATUS_STATE_DONE", GHOSTTY_PROGRAM_STATUS_STATE_DONE as i64),
+            ("GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED", GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED as i64),
+            ("GHOSTTY_PROGRAM_STATUS_STATE_ERROR", GHOSTTY_PROGRAM_STATUS_STATE_ERROR as i64),
+            ("GHOSTTY_PROGRAM_STATUS_STATE_CLEAR", GHOSTTY_PROGRAM_STATUS_STATE_CLEAR as i64),
+            ("sizeof GhosttyProgramStatusState", size_of::<i32>() as i64),
+            ("GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION", GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION as i64),
+            ("GHOSTTY_PROGRAM_STATUS_KIND_QUESTION", GHOSTTY_PROGRAM_STATUS_KIND_QUESTION as i64),
+            ("GHOSTTY_PROGRAM_STATUS_KIND_AUTH", GHOSTTY_PROGRAM_STATUS_KIND_AUTH as i64),
+            ("sizeof GhosttyProgramStatusKind", size_of::<i32>() as i64),
+            ("sizeof GhosttyTerminalProgramStatus", size_of::<GhosttyTerminalProgramStatus>() as i64),
+            ("GhosttyTerminalProgramStatus.state", offset_of!(GhosttyTerminalProgramStatus, state) as i64),
+            ("GhosttyTerminalProgramStatus.kind", offset_of!(GhosttyTerminalProgramStatus, kind) as i64),
+            ("GhosttyTerminalProgramStatus.progress", offset_of!(GhosttyTerminalProgramStatus, progress) as i64),
+            ("GhosttyTerminalProgramStatus.id", offset_of!(GhosttyTerminalProgramStatus, id) as i64),
+            ("GhosttyTerminalProgramStatus.app", offset_of!(GhosttyTerminalProgramStatus, app) as i64),
+            ("GhosttyTerminalProgramStatus.title", offset_of!(GhosttyTerminalProgramStatus, title) as i64),
+            ("GhosttyTerminalProgramStatus.message", offset_of!(GhosttyTerminalProgramStatus, message) as i64),
             ("GHOSTTY_KEY_ACTION_PRESS", GHOSTTY_KEY_ACTION_PRESS as i64),
             ("GHOSTTY_MODS_SHIFT", GHOSTTY_MODS_SHIFT as i64),
             ("GHOSTTY_MODS_CTRL", GHOSTTY_MODS_CTRL as i64),

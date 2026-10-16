@@ -61,7 +61,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["open", "--name", "b", "--split", "right", "--size", "1/3"]).ok(), "opened p2 (b) in window w1, tab t1: running");
     assert_eq!(layout(&daemon, 0, 0), "a:2/3 | b:1/3");
     let list = daemon.kanna(&["list"]).ok();
-    assert!(list.starts_with("*w1  focused: b\n  *t1 \"Tab 1\"  a:2/3 | b:1/3\n\nPANE  NAME  TYPE  STATE    COMMAND"), "{list}");
+    assert!(list.starts_with("*w1  focused: b\n  *t1 \"a\"  a:2/3 | b:1/3\n\nPANE  NAME  TYPE  STATE    COMMAND"), "{list}");
     assert!(list.contains("p1    a     term  running  exec /bin/sh"), "{list}");
     assert!(list.contains("p2    b     term  running  (shell)"), "{list}");
 
@@ -251,7 +251,7 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     assert!(overview.contains(&format!("Instance: default of {} at {}", kanna_build::Build::current().app_name(), nowhere.display())), "{overview}");
     assert!(overview.contains("6 needs Kanna.app, which isn't attached and wasn't started."), "{overview}");
     assert_eq!(kanna_at(&dir, Some(&nowhere), &["help"]).ok(), overview);
-    assert_eq!(kanna_at(&dir, Some(&nowhere), &["--version"]).ok(), format!("kanna {} ({})", env!("CARGO_PKG_VERSION"), kanna_build::Build::current().app_name()));
+    assert_eq!(kanna_at(&dir, Some(&nowhere), &["--version"]).ok(), format!("kanna {} ({})", kanna_build::VERSION, kanna_build::Build::current().app_name()));
     let open = kanna_at(&dir, Some(&nowhere), &["help", "open"]).ok();
     assert!(open.starts_with("kanna open — Open a terminal"), "{open}");
     assert_eq!(kanna_at(&dir, Some(&nowhere), &["open", "--help"]).ok(), open);

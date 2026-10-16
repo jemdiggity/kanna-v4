@@ -284,6 +284,50 @@ impl CoreHandle {
         self.0.exec.run();
     }
 
+    pub fn hang_up(&self, task: &str, done: impl FnOnce(Result<Vec<String>, KmuxError>) + 'static) {
+        let core = self.clone();
+        let task = task.to_string();
+        self.0.exec.spawn(Box::pin(async move { done(core.hung_up(&task).await) }));
+        self.0.exec.run();
+    }
+
+    pub fn wake(&self, task: &str, done: impl FnOnce(Result<Vec<String>, KmuxError>) + 'static) {
+        let core = self.clone();
+        let task = task.to_string();
+        self.0.exec.spawn(Box::pin(async move { done(core.woken(&task).await) }));
+        self.0.exec.run();
+    }
+
+    async fn terminals_of(&self, task: &str, keep: impl Fn(&Pane) -> bool) -> Result<Vec<String>, KmuxError> {
+        let found = self.layout(scope_request(&Scope::Task(task.into()))).await?;
+        let s = self.state();
+        let ids = found.get("panes").and_then(Value::as_array).cloned().unwrap_or_default();
+        Ok(ids.iter().filter_map(Value::as_str).filter(|id| *id != task).filter(|id| s.panes.get(id).is_some_and(|p| p.kind == PaneType::Term && keep(p))).map(String::from).collect())
+    }
+
+    async fn hung_up(&self, task: &str) -> Result<Vec<String>, KmuxError> {
+        let live = self.terminals_of(task, |p| matches!(p.state, PaneState::Starting | PaneState::Running)).await?;
+        for id in &live {
+            self.with_pane_mut(id, |pane| pane.hung_up = true);
+        }
+        self.changed();
+        for id in &live {
+            self.ended(id).await?;
+        }
+        Ok(live)
+    }
+
+    async fn woken(&self, task: &str) -> Result<Vec<String>, KmuxError> {
+        let held = self.terminals_of(task, |p| p.hung_up && !matches!(p.state, PaneState::Starting | PaneState::Running)).await?;
+        for id in &held {
+            let snapshot = self.reload(id, true).await;
+            if let Err(error) = self.check_started(id, &snapshot) {
+                eprintln!("kanna-mux: {} didn't start again: {}", snapshot.label(), error.message);
+            }
+        }
+        Ok(held)
+    }
+
     async fn ended(&self, id: &str) -> Result<(), KmuxError> {
         let live = |core: &CoreHandle| core.state().panes.get(id).is_some_and(|p| matches!(p.state, PaneState::Starting | PaneState::Running));
         let pane = self.need_pane(Some(id))?;
@@ -617,13 +661,14 @@ impl CoreHandle {
         }
         let id = self.state().panes.next_id();
         let placeless = !new_tab && !planner && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none();
-        let from = string(args, "from").filter(|_| placeless).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
+        let opener = string(args, "from").filter(|_| !planner && dock.is_none() && args.get("window").is_none()).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
+        let from = opener.clone().filter(|_| placeless);
         let cwd = match string(args, "cwd") {
             Some(cwd) => Some(cwd.to_string()),
-            None if kind == PaneType::Term && dock.is_none() && !planner => self.task_folder(from.as_deref(), string(args, "window")).await,
+            None if kind == PaneType::Term && dock.is_none() && !planner => self.task_folder(opener.as_deref(), string(args, "window")).await,
             None => None,
         };
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), shelf, backlog, planner)).await?;
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), opener.as_deref(), shelf, backlog, planner)).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();
@@ -880,6 +925,7 @@ impl CoreHandle {
         if let Some(pane) = self.state().panes.get_mut(id) {
             pane.state = PaneState::Starting;
             pane.pid = None;
+            pane.hung_up = false;
             if clear_exit {
                 pane.exit_code = None;
             }

@@ -48,14 +48,27 @@ When the user asks you to show them something (a diff, a file, a doc, a page, a 
 
 | To show | Run |
 |---|---|
-| A diff, or a command's output | `kanna open --tab --window W --name diff --cmd 'git -c color.ui=always diff main...HEAD \| less -R'` |
-| A markdown doc | `kanna open md FILE --tab --window W` |
-| A source file | `kanna open code FILE[:LINE] --tab --window W` |
-| A page | `kanna open web URL --tab --window W` |
+| A diff, or a command's output | `kanna open --tab --name diff --cmd 'git -c color.ui=always diff main...HEAD \| less -R'` |
+| A markdown doc | `kanna open md FILE --tab` |
+| A source file | `kanna open code FILE[:LINE] --tab` |
+| A page | `kanna open web URL --tab` |
 
-- **W is your window:** the one `kanna list` shows your pane (`$KANNA_PANE`) in. Without `--window` the tab opens in the front window, which may not be yours.
+- **Run it from your own terminal, without `--window`:** the tab opens in your window, even when it's hidden in the backlog or on the Shelf.
 - **A tab, not a split or a new window,** so your pane keeps its size.
 - In the chat, a line saying what the tab shows.
+
+## Present your work
+
+When the work is done, before you end your turn, set up your window to show the user what you changed and why. You may have run unattended in the backlog: whatever you leave open, focused and zoomed is what the user sees when they pull the task, maybe hours later. Kanna keeps it through the stop.
+
+1. **Open what explains the change best,** as tabs ([Show it in a tab](#show-it-in-a-tab)): the spec you changed (`kanna open md`), the mockup (`kanna open web`), comments on the key code (`kanna comment`, as the `kanna-explain` skill says), a diagram in a doc in `.kanna/tmp/`, the diff (`git -c color.ui=always diff main...HEAD | less -R` in a terminal tab).
+2. **Show and focus the most important tab** (`kanna focus PANE`), and zoom it if one pane says it all (`kanna zoom PANE`).
+3. **Close tabs that don't help** (`kanna close PANE`): scratch shells, finished builds.
+4. **End your turn with a short summary in the chat:** what changed, why, what's in the tabs, and what's left for the user (merge, a decision, a check).
+
+**Nothing worth a tab** (a small fix, a question in words)? Close your tabs and zoom your own pane (`kanna zoom $KANNA_PANE`), so your summary is what the user sees.
+
+If you stop to ask the user something, set up what the question is about the same way first. Terminals you leave running are stopped with you and run again when the task starts; what they were in the middle of is lost.
 
 ## Commands
 
@@ -66,7 +79,7 @@ When the user asks you to show them something (a diff, a file, a doc, a page, a 
 | `kanna task edit TASK --after TASK,...\|none` | Change what a backlog task waits for (only when the user asks to unblock it) |
 | `kanna task list [QUERY]` | Every task: ID, name, where (a Desk, the Shelf, the backlog), state (working, idle, needs you, stopped, or blocked, with what it waits for), repo; QUERY keeps those whose name or first message has every word |
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, branch and agent with the first message, and stays in the backlog; a stopped task resumes its conversation |
-| `kanna task stop [TASK]` | End a task's agent and tabs, leaving it where it is (only when the user asks) |
+| `kanna task stop [TASK]` | End a task's agent and hang up its terminals, leaving it where it is with its tabs as they are (only when the user asks) |
 | `kanna task shelve TASK` | Move a backlog task to the Shelf, starting it if it's stopped (three per project) |
 | `kanna task pull TASK` | Bring a task onto the Desk, parking the one there (only when the user asks) |
 | `kanna task park [TASK]` | Move the Desk's task to the Shelf (only when the user asks) |

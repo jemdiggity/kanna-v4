@@ -299,6 +299,7 @@ impl Terminals {
                         exit_code,
                         pid: terminal.pid as i64,
                         keeper: terminal.keeper.clone(),
+                        hung_up: pane.hung_up,
                     })
                 })
                 .collect(),
@@ -332,7 +333,7 @@ impl Terminals {
         let mut exits = Vec::new();
         for record in saved.records {
             let mut pane = Pane::new(&record.id, record.name.clone(), PaneType::Term);
-            (pane.command, pane.cwd, pane.pid) = (record.cmd.clone(), record.cwd.clone(), Some(record.pid));
+            (pane.command, pane.cwd, pane.pid, pane.hung_up) = (record.cmd.clone(), record.cwd.clone(), Some(record.pid), record.hung_up);
             let terminal = match ptys.remove(&record.keeper) {
                 Some(pty) => {
                     let snapshot = (i64::from(pty.pid) == record.pid).then(|| self.store.snapshot(&record.id)).flatten();

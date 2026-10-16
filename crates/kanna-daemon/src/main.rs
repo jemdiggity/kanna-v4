@@ -32,7 +32,7 @@ use pty::Spawner;
 use store::Store;
 use terminals::{Restored, Terminals};
 
-const USAGE: &str = "usage: kanna-daemon [--uses-keeper | --build]
+const USAGE: &str = "usage: kanna-daemon [--uses-keeper]
 
 Serves Kanna's terminals and kmux's control protocol on $KANNA_SOCKET
 (default: this build's instance's socket, such as kanna-dev/kanna.sock in
@@ -43,8 +43,7 @@ beside this binary) if none runs. Stopping the daemon leaves the terminals
 running in the keeper; it saves them in that folder (terminals/), and the
 next daemon takes them back.
 
-  --uses-keeper   exits 0: this daemon gets its ptys from a keeper
-  --build         prints this build's channel, app name, bundle ID, instance and folder";
+  --uses-keeper   exits 0: this daemon gets its ptys from a keeper";
 
 const APP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -55,7 +54,7 @@ pub enum Event {
     Wake,
     Output { pane: String, serial: u64 },
     Drained { pane: String, serial: u64 },
-    Status { pane: String, serial: u64, status: Option<&'static str> },
+    Status { pane: String, serial: u64, status: Option<&'static str>, ended: bool },
     RulesUpdated { token: u64, report: kanna_detect::Report },
     Worktree { token: u64, result: Result<(String, String), String> },
     KeeperReadable,
@@ -73,7 +72,6 @@ fn main() {
     match args.first().map(String::as_str) {
         None => {}
         Some("--uses-keeper") => std::process::exit(0),
-        Some("--build") => return print!("{}", Build::current().shell()),
         Some("-h" | "--help") => return println!("{USAGE}"),
         Some(other) => {
             eprintln!("kanna-daemon: unknown argument {other}\n{USAGE}");
@@ -328,11 +326,11 @@ fn run() -> Result<(), String> {
                     app.status(&pane, Some("exited"));
                 }
             }
-            Event::Status { pane, serial, status } => {
+            Event::Status { pane, serial, status, ended } => {
                 if terminals.current(&pane, serial) {
                     core.with_pane_mut(&pane, |p| p.status = status.map(String::from));
                     app.status(&pane, status);
-                    backlog.status(&pane, status);
+                    backlog.status(&pane, status, ended);
                 }
             }
             Event::RulesUpdated { token, report } => status_commands.updated(token, report),

@@ -261,6 +261,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     private var placed: Set<String> {
         var ids = Set<String>()
+        if case .array(let held)? = state["held"] { ids.formUnion(held.compactMap(\.string)) }
         for entry in shelfEntries {
             guard case .array(let list)? = entry["panes"] else { continue }
             ids.formUnion(list.compactMap(\.string))
@@ -301,7 +302,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func learn(_ pane: JSON) {
-        _ = appLayout?.call(["call": "pane", "pane": pane])
+        let reply = appLayout?.call(["call": "pane", "pane": pane])
+        if reply?["changed"]?.bool == true { refresh() }
         scheduleSave()
     }
 

@@ -1,6 +1,6 @@
 # kanna-vt
 
-A terminal's screen, kept by **libghostty-vt** (Ghostty's terminal-emulation C library). The daemon keeps one per terminal ([spec §4](../../docs/kanna-spec.md#4-kannaapp), [plan](../../docs/plans/mux-build.md) M1): it feeds it the pty's output, answers `kanna read` from it, and sends it to Kanna.app as a GHOSTSNP snapshot, which the app loads with `ghostty_surface_load_snapshot`.
+A terminal's screen, kept by **libghostty-vt** (Ghostty's terminal-emulation C library). The daemon keeps one per terminal ([architecture](../../docs/specs/architecture.md), [plan](../../docs/plans/mux-build.md) M1): it feeds it the pty's output, answers `kanna read` from it, and sends it to Kanna.app as a GHOSTSNP snapshot, which the app loads with `ghostty_surface_load_snapshot`.
 
 ## API
 
