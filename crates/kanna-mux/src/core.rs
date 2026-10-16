@@ -4,7 +4,7 @@ use crate::instance::{Instance, DEFAULT_NAME};
 use crate::json::{is_true, json, num, string, Map, Value};
 use crate::layout::{place_request, scope_request, Edge, LayoutHost, LayoutLink, LocalLayout, Scope, SplitSide};
 use crate::model::{fraction, Model};
-use crate::pane::{Comment, Pane, PaneState, PaneType, Panes};
+use crate::pane::{read_diff_args, read_view, Comment, Pane, PaneState, PaneType, Panes};
 use crate::state;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
@@ -590,9 +590,17 @@ impl CoreHandle {
         if kind == PaneType::Code && empty("path") {
             return Err(bad_request("code panes need a path"));
         }
-        if args.get("path").is_some() && !matches!(kind, PaneType::Md | PaneType::Code) {
-            return Err(bad_request("path is only for markdown and code panes"));
+        if kind == PaneType::Diff && empty("path") {
+            return Err(bad_request("diff panes need a path: the folder git runs in"));
         }
+        if args.get("path").is_some() && !matches!(kind, PaneType::Md | PaneType::Code | PaneType::Diff) {
+            return Err(bad_request("path is only for markdown, code and diff panes"));
+        }
+        if (args.get("args").is_some() || args.get("view").is_some()) && kind != PaneType::Diff {
+            return Err(bad_request("args and view are only for diff panes"));
+        }
+        let diff = read_diff_args(args.get("args"))?;
+        let view = read_view(args.get("view"))?;
         if args.get("line").is_some() && kind != PaneType::Code {
             return Err(bad_request("line is only for code panes"));
         }
@@ -686,6 +694,10 @@ impl CoreHandle {
             pane.markup = is_true(args, "markup");
             if kind == PaneType::Code {
                 pane.comment = args.get("comment").and_then(Comment::from_json);
+            }
+            if kind == PaneType::Diff {
+                pane.diff = Some(diff.unwrap_or_default());
+                pane.view = view;
             }
             if (kind == PaneType::Web && is_true(args, "history")) || matches!(kind, PaneType::Md | PaneType::Code) {
                 pane.history = Some(Default::default());
@@ -1004,7 +1016,12 @@ impl CoreHandle {
             None
         };
         let mut changed = pane.clone();
-        if matches!(pane.kind, PaneType::Md | PaneType::Code) {
+        if pane.kind == PaneType::Diff {
+            if step.is_some() {
+                return Err(bad_request("a diff pane keeps no history"));
+            }
+            changed.diff = Some(read_diff_args(args.get("args"))?.unwrap_or_default());
+        } else if matches!(pane.kind, PaneType::Md | PaneType::Code) {
             let code = pane.kind == PaneType::Code;
             if !code && args.get("line").is_some() {
                 return Err(bad_request("line is only for code panes"));
@@ -1033,7 +1050,7 @@ impl CoreHandle {
             if pane.kind != PaneType::Web {
                 return Err(KmuxError::new(
                     "wrong_type",
-                    format!("{} is a {} pane; navigate only works on web, markdown and code panes", pane.label(), pane.kind.as_str()),
+                    format!("{} is a {} pane; navigate only works on web, markdown, code and diff panes", pane.label(), pane.kind.as_str()),
                 ));
             }
             if let Some(step) = step {
@@ -1059,6 +1076,7 @@ impl CoreHandle {
             pane.path = changed.path;
             pane.line = changed.line;
             pane.url = changed.url;
+            pane.diff = changed.diff;
         }
         let snapshot = self.reload(&pane.id, false).await;
         Ok(reply([("pane", self.summary(&pane.id, &snapshot))]))

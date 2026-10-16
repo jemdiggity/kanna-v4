@@ -54,6 +54,31 @@ fn a_code_pane_opens_a_file_at_a_line_and_moves_between_lines() {
 }
 
 #[test]
+fn a_diff_pane_runs_git_diff_with_the_arguments_it_was_given_in_the_folder_it_was_opened_from() {
+    let daemon = Daemon::start();
+    let _app = daemon.app();
+    daemon.kanna(&["open", "--name", "a", "--cmd", "exec /bin/sh"]).ok();
+    let opened = daemon.kanna(&["open", "diff", "--merge-base", "main", "-U5", "--name", "changes", "--tab", "--", "src"]).ok();
+    assert_eq!(opened, "opened p2 (changes) in window w1, tab t2: running");
+    let listed = daemon.kanna(&["list", "--json"]).json()["panes"][1].clone();
+    assert_eq!(listed["type"], "diff");
+    assert_eq!(listed["path"], json!(daemon.dir.to_string_lossy()));
+    assert_eq!(listed["args"], json!(["--merge-base", "main", "-U5", "--", "src"]));
+    assert_eq!(listed["view"], "unified");
+    daemon.kanna(&["navigate", "changes", "diff", "--staged"]).ok();
+    assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][1]["args"], json!(["--staged"]));
+    daemon.kanna(&["navigate", "changes", "diff"]).ok();
+    assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][1]["args"], json!([]));
+    daemon.kanna(&["navigate", "changes", "--back"]).fails(2, "a diff pane keeps no history");
+    assert_eq!(daemon.kanna(&["open", "diff", "--cwd", "/tmp", "--tab"]).ok(), "opened p3 in window w1, tab t3: running");
+    assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][2]["path"], "/tmp");
+    daemon.kanna(&["raw", r#"{"cmd":"open","args":{"type":"diff"}}"#]).fails(2, "diff panes need a path: the folder git runs in");
+    daemon.kanna(&["raw", r#"{"cmd":"open","args":{"type":"diff","path":"/tmp","args":"--staged"}}"#]).fails(2, "args must be a list of strings");
+    daemon.kanna(&["raw", r#"{"cmd":"open","args":{"type":"diff","path":"/tmp","view":"sideways"}}"#]).fails(2, "view must be unified or split");
+    daemon.kanna(&["raw", r#"{"cmd":"open","args":{"type":"md","path":"/a.md","view":"split"}}"#]).fails(2, "args and view are only for diff panes");
+}
+
+#[test]
 fn every_command_works_through_the_daemon_and_the_app() {
     let daemon = Daemon::start();
     let _app = daemon.app();
@@ -119,7 +144,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["markup", "doc", "--off"]).ok(), "comments off in p6 (doc)");
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();
-    assert!(capabilities.starts_with("pane types: term, web, ios, md, code\ncommands: agents, arrange, backlog, capabilities, close, comment, focus, list, markup, move, move-tab, navigate, open, quiz, read, rename-pane, rename-tab, resize, restart, screenshot, send, send-key, status, task, zoom"), "{capabilities}");
+    assert!(capabilities.starts_with("pane types: term, web, ios, md, code, diff\ncommands: agents, arrange, backlog, capabilities, close, comment, focus, list, markup, move, move-tab, navigate, open, quiz, read, rename-pane, rename-tab, resize, restart, screenshot, send, send-key, status, task, zoom"), "{capabilities}");
     assert!(capabilities.ends_with("Kanna.app: attached"), "{capabilities}");
     let raw = daemon.kanna(&["raw", r#"{"cmd":"debug.anything","args":{"pane":"a"}}"#]).json();
     assert_eq!(raw, json!({ "cmd": "debug.anything", "args": { "pane": "p1" } }));
