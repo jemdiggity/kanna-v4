@@ -79,6 +79,51 @@ fn a_diff_pane_runs_git_diff_with_the_arguments_it_was_given_in_the_folder_it_wa
 }
 
 #[test]
+fn the_daemon_diffs_a_diff_panes_folder_and_diffs_again_when_the_worktree_changes() {
+    let daemon = Daemon::start();
+    let _app = daemon.app();
+    let repo = daemon.dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "{status:?}");
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-qm", "first"]);
+    std::fs::write(repo.join("a.txt"), "one\n2\n").unwrap();
+    daemon.kanna(&["open", "--name", "a", "--cmd", "exec /bin/sh"]).ok();
+    daemon.kanna(&["open", "diff", "--cwd", &repo.to_string_lossy(), "--name", "changes", "--tab"]).ok();
+    let read = || daemon.kanna(&["raw", r#"{"cmd":"diff","args":{"pane":"changes"}}"#]).json();
+    wait_for("the first diff", || read()["serial"] == 1);
+    let first = read();
+    assert_eq!(first["diff"]["command"], "git diff");
+    assert_eq!(first["diff"]["files"][0]["path"], "a.txt");
+    assert_eq!(first["diff"]["files"][0]["hunks"][0]["lines"], json!([[" ", "one", 1, 1], ["-", "two", 2, null], ["+", "2", null, 2]]));
+    std::fs::write(repo.join("b.txt"), "new\n").unwrap();
+    wait_for("the untracked file", || read()["diff"]["files"].as_array().is_some_and(|f| f.len() == 2));
+    assert_eq!(read()["diff"]["files"][1]["untracked"], true);
+    std::fs::create_dir_all(repo.join("target")).unwrap();
+    std::fs::write(repo.join(".git/info/exclude"), "target/\n").unwrap();
+    wait_for("the exclude", || read()["serial"] == 2 || read()["serial"] == 3);
+    let serial = read()["serial"].clone();
+    std::fs::write(repo.join("target/out"), "built\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    assert_eq!(read()["serial"], serial);
+    daemon.kanna(&["navigate", "changes", "diff", "--staged"]).ok();
+    wait_for("the staged diff", || read()["diff"]["command"] == "git diff --staged");
+    assert_eq!(read()["diff"]["files"], json!([]));
+    daemon.kanna(&["close", "changes"]).ok();
+    daemon.kanna(&["raw", r#"{"cmd":"diff","args":{"pane":"changes"}}"#]).fails(4, "no pane \"changes\"");
+}
+
+#[test]
 fn every_command_works_through_the_daemon_and_the_app() {
     let daemon = Daemon::start();
     let _app = daemon.app();
@@ -144,7 +189,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["markup", "doc", "--off"]).ok(), "comments off in p6 (doc)");
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();
-    assert!(capabilities.starts_with("pane types: term, web, ios, md, code, diff\ncommands: agents, arrange, backlog, capabilities, close, comment, focus, list, markup, move, move-tab, navigate, open, quiz, read, rename-pane, rename-tab, resize, restart, screenshot, send, send-key, status, task, zoom"), "{capabilities}");
+    assert!(capabilities.starts_with("pane types: term, web, ios, md, code, diff\ncommands: agents, arrange, backlog, capabilities, close, comment, diff, focus, list, markup, move, move-tab, navigate, open, quiz, read, rename-pane, rename-tab, resize, restart, screenshot, send, send-key, status, task, zoom"), "{capabilities}");
     assert!(capabilities.ends_with("Kanna.app: attached"), "{capabilities}");
     let raw = daemon.kanna(&["raw", r#"{"cmd":"debug.anything","args":{"pane":"a"}}"#]).json();
     assert_eq!(raw, json!({ "cmd": "debug.anything", "args": { "pane": "p1" } }));

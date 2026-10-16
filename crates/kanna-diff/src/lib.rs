@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-pub const PINNED: [&str; 6] = ["-c", "core.quotepath=false", "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false"];
+pub const PINNED: [&str; 8] = ["-c", "core.quotepath=false", "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "-c", "core.fsmonitor=false"];
 pub const FORMAT: [&str; 5] = ["--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

@@ -11,6 +11,7 @@ mod settings;
 mod shell;
 mod status;
 mod status_command;
+mod diffs;
 mod store;
 mod terminals;
 
@@ -57,6 +58,8 @@ pub enum Event {
     Status { pane: String, serial: u64, status: Option<&'static str>, ended: bool },
     RulesUpdated { token: u64, report: kanna_detect::Report },
     Worktree { token: u64, result: Result<(String, String), String> },
+    Diff { pane: String, diff: Value },
+    DiffUpdating { pane: String },
     KeeperReadable,
     KeeperExits,
     KeeperLost(String),
@@ -174,7 +177,9 @@ fn run() -> Result<(), String> {
     let agents = agents::Agents::new(agents::home(), agents::skills(), socket_path.clone());
     agents.refresh();
     agents.install(&core);
-    let host = Rc::new(Host::new(terminals.clone()));
+    let diffs = Rc::new(diffs::Diffs::new(events.clone()));
+    diffs.install(&core);
+    let host = Rc::new(Host::new(terminals.clone(), diffs.clone()));
     core.set_host(Some(host.clone()));
     let on_change = Rc::downgrade(&terminals);
     let tasks_changed = Rc::downgrade(&backlog);
@@ -214,6 +219,12 @@ fn run() -> Result<(), String> {
     layout.connect(&app);
     app.connect_backlog(&backlog);
     host.connect(&app);
+    let diff_link = Rc::downgrade(&app);
+    *diffs.on_diff.borrow_mut() = Some(Box::new(move |_, payload| {
+        if let Some(app) = diff_link.upgrade() {
+            app.diff(payload);
+        }
+    }));
     let on_start = Rc::downgrade(&app);
     *terminals.on_start.borrow_mut() = Some(Box::new(move |pane| {
         if let Some(app) = on_start.upgrade() {
@@ -335,6 +346,8 @@ fn run() -> Result<(), String> {
             }
             Event::RulesUpdated { token, report } => status_commands.updated(token, report),
             Event::Worktree { token, result } => backlog.worktree_made(token, result),
+            Event::Diff { pane, diff } => diffs.loaded(&pane, diff),
+            Event::DiffUpdating { pane } => diffs.updating(&pane),
             Event::KeeperReadable | Event::KeeperExits => {
                 let exits = keeper.take_exits();
                 if matches!(event, Event::KeeperReadable) {

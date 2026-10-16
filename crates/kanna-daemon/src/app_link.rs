@@ -391,6 +391,10 @@ impl AppLink {
         self.notify("start", json!({ "pane": Value::Object(pane_record(pane)) }));
     }
 
+    pub fn diff(&self, payload: &Value) {
+        self.notify("diff", payload.clone());
+    }
+
     pub fn hide(&self, pane: &str) {
         self.notify("stop", json!({ "pane": pane }));
     }
