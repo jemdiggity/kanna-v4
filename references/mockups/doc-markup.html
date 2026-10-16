@@ -234,10 +234,10 @@ function chip(t) {
 function working() { return s.agent === "working" || s.agent === "busy"; }
 
 function waiting(t) {
-  if (working()) return `<div class="typing" title="p1 is working"><i></i><i></i><i></i></div>`;
-  if (s.agent === "needs") return `<div class="waiting needs">Not answered · p1 needs you</div>`;
+  if (working()) return `<div class="typing" title="The agent is working"><i></i><i></i><i></i></div>`;
+  if (s.agent === "needs") return `<div class="waiting needs">Not answered · the agent is waiting on you</div>`;
   if (s.agent === "none") return `<div class="waiting">Not sent · no agent</div>`;
-  return `<div class="waiting">Not answered · p1 is idle</div>`;
+  return `<div class="waiting">Not answered · the agent stopped</div>`;
 }
 
 
