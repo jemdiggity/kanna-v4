@@ -1,54 +1,42 @@
 # Workspaces
 
-**Status:** planned · **Builds on:** [layout](layout.md), [Desk](desk.md), [tasks](tasks.md), [presenting](presenting.md) · **Folds in:** backlog task t135 (off-screen replies)
+**Status:** planned · **Builds on:** [layout](layout.md), [Desk](desk.md), [tasks](tasks.md), [presenting](presenting.md)
 
-A task is a unit of work. Its **workspace** is how it's presented: its agent docked beside its tabs, with the shown tab, focus and zoom, plus any windows of its own. Today a task has no such object. On a Desk its parts are fields of the window; parked or held they're copied out into a `Window`-shaped record with the agent pane's ID. So a window ID like `w31` names a place, not a task. A command aimed at a window hits whichever task is shown there (an agent's diff tab landed in another task's workspace that way), and a reply about an off-screen task names the key window or says the app isn't open.
-
-With workspaces, a Desk window *shows* one workspace. Park, pull, hold and shelve change which Desk shows which, and copy nothing; the workspace's own windows come and go with it. A command from a task's pane goes to its own workspace, wherever that is, and the reply names the task and where it is.
+A task is a unit of work. Its **workspace** is how it's presented: its agent docked beside its tabs, with the shown tab, focus and zoom, plus any windows of its own. A Desk window shows one workspace at a time. Park, pull, hold and shelve change which Desk shows which workspace, and a workspace's windows are on screen only while it's on a Desk. A command from a task's pane goes to its own workspace, wherever that is, and the reply names the task and where it is.
 
 ## Contents
 
-1. [The model, before and after](#1-the-model-before-and-after)
+1. [The model](#1-the-model)
 2. [What moves a workspace](#2-what-moves-a-workspace)
 3. [Commands: target and reply](#3-commands-target-and-reply)
 4. [Kinds of window, and the planning terminal](#4-kinds-of-window-and-the-planning-terminal)
 5. [Saved state](#5-saved-state)
 6. [Code and tests](#6-code-and-tests)
 7. [The branches waiting for review](#7-the-branches-waiting-for-review)
-8. [Decisions and questions](#8-decisions-and-questions)
+8. [Decisions](#8-decisions)
 9. [Glossary](#9-glossary)
 
-## 1. The model, before and after
+## 1. The model
 
 ```mermaid
 flowchart LR
-    subgraph BEFORE["Today: kanna-mux Model"]
-        BW["windows: Window<br/>tabs · active · focused · zoom<br/>dock · planner · desk<br/>shelf_zoom · frame"]
-        BP["parked: Window<br/>id = agent pane (p367)<br/>tabs · dock · backlog flag"]
-        BW -->|"park: copy fields out"| BP
-        BP -->|"pull: copy fields in"| BW
-    end
-    subgraph AFTER["Planned"]
-        DW["Desk window<br/>id · frame · project<br/>lead · Shelf zoom"]
-        WS["Workspace (t135)<br/>dock · tabs<br/>focus · zoom · where"]
-        OW["its windows (w40, …)<br/>frame · tabs<br/>focus · zoom"]
-        FW["free window (w4)<br/>frame · tabs<br/>focus · zoom"]
-        DW -->|"shows (one)"| WS
-        WS -->|"has (any number)"| OW
-    end
-    BEFORE ~~~ AFTER
-    classDef old fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+    DW["Desk window<br/>id · frame · project<br/>lead · Shelf zoom"]
+    WS["Workspace (t135)<br/>dock · tabs<br/>focus · zoom · where"]
+    OW["its windows (w40, …)<br/>frame · tabs<br/>focus · zoom"]
+    FW["free window (w4)<br/>frame · tabs<br/>focus · zoom"]
+    DW -->|"shows (one)"| WS
+    WS -->|"has (any number)"| OW
     classDef ours fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
     classDef plain fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
-    class BW,BP old
     class WS,OW ours
     class DW,FW plain
 ```
 
 - **A workspace's ID is its task's ID** (`t135`, the one in `kanna task list`). It keeps it from start to Done, wherever it goes.
-- **A workspace has a Desk part and windows of its own.** The Desk part (the docked agent and its tabs) is what a Desk window shows. Its own windows are ordinary windows with their own IDs and frames, on screen while the workspace is on a Desk.
-- **A window isn't a workspace.** It's a Desk, one of a workspace's windows, or free (in no workspace, like a kmux window).
+- **A workspace has a Desk part and windows of its own.** The Desk part (the docked agent and its tabs) is what a Desk window shows. Its own windows are ordinary windows with their own IDs and frames.
+- **A window isn't a workspace.** It's a Desk, one of a workspace's windows, or free (in no workspace).
 - **`where`** is one of: on a Desk (which one), on the Shelf, or in the backlog. A workspace is in exactly one place.
+- **Only a workspace on a Desk is visible,** its windows included. On the Shelf or in the backlog, its Desk part and all its windows are hidden; their panes keep running, the Desk part at the Desk's size ([pane sizes](pane-sizes.md)) and each window at its frame.
 
 ```mermaid
 flowchart TB
@@ -77,9 +65,7 @@ flowchart TB
     class T138 none
 ```
 
-Green: workspaces and their windows. Blue: Desks and free windows. Grey: today's model, or no workspace.
-
-A backlog task gets a workspace when it first starts; until then it's only a name and a first message ([tasks](tasks.md#3-the-backlog)). Hidden workspaces still run their panes: the Desk part at the Desk's size ([pane sizes](pane-sizes.md)), each of its windows at that window's frame.
+Green: workspaces and their windows. Blue: Desks and free windows. Grey: no workspace. A backlog task gets a workspace when it first starts; until then it's only a name and a first message ([tasks](tasks.md#3-the-backlog)).
 
 ## 2. What moves a workspace
 
@@ -89,8 +75,8 @@ Each one changes `where`, a Desk's `shows`, or which workspace a window or pane 
 |---|---|---|
 | `kanna task start` (backlog) | new `t…`, docked agent, in the backlog | — |
 | Move to Shelf (`shelve`) | new, or the held one, onto the Shelf | — |
-| `pull` onto Desk W | Shelf → on W | W shows it; its windows open at their frames; the one W showed goes to the Shelf, its windows closing |
-| `park` | on a Desk → Shelf | the Desk shows its lead and the Shelf; its windows close (kept) |
+| `pull` onto Desk W | Shelf → on W | W shows it and its windows open at their frames; the one W showed goes to the Shelf and its windows close |
+| `park` | on a Desk → Shelf | the Desk shows its lead and the Shelf; the workspace's windows close |
 | Move to Backlog (`defer`, `hold`) | Desk or Shelf → backlog, as it is | as park |
 | `stop` | unchanged | unchanged |
 | `done` | closed with its panes and its windows | as park |
@@ -98,59 +84,59 @@ Each one changes `where`, a Desk's `shows`, or which workspace a window or pane 
 | `open --window new`, or a tab torn off, from the workspace | a new window of the workspace | on screen if the workspace is |
 | A tab torn off a free window | — | a new free window |
 | `move PANE --window W`, a tab dragged to W | the pane or tab joins W's workspace, or W if it's free | — |
-| `move-window W --task t135` | W becomes one of t135's windows | W stays if t135 is on a Desk, else closes with it |
-| `move-window W --free` | W leaves its workspace | W opens if its workspace was hidden |
+| `kanna window assign W t135` | W becomes one of t135's windows | W stays if t135 is on a Desk, else it's hidden with t135 |
+| `kanna window free W` | W leaves its workspace | W opens if its workspace was hidden |
 
 A pane belongs to the workspace it's in. Moving it to another workspace's window moves it to another task, so that's always a deliberate drag or `move`, never a side effect of where a task happens to be shown.
 
 ## 3. Commands: target and reply
 
-**The caller** is the CLI's `$KANNA_PANE` (today's `opener`). A command that names a pane or tab acts where *that* pane or tab is. One that names nothing acts where the caller is: its workspace's Desk part, one of its windows, or a free window. `--window W` aims at W, whoever's it is; a task's pane may do that, though it rarely needs to, and the reply names W's workspace so the agent sees where its pane went.
+**The caller** is the CLI's `$KANNA_PANE`. A command that names a pane or tab acts where *that* pane or tab is. One that names nothing acts where the caller is: its workspace's Desk part, one of its windows, or a free window. `--window W` aims at W, whoever's it is; a task's pane may do that, though it rarely needs to, and the reply names W's workspace so the agent sees where its pane went.
 
 | Command | From a task's pane (t135) | From a pane in a free window (w4) |
 |---|---|---|
-| `open` | beside the caller: as asked when on screen; a new tab when hidden (today's rule) | into w4, as today |
-| `open --window new` | a new window of t135 | a new free window, as today |
-| `focus PANE` / `--tab` | that pane's or tab's shown tab and focus; its window becomes key only if on screen | as today |
-| `focus --window W` | makes W key; for a hidden window of a workspace, an error saying where it is | as today |
-| `zoom PANE` | that pane's zoom, on screen or not | as today |
+| `open` | beside the caller: as asked when on screen; a new tab when hidden | into w4, as kmux |
+| `open --window new` | a new window of t135 | a new free window |
+| `focus PANE` / `--tab` | that pane's or tab's shown tab and focus; its window becomes key only if on screen | as kmux |
+| `focus --window W` | makes W key; for a hidden window, an error saying where it is | as kmux |
+| `zoom PANE` | that pane's zoom, on screen or not | as kmux |
 | `comment` | the markdown pane it opens or finds is beside the caller | in w4 |
-| `move` | `--window W` into W | as today |
-| `move-window W --task T` / `--free` | moves W into T's workspace, or frees it ([4](#4-kinds-of-window-and-the-planning-terminal)) | the same |
-| `close` | a pane, a tab, or `--window W` (and its panes) | as today |
+| `move PANE --window W` | into W | as kmux |
+| `window assign W TASK` / `window free W` | puts W in TASK's workspace, or frees it ([4](#4-kinds-of-window-and-the-planning-terminal)) | the same |
+| `close` | a pane, a tab, or `--window W` (and its panes) | as kmux |
 | `list` | Desks and what they show, free windows, then each Shelf and backlog workspace with its windows and tabs | the same |
 
 Replies say which workspace and where it is. A window is named when it's on screen, or when it's one of the workspace's own:
 
-| Case | Today | Planned |
-|---|---|---|
-| open, t135 on Desk w31 | `opened p5 in window w31, tab t9: running` | `opened p5 in t135 on w31, tab t9: running` |
-| open, t135 on the Shelf | `opened p5, unplaced until Kanna.app opens: running` | `opened p5 in t135 (on the Shelf), tab t9: running` |
-| open, t135 in the backlog | the same | `opened p5 in t135 (in the backlog), tab t9: running` |
-| open in t135's window w40, t135 on the Shelf | — | `opened p5 in t135's w40 (on the Shelf), tab t9: running` |
-| open `--window w31`, from t135, w31 shows t140 | `opened p5 in window w31, tab t9: running` | `opened p5 in t140 on w31, tab t9: running` |
-| open in a free window | `opened p5 in window w4, tab t9: running` | unchanged |
-| open, no app | `opened p5, unplaced until Kanna.app opens: running` | unchanged |
-| focus, t135 held | `focused spec (key window w31)` | `focused spec in t135 (in the backlog)` |
-| focus, t135 on a Desk | `focused spec (key window w31)` | `focused spec in t135 on w31 (key window)` |
-| zoom, hidden | `spec is zoomed (run again to unzoom)` | `spec is zoomed in t135 (on the Shelf; run again to unzoom)` |
-| comment, hidden | `opened p6 · spec.md:12` | `opened p6 in t135 (on the Shelf) · spec.md:12` |
-| move-window to a task on the Shelf | — | `moved w41 to t135 (on the Shelf: hidden until it's pulled)` |
-| move-window, free | — | `w41 is free` |
+| Case | Reply |
+|---|---|
+| open, t135 on Desk w31 | `opened p5 in t135 on w31, tab t9: running` |
+| open, t135 on the Shelf | `opened p5 in t135 (on the Shelf), tab t9: running` |
+| open, t135 in the backlog | `opened p5 in t135 (in the backlog), tab t9: running` |
+| open in t135's window w40, t135 on the Shelf | `opened p5 in t135's w40 (on the Shelf), tab t9: running` |
+| open `--window w31` from t135, w31 shows t140 | `opened p5 in t140 on w31, tab t9: running` |
+| open in a free window | `opened p5 in window w4, tab t9: running` |
+| open, no app | `opened p5, unplaced until Kanna.app opens: running` |
+| focus, t135 in the backlog | `focused spec in t135 (in the backlog)` |
+| focus, t135 on a Desk | `focused spec in t135 on w31 (key window)` |
+| zoom, hidden | `spec is zoomed in t135 (on the Shelf; run again to unzoom)` |
+| comment, hidden | `opened p6 in t135 (on the Shelf) · spec.md:12` |
+| assign to a task on the Shelf | `assigned w41 to t135 (on the Shelf: hidden until it's pulled)` |
+| free | `w41 is free` |
 
-Layout replies carry `workspace: {id, task, where}` (`where`: `{desk}`, `"shelf"` or `"backlog"`), or null in a free window, beside the `window` and `tab` they have today. `window` is the window's ID, or null for a hidden Desk part. The CLI writes "unplaced until Kanna.app opens" only when there's neither (the app wasn't there). `kanna list --json` gains `workspaces`, and each pane's row names its workspace.
+Layout replies carry `workspace: {id, task, where}` (`where`: `{desk}`, `"shelf"` or `"backlog"`), or null in a free window, beside `window` and `tab`. `window` is the window's ID, or null for a hidden Desk part. The CLI writes "unplaced until Kanna.app opens" only when there's neither (the app wasn't there). `kanna list --json` has `workspaces`, and each pane's row names its workspace.
 
 ## 4. Kinds of window, and the planning terminal
 
-- **A Desk** is a project's window: it shows its lead (the planning terminal) and the Shelf, or one workspace's Desk part. It holds no tabs of its own: a pane opened onto the Shelf gets a new window, as today ([zoom](zoom.md), [planning agent](planning-agent.md)). Its ID names the place.
-- **A workspace's window** belongs to that workspace: its ID stays with it through park and pull, and it's on screen only while the workspace is on a Desk.
-- **A free window** belongs to no workspace: nothing parks, pulls or docks there. It behaves as kmux's window, so kmux's protocol cases see the same windows as today.
-- **A window moves between workspaces, or becomes free,** with `kanna move-window W --task T` or `--free`, and from the Window menu (Move Window to Task, listing the project's started tasks, and Make Window Free; [menus](menus.md)). It's a `command` step like `move-tab`. Refused: a Desk (`desk`: a Desk is a place, not a task's), a window with a lead (`lead`: a Quiz window stays its agent's), and a task with no workspace yet (`not_started`: "t138 hasn't started").
-- **The planning terminal never moves.** It's its Desk's, not a task's: park and pull swap the workspace beside it, and `move` still refuses it.
+- **A Desk** is a project's window: it shows its lead (the planning terminal) and the Shelf, or one workspace's Desk part. It holds no tabs of its own: a pane opened onto the Shelf gets a new window ([zoom](zoom.md), [planning agent](planning-agent.md)). Its ID names the place.
+- **A workspace's window** belongs to that workspace: its ID stays with it through park and pull, and it's visible only while the workspace is on a Desk.
+- **A free window** belongs to no workspace: nothing parks, pulls or docks there. It behaves as kmux's window, so kmux's protocol cases pass on it.
+- **A window joins or leaves a workspace** when it's made (one made from a task's pane or torn off its tabs is the task's; one made from a free window is free), or with `kanna window assign W TASK` and `kanna window free W`, and the Window menu's Assign Window to Task (the project's started tasks) and Free Window ([menus](menus.md)). Both are a `command` step, as `move-tab` is. Refused: a Desk (`desk`: a Desk is a place, not a task's), a window with a lead (`lead`: a Quiz window stays its agent's), and a task with no workspace yet (`not_started`: "t138 hasn't started").
+- **The planning terminal never moves.** It's its Desk's, not a task's: park and pull swap the workspace beside it, and `move` refuses it.
 
 ## 5. Saved state
 
-`layout.json` goes to `version: 2`: `windows` holds Desks and free windows, and every workspace is in one list with its own windows.
+`layout.json` is `version: 2`: `windows` holds Desks and free windows, and every workspace is in one list with its own windows.
 
 ```json
 { "kmux": "state", "version": 2, "key": "w31",
@@ -166,58 +152,48 @@ Layout replies carry `workspace: {id, task, where}` (`where`: `{desk}`, `"shelf"
     { "id": "t137", "task": "t137", "where": "backlog", "dock": {}, "tabs": [], "windows": [] }] }
 ```
 
-- **Version 1 still loads.** A window with a dock becomes a Desk showing a workspace made of its dock and tabs (`planner` → `lead`, `shelfZoom` stays the Desk's). Any other Desk stays a Desk; every other window is free. Each `parked` entry becomes a workspace on the Shelf, or in the backlog when `backlog` is set. No workspace has windows of its own yet. The next save writes version 2.
-- **Task IDs come from the daemon.** A version-1 file only knows agent pane IDs (`p367`). The daemon's hello reply already lists its terminals, and it adds `task: "t135"` to each task's agent pane (from `tasks.pane` in `kanna.db`). The app renames each workspace from pane to task ID. A docked pane with no task keeps its pane ID as the workspace's ID until it's closed.
+- **Version 1 loads.** A window with a dock becomes a Desk showing a workspace made of its dock and tabs (`planner` → `lead`). Any other Desk stays a Desk; every other window is free. Each `parked` entry becomes a workspace on the Shelf, or in the backlog when `backlog` is set. The next save writes version 2.
+- **Task IDs come from the daemon.** A version-1 file only knows agent pane IDs (`p367`). The daemon's hello reply lists its terminals and adds `task: "t135"` to each task's agent pane (from `tasks.pane` in `kanna.db`); the app names each workspace by its task. A docked pane with no task keeps its pane ID as the workspace's ID until it's closed.
 - **New workspaces get the ID in `place`:** the daemon's `open --dock --frozen` for a task sends `at: {dock, shelf | backlog, task: "t135"}`.
-- **The daemon's own state doesn't change.** `kanna.db` keeps `tasks.pane` (the agent) and `place`. `terminals.json` keeps the terminals. The layout's `where` is what's shown, and the db's `place` stays the task's history ([database](database.md)).
+- **The daemon's own state stays as it is.** `kanna.db` keeps `tasks.pane` (the agent) and `place`; `terminals.json` keeps the terminals. The layout's `where` is what's shown, and the db's `place` is the task's history ([database](database.md)).
 
 ## 6. Code and tests
 
 ```mermaid
-flowchart LR
-    subgraph NOW["today"]
-        D["desk.rs<br/>park_window · pull's copy<br/>focus_parked · focus_parked_tab<br/>place_on_task · detach_parked<br/>settle_shelf · task_panes"]
-        M["model.rs<br/>focus · zoom · place<br/>(a window branch and<br/>a parked branch each)"]
-        O["owner.rs view<br/>shelf · held from parked"]
-    end
-    subgraph NEXT["planned"]
-        T["tabs.rs<br/>Tabs: tabs · active · focus · zoom<br/>tab and pane ops, once"]
-        WS["workspace.rs<br/>Workspace · Where<br/>its Desk part and windows"]
-        D2["desk.rs<br/>park · pull · hold · release<br/>desk: change where and shows"]
-        M2["model.rs<br/>commands find the Tabs<br/>a pane is in, then act"]
-        O2["owner.rs view<br/>on-screen windows;<br/>shelf · held by where"]
-    end
-    D --> T & WS & D2
-    M --> M2
-    O --> O2
-    classDef old fill:#4a4a55,stroke:#9a9aa8,color:#ffffff
+flowchart TB
+    T["tabs.rs<br/>Tabs: tabs · active · focus · zoom<br/>tab and pane ops"]
+    WS["workspace.rs<br/>Workspace · Where<br/>its Desk part and windows"]
+    D["desk.rs<br/>park · pull · hold · release · desk<br/>change where and shows"]
+    M["model.rs<br/>Desks, free windows, workspaces;<br/>commands find the Tabs a pane is in"]
+    O["owner.rs view<br/>visible windows · shelf · held"]
+    M --> D & WS & T
+    WS --> T
+    O --> M
     classDef ours fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
-    class D,M,O old
-    class T,WS,D2,M2,O2 ours
+    class T,WS,D,M,O ours
 ```
 
-- **One `Tabs`** (tabs, shown tab, focus, zoom) is what a free window, a workspace's Desk part and each of its windows hold. Tab and pane ops are written once on it, so a hidden workspace is no longer a second code path.
-- **Out of desk.rs:** every `parked` lookup and copy. `focus_parked`, `focus_parked_tab`, the parked half of `place_on_task` and of `zoom`, and `detach_parked` go. `park_window` and the body of `pull` shrink to changing `where` and `shows`. `Window.backlog` and `parked_at` move to the workspace.
-- **Out of owner.rs:** `view` lists the windows on screen (Desks, free windows, and the windows of workspaces on a Desk), each with its `workspace`; `shelf` and `held` read workspaces by `where`, and `held` includes their windows' panes. A window leaving or joining the view closes or opens as any window does today, so the Swift app only learns the `workspace` field.
-- **kanna CLI:** `output.rs` `opened`, `focused`, `zoomed`, `commented`, `moved` write the replies in [3](#3-commands-target-and-reply); `move-window` is a new command in `commands.rs`; `crates/kanna/tests/cli.rs` checks them.
-- **The app:** the Window menu's two items send `move-window` to the layout like Move Tab to New Window.
-- **kanna-mux tests:** the owner tests on parked and held tasks (`a_task_parks_onto_the_shelf…`, `a_task_held_in_the_backlog…` ×2, `a_task_parks_and_pulls_with_its_zoom…`, `a_parked_task_whose_agent_is_gone…`, `a_pull_onto_a_desk_with_a_task…`) check workspace IDs and `where` instead of `parked` records. New ones: a task's `open` lands in its own workspace after another task is pulled onto its old Desk; a workspace's window closes on park and opens at its frame on pull; `open --window new` from a task's pane makes its window; `move-window` moves a window into a hidden workspace (it closes) and frees one (it opens), and refuses a Desk; replies name the workspace; a version-1 file loads and saves as version 2 (`tests/restore.rs`). `protocol_cases` (kmux's) pass unchanged.
-- **e2e:** `backlog_runners` (the presenting task) checks the new focus and open replies from a held task, and that its tabs are still in `t8`'s workspace after another task is pulled onto the Desk. `desk_shelf`, `move_to_backlog`, `backlog_and_back`, `shelf_zoom` and `layout_restored` read workspaces from `kanna list --json`; `desk_shelf` also parks and pulls a task with a window of its own, and moves a free window into the task and back out with `move-window`.
-- **Skills:** `kanna-tasks` already says to open without `--window`. It gains one line: the reply names your task and where it is.
+- **One `Tabs`** (tabs, shown tab, focus, zoom) is what a free window, a workspace's Desk part and each of its windows hold. Tab and pane ops are written once on it, whether it's visible or not.
+- **desk.rs** keeps the task actions only: each changes `where` and a Desk's `shows`. The `parked` list and its lookups (`focus_parked`, `focus_parked_tab`, `detach_parked`, `settle_shelf`, the parked halves of `place_on_task` and `zoom`) are gone, as are `Window.backlog` and `parked_at`, which become the workspace's.
+- **owner.rs** `view` lists the visible windows (Desks, free windows, and the windows of workspaces on a Desk), each with its `workspace`; `shelf` and `held` read workspaces by `where`, and `held` includes their windows' panes. A window that leaves or joins the view closes or opens as any window does, so the Swift app only learns the `workspace` field and the two Window menu items.
+- **kanna CLI:** `output.rs` writes the replies in [3](#3-commands-target-and-reply); `window assign` and `window free` are new in `commands.rs`; `crates/kanna/tests/cli.rs` checks them.
+- **kanna-mux tests:** the owner tests on parked and held tasks (`a_task_parks_onto_the_shelf…`, `a_task_held_in_the_backlog…` ×2, `a_task_parks_and_pulls_with_its_zoom…`, `a_parked_task_whose_agent_is_gone…`, `a_pull_onto_a_desk_with_a_task…`) check workspace IDs and `where`. New: a task's `open` lands in its own workspace after another task is pulled onto its old Desk; a workspace's window is hidden on park and opens at its frame on pull; `open --window new` from a task's pane makes its window; `window assign` hides a window in a hidden workspace and `window free` shows it, and both refuse a Desk; replies name the workspace; a version-1 file loads and saves as version 2 (`tests/restore.rs`). `protocol_cases` (kmux's) pass.
+- **e2e:** `backlog_runners` (the presenting task) checks the focus and open replies from a held task, and that its tabs are still in `t8`'s workspace after another task is pulled onto the Desk. `desk_shelf`, `move_to_backlog`, `backlog_and_back`, `shelf_zoom` and `layout_restored` read workspaces from `kanna list --json`; `desk_shelf` also parks and pulls a task with a window of its own, and assigns a free window to the task and frees it.
+- **Skills:** `kanna-tasks` says to open without `--window`, and that the reply names your task and where it is.
 
 ## 7. The branches waiting for review
 
-- **Quiz window docks its agent** (`quiz-window-docked`) renames `planner` to `lead` and lets a window that isn't a Desk have one (the Quiz window). That fits: a lead is a window's, never a workspace's, so a Quiz window is a free window with a lead. Land it first; this spec then says `lead` throughout, and version 1's `planner` loads as `lead`.
-- **Move to a window makes a new tab** (`move-window-new-tab`): `move PANE --window W` makes a new tab at the end of W. With workspaces that tab is in W's workspace, or W if it's free. No conflict: it changes `move_pane`'s destination, and this spec changes which workspace that is.
+- **Quiz window docks its agent** (`quiz-window-docked`) renames `planner` to `lead` and lets a window that isn't a Desk have one (the Quiz window). That fits: a lead is a window's, never a workspace's, so a Quiz window is a free window with a lead. Land it first; this spec says `lead` throughout.
+- **Move to a window makes a new tab** (`move-window-new-tab`): `move PANE --window W` makes a new tab at the end of W, which is in W's workspace, or W if it's free. No conflict.
 
-## 8. Decisions and questions
+## 8. Decisions
 
-1. **The name is workspace.** A task is the unit of work; its workspace is its presentation. The Shelf and the backlog hold tasks, and each started task's workspace goes with it, hidden; the Shelf draws the cards it draws today.
+1. **The name is workspace.** A task is the unit of work; its workspace is its presentation. The Shelf and the backlog hold tasks, and each started task's workspace goes with it, hidden; the Shelf draws its cards as it does now.
 2. **A task's pane may open into another window** with `--window W`. It's rare, not wrong; the reply names where it landed.
 3. **A window isn't a workspace.** A workspace can have several windows; a window is a Desk, a workspace's, or free.
-4. **t135** ("Off-screen open and focus replies name the right window"), a backlog task made by the agent of 'Presentations focus the first tab' for the two misleading replies, is covered by [3](#3-commands-target-and-reply) and comes off the backlog when the build task is made.
-5. **Open: a workspace's windows while it's off the Desk.** *Recommend* they close with it and come back at their frames when it's pulled, so the screen shows one task at a time per project. The other choice leaves them open while the task is on the Shelf.
-6. **A window joins or leaves a workspace** by birth (one made from a task's pane or torn off its tabs is the task's; one made from a free window is free) or by `move-window` and the Window menu ([4](#4-kinds-of-window-and-the-planning-terminal)).
+4. **Off the Desk, a whole workspace is hidden,** its windows included, and pulled, they come back at their frames.
+5. **A window can be assigned to a task's workspace or freed** (`kanna window assign`, `kanna window free`, and the Window menu).
+6. **Backlog task t135** ("Off-screen open and focus replies name the right window") is covered by [3](#3-commands-target-and-reply) and comes off the backlog when the build task is made.
 
 ## 9. Glossary
 
