@@ -45,11 +45,11 @@ print(json.dumps(v) if isinstance(v, (dict, list)) else v)' "$1"; }
 
 # 1. A command in a new pane, a third of the window wide.
 [[ "$("$cli" open --name e2e --split right --size 1/3 --cmd "printf 'KMUX E2E OK\n'; exec sleep 600")" == *"(e2e)"* ]] || fail "open did not print the pane name"
-list="$("$cli" list --json)"
+list="$("$cli" workspace list --all --json)"
 [[ "$(field windows.0.tabs.0.layout <<<"$list")" == '{"children": [{"pane": "p1", "size": "2/3"}, {"pane": "e2e", "size": "1/3"}], "split": "row"}' ]] \
   || fail "layout: $(field windows.0.tabs.0.layout <<<"$list")"
 sleep 1.5
-[[ "$(field panes.1.state <<<"$("$cli" list --json)")" == running ]] || fail "e2e is not running"
+[[ "$(field panes.1.state <<<"$("$cli" workspace list --all --json)")" == running ]] || fail "e2e is not running"
 
 # 2. Both panes are drawn: the command's output, and the new shell's first line.
 drawn two-panes "KMUX E2E OK"
@@ -58,7 +58,7 @@ drawn two-panes-shell "*" 2
 # 3. A command that ends leaves its pane on screen, marked exited.
 "$cli" open --name done --split down --cmd "echo bye" >/dev/null
 sleep 1.5
-[[ "$(field panes.2.state <<<"$("$cli" list --json)")" == exited ]] || fail "done did not exit"
+[[ "$(field panes.2.state <<<"$("$cli" workspace list --all --json)")" == exited ]] || fail "done did not exit"
 
 # 4. Errors map to exit codes.
 set +e
@@ -70,9 +70,9 @@ set -e
 # 5. Closing panes redistributes space; closing the last closes the window.
 "$cli" close done >/dev/null
 "$cli" close e2e >/dev/null
-[[ "$(field windows.0.tabs.0.layout <<<"$("$cli" list --json)")" == '{"pane": "p1"}' ]] || fail "p1 should fill the window"
+[[ "$(field windows.0.tabs.0.layout <<<"$("$cli" workspace list --all --json)")" == '{"pane": "p1"}' ]] || fail "p1 should fill the window"
 "$cli" close p1 >/dev/null
-[[ "$(field windows <<<"$("$cli" list --json)")" == '[]' ]] || fail "the window should close with its last pane"
+[[ "$(field windows <<<"$("$cli" workspace list --all --json)")" == '[]' ]] || fail "the window should close with its last pane"
 
 # 5b. send types a line into a terminal.
 "$cli" open --name sh >/dev/null
@@ -93,7 +93,7 @@ trap 'kill $kmux_pid $server_pid 2>/dev/null || true; rm -f "$KMUX_SOCKET" "$sta
 for _ in $(seq 30); do [[ "$(field text <<<"$(web)")" == *"KMUX WEB OK"* ]] && break; sleep 0.5; done
 [[ "$(field text <<<"$(web)")" == *"KMUX WEB OK"* ]] || fail "web pane never loaded: $(web)"
 "$cli" navigate site "localhost:$port/missing" >/dev/null
-[[ "$(field panes.1.url <<<"$("$cli" list --json)")" == "http://localhost:$port/missing" ]] || fail "navigate should update the url"
+[[ "$(field panes.1.url <<<"$("$cli" workspace list --all --json)")" == "http://localhost:$port/missing" ]] || fail "navigate should update the url"
 
 # Web history, only when asked for: back loads the previous page again.
 echo '<h1>PAGE TWO</h1>' > "$out/site/two.html"
@@ -112,15 +112,15 @@ for _ in $(seq 20); do [[ "$(field text <<<"$(hist)")" == *"PAGE TWO"* ]] && bre
 # 5d. Layout commands move real views: swap, resize, arrange.
 "$cli" move sh --to site >/dev/null
 "$cli" arrange '{"split":"row","children":[{"pane":"site","size":"1/4"},{"pane":"sh"}]}' >/dev/null
-[[ "$(field windows.0.tabs.0.layout <<<"$("$cli" list --json)")" == '{"children": [{"pane": "site", "size": "1/4"}, {"pane": "sh", "size": "3/4"}], "split": "row"}' ]] \
-  || fail "arrange: $(field windows.0.tabs.0.layout <<<"$("$cli" list --json)")"
+[[ "$(field windows.0.tabs.0.layout <<<"$("$cli" workspace list --all --json)")" == '{"children": [{"pane": "site", "size": "1/4"}, {"pane": "sh", "size": "3/4"}], "split": "row"}' ]] \
+  || fail "arrange: $(field windows.0.tabs.0.layout <<<"$("$cli" workspace list --all --json)")"
 "$cli" resize site 1/2 >/dev/null
 drawn arranged "*"
 "$cli" close --window w2 >/dev/null
 
 # 6. Keyboard shortcuts, pressed through AppKit's key-event path.
 key() { raw "{\"id\":1,\"cmd\":\"debug.key\",\"args\":{\"key\":\"$1\"}}" >/dev/null; sleep 0.4; }
-state() { "$cli" list --json; }
+state() { "$cli" workspace list --all --json; }
 "$cli" open --name k1 >/dev/null
 key "cmd+d"
 key "cmd+shift+d"
@@ -177,14 +177,14 @@ done
 
 # 7. Dragging: dividers snap, the ⋯ grip moves panes, tabs reorder and tear off.
 drag() { last_drag="$1 → $(raw "{\"id\":1,\"cmd\":\"debug.drag\",\"args\":$1}")"; sleep 0.3; }
-win() { # win ID FIELD: a field of one window in `kmux list --json`
-  "$cli" list --json | python3 -c 'import json, sys
+win() { # win ID FIELD: a field of one window in `kmux workspace list --all --json`
+  "$cli" workspace list --all --json | python3 -c 'import json, sys
 w = next(w for w in json.load(sys.stdin)["windows"] if w["id"] == sys.argv[1])
 v = w
 for k in sys.argv[2].split("."): v = v[int(k)] if k.isdigit() else v.get(k)
 print(json.dumps(v, sort_keys=True))' "$1" "$2"
 }
-count_windows() { "$cli" list --json | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["windows"]))'; }
+count_windows() { "$cli" workspace list --all --json | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["windows"]))'; }
 dw="$(field window <<<"$("$cli" open --window new --name da --json)")"
 "$cli" open --window "$dw" --name db --split right >/dev/null
 drag '{"divider":"da","at":0.26}'
@@ -437,7 +437,7 @@ p_raw() { KMUX_SOCKET="$p_socket" raw "$1"; }
 trap 'kill $kmux_pid $server_pid ${p_pid:-} 2>/dev/null || true; rm -f "$KMUX_SOCKET" "$state_file" "$p_socket" "$p_state" "$p_state.bad"' EXIT
 rm -f "$p_state" "$p_state.bad"
 # What a restore must bring back: everything in `list` except whether panes have started yet.
-p_layout() { p_cli list --json | python3 -c 'import json, sys
+p_layout() { p_cli workspace list --all --json | python3 -c 'import json, sys
 d = json.load(sys.stdin)
 for p in d["panes"]:
     for k in ("state", "exitCode", "error"): p.pop(k, None)
@@ -449,7 +449,7 @@ p_cli open --name srv --cwd "$out/persist" --cmd "printf 'PERSIST %s\n' \"\$(pwd
 p_cli open web "localhost:$port" --name site --history --split right --size 1/3 >/dev/null
 p_cli open md "$out/docs/spec.md" --name doc --split down --size 1/4 >/dev/null
 p_cli open --name sh2 --tab >/dev/null
-p_cli rename-tab "$(field windows.0.tabs.1.id <<<"$(p_cli list --json)")" shells >/dev/null
+p_cli rename-tab "$(field windows.0.tabs.1.id <<<"$(p_cli workspace list --all --json)")" shells >/dev/null
 sleep 1
 p_cli send sh2 "cd /usr/bin" # the shell reports its new directory (OSC 7)
 p_cli open --name logs --window new >/dev/null
@@ -491,12 +491,12 @@ p_stop
 echo '{ "version": 1, "windows": [' >"$p_state"
 p_start
 sleep 1
-[[ "$(p_cli list --json | python3 -c 'import json, sys; d = json.load(sys.stdin); print(len(d["windows"]), len(d["panes"]))')" == "1 1" ]] || fail "a bad state file should give a fresh window"
+[[ "$(p_cli workspace list --all --json | python3 -c 'import json, sys; d = json.load(sys.stdin); print(len(d["windows"]), len(d["panes"]))')" == "1 1" ]] || fail "a bad state file should give a fresh window"
 [[ -f "$p_state.bad" ]] || fail "the bad state file should be kept aside"
 p_stop
 p_start --fresh
 sleep 1
-[[ "$(p_cli list --json | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["panes"]))')" == 1 ]] || fail "--fresh should start with one new window"
+[[ "$(p_cli workspace list --all --json | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["panes"]))')" == 1 ]] || fail "--fresh should start with one new window"
 p_stop
 rm -f "$p_state" "$p_state.bad"
 

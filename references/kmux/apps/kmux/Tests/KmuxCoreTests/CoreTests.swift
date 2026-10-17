@@ -168,6 +168,20 @@ func makeCore() -> (Core, FakeHost) {
         #expect(host.stopped == ["p1"])
     }
 
+    @Test func workspacesSavedWithOldIDsStillLoad() async {
+        let (core, _) = makeCore()
+        let state: JSON = ["kmux": "state", "version": 1, "panes": [], "windows": [], "workspaces": [["id": "s2", "name": "old", "hidden": false]]]
+        #expect(await core.handle(["cmd": "debug.restoreState", "args": ["state": state]])["ok"] == true)
+        let made = await core.handle(["cmd": "workspace", "args": ["action": "new"]])
+        #expect(made["workspace"]?["id"] == "ws-3")
+        let list = await core.handle(["cmd": "list"])
+        if case .array(let workspaces) = list["workspaces"] {
+            #expect(workspaces.compactMap { $0["id"]?.string } == ["s2", "ws-3"])
+        } else {
+            Issue.record("no workspaces in \(list)")
+        }
+    }
+
     @Test func fractions() {
         #expect(Fraction.parse("1/3")! == 1.0 / 3)
         #expect(Fraction.parse("25%") == 0.25)

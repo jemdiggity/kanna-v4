@@ -116,7 +116,7 @@ extension Core {
         if let saved = state["workspaces"], saved != .null {
             guard case .array(let items) = saved else { throw bad("workspaces is not a list") }
             for item in items {
-                guard case .object = item, let id = item["id"]?.string, let n = number(id, "s"), !workspaces.contains(where: { $0.id == id }) else {
+                guard case .object = item, let id = item["id"]?.string, let n = number(id, "ws-") ?? number(id, "s"), !workspaces.contains(where: { $0.id == id }) else {
                     throw bad("workspace \(quoted(item["id"]))")
                 }
                 let name = item["name"]?.string?.trimmingCharacters(in: .whitespaces)

@@ -182,7 +182,7 @@ public final class Model {
 
     func makeWorkspace(name: String?) -> Workspace {
         counters.workspace += 1
-        let workspace = Workspace(id: "s\(counters.workspace)", name: name)
+        let workspace = Workspace(id: "ws-\(counters.workspace)", name: name)
         workspaces.append(workspace)
         return workspace
     }
