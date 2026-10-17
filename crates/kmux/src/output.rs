@@ -1,6 +1,6 @@
 //! Human-readable output for replies.
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 pub fn join(list: &Value) -> String {
     list.as_array().map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default()
@@ -58,7 +58,41 @@ fn workspace_label(workspace: &Value) -> String {
     }
 }
 
+pub fn scoped(reply: &Value, pane: &str) -> Option<Value> {
+    let empty = vec![];
+    let panes = reply["panes"].as_array().unwrap_or(&empty);
+    let row = panes.iter().find(|p| p["id"] == pane || p["name"] == pane)?;
+    let id = row["id"].as_str().unwrap_or(pane);
+    let shown = row["name"].as_str().unwrap_or(id);
+    let named = |v: &Value| v == shown || v == id;
+    fn holds(node: &Value, named: &dyn Fn(&Value) -> bool) -> bool {
+        named(&node["pane"]) || node["children"].as_array().is_some_and(|kids| kids.iter().any(|k| holds(k, named)))
+    }
+    let windows = reply["windows"].as_array().unwrap_or(&empty);
+    let mine = windows.iter().find(|w| named(&w["dock"]["pane"]) || w["tabs"].as_array().is_some_and(|tabs| tabs.iter().any(|t| holds(&t["layout"], &named))));
+    let Some(mine) = mine else { return Some(json!({ "pane": id, "windows": [], "workspaces": [], "panes": [row] })) };
+    let workspaces: Vec<Value> = reply["workspaces"].as_array().unwrap_or(&empty).iter().filter(|w| !mine["workspace"].is_null() && w["id"] == mine["workspace"]).cloned().collect();
+    let ours: Vec<Value> = windows.iter().filter(|w| w["id"] == mine["id"] || (!mine["workspace"].is_null() && w["workspace"] == mine["workspace"])).cloned().collect();
+    fn names(node: &Value, out: &mut Vec<Value>) {
+        out.extend(node.get("pane").cloned());
+        node["children"].as_array().into_iter().flatten().for_each(|kid| names(kid, out));
+    }
+    let mut inside = vec![];
+    for window in &ours {
+        inside.extend(window["dock"].get("pane").cloned());
+        window["tabs"].as_array().into_iter().flatten().for_each(|tab| names(&tab["layout"], &mut inside));
+    }
+    let kept: Vec<Value> = panes.iter().filter(|p| inside.iter().any(|n| *n == p["id"] || *n == p["name"]) || p["id"] == id).cloned().collect();
+    Some(json!({ "pane": id, "windows": ours, "workspaces": workspaces, "panes": kept }))
+}
+
 pub fn workspace(args: &Value, reply: &Value) -> String {
+    if args["action"] == "list" {
+        return match (reply["pane"].as_str(), reply["windows"].as_array().is_some_and(|w| w.is_empty())) {
+            (Some(pane), true) => format!("{pane} isn't in a window"),
+            _ => list(reply),
+        };
+    }
     let windows = join(&reply["windows"]);
     let label = workspace_label(&reply["workspace"]);
     match args["action"].as_str() {
