@@ -54,7 +54,7 @@ When the user asks you to show them something (a diff, a file, a doc, a page, a 
 | A source file | `kanna open code FILE[:LINE] --tab` |
 | A page | `kanna open web URL --tab` |
 
-- **Run it from your own terminal, without `--window`:** the tab opens in your window, even when it's hidden in the backlog or on the Shelf.
+- **Run it from your own terminal, without `--window`:** the tab opens in your task's workspace, even while it's hidden in the backlog or on the Shelf, and the reply names your task and where it is (`opened p5 in t135 (on the Shelf), tab t9: running`). `--window new` opens a window of your task's, shown and hidden with it.
 - **A tab, not a split or a new window,** so your pane keeps its size.
 - In the chat, a line saying what the tab shows.
 

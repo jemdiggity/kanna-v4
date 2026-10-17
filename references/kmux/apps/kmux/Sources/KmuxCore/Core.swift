@@ -86,7 +86,7 @@ public final class Core {
     private func run(_ cmd: String, _ args: JSON) async throws -> [String: JSON] {
         switch cmd {
         case "capabilities":
-            return ["mux": "kmux", "instance": .string(instance.name), "paneTypes": ["term", "web", "ios", "md"], "commands": .array(Self.commands.sorted().map(JSON.string)), "features": ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle", "dock"]]
+            return ["mux": "kmux", "instance": .string(instance.name), "paneTypes": ["term", "web", "ios", "md"], "commands": .array(Self.commands.sorted().map(JSON.string)), "features": ["windows", "tabs", "fractionalSizing", "namedPanes", "zoom", "lifecycle", "dock", "workspaces"]]
         case "open": return try await open(args)
         case "list": return list()
         case "close": return try close(args)
@@ -100,6 +100,8 @@ public final class Core {
         case "arrange": return try arrange(args)
         case "send": return try send(args)
         case "navigate": return try await navigate(args)
+        case "workspace": return try workspace(args)
+        case "window": return try windowCommand(args)
         // Persistence, for tests: the state kmux would save, and restoring one
         // as a launch would (without `state`, the last one saved).
         case "debug.saveState":
@@ -121,7 +123,7 @@ public final class Core {
     /// The commands this core handles, besides `extraCommands`.
     public static let commands: Set<String> = [
         "capabilities", "open", "list", "close", "focus", "zoom", "restart", "rename-tab",
-        "move", "move-tab", "resize", "arrange", "send", "navigate",
+        "move", "move-tab", "resize", "arrange", "send", "navigate", "workspace", "window",
     ]
 
     public func needPane(_ ref: String?) throws -> Pane {
@@ -180,15 +182,16 @@ public final class Core {
             window.activeTab?.lastFocus = pane.id
         }
         window.focused = pane.id
-        model.key = window.id
+        model.raise(window)
         onChange()
         host?.start(pane)
 
         let reply = { [model] () -> [String: JSON] in
             let location = model.locate(pane.id)
-            var out: [String: JSON] = ["pane": model.summary(pane), "window": .string(model.window(containing: pane.id)?.id ?? window.id),
-                                       "tab": location.map { .string($0.tab.id) } ?? nil]
+            let at = model.window(containing: pane.id) ?? window
+            var out: [String: JSON] = ["pane": model.summary(pane), "window": .string(at.id), "tab": location.map { .string($0.tab.id) } ?? nil]
             if let edge = model.dockWindow(pane.id)?.dock?.edge { out["dock"] = .string(edge.rawValue) }
+            if let workspace = model.workspace(of: at) { out["workspace"] = model.workspaceView(workspace) }
             return out
         }
         if args["wait"]?.bool == false { return reply() }
@@ -217,7 +220,7 @@ public final class Core {
         [
             "windows": .array(model.windows.map { window in
                 var out: [String: JSON] = [
-                    "id": .string(window.id), "key": .bool(window.id == model.key),
+                    "id": .string(window.id), "key": .bool(window.id == model.keyWindow?.id),
                     "focused": window.focused.map { .string(model.panes[$0]?.name ?? $0) } ?? nil,
                     "zoomed": window.zoomed.map { .string(model.panes[$0]?.name ?? $0) } ?? nil,
                     "tabs": .array(window.tabs.map { tab in
@@ -225,9 +228,20 @@ public final class Core {
                     }),
                 ]
                 if window.dock != nil { out["dock"] = model.dockView(window) }
+                if let workspace = window.workspace { out["workspace"] = .string(workspace) }
+                if !model.isShown(window) { out["hidden"] = true }
                 return .object(out)
             }),
-            "panes": .array(model.paneOrder.compactMap { model.panes[$0] }.map(model.summary)),
+            "workspaces": .array(model.workspaces.map { workspace in
+                guard case .object(var out) = model.workspaceView(workspace) else { return .null }
+                out["windows"] = .array(model.windows.filter { $0.workspace == workspace.id }.map { .string($0.id) })
+                return .object(out)
+            }),
+            "panes": .array(model.paneOrder.compactMap { model.panes[$0] }.map { pane in
+                guard case .object(var out) = model.summary(pane) else { return .null }
+                if let workspace = model.window(containing: pane.id)?.workspace { out["workspace"] = .string(workspace) }
+                return .object(out)
+            }),
         ]
     }
 
@@ -254,17 +268,22 @@ public final class Core {
 
     private func focus(_ args: JSON) throws -> [String: JSON] {
         if let ref = args["pane"]?.string {
-            focusPane(try needPane(ref))
+            let pane = try needPane(ref)
+            try refuseHidden(model.window(containing: pane.id))
+            focusPane(pane)
         } else if let ref = args["tab"]?.string {
             guard let tab = model.tab(ref), let window = model.windows.first(where: { $0.tabs.contains { $0 === tab } }) else {
                 throw KmuxError("not_found", "no tab \"\(ref)\"")
             }
+            try refuseHidden(window)
             let ids = Model.paneIDs(tab.root)
             window.active = tab.id
             window.focused = tab.lastFocus.flatMap { ids.contains($0) ? $0 : nil } ?? ids.first
-            model.key = window.id
+            model.raise(window)
         } else if args["window"] != nil {
-            model.key = try targetWindow(args["window"]).id
+            let window = try targetWindow(args["window"])
+            try refuseHidden(window)
+            model.raise(window)
         } else {
             throw KmuxError("bad_request", "focus needs a pane, tab or window")
         }
@@ -279,7 +298,7 @@ public final class Core {
             location.tab.lastFocus = pane.id
         }
         window.focused = pane.id
-        model.key = window.id
+        model.raise(window)
     }
 
     private func renameTab(_ args: JSON) throws -> [String: JSON] {
@@ -342,6 +361,12 @@ public final class Core {
         guard let value, value != .null else { return nil }
         guard let edge = value.string.flatMap(Edge.init(rawValue:)) else { throw KmuxError("bad_request", "dock must be left or right") }
         return edge
+    }
+
+    /// A hidden window's panes keep running, but nothing on it takes the keyboard.
+    func refuseHidden(_ window: Window?) throws {
+        guard let window, let workspace = model.workspace(of: window), workspace.hidden else { return }
+        throw KmuxError("hidden", "\(window.id) is \(workspace.id)'s, hidden: show \(workspace.label) to see it")
     }
 
     static func docked(_ message: String) -> KmuxError { KmuxError("docked", "docked: \(message)") }

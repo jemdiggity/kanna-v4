@@ -4,7 +4,7 @@ Kanna includes code derived from the following projects.
 kmux
 https://github.com/tampopogk/kmux
 MIT License, at kmux 6a022cb unless noted otherwise.
-references/kmux is kmux itself at 39abfb9 (a git subtree, under its own
+references/kmux is kmux itself at aa1196e (a git subtree, under its own
 LICENSE and NOTICE), kept as the reference model's source and tests; it is
 not built into Kanna.
 ================================================================================

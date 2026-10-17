@@ -1,6 +1,7 @@
 use crate::db::{self, Answer, Db, Round};
 use kanna_mux::json::{json, num, opt, string, Map, Value};
-use kanna_mux::{CoreHandle, KmuxError};
+use crate::backlog::{default_agent, started_as, QUIZ_ROLE};
+use kanna_mux::{project, CoreHandle, KmuxError, PaneState, Responder, WeakCore};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -8,6 +9,7 @@ pub const KINDS: &[&str] = &["architecture", "drawing", "behaviour", "where", "w
 
 pub struct Quiz {
     db: Rc<Db>,
+    core: Option<WeakCore>,
 }
 
 fn bad(message: impl Into<String>) -> KmuxError {
@@ -40,6 +42,14 @@ fn repo(args: &Value) -> Result<&str, KmuxError> {
     string(args, "repo").filter(|r| Path::new(r).is_absolute()).ok_or_else(|| bad("say which repo: an absolute path to its folder"))
 }
 
+fn opened(reply: &Value, pane: &str, new: bool) -> Result<Map, KmuxError> {
+    if reply.get("ok") != Some(&Value::Bool(true)) {
+        let error = reply.get("error").cloned().unwrap_or(Value::Null);
+        return Err(KmuxError::new(string(&error, "code").unwrap_or("failed"), string(&error, "message").unwrap_or("it failed")));
+    }
+    Ok(Map::from_iter([("pane".to_string(), json!(pane)), ("window".to_string(), reply.get("window").cloned().unwrap_or(Value::Null)), ("opened".to_string(), json!(new))]))
+}
+
 fn round_value(round: &Round, answers: Vec<Value>) -> Value {
     json!({ "round": format!("r{}", round.id), "at": num(round.at), "head": round.head, "doc": round.doc, "answers": answers })
 }
@@ -57,8 +67,8 @@ fn answer_value(answer: &Answer) -> Value {
 }
 
 impl Quiz {
-    pub fn new(db: Rc<Db>) -> Quiz {
-        Quiz { db }
+    pub fn new(db: Rc<Db>, core: Option<WeakCore>) -> Quiz {
+        Quiz { db, core }
     }
 
     pub fn install(self: &Rc<Self>, core: &CoreHandle) {
@@ -67,7 +77,10 @@ impl Quiz {
             "quiz",
             Rc::new(move |args, responder| {
                 let Some(this) = this.upgrade() else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
-                responder.reply(this.handle(&args))
+                match args.get("action").and_then(Value::as_str) {
+                    Some("open") => this.open(&args, responder),
+                    _ => responder.reply(this.handle(&args)),
+                }
             }),
         );
     }
@@ -77,8 +90,31 @@ impl Quiz {
             Some("start") => self.start(args),
             Some("answer") => self.answer(args),
             Some("history") => self.history(args),
-            _ => Err(bad("quiz needs an action: start, answer or history")),
+            _ => Err(bad("quiz needs an action: open, start, answer or history")),
         }
+    }
+
+    fn open(&self, args: &Value, responder: Responder) {
+        let Some(core) = self.core.as_ref().and_then(WeakCore::upgrade) else { return responder.reply(Err(KmuxError::new("app_gone", "the daemon is stopping"))) };
+        let repo = match repo(args).map(|r| project(Some(r))) {
+            Ok(Some(main)) => main.to_string_lossy().to_string(),
+            Ok(None) => return responder.reply(Err(bad("say which repo"))),
+            Err(error) => return responder.reply(Err(error)),
+        };
+        let open = core.with_panes(|panes| {
+            panes.iter().find(|p| p.state != PaneState::Exited && p.state != PaneState::Failed && p.command.as_deref().is_some_and(|c| c.contains(QUIZ_ROLE)) && project(p.opened_in.as_deref()).is_some_and(|r| r.to_string_lossy() == repo)).map(|p| p.id.clone())
+        });
+        if let Some(pane) = open {
+            return core.handle(json!({ "cmd": "focus", "args": { "pane": pane } }), move |reply| responder.reply(opened(&reply, &pane, false)));
+        }
+        let agent = string(args, "agent").filter(|a| !a.trim().is_empty()).map_or_else(default_agent, String::from);
+        let base = Path::new(&repo).file_name().map_or_else(|| repo.clone(), |n| n.to_string_lossy().to_string());
+        let name = ["Quiz".to_string(), format!("Quiz {base}")].into_iter().chain((2..).map(|n| format!("Quiz {base} {n}"))).find(|n| core.pane(n).is_none()).unwrap_or_default();
+        let open = json!({ "type": "term", "lead": true, "window": "new", "name": name, "cwd": repo, "cmd": started_as(&agent, QUIZ_ROLE), "wait": false });
+        core.handle(json!({ "cmd": "open", "args": open }), move |reply| {
+            let pane = reply.get("pane").and_then(|p| p.get("id")).and_then(Value::as_str).unwrap_or_default().to_string();
+            responder.reply(opened(&reply, &pane, true))
+        });
     }
 
     fn start(&self, args: &Value) -> Result<Map, KmuxError> {
@@ -147,7 +183,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kanna-quiz-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        (Quiz::new(Rc::new(Db::open(&dir))), dir)
+        (Quiz::new(Rc::new(Db::open(&dir)), None), dir)
     }
 
     fn ok(quiz: &Quiz, args: Value) -> Value {
@@ -204,7 +240,7 @@ mod tests {
         assert!(answer(json!({ "again": "a9" })).contains("no answer a9"));
         assert!(fails(&quiz, json!({ "action": "start", "repo": "here", "head": "abc" })).contains("absolute"));
         assert!(fails(&quiz, json!({ "action": "start", "repo": "/r" })).contains("commit"));
-        assert!(fails(&quiz, json!({ "action": "score" })).contains("start, answer or history"));
+        assert!(fails(&quiz, json!({ "action": "score" })).contains("open, start, answer or history"));
         assert_eq!(ok(&quiz, json!({ "action": "history", "repo": "/r" }))["rounds"][0]["answers"], json!([]));
         fs::remove_dir_all(&dir).unwrap();
     }

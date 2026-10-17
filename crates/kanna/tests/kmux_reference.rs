@@ -17,6 +17,10 @@ use serde_json::{json, Value};
 
 const KANNA_ONLY: &[&str] = &["read", "screenshot", "send-key", "status", "agents", "markup", "comment", "rename-pane", "task", "quiz"];
 
+const KMUX_ONLY: &[&str] = &["workspace"];
+
+const FOR_TASKS: &[&str] = &["window"];
+
 const EXTENDED: &[(&str, &str)] = &[
     ("open", "notes"),
     ("open", "usage"),
@@ -26,6 +30,8 @@ const EXTENDED: &[(&str, &str)] = &[
     ("list", "notes"),
     ("move", "notes"),
 ];
+
+const OPTIONS_DIFFER: &[(&str, &str)] = &[("move", "--window WINDOW|new")];
 
 const CODE_PANES: &[(&str, &str)] = &[("open", "summary"), ("navigate", "summary")];
 
@@ -102,21 +108,53 @@ fn kanna_parse(line: &str) -> Result<Value, (u8, String)> {
 
 #[test]
 fn kanna_has_every_kmux_command_in_kmux_order() {
-    let kmux: Vec<(&str, &str)> = commands::COMMANDS.iter().map(|c| (c.name, c.group)).collect();
+    let kmux: Vec<(&str, &str)> = commands::COMMANDS.iter().filter(|c| !KMUX_ONLY.contains(&c.name)).map(|c| (c.name, c.group)).collect();
     let kanna: Vec<(&str, &str)> = kanna::commands::COMMANDS.iter().filter(|c| !KANNA_ONLY.contains(&c.name)).map(|c| (c.name, c.group)).collect();
     assert_eq!(kanna, kmux);
     assert_eq!(kanna::commands::GROUPS, commands::GROUPS);
 }
 
+fn same_options<'a>(command: &str, options: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+    options.iter().filter(|(option, _)| !OPTIONS_DIFFER.contains(&(command, *option))).copied().collect()
+}
+
+#[test]
+fn options_kanna_documents_differently_are_still_kmuxs_and_differ() {
+    for (name, option) in OPTIONS_DIFFER {
+        let theirs = commands::find(name).unwrap().options.iter().find(|(o, _)| o == option);
+        let ours = kanna::commands::find(name).unwrap().options.iter().find(|(o, _)| o == option);
+        let (Some(theirs), Some(ours)) = (theirs, ours) else { panic!("{name} {option}: kmux or kanna no longer has it") };
+        assert_ne!(from_kanna(ours.1), from_kmux(theirs.1), "{name} {option}: kanna documents it as kmux does now");
+    }
+}
+
+#[test]
+fn kanna_has_none_of_kmuxs_own_commands() {
+    for name in KMUX_ONLY {
+        assert!(commands::find(name).is_some(), "kmux has no {name} any more");
+        assert!(kanna::commands::find(name).is_none(), "kanna has {name} now: compare it with kmux's");
+    }
+}
+
+#[test]
+fn commands_kanna_documents_for_tasks_are_kmuxs_and_differ() {
+    for name in FOR_TASKS {
+        let (theirs, ours) = (commands::find(name).unwrap(), kanna::commands::find(name).unwrap());
+        assert_eq!((ours.group, ours.options), (theirs.group, theirs.options), "{name}");
+        assert_ne!(from_kanna(ours.usage), from_kmux(theirs.usage), "{name}: kanna documents it as kmux does now");
+        assert!(ours.usage.contains("TASK") && theirs.usage.contains("WORKSPACE"), "{name}");
+    }
+}
+
 #[test]
 fn every_command_is_documented_as_kmux_documents_it() {
-    for theirs in commands::COMMANDS {
+    for theirs in commands::COMMANDS.iter().filter(|c| !KMUX_ONLY.contains(&c.name) && !FOR_TASKS.contains(&c.name)) {
         let ours = kanna::commands::find(theirs.name).unwrap();
         let fields = [
             ("summary", theirs.summary.to_string(), ours.summary.to_string()),
             ("usage", theirs.usage.to_string(), ours.usage.to_string()),
             ("notes", theirs.notes.to_string(), ours.notes.to_string()),
-            ("options", format!("{:?}", theirs.options), format!("{:?}", ours.options)),
+            ("options", format!("{:?}", same_options(theirs.name, theirs.options)), format!("{:?}", same_options(theirs.name, ours.options))),
             ("examples", format!("{:?}", theirs.examples), format!("{:?}", &ours.examples[..ours.examples.len().min(theirs.examples.len())])),
         ];
         for (field, kmux, kanna) in fields {
@@ -135,7 +173,7 @@ fn every_command_is_documented_as_kmux_documents_it() {
 
 #[test]
 fn every_kmux_example_and_request_parses_the_same() {
-    let mut lines: Vec<String> = commands::COMMANDS.iter().flat_map(|c| c.examples.iter().map(|(e, _)| e.to_string())).collect();
+    let mut lines: Vec<String> = commands::COMMANDS.iter().filter(|c| !KMUX_ONLY.contains(&c.name)).flat_map(|c| c.examples.iter().map(|(e, _)| e.to_string())).collect();
     lines.extend(
         [
             "kmux open",
@@ -174,6 +212,8 @@ fn every_kmux_example_and_request_parses_the_same() {
             "kmux move agent --tab t3",
             "kmux move agent --tab --window w2",
             "kmux resize agent 1/3",
+            "kmux window assign w4 s1",
+            "kmux window free w4",
         ]
         .map(String::from),
     );
@@ -285,6 +325,9 @@ fn replies_print_as_kmux_prints_them() {
         ("list", json!({}), list),
         ("list", json!({}), json!({ "windows": [], "panes": [] })),
         ("capabilities", json!({}), json!({ "mux": "kmux", "paneTypes": ["term", "web"], "commands": ["capabilities", "list"] })),
+        ("window", json!({ "action": "free", "window": "w2" }), json!({ "window": "w2", "was": null, "shown": true })),
+        ("window", json!({ "action": "free", "window": "w2" }), json!({ "window": "w2", "was": { "id": "s1", "hidden": false }, "shown": true })),
+        ("window", json!({ "action": "free", "window": "w2" }), json!({ "window": "w2", "was": { "id": "s1", "hidden": true }, "shown": true })),
     ];
     for (name, args, reply) in cases {
         let kmux = (commands::find(name).unwrap().show)(&args, &reply);

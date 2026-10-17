@@ -26,16 +26,40 @@ fn brief(text: &str) -> String {
     if line.chars().count() > 60 { format!("{}…", line.chars().take(59).collect::<String>()) } else { line.to_string() }
 }
 
+fn whose(reply: &Value) -> Option<(String, Option<&'static str>)> {
+    let workspace = reply.get("workspace").filter(|w| w.is_object())?;
+    let id = workspace["id"].as_str().unwrap_or("?");
+    let place = &workspace["where"];
+    let hidden = match place.as_str() {
+        Some("backlog") => Some("in the backlog"),
+        Some(_) => Some("on the Shelf"),
+        None => None,
+    };
+    let name = match (reply["window"].as_str(), place["desk"].as_str()) {
+        (Some(window), Some(desk)) if window == desk => format!("{id} on {window}"),
+        (Some(window), _) => format!("{id}'s {window}"),
+        (None, _) => id.to_string(),
+    };
+    Some((name, hidden))
+}
+
+fn whose_text(reply: &Value) -> Option<String> {
+    whose(reply).map(|(name, hidden)| match hidden {
+        Some(place) => format!("{name} ({place})"),
+        None => name,
+    })
+}
+
 pub fn opened(request: &Value, reply: &Value) -> String {
-    if reply["window"].is_null() && reply.get("window").is_some() {
+    if reply["window"].is_null() && reply.get("window").is_some() && whose(reply).is_none() {
         return format!("opened {}, unplaced until Kanna.app opens: {}", label(&reply["pane"]), state(&reply["pane"]));
     }
-    let window = reply["window"].as_str().unwrap_or("?");
+    let place = whose_text(reply).unwrap_or_else(|| format!("window {}", reply["window"].as_str().unwrap_or("?")));
     if let Some(edge) = reply["dock"].as_str() {
         let frozen = if request["frozen"] == true { ", frozen," } else { "" };
-        return format!("opened {} docked {edge}{frozen} in window {window}: {}", label(&reply["pane"]), state(&reply["pane"]));
+        return format!("opened {} docked {edge}{frozen} in {place}: {}", label(&reply["pane"]), state(&reply["pane"]));
     }
-    format!("opened {} in window {window}, tab {}: {}", label(&reply["pane"]), reply["tab"].as_str().unwrap_or("?"), state(&reply["pane"]))
+    format!("opened {} in {place}, tab {}: {}", label(&reply["pane"]), reply["tab"].as_str().unwrap_or("?"), state(&reply["pane"]))
 }
 
 pub fn commented(args: &Value, reply: &Value) -> String {
@@ -46,7 +70,8 @@ pub fn commented(args: &Value, reply: &Value) -> String {
         _ => "?".into(),
     };
     let opened = if reply["opened"] == true { "opened " } else { "" };
-    format!("{opened}{} · {file}:{lines}", label(&reply["pane"]))
+    let place = whose_text(reply).map(|w| format!(" in {w}")).unwrap_or_default();
+    format!("{opened}{}{place} · {file}:{lines}", label(&reply["pane"]))
 }
 
 pub fn marked(args: &Value, reply: &Value) -> String {
@@ -85,16 +110,47 @@ pub fn closed(args: &Value, reply: &Value) -> String {
 }
 
 pub fn focused(args: &Value, reply: &Value) -> String {
+    let window = reply["window"].as_str().unwrap_or("?");
+    let place = match whose(reply) {
+        Some((name, Some(hidden))) => format!(" in {name} ({hidden})"),
+        Some((name, None)) => format!(" in {name} (key window)"),
+        None => format!(" (key window {window})"),
+    };
     match (args["pane"].as_str(), args["tab"].as_str()) {
-        (Some(pane), _) => format!("focused {pane} (key window {})", reply["window"].as_str().unwrap_or("?")),
-        (_, Some(tab)) => format!("switched to {tab} (key window {})", reply["window"].as_str().unwrap_or("?")),
-        _ => format!("key window is now {}", reply["window"].as_str().unwrap_or("?")),
+        (Some(pane), _) => format!("focused {pane}{place}"),
+        (_, Some(tab)) => format!("switched to {tab}{place}"),
+        _ => format!("key window is now {window}"),
     }
 }
 
 pub fn zoomed(args: &Value, reply: &Value) -> String {
     let pane = args["pane"].as_str().unwrap_or("pane");
-    if reply["zoomed"] == serde_json::json!(true) { format!("{pane} is zoomed (run again to unzoom)") } else { format!("{pane} is no longer zoomed") }
+    let zoomed = reply["zoomed"] == serde_json::json!(true);
+    match (whose(reply), zoomed) {
+        (Some((name, Some(hidden))), true) => format!("{pane} is zoomed in {name} ({hidden}; run again to unzoom)"),
+        (Some((name, None)), true) => format!("{pane} is zoomed in {name} (run again to unzoom)"),
+        (Some((name, hidden)), false) => format!("{pane} is no longer zoomed in {name}{}", hidden.map(|h| format!(" ({h})")).unwrap_or_default()),
+        (None, true) => format!("{pane} is zoomed (run again to unzoom)"),
+        (None, false) => format!("{pane} is no longer zoomed"),
+    }
+}
+
+pub fn window(args: &Value, reply: &Value) -> String {
+    let window = reply["window"].as_str().or(args["window"].as_str()).unwrap_or("?");
+    match (args["action"].as_str(), whose(reply)) {
+        (Some("assign"), Some((_, hidden))) => {
+            let id = reply["workspace"]["id"].as_str().unwrap_or("?");
+            match hidden {
+                Some(place) => format!("assigned {window} to {id} ({place}: hidden until it's pulled)"),
+                None => format!("assigned {window} to {id} (on {})", reply["workspace"]["where"]["desk"].as_str().unwrap_or("?")),
+            }
+        }
+        _ => match reply["was"]["id"].as_str() {
+            Some(was) if reply["was"]["hidden"] == true => format!("{window} is free (out of {was}, and open again)"),
+            Some(was) => format!("{window} is free (out of {was})"),
+            None => format!("{window} is free"),
+        },
+    }
 }
 
 pub fn renamed(_: &Value, reply: &Value) -> String {
@@ -256,7 +312,7 @@ fn ago(seconds: f64) -> String {
 }
 
 pub fn tabs(_: &Value, reply: &Value) -> String {
-    format!("{}: {}", reply["window"].as_str().unwrap_or("?"), join(&reply["tabs"]))
+    format!("{}: {}", whose_text(reply).unwrap_or_else(|| reply["window"].as_str().unwrap_or("?").to_string()), join(&reply["tabs"]))
 }
 
 pub fn capabilities(reply: &Value) -> String {
@@ -332,6 +388,12 @@ pub fn list(reply: &Value) -> String {
         if let Some(zoomed) = window["zoomed"].as_str() {
             line += &format!("  zoomed: {zoomed}");
         }
+        if let Some(shows) = window["shows"].as_str() {
+            line += &format!("  shows: {shows}");
+        }
+        if let Some(workspace) = window["workspace"].as_str() {
+            line += &format!("  workspace: {workspace}");
+        }
         out.push(line);
         let dock = &window["dock"];
         if let Some(name) = dock["pane"].as_str() {
@@ -352,6 +414,16 @@ pub fn list(reply: &Value) -> String {
                 tab["title"].as_str().unwrap_or(""),
                 expression(&tab["layout"], true)
             ));
+        }
+    }
+    for workspace in reply["workspaces"].as_array().unwrap_or(&empty).iter().filter(|w| w["where"].is_string()) {
+        let place = if workspace["where"] == "backlog" { "in the backlog" } else { "on the Shelf" };
+        out.push(format!(" {} ({place})  dock: {}", workspace["id"].as_str().unwrap_or("?"), workspace["dock"]["pane"].as_str().unwrap_or("?")));
+        for tab in workspace["tabs"].as_array().unwrap_or(&empty) {
+            out.push(format!("   {} \"{}\"  {}", tab["id"].as_str().unwrap_or("?"), tab["title"].as_str().unwrap_or(""), join(&tab["panes"])));
+        }
+        for window in workspace["windows"].as_array().unwrap_or(&empty).iter().filter_map(Value::as_str) {
+            out.push(format!("   {window} (hidden)"));
         }
     }
     out.push(String::new());
@@ -434,6 +506,7 @@ pub fn changed_skills(reply: &Value) -> Option<String> {
 
 pub fn quiz(request: &Value, reply: &Value) -> String {
     match request["action"].as_str() {
+        Some("open") => format!("{} {} in {}", if reply["opened"] == true { "opened" } else { "brought forward" }, reply["pane"].as_str().unwrap_or("?"), reply["window"].as_str().unwrap_or("?")),
         Some("start") => reply["round"].as_str().unwrap_or("?").to_string(),
         Some("answer") => format!("{} in {}", reply["answer"].as_str().unwrap_or("?"), reply["round"].as_str().unwrap_or("?")),
         _ => {

@@ -200,7 +200,7 @@ pub static COMMANDS: &[Command] = &[
             ("--to OTHER", "The pane to move next to."),
             ("--side SIDE", "left, right, top or bottom of OTHER (takes half its space), or swap (default)."),
             ("--tab [TAB|new]", "Move into that tab, or a new tab (the default). Undocks a docked pane."),
-            ("--window WINDOW|new", "Move into that window's active tab, or a new window."),
+            ("--window WINDOW|new", "Move into a new tab of that window (as --tab new --window), or a new window."),
             ("--dock [left|right]", "Make it its window's docked pane (or that window's), on the left (default) or right edge; or move the docked pane to that edge. A pane already docked there moves to a new tab."),
         ],
         notes: "Moving a docked pane to a tab, a window or beside a pane undocks it. A docked pane can't be split: --to it only swaps. A frozen docked pane (open --dock --frozen) doesn't move, and nothing moves onto it or into its dock. A docked pane is a running task, so --dock moves only the pane that's docked already: start a task with `kanna task start`. A task's agent is frozen.",
@@ -294,6 +294,17 @@ pub static COMMANDS: &[Command] = &[
             Ok(out)
         },
         show: output::tabs,
+    },
+    Command {
+        name: "window",
+        group: "Tabs and windows",
+        summary: "Make a window one of a task's, so it shows and hides with the task, or free it.",
+        usage: "kanna window assign WINDOW TASK\n       kanna window free WINDOW",
+        options: &[],
+        notes: "A task's windows are on screen while the task is on a Desk; on the Shelf or in the backlog they close, their panes still running, and they open again at their frames when it's pulled. A window opened from a task's pane (`kanna open --window new`) or torn off its tabs is the task's already; one made anywhere else is free. TASK is a task's ID (t135) or its agent's pane. A Desk, a window with a lead (the Quiz window) and a task that hasn't started are refused. In the app: Window → Assign Window to Task and Free Window.",
+        examples: &[("kanna window assign w4 t135", "Make w4 one of t135's windows."), ("kanna window free w4", "Take w4 out of its task; it stays open.")],
+        parse: parse_window,
+        show: output::window,
     },
     Command {
         name: "rename-pane",
@@ -515,9 +526,10 @@ pub static COMMANDS: &[Command] = &[
     Command {
         name: "quiz",
         group: "Information",
-        summary: "Keep a quiz's rounds and answers, so misses come back in a later round and a round can cover what's new since the last.",
-        usage: "kanna quiz start [--json DOC]\n       kanna quiz answer ROUND --kind KIND --file FILE:LINE[-LAST] --right|--wrong [--again ANSWER] [--json DOC]\n       kanna quiz history [--misses]",
+        summary: "Open this repo's Quiz window, and keep a quiz's rounds and answers, so misses come back in a later round and a round can cover what's new since the last.",
+        usage: "kanna quiz open [--agent CMD]\n       kanna quiz start [--json DOC]\n       kanna quiz answer ROUND --kind KIND --file FILE:LINE[-LAST] --right|--wrong [--again ANSWER] [--json DOC]\n       kanna quiz history [--misses]",
         options: &[
+            ("--agent CMD", "open: the quiz agent to start (default: claude)."),
             ("--kind KIND", "answer: architecture, drawing, behaviour, where, why or bug."),
             ("--file FILE:LINE[-LAST]", "answer: the lines the question is about, kept relative to the repo."),
             ("--right, --wrong", "answer: whether the user picked the right choice."),
@@ -525,8 +537,9 @@ pub static COMMANDS: &[Command] = &[
             ("--json DOC", "start, answer: a JSON object kept with the round (commits covered, agent) or the answer (question, choices, the pick, the right choice, explanation)."),
             ("--misses", "history: only the misses not asked again since."),
         ],
-        notes: "For the kanna-quiz skill's agent, run in the repo. start begins a round on this repo at main's commit and prints its ID (r12); answer records one answer to it and prints the answer's ID (a7); history lists this repo's rounds, newest first, each with its commit and answers. Nothing here is a score: history is for picking the next round's questions.",
+        notes: "For the kanna-quiz skill's agents, run in the repo. open, for the planning agent, brings the repo's Quiz window forward, or opens one: a window with the quiz agent docked on the left, in the repo's main checkout, told it's the quiz agent, and what it opens as tabs beside it; it isn't a task. start begins a round on this repo at main's commit and prints its ID (r12); answer records one answer to it and prints the answer's ID (a7); history lists this repo's rounds, newest first, each with its commit and answers. Nothing here is a score: history is for picking the next round's questions.",
         examples: &[
+            ("kanna quiz open --agent codex", "Open the Quiz window with Codex as the quiz agent, or bring it forward."),
             ("kanna quiz start --json '{\"commits\": [\"67b287c\"]}'", "Start a round on main's commit; prints its ID, e.g. r12."),
             ("kanna quiz answer r12 --kind why --file docs/specs/database.md:40 --wrong --json '{\"question\": \"Why one SQLite file?\", \"pick\": 2, \"answer\": 1}'", "Record a miss in round r12."),
             ("kanna quiz answer r13 --kind why --file docs/specs/database.md:40 --right --again a7", "Ask miss a7 again, and record that it was right this time."),
@@ -675,11 +688,12 @@ fn parse_quiz(args: &mut Argv) -> Result<Value, Failure> {
     let kind = args.option("--kind")?;
     let file = args.option("--file")?;
     let again = args.option("--again")?;
+    let agent = args.option("--agent")?;
     let doc = match args.doc() {
         Some(text) => Some(serde_json::from_str::<Value>(&text).ok().filter(Value::is_object).ok_or_else(|| usage("quiz", "--json takes a JSON object"))?),
         None => None,
     };
-    let action = args.positional().ok_or_else(|| usage("quiz", "say what: start, answer or history"))?;
+    let action = args.positional().ok_or_else(|| usage("quiz", "say what: open, start, answer or history"))?;
     let only = |given: bool, flag: &str, action: &str| if given { Err(usage("quiz", &format!("{flag} is for quiz {action}"))) } else { Ok(()) };
     if action != "answer" {
         for (given, flag) in [(kind.is_some(), "--kind"), (file.is_some(), "--file"), (right || wrong, "--right and --wrong"), (again.is_some(), "--again")] {
@@ -689,9 +703,20 @@ fn parse_quiz(args: &mut Argv) -> Result<Value, Failure> {
     if action != "history" {
         only(misses, "--misses", "history")?;
     }
+    if action != "open" {
+        only(agent.is_some(), "--agent", "open")?;
+    }
     let repo = repo_here().map_err(|_| usage("quiz", "a quiz is about a git repo: run this in one"))?;
     let mut out = json!({ "action": action, "repo": repo });
     match action.as_str() {
+        "open" => {
+            if doc.is_some() {
+                return Err(usage("quiz", "--json DOC is for start and answer"));
+            }
+            if let Some(agent) = agent {
+                out["agent"] = json!(agent);
+            }
+        }
         "start" => {
             out["head"] = json!(main_commit(&repo)?);
             if let Some(by) = std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()) {
@@ -723,7 +748,7 @@ fn parse_quiz(args: &mut Argv) -> Result<Value, Failure> {
                 return Err(usage("quiz", "--json DOC is for start and answer; history --json prints JSON"));
             }
         }
-        other => return Err(usage("quiz", &format!("unknown action \"{other}\" (start, answer or history)"))),
+        other => return Err(usage("quiz", &format!("unknown action \"{other}\" (open, start, answer or history)"))),
     }
     if let Some(doc) = doc {
         out["doc"] = doc;
@@ -774,11 +799,24 @@ fn repo_here() -> Result<String, Failure> {
 }
 
 fn from_caller(out: &mut Map<String, Value>) {
-    if ["window", "dock"].iter().any(|k| out.contains_key(*k)) {
+    if out.contains_key("dock") {
         return;
     }
     if let Some(pane) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
         out.insert("from".into(), json!(pane));
+    }
+}
+
+fn parse_window(args: &mut Argv) -> Result<Value, Failure> {
+    let action = args.positional().ok_or_else(|| usage("window", "say assign or free"))?;
+    let window = args.positional().ok_or_else(|| usage("window", "missing WINDOW (an ID like w4; see `kanna list`)"))?;
+    match action.as_str() {
+        "assign" => {
+            let task = args.positional().ok_or_else(|| usage("window", "missing TASK (an ID like t135; see `kanna task list`)"))?;
+            Ok(json!({ "action": "assign", "window": window, "workspace": task }))
+        }
+        "free" => Ok(json!({ "action": "free", "window": window })),
+        other => Err(usage("window", &format!("unknown action \"{other}\": assign or free"))),
     }
 }
 

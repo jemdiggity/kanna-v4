@@ -6,8 +6,9 @@ import Foundation
 /// terminals as new terminals in their cwd with their command, web panes at
 /// their URL, md panes on their file, iOS panes relaunching their app.
 ///
-///     { kmux: "state", version: 1, key, counters: { pane, tab, window },
-///       windows: [{ id, frame?, active, focused, zoomed, tabCount, dock?: { pane, edge, width, frozen? },
+///     { kmux: "state", version: 1, key, counters: { pane, tab, window, workspace },
+///       workspaces: [{ id, name, hidden }],
+///       windows: [{ id, frame?, active, focused, zoomed, tabCount, dock?: { pane, edge, width, frozen? }, workspace?,
 ///                   tabs: [{ id, title, lastFocus, layout }] }],
 ///       panes: [{ id, name, type, …what it shows }] }
 ///
@@ -32,6 +33,7 @@ extension Core {
                 if dock.frozen { saved["frozen"] = true }
                 out["dock"] = .object(saved)
             }
+            if let workspace = window.workspace { out["workspace"] = .string(workspace) }
             return .object(out)
         }
         let panes: [JSON] = model.paneOrder.compactMap { model.panes[$0] }.map { pane in
@@ -55,8 +57,9 @@ extension Core {
         }
         return [
             "kmux": "state", "version": .number(Double(Self.stateVersion)), "key": Self.optional(model.key),
-            "counters": ["pane": .number(Double(counters.pane)), "tab": .number(Double(counters.tab)), "window": .number(Double(counters.window))],
-            "windows": .array(windows), "panes": .array(panes),
+            "counters": ["pane": .number(Double(counters.pane)), "tab": .number(Double(counters.tab)), "window": .number(Double(counters.window)),
+                         "workspace": .number(Double(counters.workspace))],
+            "workspaces": .array(model.workspaces.map(model.workspaceView)), "windows": .array(windows), "panes": .array(panes),
         ]
     }
 
@@ -78,9 +81,9 @@ extension Core {
     /// the old panes stop, the restored ones start (without waiting for them).
     /// Throws `bad_request`, changing nothing, if the state can't be read.
     public func restoreState(_ state: JSON) throws {
-        let (panes, windows, key, counters) = try Self.importState(state)
+        let (panes, windows, workspaces, key, counters) = try Self.importState(state)
         for pane in model.paneOrder.compactMap({ model.panes[$0] }) { closePane(pane) }
-        model.install(panes: panes, windows: windows, key: key, counters: counters)
+        model.install(panes: panes, windows: windows, workspaces: workspaces, key: key, counters: counters)
         model.dropEmpty()
         onChange()
         for pane in panes where model.panes[pane.id] === pane { host?.start(pane) }
@@ -89,7 +92,8 @@ extension Core {
     /// Checks a saved state and builds what it describes. Lenient where it can
     /// repair (dangling focus, empty tabs, sizes), strict about anything that
     /// would make the layout ambiguous.
-    static func importState(_ state: JSON) throws -> (panes: [Pane], windows: [Window], key: String?, counters: (pane: Int, tab: Int, window: Int)) {
+    static func importState(_ state: JSON) throws -> (panes: [Pane], windows: [Window], workspaces: [Workspace], key: String?,
+                                                      counters: (pane: Int, tab: Int, window: Int, workspace: Int)) {
         func bad(_ message: String) -> KmuxError { KmuxError("bad_request", "bad state: \(message)") }
         func quoted(_ value: JSON?) -> String { String(decoding: (value ?? .null).encoded(), as: UTF8.self) }
         func number(_ id: String, _ prefix: String) -> Int? {
@@ -106,7 +110,24 @@ extension Core {
         }
         guard case .array(let savedPanes)? = state["panes"], case .array(let savedWindows)? = state["windows"] else { throw bad("needs panes and windows") }
         let saved = state["counters"] ?? [:]
-        var counters = (pane: whole(saved["pane"]) ?? 0, tab: whole(saved["tab"]) ?? 0, window: whole(saved["window"]) ?? 0)
+        var counters = (pane: whole(saved["pane"]) ?? 0, tab: whole(saved["tab"]) ?? 0, window: whole(saved["window"]) ?? 0, workspace: whole(saved["workspace"]) ?? 0)
+
+        var workspaces: [Workspace] = []
+        if let saved = state["workspaces"], saved != .null {
+            guard case .array(let items) = saved else { throw bad("workspaces is not a list") }
+            for item in items {
+                guard case .object = item, let id = item["id"]?.string, let n = number(id, "s"), !workspaces.contains(where: { $0.id == id }) else {
+                    throw bad("workspace \(quoted(item["id"]))")
+                }
+                let name = item["name"]?.string?.trimmingCharacters(in: .whitespaces)
+                let named = name?.isEmpty == false ? name : nil
+                if let named, workspaces.contains(where: { $0.name == named }) { throw bad("workspace name \(quoted(.string(named))) is used twice") }
+                let workspace = Workspace(id: id, name: named)
+                workspace.hidden = item["hidden"]?.bool == true
+                workspaces.append(workspace)
+                counters.workspace = max(counters.workspace, n)
+            }
+        }
 
         var panes: [Pane] = [], byID: [String: Pane] = [:], names: Set<String> = []
         for item in savedPanes {
@@ -167,6 +188,7 @@ extension Core {
             }
             windowIDs.insert(id)
             let window = Window(id: id)
+            window.workspace = item["workspace"]?.string.flatMap { ref in workspaces.contains { $0.id == ref } ? ref : nil }
             if let f = item["frame"], let x = f["x"]?.number, let y = f["y"]?.number, let w = f["w"]?.number, let h = f["h"]?.number,
                [x, y, w, h].allSatisfy(\.isFinite), w > 0, h > 0 {
                 window.frame = Frame(x: x, y: y, w: w, h: h)
@@ -210,6 +232,6 @@ extension Core {
         panes.removeAll { !placed.contains($0.id) }
         windows.removeAll { $0.tabs.isEmpty && $0.dock == nil }
         let key = state["key"]?.string.flatMap { key in windows.contains { $0.id == key } ? key : nil } ?? windows.last?.id
-        return (panes, windows, key, counters)
+        return (panes, windows, workspaces, key, counters)
     }
 }

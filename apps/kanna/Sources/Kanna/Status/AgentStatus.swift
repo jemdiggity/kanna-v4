@@ -41,7 +41,7 @@ extension AppController {
     func folderChanged(_ pane: String, _ cwd: String) {
         guard folders[pane] != cwd else { return }
         folders[pane] = cwd
-        if isTask(pane) || windows.contains(where: { $0["planner"]?["pane"]?.string == pane }) { refresh() }
+        if isTask(pane) || windows.contains(where: { $0["lead"]?["pane"]?.string == pane }) { refresh() }
     }
 
     func statusSeen() {

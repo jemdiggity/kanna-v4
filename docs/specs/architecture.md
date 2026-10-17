@@ -72,7 +72,7 @@ flowchart TB
 
 ## 2. What the daemon keeps, what the app keeps
 
-**Only terminals live in the daemon.** Everything else a pane shows is layout state, kept and saved by the app.
+**Only terminals live in the daemon.** Everything else a pane shows is layout state, kept and saved by the app. That layout state has a workspace per task, which a Desk shows ([workspaces](workspaces.md)).
 
 ```mermaid
 flowchart LR

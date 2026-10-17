@@ -39,7 +39,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 .lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); display: block; }
 .where { font-size: 12px; font-weight: 600; }
 .content { flex: 1; display: flex; min-height: 0; }
-.agent { flex: 0 0 44%; min-width: 0; display: flex; flex-direction: column; }
+.agent { flex: 0 0 40%; min-width: 0; display: flex; flex-direction: column; }
 .agent .head { flex: none; height: 34px; padding: 0 14px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
 .term { flex: 1; min-height: 0; background: var(--term); font: 12px/1.6 var(--mono); padding: 10px 14px; white-space: pre-wrap; overflow: auto; display: flex; flex-direction: column; }
 .term .scroll { flex: 1; }
@@ -104,7 +104,7 @@ body.picture .window { border-radius: 0; border: 0; box-shadow: none; height: 10
 <main>
   <div class="intro">
     <h1>Quiz: the agent asks about what the agents built</h1>
-    <p>A round of five multiple-choice questions about what landed on main in the last day, asked one at a time by an agent in its chat, about two minutes. The planning agent offers a round when something has merged in the last day; yes opens a Quiz window: an agent in the repo on main (no task, no worktree: the quiz changes nothing), with what it opens split beside it. Close the window to stop; nothing is kept. Each answer gets a short explanation, and the agent opens the code at the line with <code>kanna comment</code>. A pick-the-drawing question writes its three drawings, A, B and C, in one markdown file and opens it beside the agent. It's all the <code>kanna-quiz</code> skill: the planning agent opens the window with <code>kanna open</code>, and the agent there writes each question itself from what's on main. Click an answer in the chat, or press its number.</p>
+    <p>A round of five multiple-choice questions about what landed on main in the last day, asked one at a time by an agent in its chat, about two minutes. The planning agent offers a round when something has merged in the last day; yes runs <code>kanna quiz open</code>, which opens a Quiz window laid out like a Desk: the quiz agent docked on the left, in the repo on main (not a task, no worktree: the quiz changes nothing), and what it opens as tabs on the right. Close the window to stop; nothing is kept. Each answer gets a short explanation, and the agent opens the code at the line with <code>kanna comment</code>. A pick-the-drawing question writes its three drawings, A, B and C, in one markdown file and opens it beside the agent. It's the <code>kanna-quiz</code> skill: the planning agent opens the window with <code>kanna quiz open</code>, and the agent there writes each question itself from what's on main. Click an answer in the chat, or press its number.</p>
     <div class="controls">
       <button id="theme">Light / dark</button>
       <button data-go="offer">The offer</button>
@@ -271,34 +271,39 @@ function shelfPage() {
 }
 
 function drawings() {
-  const q = Q[s.i];
-  return `<div class="dtabs" style="background:var(--panel)"><span style="font:11.5px var(--mono)">$TMPDIR/kanna-quiz/drawings.md</span></div>
-    <div class="md"><p>${tick(q.q)}</p>${q.pics.map((_, j) => `<h2>${"ABC"[j]}</h2><div class="mmd" data-mmd="${j}"></div>`).join("")}</div>`;
+  const q = Q[0];
+  return `<div class="md"><p>${tick(q.q)}</p>${q.pics.map((_, j) => `<h2>${"ABC"[j]}</h2><div class="mmd" data-mmd="${j}"></div>`).join("")}</div>`;
+}
+
+function tabs() {
+  const open = [];
+  if (s.step === "q" || s.step === "end") open.push({ title: "drawings.md", body: drawings });
+  if (s.code !== null) open.push({ title: Q[s.code].at.split(":")[0].split("/").pop(), body: codeTab, close: "uncode" });
+  const on = open.length - 1;
+  return `<div class="dtabs">${open.map((t, j) => `<div class="dtab ${j === on ? "on" : ""}"><span>${esc(t.title)}</span>${t.close ? `<span class="x" data-act="${t.close}">×</span>` : ""}</div>`).join("")}</div>${on >= 0 ? open[on].body() : ""}`;
 }
 
 function codeTab() {
   const q = Q[s.code], [file, line] = q.at.split(":"), lines = CODE[file] || [];
   const [first, last] = SPAN[q.at] || [+line, +line];
-  return `<div class="dtabs" style="background:var(--panel)"><span style="font:11.5px var(--mono)">${esc(file)}</span><span class="x" data-act="uncode" style="margin-left:auto;color:var(--muted);cursor:pointer">×</span></div>
-    <div class="code">${lines.map(([n, t]) => `${n === first ? `<div class="cmt">${tick(q.why)}</div>` : ""}<div class="ln ${n >= first && n <= last ? "on" : "dim"}"><span class="n">${n}</span><span>${hl(t)}</span></div>`).join("")}</div>`;
+  return `<div class="code">${lines.map(([n, t]) => `${n === first ? `<div class="cmt">${tick(q.why)}</div>` : ""}<div class="ln ${n >= first && n <= last ? "on" : "dim"}"><span class="n">${n}</span><span>${hl(t)}</span></div>`).join("")}</div>`;
 }
 
 function render() {
   const onEmpty = s.step === "offer";
-  const right = s.step === "q" && Q[s.i].pics ? drawings() : s.code !== null ? codeTab() : "";
   document.getElementById("stage").innerHTML = onEmpty ? `<div class="window">
     <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Shelf</span></div>
     <div class="content"><div class="agent"><div class="head">Planning · ~/work/kanna-v4 · main</div><div class="term">${offer()}</div></div>
       <div class="docs">${shelfPage()}</div></div></div>` : `<div class="window">
-    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Quiz · kanna-v4</span></div><div class="dtabs"><div class="dtab on"><span>Quiz</span></div></div>
-    <div class="content"><div class="agent" style="${right ? "" : "flex:1"}"><div class="head">~/work/kanna-v4 · main</div><div class="term">${chat()}</div></div>
-      ${right ? `<div class="docs">${right}</div>` : ""}</div></div>`;
+    <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="where">Quiz</span></div>
+    <div class="content"><div class="agent"><div class="head">Quiz · ~/work/kanna-v4 · main</div><div class="term">${chat()}</div></div>
+      <div class="docs">${tabs()}</div></div></div>`;
   const t = document.querySelector(".term .scroll");
   if (t) t.parentElement.scrollTop = 1e6;
   const ms = document.querySelectorAll("[data-mmd]");
   if (ms.length && window.mermaid) {
     mermaid.initialize({ startOnLoad: false, theme: document.documentElement.dataset.theme === "light" ? "default" : "dark" });
-    ms.forEach((m, j) => mermaid.render(`d${Date.now()}${j}`, Q[s.i].pics[+m.dataset.mmd]).then(({ svg }) => { m.innerHTML = svg; }));
+    ms.forEach((m, j) => mermaid.render(`d${Date.now()}${j}`, Q[0].pics[+m.dataset.mmd]).then(({ svg }) => { m.innerHTML = svg; }));
   }
 }
 

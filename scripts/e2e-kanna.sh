@@ -227,10 +227,13 @@ scenario layout_restored M1
 layout_restored() {
   start_daemon && start_app || return 1
   kanna open --name left >/dev/null && kanna open --name right --split right --size 1/3 >/dev/null || return 1
+  kanna open --name agent --dock --window new >/dev/null && KANNA_PANE=agent kanna open --name own --window new >/dev/null || return 1
   local before
   before="$(layout)"
+  check test "$(ws agent windows)" == '["w3"]' || return 1
   stop_app; start_app || return 1
-  check test "$(layout)" == "$before"
+  check test "$(layout)" == "$before" || return 1
+  check wait_for 5 eval '[[ "$(ws agent windows)" == "[\"w3\"]" && "$(ws agent where)" == "{\"desk\": \"w2\"}" ]]'
 }
 
 scenario daemon_restart M2
@@ -517,6 +520,14 @@ v = w
 for k in sys.argv[2].split("."): v = v[int(k)] if k.isdigit() else v.get(k)
 print(json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v)' "$1" "$2"
 }
+ws() {
+  state | python3 -c 'import json, sys
+w = next(w for w in json.load(sys.stdin)["workspaces"] if sys.argv[1] in (w["id"], w["dock"]["pane"]))
+v = w
+for k in sys.argv[2].split("."): v = v[int(k)] if k.isdigit() else v.get(k)
+print(json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v)' "$1" "$2"
+}
+shown_windows() { state | python3 -c 'import json, sys; print(" ".join(w["id"] for w in json.load(sys.stdin)["windows"]))'; }
 xdg() { mkdir -p "$KANNA_STATE_DIR/xdg/ghostty"; printf '%s\n' "$@" >"$KANNA_STATE_DIR/xdg/ghostty/config"; }
 term_app() { XDG_CONFIG_HOME="$KANNA_STATE_DIR/xdg" start_app; }
 terminal() { raw "{\"id\":1,\"cmd\":\"debug.terminal\",\"args\":$2}" | python3 -c 'import json, sys; m = json.load(sys.stdin)
@@ -751,6 +762,24 @@ resize_arrange() {
   check test "$(state | field windows | count)" == 0 || return 1
   check app_attached || return 1
   check test "$(kanna list --json | field panes)" == "[]"
+}
+
+scenario move_to_window M4
+move_to_window() {
+  start_daemon && start_app || return 1
+  kanna open --name doc >/dev/null && kanna open --name mine --split right >/dev/null || return 1
+  kanna open --name user --window new >/dev/null && kanna open --name open --split right >/dev/null || return 1
+  kanna move mine --window w2 >/dev/null || return 1
+  check test "$(win w2 tabs.0.layout)" == '{"children": [{"pane": "user", "size": "1/2"}, {"pane": "open", "size": "1/2"}], "split": "row"}' || return 1
+  check test "$(win w2 tabs.1.layout)" == '{"pane": "mine"}' || return 1
+  check test "$(win w2 tabs.1.active)" == True || return 1
+  check test "$(win w2 focused)" == mine || return 1
+  check test "$(win w1 tabs.0.layout)" == '{"pane": "doc"}' || return 1
+  kanna move mine --window w2 >/dev/null || return 1
+  check test "$(win w2 tabs | count)" == 2 || return 1
+  kanna move open --window w2 >/dev/null || return 1
+  check test "$(win w2 tabs.0.layout)" == '{"pane": "user"}' || return 1
+  check test "$(win w2 tabs.2.layout)" == '{"pane": "open"}'
 }
 
 scenario drag_panes_tabs M4
@@ -1069,7 +1098,7 @@ docked_pane() {
   kanna rename-tab t2 server >/dev/null || return 1
   local opened refused shot first
   opened="$(kanna open --name agent --dock --cmd "printf 'agent: zoom as a mode\n'; exec sleep 600")"
-  [[ "$opened" == *"(agent) docked left in window w1: running" ]] || { echo "open --dock should say where it docked: $opened"; return 1; }
+  [[ "$opened" == *"(agent) docked left in p"*" on w1: running" ]] || { echo "open --dock should say where it docked: $opened"; return 1; }
   check test "$(win w1 dock)" == '{"edge": "left", "pane": "agent", "width": "2/5"}' || return 1
   [[ "$(kanna list)" == *"dock: p3 (agent)  left 2/5"* ]] || { echo "list should show the dock on its own line: $(kanna list)"; return 1; }
   sleep 1
@@ -1130,7 +1159,7 @@ docked_pane() {
   check test "$(win w1 dock)" == None || return 1
   kanna close agent >/dev/null || return 1
   opened="$(kanna open --name agent --dock --frozen --cmd "printf 'agent: zoom as a mode\n'; exec sleep 600")" || return 1
-  [[ "$opened" == *"(agent) docked left, frozen, in window w1: running" ]] || { echo "open --dock --frozen should say it's frozen: $opened"; return 1; }
+  [[ "$opened" == *"(agent) docked left, frozen, in p"*" on w1: running" ]] || { echo "open --dock --frozen should say it's frozen: $opened"; return 1; }
   [[ "$(kanna list)" == *"(agent)  left 2/5  frozen"* ]] || { echo "list should show the dock frozen: $(kanna list)"; return 1; }
   refused="$(kanna move agent --dock right 2>&1)" && { echo "moving a frozen docked pane should fail"; return 1; }
   [[ "$refused" == *"frozen: agent ("*") is frozen in its dock and doesn't move"* ]] || { echo "moving a frozen docked pane should say why: $refused"; return 1; }
@@ -1161,7 +1190,9 @@ docked_pane() {
   lone="$(kanna open --name lone --dock --window new --json | field window)" || return 1
   sleep 1.5
   check python3 -c 'import json, sys
-windows = {w["id"]: w for w in json.load(open(sys.argv[1]))["windows"]}
+saved = json.load(open(sys.argv[1]))
+spaces = {s["id"]: s for s in saved["workspaces"]}
+windows = {w["id"]: spaces[w["shows"]] if "shows" in w else w for w in saved["windows"]}
 main, lone = windows[sys.argv[2]], windows[sys.argv[3]]
 assert main["dock"]["edge"] == "right" and main["dock"]["width"] == 0.25, main
 assert lone["dock"]["edge"] == "left" and lone["tabs"] == [], lone' "$KANNA_STATE_DIR/layout.json" "$main" "$lone" || return 1
@@ -1491,6 +1522,29 @@ desk_shelf() {
   check test "$(win w1 tabs)" == "[]" || return 1
   kanna task pull agent --window w1 >/dev/null || return 1
   check wait_for 5 eval '[[ "$(win w1 tabs.2.layout.pane)" == later ]]' || return 1
+  local own loose task; task="$(ws agent id)"
+  own="$(KANNA_PANE=p1 kanna open --name own --window new)" || return 1
+  [[ "$own" =~ ^"opened "p[0-9]+" (own) in $task's "(w[0-9]+)", tab " ]] || { echo "desk_shelf: a task's open --window new: $own"; return 1; }
+  own="${BASH_REMATCH[1]}"
+  check test "$(win "$own" workspace)" == "$task" || return 1
+  loose="$(kanna open --name loose --window new)" || return 1
+  [[ "$loose" =~ " in window "(w[0-9]+)", tab " ]] || { echo "desk_shelf: $loose"; return 1; }
+  loose="${BASH_REMATCH[1]}"
+  expected="assigned $loose to $task (on w1)"; says kanna window assign "$loose" agent || return 1
+  kanna task park agent >/dev/null || return 1
+  check wait_for 5 eval '[[ " $(shown_windows) " != *" $own "* && " $(shown_windows) " != *" $loose "* ]]' || { echo "desk_shelf: a parked task's windows didn't close"; shown_windows; return 1; }
+  check test "$(ws "$task" windows)" == "[\"$own\", \"$loose\"]" || return 1
+  check is own state running || return 1
+  [[ "$(kanna open --name hidden --window "$own" --tab)" == "opened "*" (hidden) in $task's $own (on the Shelf), tab "* ]] || { echo "desk_shelf: an open into a hidden window"; return 1; }
+  kanna task pull agent --window w1 >/dev/null || return 1
+  check wait_for 5 eval '[[ " $(shown_windows) " == *" $own "* && " $(shown_windows) " == *" $loose "* ]]' || { echo "desk_shelf: a pulled task's windows didn't open"; shown_windows; return 1; }
+  check test "$(win "$own" tabs.1.layout.pane)" == hidden || return 1
+  expected="$loose is free (out of $task)"; says kanna window free "$loose" || return 1
+  kanna task park agent >/dev/null || return 1
+  check wait_for 5 eval '[[ " $(shown_windows) " != *" $own "* && " $(shown_windows) " == *" $loose "* ]]' || { echo "desk_shelf: a freed window closed with the task"; shown_windows; return 1; }
+  kanna task pull agent --window w1 >/dev/null || return 1
+  kanna close --window "$own" >/dev/null && kanna close --window "$loose" >/dev/null || return 1
+  kanna focus --window w1 >/dev/null || return 1
   key cmd+shift+w
   check wait_for 5 eval 'kanna task list | grep -q "p1 .*Shelf"' || { kanna task list; return 1; }
   check test "$(pane agent state)" == running || return 1
@@ -1573,8 +1627,8 @@ desk_backlog() {
   app_pid=$!
   wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
   desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"${2:-w1}\"}}" | field "$1"; }
-  local planner; check wait_for 10 eval '[[ "$(desk planner)" == p* ]]' || { desk planner; kanna list; return 1; }
-  planner="$(desk planner)"
+  local planner; check wait_for 10 eval '[[ "$(desk lead)" == p* ]]' || { desk lead; kanna list; return 1; }
+  planner="$(desk lead)"
   check test "$(desk page)" == True || { echo "desk_backlog line $LINENO"; return 1; }
   check test "$(desk strip)" == False || { echo "desk_backlog line $LINENO"; return 1; }
   check wait_for 10 shows "$planner" "Install Kanna's skills? \[Y/n\]" || { echo "desk_backlog: the planning terminal didn't ask to install Kanna's skills"; kanna read "$planner"; return 1; }
@@ -1600,11 +1654,11 @@ desk_backlog() {
   check test "$(desk running)" == 1 || { echo "desk_backlog: the planning terminal counts as a running task"; desk running; return 1; }
   check wait_for 5 shows First "mock-agent" || { echo "desk_backlog line $LINENO"; return 1; }
   raw '{"id":1,"cmd":"debug.click","args":{"shelf":"'"$(pane First id)"'","window":"w1"}}' >/dev/null
-  check wait_for 5 eval '[[ "$(desk window.dock.pane)" == "$(pane First id)" && "$(desk planner)" == None && "$(desk page)" == False && "$(desk strip)" == True ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}'; return 1; }
+  check wait_for 5 eval '[[ "$(desk window.dock.pane)" == "$(pane First id)" && "$(desk lead)" == None && "$(desk page)" == False && "$(desk strip)" == True ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}'; return 1; }
   check test "$(desk waiting)" == "1 in backlog" || { desk waiting; return 1; }
   is "$planner" state running || { echo "desk_backlog: the hidden planning terminal stopped"; return 1; }
   kanna task park First >/dev/null || { echo "desk_backlog line $LINENO"; return 1; }
-  check wait_for 5 eval '[[ "$(desk planner)" == "$planner" && "$(desk page)" == True && "$(desk strip)" == False ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}'; return 1; }
+  check wait_for 5 eval '[[ "$(desk lead)" == "$planner" && "$(desk page)" == True && "$(desk strip)" == False ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}'; return 1; }
   check shows "$planner" "planner=none context=300000" || { echo "desk_backlog: the planning terminal lost its scrollback"; return 1; }
   [[ "$(desk header)" == "Planning · "*"${repo#/private} · main" ]] || { desk header; return 1; }
   kanna task shelve t2 >/dev/null || { echo "desk_backlog line $LINENO"; return 1; }
@@ -1618,7 +1672,7 @@ desk_backlog() {
   raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t4","window":"w1"}}' >/dev/null
   check wait_for 5 eval '[[ "$(desk note)" == *"3 tasks on the Shelf"* ]]' || { desk note; return 1; }
   stop_app; start_app || { echo "desk_backlog line $LINENO"; return 1; }
-  check wait_for 10 eval '[[ "$(desk planner)" == "$planner" ]]' || { echo "desk_backlog: the planning terminal didn't survive the app's restart"; kanna list; return 1; }
+  check wait_for 10 eval '[[ "$(desk lead)" == "$planner" ]]' || { echo "desk_backlog: the planning terminal didn't survive the app's restart"; kanna list; return 1; }
   local refused; refused="$(raw "{\"id\":1,\"cmd\":\"backlog\",\"args\":{\"action\":\"blank\",\"repo\":\"$repo\"}}")"
   [[ "$refused" == *'"ok":false'* && "$refused" == *"backlog needs an action"* ]] || { echo "desk_backlog: the backlog still starts blank tasks: $refused"; return 1; }
   key cmd+shift+w
@@ -1637,8 +1691,8 @@ desk_by_path() {
   app_pid=$!
   wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
   desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$2\"}}" | field "$1"; }
-  check wait_for 10 eval '[[ "$(desk planner w1)" == p* ]]' || { echo "desk_by_path: no planning terminal"; kanna list; return 1; }
-  local planner; planner="$(desk planner w1)"
+  check wait_for 10 eval '[[ "$(desk lead w1)" == p* ]]' || { echo "desk_by_path: no planning terminal"; kanna list; return 1; }
+  local planner; planner="$(desk lead w1)"
   check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$repo" || { echo "desk_by_path: Kanna started in a folder should plan there"; kanna list --json; return 1; }
   kanna send "$planner" 'echo "context=$CLAUDE_CODE_AUTO_COMPACT_WINDOW"' >/dev/null || { echo "desk_by_path line $LINENO"; return 1; }
   check wait_for 5 shows "$planner" "context=400000" || { echo "desk_by_path: the repo's .kanna/config.json didn't set the context"; kanna read "$planner"; return 1; }
@@ -1647,14 +1701,14 @@ desk_by_path() {
   [[ "$opened" =~ ^brought\ forward\ (w1)\ on\ "$repo"$ ]] || { echo "desk_by_path: kanna PATH on the open project didn't bring its Desk forward: $opened"; return 1; }
   w="${BASH_REMATCH[1]}"
   check wait_for 5 eval '[[ "$(desk empty "$w")" == True && "$(desk backlog "$w")" == "[\"t1\"]" && "$(desk running "$w")" == 0 ]]' || { desk backlog "$w"; desk running "$w"; return 1; }
-  check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "desk_by_path: no planning terminal"; kanna list; return 1; }
+  check wait_for 10 eval '[[ "$(desk lead "$w")" == p* ]]' || { echo "desk_by_path: no planning terminal"; kanna list; return 1; }
   check test "$(desk window.dock "$w")" == None || { echo "desk_by_path: a Desk on a project with tasks docked something"; kanna list; return 1; }
-  planner="$(desk planner "$w")"
+  planner="$(desk lead "$w")"
   check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$repo" || { echo "desk_by_path line $LINENO"; return 1; }
   opened="$(kanna "$fresh")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "desk_by_path line $LINENO: $opened"; return 1; }
   w="${BASH_REMATCH[1]}"
-  check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}"; kanna list; return 1; }
-  planner="$(desk planner "$w")"
+  check wait_for 10 eval '[[ "$(desk lead "$w")" == p* ]]' || { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}"; kanna list; return 1; }
+  planner="$(desk lead "$w")"
   check test "$(cd "$(pane "$planner" cwd)" && pwd -P)" == "$fresh" || { echo "desk_by_path: the planning terminal isn't in the empty project"; kanna list --json; return 1; }
   check wait_for 10 shows "$planner" "No agent Kanna knows is installed" || { kanna read "$planner"; return 1; }
 }
@@ -1672,12 +1726,14 @@ move_to_backlog() {
   touch "$wt/work-in-progress"
   local pid; pid="$(pane Later pid)"
   expected="moved p1 to the backlog as t1, still running: shelve it to bring it back"; says kanna task defer Later || { echo "move_to_backlog line $LINENO"; return 1; }
+  check test "$(ws t1 where)" == backlog || { echo "move_to_backlog: t1's workspace isn't in the backlog"; state; return 1; }
   check test "$(pane Later pid)" == "$pid" || { echo "move_to_backlog: the deferred agent stopped"; kanna list; return 1; }
   (cd "$repo" && kanna task list) | grep -qE '^t1 +Later +Backlog' || { (cd "$repo" && kanna task list); return 1; }
   (cd "$repo" && kanna task list) | grep -qE '^p1 ' && { echo "move_to_backlog: the deferred task is still on the Shelf"; (cd "$repo" && kanna task list); return 1; }
   check test -f "$wt/work-in-progress" || { echo "move_to_backlog line $LINENO"; return 1; }
   started="$(kanna task shelve t1)" || { echo "move_to_backlog line $LINENO"; return 1; }
   [[ "$started" == "moved t1 to the Shelf: p1 in ${wt/#$HOME/\~} ("* ]] || { echo "move_to_backlog: it didn't come back as it was: $started"; return 1; }
+  check test "$(ws t1 where)" == shelf || { echo "move_to_backlog line $LINENO"; return 1; }
   check test "$(pane Later pid)" == "$pid" || { echo "move_to_backlog: the agent was started again"; kanna list; return 1; }
   check test "$(ls "$repo/.kanna-worktrees" | wc -l | tr -d ' ')" == 1 || { echo "move_to_backlog line $LINENO"; return 1; }
   kanna open --name mine --dock --cwd "$repo" --cmd "exec $agent" >/dev/null || { echo "move_to_backlog line $LINENO"; return 1; }
@@ -1701,6 +1757,7 @@ backlog_and_back() {
   kanna task pull Later --window new >/dev/null || { echo "backlog_and_back line $LINENO"; return 1; }
   w="$(kanna list --json | field windows.0.id)"
   check wait_for 10 eval '[[ "$(desk window.dock.pane)" == "$(pane Later id)" ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"'"$w"'"}}'; return 1; }
+  check test "$(ws t1 where.desk)" == "$w" || { echo "backlog_and_back: t1's workspace isn't on its Desk"; state; return 1; }
   check wait_for 5 shows Later "mock-agent" || { echo "backlog_and_back line $LINENO"; return 1; }
   local task pid; task="$(pane Later id)" pid="$(pane Later pid)"
   KANNA_PANE="$task" kanna open --name side --cmd 'echo SIDE-READY; exec cat' >/dev/null || { echo "backlog_and_back line $LINENO"; return 1; }
@@ -1709,6 +1766,7 @@ backlog_and_back() {
   raw '{"id":1,"cmd":"debug.menu","args":{"item":"Move to Backlog"}}' | grep -q '"ok":true' || { echo "backlog_and_back: Move to Backlog didn't run"; return 1; }
   check wait_for 5 eval '[[ "$(desk empty)" == True && "$(desk backlog)" == "[\"t1\"]" && "$(desk shelf)" == "[]" && "$(desk running)" == 0 ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"'"$w"'"}}'; return 1; }
   check test "$(desk window.dock)" == None || { echo "backlog_and_back: the task is still on the Desk"; return 1; }
+  check test "$(ws t1 where)" == backlog || { echo "backlog_and_back line $LINENO"; return 1; }
   check test "$(pane Later pid)" == "$pid" || { echo "backlog_and_back: Move to Backlog stopped the agent"; return 1; }
   kanna send Later "work 1" >/dev/null || { echo "backlog_and_back line $LINENO"; return 1; }
   check wait_for 10 shows Later "WORK_DONE" || { echo "backlog_and_back: the agent didn't keep working in the backlog"; kanna read Later; return 1; }
@@ -1716,6 +1774,7 @@ backlog_and_back() {
   stop_app; stop_daemon; start_daemon && start_app || { echo "backlog_and_back line $LINENO"; return 1; }
   check wait_for 10 eval '[[ "$(desk backlog)" == "[\"t1\"]" && "$(desk shelf)" == "[]" ]]' || { echo "backlog_and_back: the backlog task didn't survive a restart"; raw '{"id":1,"cmd":"debug.desk","args":{"window":"'"$w"'"}}'; return 1; }
   check test "$(pane Later pid)" == "$pid" || { echo "backlog_and_back: the restart stopped the agent"; return 1; }
+  check test "$(ws t1 where)" == backlog || { echo "backlog_and_back: t1's workspace didn't come back in the backlog"; state; return 1; }
   raw '{"id":1,"cmd":"debug.click","args":{"backlog":"t1","window":"'"$w"'"}}' >/dev/null
   check wait_for 10 eval '[[ "$(desk backlog)" == "[]" && "$(desk shelf.0.task)" == "$task" ]]' || { raw '{"id":1,"cmd":"debug.desk","args":{"window":"'"$w"'"}}'; return 1; }
   check test "$(pane Later pid)" == "$pid" || { echo "backlog_and_back: Move to Shelf started the agent again"; return 1; }
@@ -1958,8 +2017,8 @@ new_desk() {
   check wait_for 5 eval '[[ "$(state | field windows | count)" == 2 && "$(win w2 key)" == True ]]' || { echo "new_desk: ⌘N opened no window"; kanna list; return 1; }
   check test "$(desk desk w2)" == True || { echo "new_desk: ⌘N opened a window that isn't a Desk"; return 1; }
   check test "$(desk window.project w2)" == "$HOME" || { echo "new_desk: the new Desk isn't on ~"; desk window w2; return 1; }
-  check wait_for 10 eval '[[ "$(desk planner w2)" == p* ]]' || { echo "new_desk: the new Desk has no planning terminal"; kanna list; return 1; }
-  local planner; planner="$(desk planner w2)"
+  check wait_for 10 eval '[[ "$(desk lead w2)" == p* ]]' || { echo "new_desk: the new Desk has no planning terminal"; kanna list; return 1; }
+  local planner; planner="$(desk lead w2)"
   check test "$(desk window.dock w2)" == None || { echo "new_desk: the new Desk docked something"; return 1; }
   check test "$(desk window.tabs w2)" == "[]" || { echo "new_desk: the new Desk has tabs"; return 1; }
   check wait_for 5 is "$planner" state running || { echo "new_desk: the planning terminal isn't running"; kanna list; return 1; }
@@ -1973,8 +2032,8 @@ new_desk() {
   check wait_for 5 eval '[[ "$(desk backlog w2)" == "[\"t1\"]" ]]' || { echo "new_desk: the Shelf didn't follow the planning terminal"; desk backlog w2; return 1; }
   raw '{"id":1,"cmd":"debug.menu","args":{"item":"New Desk"}}' | grep -q '"ok":true' || { echo "new_desk: File > New Desk didn't run"; return 1; }
   check wait_for 5 eval '[[ "$(state | field windows | count)" == 3 && "$(desk desk w3)" == True ]]' || { echo "new_desk: New Desk opened no Desk"; kanna list; return 1; }
-  check wait_for 10 eval '[[ "$(desk planner w3)" == p* ]]' || { echo "new_desk line $LINENO"; return 1; }
-  check test "$(cd "$(pane "$(desk planner w3)" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "new_desk: the second new Desk isn't in ~"; return 1; }
+  check wait_for 10 eval '[[ "$(desk lead w3)" == p* ]]' || { echo "new_desk line $LINENO"; return 1; }
+  check test "$(cd "$(pane "$(desk lead w3)" cwd)" && pwd -P)" == "$(cd ~ && pwd -P)" || { echo "new_desk: the second new Desk isn't in ~"; return 1; }
 }
 
 png_size() { python3 -c 'import struct, sys
@@ -2062,7 +2121,7 @@ desk_scrolls() {
   app_pid=$!
   wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
   desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"w1\"${2:+,$2}}}" | field "$1"; }
-  check wait_for 10 eval '[[ "$(desk planner)" == p* ]]' || { echo "desk_scrolls: no planning terminal"; kanna list; return 1; }
+  check wait_for 10 eval '[[ "$(desk lead)" == p* ]]' || { echo "desk_scrolls: no planning terminal"; kanna list; return 1; }
   for i in $(seq 20); do (cd "$repo" && kanna task new "Task $i" "hello" --agent "$agent") >/dev/null || { echo "desk_scrolls line $LINENO"; return 1; }; done
   check wait_for 5 eval '[[ "$(desk backlog)" == *"t20"* && "$(desk page)" == True ]]' || { desk backlog; return 1; }
   desk page '"size":[760,420]' >/dev/null; sleep 0.3
@@ -2108,7 +2167,7 @@ backlog_search() {
   desk() { raw '{"id":1,"cmd":"debug.desk","args":{"window":"w1"}}' | field "$1"; }
   search() { desk search."$1"; }
   type() { raw "{\"id\":1,\"cmd\":\"debug.type\",\"args\":{\"focused\":true,\"text\":\"$1\"}}" >/dev/null; sleep 0.3; }
-  check wait_for 10 eval '[[ "$(desk planner)" == p* ]]' || { echo "backlog_search: no planning terminal"; kanna list; return 1; }
+  check wait_for 10 eval '[[ "$(desk lead)" == p* ]]' || { echo "backlog_search: no planning terminal"; kanna list; return 1; }
   check test "$(search shown)" == False || { echo "backlog_search: a search field over an empty backlog"; return 1; }
   (cd "$repo" && kanna task new "Fix flaky status test" "agent_status in the e2e waits for working; follow the status" --agent "$agent" \
     && kanna task new "Resume every agent's session" "Give codex its own session ID and resume it" --agent "$agent" \
@@ -2384,8 +2443,8 @@ shelf_zoom() {
   app_pid=$!
   wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
   desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"w1\"}}" | field "$1"; }
-  check wait_for 10 eval '[[ "$(desk planner)" == p* ]]' || { echo "shelf_zoom: no planning terminal"; kanna list; return 1; }
-  planner="$(desk planner)"
+  check wait_for 10 eval '[[ "$(desk lead)" == p* ]]' || { echo "shelf_zoom: no planning terminal"; kanna list; return 1; }
+  planner="$(desk lead)"
   (cd "$repo" && kanna task new "Zoomed task" "hello" --agent "$agent") >/dev/null && kanna task shelve t1 >/dev/null || { echo "shelf_zoom line $LINENO"; return 1; }
   kanna task pull "Zoomed task" >/dev/null || { echo "shelf_zoom line $LINENO"; return 1; }
   task="$(win w1 dock.pane)"
@@ -2397,6 +2456,7 @@ shelf_zoom() {
   sleep 0.5; check shown_alone shelf_zoom-task-zoomed || { echo "shelf_zoom: the zoomed pane doesn't fill the window"; return 1; }
   key "cmd+."
   check wait_for 5 eval '[[ "$(win w1 dock)" == None ]]' || { echo "shelf_zoom: ⌘. didn't park the task"; return 1; }
+  check test "$(ws t1 where):$(ws t1 tabs.0.title)" == "shelf:log" || { echo "shelf_zoom: t1's workspace isn't on the Shelf with its tabs"; state; return 1; }
   check test "$(win w1 focused):$(win w1 zoomed)" == "$planner:None" || { echo "shelf_zoom: the Shelf view came up zoomed"; kanna list; return 1; }
   check test "$(desk page)" == True || { echo "shelf_zoom: no full Shelf beside the planner"; return 1; }
   key cmd+shift+return
@@ -2488,6 +2548,49 @@ print(" ".join(r["round"] + "@" + r["head"] for r in rounds), " ".join(":".join(
   [[ "$(sqlite3 -readonly "$state/kanna.db" "select count(*) from quiz_rounds; select group_concat(right) from quiz_answers")" == $'2\n0,1,1' ]] || { echo "quiz_results: kanna.db doesn't hold the rounds and answers"; return 1; }
 }
 
+scenario quiz_window M4
+quiz_window() {
+  local repo="$KANNA_STATE_DIR/repo" agent="$repo_root/tools/mock-agent/mock-agent"
+  mkdir -p "$repo/src" && printf 'one\ntwo\nthree\n' >"$repo/src/a.rs" || { echo "quiz_window line $LINENO"; return 1; }
+  git -C "$repo" init -q -b main && git -C "$repo" add . && git -C "$repo" -c user.email=e@e -c user.name=e commit -q -m first || { echo "quiz_window line $LINENO"; return 1; }
+  repo="$(cd "$repo" && pwd -P)"
+  start_daemon && start_app || { echo "quiz_window line $LINENO"; return 1; }
+  desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$2\"}}" | field "$1"; }
+  local opened d; opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "quiz_window line $LINENO: $opened"; return 1; }
+  d="${BASH_REMATCH[1]}"
+  check wait_for 10 eval '[[ "$(desk lead "$d")" == p* ]]' || { echo "quiz_window: the Desk has no planning terminal"; kanna list; return 1; }
+  local planner; planner="$(desk lead "$d")"
+  opened="$(cd "$repo/src" && KANNA_PANE="$planner" kanna quiz open --agent "$agent")" && [[ "$opened" =~ ^opened\ (p[0-9]+)\ in\ (w[0-9]+)$ ]] || { echo "quiz_window: kanna quiz open said \"$opened\""; return 1; }
+  local quiz="${BASH_REMATCH[1]}" w="${BASH_REMATCH[2]}"
+  [[ "$w" != "$d" ]] || { echo "quiz_window: the quiz opened on the Desk"; return 1; }
+  check wait_for 5 eval '[[ "$(desk window.lead.pane "$w")" == "$quiz" ]]' || { echo "quiz_window: the quiz agent isn't its window's lead"; kanna list --json; return 1; }
+  check test "$(pane "$quiz" name)" == Quiz || return 1
+  check test "$(cd "$(pane "$quiz" cwd)" && pwd -P)" == "$repo" || { echo "quiz_window: the quiz agent isn't in the repo's main checkout"; return 1; }
+  check wait_for 5 shows "$quiz" "args: You are the Kanna quiz agent" || { kanna read "$quiz"; return 1; }
+  check wait_for 5 eval '[[ "$(desk lead "$w")" == "$quiz" && "$(desk desk "$w")" == False && "$(desk strip "$w")" == False && "$(desk page "$w")" == False ]]' || { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$w\"}}"; return 1; }
+  check wait_for 5 eval '[[ "$(desk header "$w")" == "Quiz · "*"${repo#/private} · main" && "$(desk title "$w")" == Quiz* ]]' || { desk header "$w"; desk title "$w"; return 1; }
+  check test "$(kanna task list | grep -c "$quiz")" == 0 || { echo "quiz_window: the quiz agent is listed as a task"; kanna task list; return 1; }
+  check test "$(desk running "$d")" == 0 || { echo "quiz_window: the quiz agent counts as a running task"; desk running "$d"; return 1; }
+  check test "$(desk shelf "$d")" == "[]" || { echo "quiz_window: the quiz agent is on the Shelf"; desk shelf "$d"; return 1; }
+  local said code; said="$(KANNA_PANE="$quiz" kanna comment "$repo/src/a.rs:2" "Two comes second.")" && [[ "$said" == "opened p"*" · a.rs:2"* ]] || { echo "quiz_window: kanna comment said \"$said\""; return 1; }
+  code="$(awk '{print $2}' <<<"$said")"
+  check wait_for 5 eval '[[ "$(desk window.tabs.0.panes "$w")" == "[\"$code\"]" && "$(desk window.lead.pane "$w")" == "$quiz" && "$(desk window.tab "$w")" == "$(desk window.tabs.0.id "$w")" ]]' || { echo "quiz_window: the comment isn't a tab of the Quiz window"; kanna list; return 1; }
+  check test "$(desk window.dock "$w")" == None || return 1
+  sleep 0.5; snap "$w" quiz_window >/dev/null
+  kanna move "$quiz" --tab >/dev/null 2>&1 && { echo "quiz_window: the quiz agent moved into a tab"; return 1; }
+  KANNA_PANE="$quiz" kanna task park >/dev/null 2>&1 && { echo "quiz_window: the quiz agent parked"; return 1; }
+  kanna task pull "$quiz" >/dev/null 2>&1 && { echo "quiz_window: the quiz agent was pulled onto a Desk"; return 1; }
+  kanna move "$quiz" --dock --window "$d" >/dev/null 2>&1 && { echo "quiz_window: the quiz agent docked on the Desk"; return 1; }
+  local t; for t in One Two Three; do (cd "$repo" && kanna task new "$t" "hi" --agent "$agent") >/dev/null || { echo "quiz_window line $LINENO"; return 1; }; done
+  for t in t1 t2 t3; do kanna task shelve "$t" >/dev/null || { echo "quiz_window: the quiz agent took one of the project's three places"; kanna task list; return 1; }; done
+  check wait_for 10 eval '[[ "$(desk running "$d")" == 3 ]]' || { echo "quiz_window: three tasks didn't fit on the Shelf beside the quiz"; kanna task list; return 1; }
+  opened="$(cd "$repo" && kanna quiz open --agent "$agent")"
+  [[ "$opened" == "brought forward $quiz in $w" ]] || { echo "quiz_window: a second kanna quiz open said \"$opened\""; kanna list; return 1; }
+  [[ "$(kanna list --json | python3 -c 'import json, sys; print(sum(1 for w in json.load(sys.stdin)["windows"] if w.get("lead")))')" == 2 ]] || { echo "quiz_window: a second Quiz window opened"; kanna list; return 1; }
+  kanna close --window "$w" >/dev/null || { echo "quiz_window line $LINENO"; return 1; }
+  check wait_for 5 eval '! kanna list --json | grep -q "\"$quiz\""' || { echo "quiz_window: closing the window left its quiz agent running"; kanna list; return 1; }
+}
+
 scenario daemon_upgrade M4
 daemon_upgrade() {
   local old="$KANNA_STATE_DIR/old"
@@ -2549,8 +2652,8 @@ planner_choice() {
   app_pid=$!
   wait_for 10 app_attached || { echo "the app did not attach"; return 1; }
   desk() { raw "{\"id\":1,\"cmd\":\"debug.desk\",\"args\":{\"window\":\"$2\"}}" | field "$1"; }
-  check wait_for 10 eval '[[ "$(desk planner w1)" == p* ]]' || { echo "planner_choice: no planning terminal"; kanna list; return 1; }
-  local planner; planner="$(desk planner w1)"
+  check wait_for 10 eval '[[ "$(desk lead w1)" == p* ]]' || { echo "planner_choice: no planning terminal"; kanna list; return 1; }
+  local planner; planner="$(desk lead w1)"
   check wait_for 10 shows "$planner" "Choose an agent for planning and task creation" || { echo "planner_choice: the first Desk didn't ask which agent"; kanna read "$planner"; return 1; }
   check shows "$planner" "1  claude" && check shows "$planner" "2  codex" || { kanna read "$planner"; return 1; }
   ! shows "$planner" "Folder, repo or name" || { echo "planner_choice: a Desk on a repo asked where"; return 1; }
@@ -2566,13 +2669,13 @@ planner_choice() {
   kanna close --window w1 >/dev/null || { echo "planner_choice line $LINENO"; return 1; }
   local opened w; opened="$(cd / && kanna "$repo")" && [[ "$opened" =~ ^opened\ (w[0-9]+) ]] || { echo "planner_choice line $LINENO: $opened"; return 1; }
   w="${BASH_REMATCH[1]}"
-  check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "planner_choice: the next Desk has no planning terminal"; return 1; }
-  planner="$(desk planner "$w")"
+  check wait_for 10 eval '[[ "$(desk lead "$w")" == p* ]]' || { echo "planner_choice: the next Desk has no planning terminal"; return 1; }
+  planner="$(desk lead "$w")"
   check wait_for 10 shows "$planner" "args: --yolo --no-daemon You are the Kanna" || { echo "planner_choice: the next Desk didn't start the project's planner"; kanna read "$planner"; return 1; }
   ! shows "$planner" "Choose an agent" || { echo "planner_choice: the next Desk asked again"; return 1; }
   key cmd+n
-  check wait_for 10 eval '[[ "$(desk planner w3)" == p* ]]' || { echo "planner_choice: ⌘N opened no Desk"; kanna list; return 1; }
-  planner="$(desk planner w3)"
+  check wait_for 10 eval '[[ "$(desk lead w3)" == p* ]]' || { echo "planner_choice: ⌘N opened no Desk"; kanna list; return 1; }
+  planner="$(desk lead w3)"
   check wait_for 10 shows "$planner" "Folder, repo or name:" || { echo "planner_choice: a Desk in ~ didn't ask where"; kanna read "$planner"; return 1; }
   kanna send "$planner" "$repo" >/dev/null || { echo "planner_choice line $LINENO"; return 1; }
   check wait_for 10 eval '[[ "$(desk header w3)" == "Planning · "*"${repo#/private} · main" ]]' || { echo "planner_choice: the Desk didn't follow to the folder"; desk header w3; return 1; }
@@ -2605,8 +2708,8 @@ print(sum(1 for l in lines if l.get("turn") and l["path"].startswith(sys.argv[2]
   local w=w1 choice path planner opened
   for agent in claude codex; do
     [[ $agent == claude ]] && choice=1 path=/v1/messages || choice=2 path=/v1/responses
-    check wait_for 10 eval '[[ "$(desk planner "$w")" == p* ]]' || { echo "real_agent_planners: no planning terminal"; kanna list; return 1; }
-    planner="$(desk planner "$w")"
+    check wait_for 10 eval '[[ "$(desk lead "$w")" == p* ]]' || { echo "real_agent_planners: no planning terminal"; kanna list; return 1; }
+    planner="$(desk lead "$w")"
     check wait_for 10 shows "$planner" "Choose \[1\]:" || { kanna read "$planner"; return 1; }
     kanna send "$planner" "$choice" >/dev/null && check wait_for 5 shows "$planner" "\[y/N\]" && kanna send "$planner" n >/dev/null || { echo "real_agent_planners line $LINENO"; kanna read "$planner"; return 1; }
     check wait_for 60 eval '[[ "$(told "$path")" -ge 1 ]]' || { echo "real_agent_planners: $agent wasn't told it's the planning agent"; kanna read "$planner"; tail -3 "$agents/mock.jsonl" | cut -c1-300; return 1; }
@@ -2814,11 +2917,11 @@ for t in tasks: print(t["id"], "running" if t.get("running") else "stopped:" + (
 set -e
 exec 2>>"$KANNA_STATE_DIR/present.log"
 printf '# Change\\n\\nWhat changed, and why.\\n' >notes.md
-md="\$("$bin/kanna" open md notes.md | sed -E 's/^opened (p[0-9]+).*/\1/')"
+md="\$("$bin/kanna" open md notes.md | tee "$KANNA_STATE_DIR/opened" | sed -E 's/^opened (p[0-9]+).*/\1/')"
 "$bin/kanna" comment notes.md:3 "Why it changed." >/dev/null
 long="\$("$bin/kanna" open --tab --cmd 'echo LONG_RUNNING; exec sleep 600' | sed -E 's/^opened (p[0-9]+).*/\1/')"
 short="\$("$bin/kanna" open --tab --cmd 'echo SHORT_DONE' | sed -E 's/^opened (p[0-9]+).*/\1/')"
-"$bin/kanna" focus "\$md" >/dev/null
+"$bin/kanna" focus "\$md" >"$KANNA_STATE_DIR/focused"
 "$bin/kanna" zoom "\$md" >/dev/null
 echo "\$md \$long \$short" >"$KANNA_STATE_DIR/presented"
 PRESENT
@@ -2829,6 +2932,8 @@ PRESENT
   local presenter md long short; presenter="$(of t8 3)"
   read -r md long short <"$KANNA_STATE_DIR/presented" || { echo "backlog_runners: the agent didn't present"; kanna read "$presenter"; cat "$KANNA_STATE_DIR/present.log"; return 1; }
   check is "$md" type md || { echo "backlog_runners: stopping closed the markdown tab"; kanna list; return 1; }
+  [[ "$(cat "$KANNA_STATE_DIR/opened")" =~ ^"opened $md in t8 (in the backlog), tab t"[0-9]+": "[a-z]+$ ]] || { echo "backlog_runners: a held task's open said: $(cat "$KANNA_STATE_DIR/opened")"; return 1; }
+  check test "$(cat "$KANNA_STATE_DIR/focused")" == "focused $md in t8 (in the backlog)" || return 1
   check is "$long" state exited || { echo "backlog_runners: stopping didn't hang up the running terminal"; kanna list; return 1; }
   check is "$short" state exited || { echo "backlog_runners line $LINENO"; return 1; }
   held() { raw '{"id":1,"cmd":"debug.saveState"}' | python3 -c 'import json, sys
@@ -2848,6 +2953,12 @@ ids.update({p["id"]: p["id"] for p in listed["panes"]})
 w = next(w for w in listed["windows"] if ids.get((w.get("dock") or {}).get("pane")) == sys.argv[1])
 print(len(w["tabs"]), ids.get(w.get("focused")), ids.get(w.get("zoomed")))' "$presenter"; }
   check test "$(shown)" == "3 $md $md" || { echo "backlog_runners: the pulled task doesn't show what it presented: $(shown)"; state; return 1; }
+  local desk8; desk8="$(ws t8 where.desk)"
+  [[ "$(kanna task shelve t2)" == "moved t2 to the Shelf: "* ]] || { echo "backlog_runners line $LINENO"; return 1; }
+  kanna task pull t2 --window "$desk8" >/dev/null || { echo "backlog_runners line $LINENO"; return 1; }
+  check wait_for 5 eval '[[ "$(ws t8 where)" == shelf && "$(ws t2 where.desk)" == "$desk8" ]]' || { echo "backlog_runners: t2 didn't take t8's place on the Desk"; state; return 1; }
+  [[ "$(ws t8 panes)" == *"\"$md\""* && "$(ws t2 panes)" != *"\"$md\""* ]] || { echo "backlog_runners: t8's tabs aren't in its workspace"; state; return 1; }
+  [[ "$(KANNA_PANE="$presenter" kanna open --name after --tab --no-wait)" == "opened "*" (after) in t8 (on the Shelf), tab "* ]] || { echo "backlog_runners: t8's open went elsewhere"; state; return 1; }
 }
 
 scenario pane_sizes M4

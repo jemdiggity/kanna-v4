@@ -132,14 +132,16 @@ pub fn read_record(item: &Value, id: &str, kind: PaneType) -> Pane {
 }
 
 pub(crate) fn import_panes(state: &Value) -> Result<(Vec<Pane>, usize), KmuxError> {
+    import_versions(state, &[STATE_VERSION], "this kmux reads")
+}
+
+pub(crate) fn import_versions(state: &Value, versions: &[u32], reader: &str) -> Result<(Vec<Pane>, usize), KmuxError> {
     if !state.is_object() {
         return Err(bad("not an object"));
     }
-    if state.get("version").and_then(Value::as_f64) != Some(STATE_VERSION as f64) {
-        return Err(KmuxError::new(
-            "bad_request",
-            format!("unsupported state version {} (this kmux reads {STATE_VERSION})", quoted(state.get("version"))),
-        ));
+    if !versions.iter().any(|v| state.get("version").and_then(Value::as_f64) == Some(*v as f64)) {
+        let read = versions.iter().map(u32::to_string).collect::<Vec<_>>().join(" and ");
+        return Err(KmuxError::new("bad_request", format!("unsupported state version {} ({reader} {read})", quoted(state.get("version")))));
     }
     let (Some(saved_panes), Some(_)) = (state.get("panes").and_then(Value::as_array), state.get("windows").and_then(Value::as_array)) else {
         return Err(bad("needs panes and windows"));

@@ -33,7 +33,7 @@ flowchart LR
 
 ## 2. How an agent knows it's in Kanna
 
-An agent picks a skill by its description, from what's in its context, so it has to be told it's in Kanna. **Kanna starts every agent it uses** (the planner and every task's, and the planner starts the quiz's), so each is told in its first message:
+An agent picks a skill by its description, from what's in its context, so it has to be told it's in Kanna. **Kanna starts every agent it uses** (the planner, every task's, and the quiz's, which the planner asks for with `kanna quiz open`), so each is told in its first message:
 
 | Agent | Its first message |
 |---|---|

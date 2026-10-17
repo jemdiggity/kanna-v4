@@ -21,18 +21,19 @@ Every command, option, output and error is kmux's CLI's, except where [the CLI's
 | | `kanna read PANE [--lines N]` | Print a terminal pane's screen as text; with `--lines`, its last N lines, counting scrollback. Kanna's. |
 | | `kanna screenshot [PANE\|--window WINDOW] [-o FILE] [--force]` | Save a PNG of a pane or a window and print its path ([screenshot](screenshot.md)). Kanna's. |
 | | `kanna resize PANE SIZE` | Change one pane's size. |
-| | `kanna move PANE --to OTHER [--side SIDE]` / `--tab TAB\|new` / `--window WINDOW\|new` | Move a pane beside another, swap two, or move it to another tab or window. |
+| | `kanna move PANE --to OTHER [--side SIDE]` / `--tab TAB\|new` / `--window WINDOW\|new` | Move a pane beside another, swap two, or move it to another tab or window. `--window` puts it in a new tab at the end of that window, focused, as `--tab new --window` does; to its own window, a pane alone in its tab stays where it is and one in a split leaves it for a new tab. |
 | | `kanna navigate PANE URL\|FILE\|--back\|--forward` | Point a web pane at a new URL (or move through its history), or a markdown pane at another `.md` file. |
 | Tabs and windows | `kanna arrange LAYOUT` | Rearrange existing panes in one go. Today LAYOUT is kmux's JSON tree; the [layout expression](arranging-panes.md#2-the-layout-expression) is planned. |
 | | `kanna rename-tab TAB TITLE` | Rename a tab; it keeps that name instead of following its pane's ([tab names](tab-names.md)). |
 | | `kanna move-tab TAB [--window WINDOW\|new] [--index N]` | Reorder a tab, or move it to another window. |
+| | `kanna window assign WINDOW TASK` / `kanna window free WINDOW` | Make a window one of a task's, shown and hidden with it, or free it ([workspaces](workspaces.md)). |
 | Information | `kanna list` | List panes with their names, IDs, types and states. |
 | | `kanna capabilities` | Show what the running mux supports (and, for Kanna, whether the app is attached). |
 | More | `kanna help [COMMAND\|instances\|raw]`, `kanna commands [--json]`, `kanna raw REQUEST` | Help; every command, for scripts; one control-protocol request as JSON. |
 | | `kanna instances [--json]`, `kanna instances prune` | For developing Kanna: list the running instances of every channel, or delete the folders of dev instances whose worktree is gone ([instances](instances.md)). |
 | Planned | `kanna up [FILE]` | Open a whole setup from a file, `kanna.yaml` by default ([layout files](arranging-panes.md#3-layout-files)). |
 
-Kanna's own commands beyond these (`markup`, `rename-pane`, `task`, `status`, `completions`, `kanna PATH`): [the CLI's differences](cli.md#2-where-kanna-differs-from-kmux).
+Kanna's own commands beyond these (`markup`, `rename-pane`, `task`, `status`, `completions`, `kanna PATH`), and how its `window` differs from kmux's, which assigns to a kmux workspace (kmux's `workspace` command isn't Kanna's): [the CLI's differences](cli.md#2-where-kanna-differs-from-kmux).
 
 ## 2. Options
 

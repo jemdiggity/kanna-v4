@@ -1,213 +1,138 @@
 use crate::error::KmuxError;
 use crate::json::{num, Map, Value};
 use crate::layout::Edge;
-use crate::model::{bad_request, normalize, not_found, pane_ids, Child, Dock, Model, Node, Split, Tab, Window, DOCK_WIDTH};
+use crate::model::{bad_request, not_found, reply, Dock, Model, Window, DOCK_WIDTH};
 use crate::pane::Panes;
+use crate::workspace::{Where, Workspace};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64().floor())
 }
 
-fn reply<const N: usize>(fields: [(&str, Value); N]) -> Map {
-    fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
-}
-
 impl Model {
-    pub fn shelf(&self) -> impl Iterator<Item = &Window> {
-        self.parked.iter().filter(|p| !p.backlog)
+    pub fn shelf(&self) -> impl Iterator<Item = &Workspace> {
+        self.workspaces.iter().filter(|s| s.place == Where::Shelf)
     }
 
-    pub fn parked_panes(&self) -> Vec<String> {
-        self.parked.iter().flat_map(|p| p.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref())).chain(p.dock.iter().map(|d| d.pane.clone()))).collect()
+    pub fn held(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.workspaces.len()).filter(|&s| self.workspaces[s].place == Where::Backlog)
     }
 
-    pub(crate) fn detach_parked(&mut self, id: &str) -> bool {
-        for parked in &mut self.parked {
-            if parked.dock.as_ref().is_some_and(|d| d.pane == id) {
-                parked.dock = None;
-                return true;
-            }
-            for tab in &mut parked.tabs {
-                if pane_ids(tab.root.as_ref()).iter().any(|p| p == id) {
-                    tab.root = tab.root.take().and_then(|root| without(root, id));
-                    return true;
-                }
-            }
+    pub(crate) fn shelve(&mut self, pane: &str, edge: Edge, backlog: bool, frozen: bool, task: Option<&str>) {
+        let mut ws = Workspace::new(Dock { pane: pane.into(), edge, width: DOCK_WIDTH, frozen }, if backlog { Where::Backlog } else { Where::Shelf });
+        ws.parked_at = Some(now());
+        ws.tabs.focused = Some(pane.into());
+        self.workspaces.insert(0, ws);
+        if let Some(task) = task {
+            self.name_workspace(0, task);
         }
-        false
     }
 
-    pub(crate) fn settle_shelf(&mut self) {
-        for parked in &mut self.parked {
-            parked.tabs.retain(|t| t.root.is_some());
-            if !parked.tabs.iter().any(|t| Some(&t.id) == parked.active.as_ref()) {
-                parked.active = parked.tabs.first().map(|t| t.id.clone());
+    pub(crate) fn name_workspace(&mut self, s: usize, task: &str) {
+        if self.workspaces.iter().enumerate().any(|(other, ws)| other != s && ws.id == task) {
+            return;
+        }
+        let old = std::mem::replace(&mut self.workspaces[s].id, task.into());
+        self.workspaces[s].task = Some(task.into());
+        for window in &mut self.windows {
+            if window.workspace.as_deref() == Some(old.as_str()) {
+                window.workspace = Some(task.into());
             }
         }
-        let orphans: Vec<Window> = self.parked.iter().filter(|p| p.dock.is_none() && !p.tabs.is_empty()).cloned().collect();
-        self.parked.retain(|p| p.dock.is_some());
-        for orphan in orphans {
-            let w = self.make_window();
-            let window = &mut self.windows[w];
-            window.tabs = orphan.tabs;
-            window.active = orphan.active;
-            window.tab_count = window.tabs.len();
-            window.focused = orphan.focused;
-            window.settle_focus();
+    }
+
+    pub fn name_tasks(&mut self, tasks: &[(String, String)]) {
+        for (pane, task) in tasks {
+            if let Some(s) = self.dock_ws(pane).filter(|&s| self.workspaces[s].task.is_none()) {
+                self.name_workspace(s, task);
+            }
         }
-    }
-
-    pub(crate) fn shelve(&mut self, pane: &str, edge: Edge, backlog: bool, frozen: bool) {
-        let mut parked = Window::new(pane.into());
-        parked.dock = Some(Dock { pane: pane.into(), edge, width: DOCK_WIDTH, frozen });
-        parked.desk = true;
-        parked.backlog = backlog;
-        parked.parked_at = Some(now());
-        self.parked.insert(0, parked);
-    }
-
-    pub(crate) fn parked_containing(&self, id: &str) -> Option<usize> {
-        self.parked.iter().position(|p| p.docks(id) || p.tabs.iter().any(|t| pane_ids(t.root.as_ref()).iter().any(|x| x == id)))
-    }
-
-    pub(crate) fn focus_parked(&mut self, id: &str) -> Option<usize> {
-        let p = self.parked_containing(id)?;
-        let parked = &mut self.parked[p];
-        if let Some(tab) = parked.tabs.iter_mut().find(|t| pane_ids(t.root.as_ref()).iter().any(|x| x == id)) {
-            tab.last_focus = Some(id.into());
-            parked.active = Some(tab.id.clone());
-        }
-        parked.focused = Some(id.into());
-        Some(p)
-    }
-
-    pub(crate) fn focus_parked_tab(&mut self, reference: &str) -> bool {
-        let Some(parked) = self.parked.iter_mut().find(|p| p.tabs.iter().any(|t| t.id == reference)) else { return false };
-        let Some(tab) = parked.tabs.iter().find(|t| t.id == reference) else { return false };
-        let ids = pane_ids(tab.root.as_ref());
-        parked.focused = tab.last_focus.clone().filter(|l| ids.contains(l)).or_else(|| ids.first().cloned());
-        parked.active = Some(reference.into());
-        true
     }
 
     pub(crate) fn task_panes(&mut self, task: &str) -> Result<Vec<String>, KmuxError> {
-        let window = match self.dock_window(task) {
-            Some(w) => {
-                self.windows[w].desk = true;
-                &self.windows[w]
-            }
-            None => self.parked.iter().find(|p| p.dock.as_ref().is_some_and(|d| d.pane == task)).ok_or_else(|| not_found(format!("no task \"{task}\"")))?,
-        };
-        Ok(window.dock.iter().map(|d| d.pane.clone()).chain(window.tabs.iter().flat_map(|t| pane_ids(t.root.as_ref()))).collect())
-    }
-
-    pub(crate) fn place_on_task(&mut self, pane: &str, from: &str) -> Option<Option<String>> {
-        if let Some(w) = self.dock_window(from) {
-            let t = self.make_tab(w, true);
-            let window = &mut self.windows[w];
-            window.tabs[t].root = Some(Node::Pane(pane.into()));
-            window.tabs[t].last_focus = Some(pane.into());
-            window.focused = Some(pane.into());
-            let key = window.id.clone();
-            self.set_key(Some(key.clone()));
-            return Some(Some(key));
+        let s = self.dock_ws(task).or_else(|| self.ws_index(task)).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
+        if let Some(w) = self.workspaces[s].place.desk().and_then(|id| self.window_index(id)) {
+            self.windows[w].desk = true;
         }
-        let at = self.parked.iter().position(|p| p.dock.as_ref().is_some_and(|d| d.pane == from))?;
-        self.counters.0 += 1;
-        let parked = &mut self.parked[at];
-        parked.tab_count += 1;
-        let mut tab = Tab::new(format!("t{}", self.counters.0), parked.tab_count);
-        tab.root = Some(Node::Pane(pane.into()));
-        tab.last_focus = Some(pane.into());
-        parked.active = Some(tab.id.clone());
-        parked.focused = Some(pane.into());
-        parked.tabs.push(tab);
-        Some(None)
+        let mut ids = self.workspace_panes(s);
+        ids.rotate_right(1);
+        Ok(ids)
     }
 
-    pub(crate) fn plan(&mut self, pane: &str, window: Option<&str>) -> Result<String, KmuxError> {
-        let reference = window.ok_or_else(|| bad_request("a planning agent needs its window"))?;
-        let w = self.window_index(reference).ok_or_else(|| not_found(format!("no window \"{reference}\"")))?;
+    pub(crate) fn lead(&mut self, pane: &str, window: Option<&str>) -> Result<String, KmuxError> {
+        let reference = window.ok_or_else(|| bad_request("a window's lead needs its window"))?;
+        let w = self.target_window(Some(reference))?;
         let window = &mut self.windows[w];
-        if let Some(planner) = &window.planner {
-            return Err(KmuxError::new("planned", format!("{} has a planning agent already: {}", window.id, planner.pane)));
+        if let Some(lead) = &window.lead {
+            return Err(KmuxError::new("led", format!("{} has a lead already: {}", window.id, lead.pane)));
         }
-        window.planner = Some(Dock { pane: pane.into(), edge: Edge::Left, width: DOCK_WIDTH, frozen: false });
-        window.desk = true;
-        window.settle_focus();
+        window.lead = Some(Dock { pane: pane.into(), edge: Edge::Left, width: DOCK_WIDTH, frozen: false });
+        window.workspace = None;
+        let lead = window.lead.as_ref().map(|l| l.pane.clone());
+        window.tabs.settle_focus(lead.as_ref());
         Ok(window.id.clone())
     }
 
-    /// A Desk with no task shows the Shelf, which holds no tabs.
-    pub(crate) fn is_shelf(&self, w: usize) -> bool {
-        let window = &self.windows[w];
-        window.desk && window.dock.is_none()
-    }
-
     /// A Desk left with tabs but no task (its agent closed or undocked) becomes a plain window,
-    /// or, when it has a planning agent to show beside the Shelf, hands its tabs to a window of their own.
+    /// or, when it has a lead to show beside the Shelf, hands its tabs to a window of their own.
     pub(crate) fn clear_shelves(&mut self) {
         for w in 0..self.windows.len() {
-            if !self.is_shelf(w) || self.windows[w].tabs.is_empty() {
+            if !self.shows_shelf(w) || self.windows[w].tabs.tabs.is_empty() {
                 continue;
             }
-            if self.windows[w].planner.is_none() {
+            if self.windows[w].lead.is_none() {
                 self.windows[w].desk = false;
                 continue;
             }
-            let tabs = std::mem::take(&mut self.windows[w].tabs);
-            let (active, key) = (self.windows[w].active.take(), self.key.clone());
+            let tabs = std::mem::take(&mut self.windows[w].tabs.tabs);
+            let (active, key) = (self.windows[w].tabs.active.take(), self.key.clone());
             let n = self.make_window();
             let window = &mut self.windows[n];
-            window.tab_count = tabs.len();
-            window.tabs = tabs;
-            window.active = active;
-            window.settle_focus();
-            self.windows[w].settle_focus();
+            window.tabs.count = tabs.len();
+            window.tabs.tabs = tabs;
+            window.tabs.active = active;
+            window.tabs.settle_focus(None);
+            let lead = self.windows[w].lead.as_ref().map(|l| l.pane.clone());
+            self.windows[w].tabs.settle_focus(lead.as_ref());
             self.set_key(key);
         }
     }
 
     fn is_desk(&self, w: usize) -> bool {
-        let window = &self.windows[w];
-        window.desk || window.dock.is_some()
+        self.windows[w].desk
     }
 
     fn park_window(&mut self, w: usize) -> Option<String> {
-        let window = &mut self.windows[w];
-        let dock = window.dock.take()?;
-        window.desk = true;
-        let mut parked = Window::new(dock.pane.clone());
-        parked.dock = Some(dock);
-        parked.tabs = std::mem::take(&mut window.tabs);
-        parked.active = window.active.take();
-        parked.focused = window.focused.take();
-        parked.zoom = std::mem::take(&mut window.zoom);
-        parked.tab_count = parked.tabs.len();
-        parked.desk = true;
-        parked.parked_at = Some(now());
-        let id = parked.id.clone();
-        self.parked.insert(0, parked);
-        self.windows[w].settle_focus();
-        Some(id)
+        let s = self.showing(w)?;
+        let mut ws = self.workspaces.remove(s);
+        ws.place = Where::Shelf;
+        ws.parked_at = Some(now());
+        let task = ws.dock.pane.clone();
+        self.workspaces.insert(0, ws);
+        let lead = self.windows[w].lead.as_ref().map(|l| l.pane.clone());
+        self.windows[w].tabs.settle_focus(lead.as_ref());
+        Some(task)
     }
 
-    fn task_window(&self, reference: &str, panes: &Panes) -> Result<(String, Option<usize>), KmuxError> {
-        let id = panes.need(Some(reference))?.id.clone();
-        if self.shelf().any(|p| p.id == id) {
-            return Ok((id, None));
+    fn task_window(&self, reference: &str, panes: &Panes) -> Result<(usize, Option<usize>), KmuxError> {
+        let s = self.find_workspace(reference, panes).ok_or_else(|| match panes.need(Some(reference)) {
+            Err(error) => error,
+            Ok(_) => not_found(format!("{reference} is not in a task: it's in no task's workspace")),
+        })?;
+        match &self.workspaces[s].place {
+            Where::Desk(window) => Ok((s, self.window_index(window))),
+            Where::Shelf => Ok((s, None)),
+            Where::Backlog => Err(not_found(format!("{reference} is not on a Desk or the Shelf"))),
         }
-        let w = self.window_containing(&id).ok_or_else(|| not_found(format!("{reference} is not on a Desk or the Shelf")))?;
-        let task = self.windows[w].dock.as_ref().map(|d| d.pane.clone()).ok_or_else(|| not_found(format!("{reference} is not in a task: its window has no docked pane")))?;
-        Ok((task, Some(w)))
     }
 
     fn desk_on(&self, project: &str, panes: &Panes) -> Option<usize> {
         let root = crate::core::project(Some(project));
-        let on = |w: &Window| {
-            let mut folders = w.dock.iter().chain(w.planner.iter()).filter_map(|d| panes.get(&d.pane)?.cwd.as_deref());
-            let folder = folders.next().or(w.project.as_deref());
+        let on = |w: usize| {
+            let window = &self.windows[w];
+            let mut folders = self.shows(w).map(|s| &s.dock).into_iter().chain(window.lead.iter()).filter_map(|d| panes.get(&d.pane)?.cwd.as_deref());
+            let folder = folders.next().or(window.project.as_deref());
             folder.is_some() && crate::core::project(folder) == root
         };
         let rank = |w: &Window| match self.used.iter().position(|u| *u == w.id) {
@@ -215,7 +140,7 @@ impl Model {
             Some(at) => at + 1,
             None => usize::MAX,
         };
-        (0..self.windows.len()).filter(|&w| self.is_desk(w) && on(&self.windows[w])).min_by_key(|&w| rank(&self.windows[w]))
+        (0..self.windows.len()).filter(|&w| self.is_desk(w) && on(w)).min_by_key(|&w| rank(&self.windows[w]))
     }
 
     fn desk_for(&mut self, window: Option<&str>) -> Result<usize, KmuxError> {
@@ -233,6 +158,10 @@ impl Model {
         Ok(w)
     }
 
+    fn agent(&self, s: usize) -> String {
+        self.workspaces[s].dock.pane.clone()
+    }
+
     pub(crate) fn task(&mut self, args: &Value, panes: &Panes) -> Result<Map, KmuxError> {
         let string = |key: &str| args.get(key).and_then(Value::as_str);
         match string("action").unwrap_or("") {
@@ -240,7 +169,7 @@ impl Model {
             "park" => {
                 let w = match string("task") {
                     Some(reference) => match self.task_window(reference, panes)? {
-                        (task, None) => return Ok(reply([("task", task.into()), ("window", Value::Null), ("parked", Value::Bool(false))])),
+                        (s, None) => return Ok(reply([("task", self.agent(s).into()), ("window", Value::Null), ("parked", Value::Bool(false))])),
                         (_, Some(w)) => w,
                     },
                     None => match string("window") {
@@ -253,11 +182,12 @@ impl Model {
                 if args.get("close").and_then(Value::as_bool) == Some(true) {
                     self.windows.remove(w);
                     if self.key.as_deref() == Some(window.as_str()) {
-                        self.set_key(self.windows.last().map(|w| w.id.clone()));
+                        self.set_key(None);
                     }
                 } else {
                     self.set_key(Some(window.clone()));
                 }
+                self.drop_empty();
                 match task {
                     Some(task) => Ok(reply([("moves", moves(&[(&task, "desk", "shelf", &window)])), ("task", task.into()), ("window", window.into()), ("parked", Value::Bool(true))])),
                     None if args.get("close").and_then(Value::as_bool) == Some(true) => Ok(reply([("task", Value::Null), ("window", window.into()), ("parked", Value::Bool(false))])),
@@ -266,49 +196,51 @@ impl Model {
             }
             "pull" => {
                 let reference = string("task").ok_or_else(|| bad_request("pull needs a task"))?;
-                let (task, at) = self.task_window(reference, panes)?;
+                let (s, at) = self.task_window(reference, panes)?;
+                let task = self.agent(s);
                 if let Some(w) = at {
                     let window = self.windows[w].id.clone();
                     self.set_key(Some(window.clone()));
                     return Ok(reply([("task", task.into()), ("window", window.into()), ("moved", Value::Bool(false))]));
                 }
+                let id = self.workspaces[s].id.clone();
                 let w = self.desk_for(string("window"))?;
                 let window = self.windows[w].id.clone();
                 let swapped = self.park_window(w);
-                let i = self.parked.iter().position(|p| p.id == task).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
-                let parked = self.parked.remove(i);
-                let target = &mut self.windows[w];
-                target.dock = parked.dock;
-                target.tabs = parked.tabs;
-                target.active = parked.active;
-                target.focused = parked.focused;
-                target.zoom = parked.zoom;
-                target.tab_count = target.tab_count.max(target.tabs.len());
-                target.desk = true;
-                target.settle_focus();
+                let s = self.ws_index(&id).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
+                self.workspaces[s].place = Where::Desk(window.clone());
+                self.workspaces[s].parked_at = None;
+                let dock = Some(self.agent(s));
+                self.workspaces[s].tabs.settle_focus(dock.as_ref());
                 self.set_key(Some(window.clone()));
+                self.drop_empty();
                 let mut moved = swapped.iter().map(|p| (p.as_str(), "desk", "shelf", window.as_str())).collect::<Vec<_>>();
                 moved.push((&task, "shelf", "desk", &window));
-                Ok(reply([("moves", moves(&moved)), ("task", task.into()), ("window", window.into()), ("moved", Value::Bool(true))]))
+                Ok(reply([("moves", moves(&moved)), ("task", task.clone().into()), ("window", window.into()), ("moved", Value::Bool(true))]))
             }
             "hold" => {
                 let reference = string("task").ok_or_else(|| bad_request("hold needs a task"))?;
-                let (task, at) = self.task_window(reference, panes)?;
+                let (s, at) = self.task_window(reference, panes)?;
+                let id = self.workspaces[s].id.clone();
                 if let Some(w) = at {
                     self.park_window(w);
                 }
-                let held = self.parked.iter_mut().find(|p| p.id == task).ok_or_else(|| not_found(format!("no task \"{task}\"")))?;
-                held.backlog = true;
+                let s = self.ws_index(&id).ok_or_else(|| not_found(format!("no task \"{reference}\"")))?;
+                self.workspaces[s].place = Where::Backlog;
+                let task = self.agent(s);
+                self.drop_empty();
                 Ok(reply([("task", task.into())]))
             }
             "release" => {
                 let reference = string("task").ok_or_else(|| bad_request("release needs a task"))?;
-                let i = self.parked.iter().position(|p| p.id == reference && p.backlog).ok_or_else(|| not_found(format!("no task \"{reference}\" held in the backlog")))?;
-                let mut held = self.parked.remove(i);
-                held.backlog = false;
-                held.parked_at = Some(now());
-                self.parked.insert(0, held);
-                Ok(reply([("task", reference.into())]))
+                let held = self.find_workspace(reference, panes).filter(|&s| self.workspaces[s].place == Where::Backlog);
+                let s = held.ok_or_else(|| not_found(format!("no task \"{reference}\" held in the backlog")))?;
+                let mut ws = self.workspaces.remove(s);
+                ws.place = Where::Shelf;
+                ws.parked_at = Some(now());
+                let task = ws.dock.pane.clone();
+                self.workspaces.insert(0, ws);
+                Ok(reply([("task", task.into())]))
             }
             "desk" => {
                 let project = match string("project") {
@@ -320,8 +252,9 @@ impl Model {
                 let found = project.as_deref().filter(|_| !fresh).and_then(|p| self.desk_on(p, panes));
                 let w = match found {
                     Some(w) => {
-                        if let Some(side) = self.windows[w].side_pane() {
-                            self.windows[w].focused = Some(side);
+                        let h = self.shown_holder(w);
+                        if let Some(side) = self.side(h) {
+                            self.tabs_mut(h).focused = Some(side);
                         }
                         w
                     }
@@ -345,34 +278,24 @@ impl Model {
     }
 
     pub fn task_list(&self, panes: &Panes) -> Map {
-        let entry = |task: &str, window: Option<&str>, parked_at: Option<f64>, tabs: usize| {
+        let entry = |ws: &Workspace, window: Option<&str>| {
             Value::Object(reply([
-                ("id", task.into()),
-                ("name", panes.get(task).and_then(|p| p.name.clone()).map_or(Value::Null, Value::String)),
+                ("id", ws.dock.pane.clone().into()),
+                ("workspace", ws.id.clone().into()),
+                ("name", panes.get(&ws.dock.pane).and_then(|p| p.name.clone()).map_or(Value::Null, Value::String)),
                 ("window", window.map_or(Value::Null, |w| w.into())),
-                ("parkedAt", parked_at.map_or(Value::Null, num)),
-                ("tabs", num(tabs as f64)),
+                ("parkedAt", ws.parked_at.map_or(Value::Null, num)),
+                ("tabs", num(ws.tabs.tabs.len() as f64)),
             ]))
         };
-        let mut tasks: Vec<Value> = self.windows.iter().filter_map(|w| w.dock.as_ref().map(|d| entry(&d.pane, Some(&w.id), None, w.tabs.len()))).collect();
-        tasks.extend(self.shelf().map(|p| entry(&p.id, None, p.parked_at, p.tabs.len())));
-        reply([("tasks", Value::Array(tasks))])
-    }
-}
-
-fn without(node: Node, id: &str) -> Option<Node> {
-    match node {
-        Node::Pane(pane) if pane == id => None,
-        Node::Pane(pane) => Some(Node::Pane(pane)),
-        Node::Split(split) => {
-            let kids: Vec<Child> = split.kids.into_iter().filter_map(|kid| without(kid.node, id).map(|node| Child { node, size: kid.size })).collect();
-            let total: f64 = kids.iter().map(|k| k.size).sum();
-            if kids.is_empty() {
-                return None;
+        let mut tasks: Vec<Value> = vec![];
+        for w in 0..self.windows.len() {
+            if let Some(s) = self.showing(w) {
+                tasks.push(entry(&self.workspaces[s], Some(&self.windows[w].id)));
             }
-            let kids = kids.into_iter().map(|k| Child { node: k.node, size: if total > 0.0 { k.size / total } else { 0.0 } }).collect();
-            Some(normalize(Node::Split(Split { axis: split.axis, kids })))
         }
+        tasks.extend(self.shelf().map(|ws| entry(ws, None)));
+        reply([("tasks", Value::Array(tasks))])
     }
 }
 

@@ -57,14 +57,16 @@ pub struct Placement {
     pub opener: Option<String>,
     pub shelf: bool,
     pub backlog: bool,
-    pub planner: bool,
+    pub lead: bool,
+    pub task: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spot {
-    pub window: String,
+    pub window: Option<String>,
     pub tab: Option<String>,
     pub dock: Option<Edge>,
+    pub workspace: Value,
 }
 
 #[derive(Clone, Debug)]
@@ -97,6 +99,11 @@ pub trait LayoutHost {
     fn command(&mut self, cmd: &str, args: &Value, panes: &Panes) -> Result<Map, KmuxError>;
 
     fn windows(&self, panes: &Panes) -> Value;
+
+    fn workspaces(&self, panes: &Panes) -> Value {
+        let _ = panes;
+        Value::Null
+    }
 
     fn export_state(&self) -> Map;
 
@@ -140,16 +147,19 @@ impl LayoutLink for LocalLayout {
     }
 }
 
-pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>, frozen: bool, from: Option<&str>, opener: Option<&str>, shelf: bool, backlog: bool, planner: bool) -> Value {
+pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>, frozen: bool, from: Option<&str>, opener: Option<&str>, shelf: bool, backlog: bool, lead: bool, task: Option<&str>) -> Value {
     let mut at = Map::new();
+    if let Some(task) = task {
+        at.insert("task".into(), task.into());
+    }
     if frozen {
         at.insert("frozen".into(), Value::Bool(true));
     }
     if backlog {
         at.insert("backlog".into(), Value::Bool(true));
     }
-    if planner {
-        at.insert("planner".into(), Value::Bool(true));
+    if lead {
+        at.insert("lead".into(), Value::Bool(true));
     }
     if shelf {
         at.insert("shelf".into(), Value::Bool(true));
@@ -240,14 +250,17 @@ pub fn placement(at: &Value) -> Result<Placement, KmuxError> {
         Some(size) => size.as_f64().filter(|s| *s > 0.0 && *s < 1.0).ok_or_else(|| bad("size must be a fraction between 0 and 1"))?,
     };
     let dock = Edge::read(at.get("dock")).map_err(|_| bad("dock must be left or right"))?;
-    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock, frozen: at.get("frozen") == Some(&Value::Bool(true)), from: string(at, "from").map(String::from), opener: string(at, "opener").map(String::from), shelf: at.get("shelf") == Some(&Value::Bool(true)), backlog: at.get("backlog") == Some(&Value::Bool(true)), planner: at.get("planner") == Some(&Value::Bool(true)) })
+    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock, frozen: at.get("frozen") == Some(&Value::Bool(true)), from: string(at, "from").map(String::from), opener: string(at, "opener").map(String::from), shelf: at.get("shelf") == Some(&Value::Bool(true)), backlog: at.get("backlog") == Some(&Value::Bool(true)), lead: at.get("lead") == Some(&Value::Bool(true)), task: string(at, "task").map(String::from) })
 }
 
 fn spot(reply: &mut Map, spot: Option<Spot>, window: Option<String>) {
-    reply.insert("window".into(), opt(spot.as_ref().map(|s| s.window.as_str()).or(window.as_deref())));
+    reply.insert("window".into(), opt(spot.as_ref().and_then(|s| s.window.as_deref()).or(window.as_deref())));
     reply.insert("tab".into(), opt(spot.as_ref().and_then(|s| s.tab.as_deref())));
-    if let Some(edge) = spot.and_then(|s| s.dock) {
+    if let Some(edge) = spot.as_ref().and_then(|s| s.dock) {
         reply.insert("dock".into(), edge.as_str().into());
+    }
+    if let Some(workspace) = spot.map(|s| s.workspace).filter(|w| !w.is_null()) {
+        reply.insert("workspace".into(), workspace);
     }
 }
 
@@ -296,6 +309,10 @@ fn step(host: &mut dyn LayoutHost, request: &Value, panes: &Panes) -> Result<Map
         }
         "windows" => {
             reply.insert("windows".into(), host.windows(panes));
+            let workspaces = host.workspaces(panes);
+            if !workspaces.is_null() {
+                reply.insert("workspaces".into(), workspaces);
+            }
         }
         "export" => return Ok(host.export_state()),
         op @ ("check" | "install") => {
