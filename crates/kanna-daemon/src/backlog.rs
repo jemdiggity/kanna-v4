@@ -883,7 +883,7 @@ impl Backlog {
             let mine: Vec<&Entry> = entries.iter().filter(|e| e.repo == repo).collect();
             let mut busy = mine.iter().filter(|e| starting.contains(&e.id) || e.held.as_deref().is_some_and(|pane| alive(core, pane))).count();
             let mut waiting: Vec<&&Entry> = mine.iter().filter(|e| e.folder.is_none() && e.held.is_none() && !starting.contains(&e.id) && !self.failed.borrow().contains(&e.id) && self.waits(e).is_empty()).collect();
-            waiting.sort_by(|a, b| a.made_at.total_cmp(&b.made_at).then_with(|| a.id.cmp(&b.id)));
+            waiting.sort_by(|a, b| a.made_at.total_cmp(&b.made_at));
             for entry in waiting {
                 if busy >= slots {
                     break;
