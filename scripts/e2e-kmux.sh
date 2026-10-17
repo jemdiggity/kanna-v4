@@ -9,6 +9,7 @@ out="$repo_root/target/e2e"
 mkdir -p "$out"
 export KMUX_SOCKET="/tmp/kmux-e2e-$$.sock"
 export KMUX_IGNORE_OCCLUSION=1 # render even if the window is covered
+unset GHOSTTY_RESOURCES_DIR # the app's own resources, not those of a Ghostty running this script
 cli="$repo_root/target/release/kmux"
 
 "$repo_root/target/kmux.app/Contents/MacOS/kmux" --bg >"$out/kmux.log" 2>&1 &

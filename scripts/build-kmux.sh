@@ -11,7 +11,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [[ ! -d "$repo_root/target/ghosttykit/GhosttyKit.xcframework" ]]; then
+if [[ ! -d "$repo_root/target/ghosttykit/GhosttyKit.xcframework" || ! -d "$repo_root/target/ghosttykit/share/terminfo" ]]; then
   "$repo_root/scripts/build-ghosttykit.sh"
 fi
 
@@ -34,6 +34,10 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$product_dir/kmux" "$app/Contents/MacOS/$brand"
 cp "$icon" "$app/Contents/Resources/$brand.icns"
 cp "$repo_root/LICENSE" "$repo_root/NOTICE" "$app/Contents/Resources/"
+# Ghostty finds its resources in Contents/Resources, as in Ghostty.app: terminals
+# get TERM=xterm-ghostty and its shell integration, so shells report their
+# directory (OSC 7).
+cp -R "$repo_root/target/ghosttykit/share/ghostty" "$repo_root/target/ghosttykit/share/terminfo" "$app/Contents/Resources/"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
