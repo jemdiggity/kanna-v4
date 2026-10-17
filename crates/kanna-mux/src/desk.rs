@@ -44,7 +44,7 @@ impl Model {
 
     pub fn name_tasks(&mut self, tasks: &[(String, String)]) {
         for (pane, task) in tasks {
-            if let Some(s) = self.dock_ws(pane).filter(|&s| self.workspaces[s].task.is_none()) {
+            if let Some(s) = self.dock_ws(pane).filter(|&s| self.workspaces[s].task.as_ref() != Some(task)) {
                 self.name_workspace(s, task);
             }
         }

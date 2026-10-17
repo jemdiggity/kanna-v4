@@ -190,7 +190,7 @@ pub fn task(request: &Value, reply: &Value) -> String {
                 .map(|t| {
                     let place = t["window"].as_str().map_or("Shelf".to_string(), |w| format!("Desk {w}"));
                     let parked = t["parkedAt"].as_f64().map_or(String::new(), |at| format!("parked {}", ago(now - at)));
-                    [t["id"].as_str().unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), place, state(t), parked]
+                    [t["task"].as_str().or(t["id"].as_str()).unwrap_or("?").into(), t["name"].as_str().unwrap_or("").into(), place, state(t), parked]
                 })
                 .chain(waiting.iter().map(|t| {
                     let made = t["madeAt"].as_f64().map_or(String::new(), |at| format!("made {} · {}", ago(now - at), tilde(t["repo"].as_str().unwrap_or(""))));
@@ -278,6 +278,16 @@ fn freed_lines(reply: &Value) -> String {
 
 fn place(reply: &Value) -> &'static str {
     if reply["place"] == "backlog" { " in the backlog" } else { "" }
+}
+
+/// Gives each Shelf and Desk task, listed by its agent's pane, its task ID from the backlog's `out`.
+pub fn name_out(reply: &mut Value, out: &Value) {
+    let Some(tasks) = reply["tasks"].as_array_mut() else { return };
+    for task in tasks {
+        if let Some(known) = out.as_array().into_iter().flatten().find(|o| o["pane"] == task["id"]) {
+            task["task"] = known["id"].clone();
+        }
+    }
 }
 
 pub fn keep_matching(reply: &mut Value, query: &str) {

@@ -513,16 +513,22 @@ fn a_backlog_task_is_renamed_and_starts_with_its_new_name() {
     let git = |args: &[&str]| assert!(std::process::Command::new("git").args(["-c", "user.email=e@e", "-c", "user.name=e"]).args(args).current_dir(&daemon.dir).status().unwrap().success());
     git(&["init", "-q"]);
     git(&["commit", "-q", "--allow-empty", "-m", "first"]);
-    assert_eq!(daemon.kanna(&["task", "new", "Old name", "say hi", "--agent", "/bin/cat"]).ok(), format!("added t1 \"Old name\" to the backlog of {}", daemon.dir.display()));
-    assert_eq!(daemon.kanna(&["task", "name", "t1", "New name"]).ok(), "named t1 \"New name\"");
+    let added = daemon.kanna(&["--json", "task", "new", "Old name", "say hi", "--agent", "/bin/cat"]).json();
+    let id = added["task"]["id"].as_str().unwrap().to_string();
+    assert!(id.len() == 13 && id.starts_with("task-") && id[5..].bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{id}");
+    let short = &id[5..9];
+    assert_eq!(daemon.kanna(&["task", "name", short, "New name"]).ok(), format!("named {id} \"New name\""), "a start of its ID, without task-");
     let listed = daemon.kanna(&["--json", "task", "list"]).json()["backlog"][0].clone();
     assert_eq!((listed["name"].clone(), listed["message"].clone()), (json!("New name"), json!("say hi")));
-    daemon.kanna(&["task", "name", "t9", "x"]).fails(4, "no task \"t9\" in the backlog or on the Shelf");
-    daemon.kanna(&["task", "name", "t1", " "]).fails(2, "a task needs a name");
-    let started = daemon.kanna(&["--json", "task", "start", "t1"]).json();
+    daemon.kanna(&["task", "name", "t9", "x"]).fails(4, "t9");
+    daemon.kanna(&["task", "name", &id, " "]).fails(2, "a task needs a name");
+    let started = daemon.kanna(&["--json", "task", "start", &format!("task-{short}")]).json();
+    assert_eq!(started["task"], json!(id), "{started}");
+    let folder = daemon.kanna(&["--json", "task", "list"]).json()["backlog"][0]["folder"].clone();
+    assert!(folder.as_str().is_some_and(|f| f.ends_with(&format!(".kanna-worktrees/{id}"))), "its worktree is named after it: {folder}");
     let pane = started["pane"].as_str().unwrap().to_string();
     wait_for("the started task's pane", || daemon.kanna(&["--json", "list"]).json()["panes"].as_array().unwrap().iter().any(|p| p["id"] == pane.as_str() && p["name"] == "New name"));
-    assert_eq!(daemon.kanna(&["task", "name", "t1", "Newer name"]).ok(), "named t1 \"Newer name\"");
+    assert_eq!(daemon.kanna(&["task", "name", &id, "Newer name"]).ok(), format!("named {id} \"Newer name\""));
     assert!(daemon.kanna(&["--json", "list"]).json()["panes"].as_array().unwrap().iter().any(|p| p["id"] == pane.as_str() && p["name"] == "Newer name"));
     assert_eq!(daemon.kanna(&["--json", "task", "list"]).json()["backlog"][0]["name"], json!("Newer name"));
 }

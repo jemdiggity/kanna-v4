@@ -418,7 +418,7 @@ pub static COMMANDS: &[Command] = &[
                         Some(name) => (first, name),
                         None => (std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()).ok_or_else(|| usage("task", "say which task: kanna task name TASK NAME"))?, first),
                     };
-                    out[if is_backlog_task(&task) { "task" } else { "pane" }] = json!(task);
+                    out["task"] = json!(task);
                     out["name"] = json!(name);
                 }
                 "done" => {
@@ -778,8 +778,8 @@ fn in_repo(file: &str) -> String {
     }
 }
 
-pub fn is_backlog_task(task: &str) -> bool {
-    task.strip_prefix('t').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+pub fn is_task_id(task: &str) -> bool {
+    task.strip_prefix("task-").is_some_and(|hex| hex.len() == 8 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
 fn repo_here() -> Result<String, Failure> {
