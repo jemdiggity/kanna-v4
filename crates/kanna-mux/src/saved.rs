@@ -6,14 +6,14 @@ use crate::state::{bad, number_in, quoted, whole};
 use crate::workspace::{Where, Workspace};
 use std::collections::HashSet;
 
-pub const LAYOUT_VERSION: u32 = 2;
+pub const LAYOUT_VERSION: u32 = 3;
 
 struct Restored {
     windows: Vec<Window>,
     workspaces: Vec<Workspace>,
     orphans: Vec<(Option<String>, Tabs)>,
     key: Option<String>,
-    counters: (usize, usize),
+    counters: (usize, usize, usize),
 }
 
 fn tab_json(tab: &Tab) -> Value {
@@ -69,16 +69,13 @@ fn window_json(window: &Window, tabs: &Tabs) -> Map {
 
 fn put_workspace(out: &mut Map, ws: &Workspace) {
     out.insert("dock".into(), dock_json(&ws.dock));
-    if let Some(task) = &ws.task {
-        out.insert("task".into(), task.clone().into());
-    }
     if let Some(at) = ws.parked_at {
         out.insert("parkedAt".into(), num(at));
     }
 }
 
 fn counters(model: &Model) -> Value {
-    Value::Object(reply([("tab", num(model.counters.0 as f64)), ("window", num(model.counters.1 as f64))]))
+    Value::Object(reply([("tab", num(model.counters.0 as f64)), ("window", num(model.counters.1 as f64)), ("workspace", num(model.counters.2 as f64))]))
 }
 
 impl Model {
@@ -125,7 +122,7 @@ impl Model {
         out
     }
 
-    pub fn export_v2(&self) -> Map {
+    pub fn export_v3(&self) -> Map {
         let windows = self
             .windows
             .iter()
@@ -159,7 +156,7 @@ struct Reader<'a> {
     placed: HashSet<String>,
     tab_ids: HashSet<String>,
     window_ids: HashSet<String>,
-    counters: (usize, usize),
+    counters: (usize, usize, usize),
 }
 
 fn build(node: &Value, panes: &HashSet<String>, placed: &mut HashSet<String>) -> Result<Node, KmuxError> {
@@ -268,9 +265,7 @@ fn settle(tabs: &mut Tabs, item: &Value, side: Option<&String>) {
 }
 
 fn read_workspace(id: &str, item: &Value, dock: Dock, tabs: Tabs, place: Where) -> Workspace {
-    let mut ws = Workspace::new(dock, place);
-    ws.id = id.into();
-    ws.task = string(item, "task").map(String::from);
+    let mut ws = Workspace::new(id.into(), dock, place);
     ws.parked_at = item.get("parkedAt").and_then(Value::as_f64);
     ws.tabs = tabs;
     let side = Some(ws.dock.pane.clone());
@@ -280,7 +275,7 @@ fn read_workspace(id: &str, item: &Value, dock: Dock, tabs: Tabs, place: Where) 
 
 pub fn read(state: &Value, panes: &HashSet<String>) -> Result<SavedLayout, KmuxError> {
     let saved = state.get("counters").cloned().unwrap_or(Value::Object(Map::new()));
-    let mut reader = Reader { panes, placed: HashSet::new(), tab_ids: HashSet::new(), window_ids: HashSet::new(), counters: (whole(saved.get("tab")).unwrap_or(0), whole(saved.get("window")).unwrap_or(0)) };
+    let mut reader = Reader { panes, placed: HashSet::new(), tab_ids: HashSet::new(), window_ids: HashSet::new(), counters: (whole(saved.get("tab")).unwrap_or(0), whole(saved.get("window")).unwrap_or(0), whole(saved.get("workspace")).unwrap_or(0)) };
     let saved_windows = state.get("windows").and_then(Value::as_array).ok_or_else(|| bad("needs panes and windows"))?;
     let (mut windows, mut workspaces, mut orphans) = (vec![], vec![], vec![]);
     let mut ws_ids = HashSet::new();
@@ -362,6 +357,16 @@ pub fn read(state: &Value, panes: &HashSet<String>) -> Result<SavedLayout, KmuxE
             window.workspace = None;
         }
     }
+    let mut next = workspaces.iter().filter_map(|s| number_in(&s.id, "ws-")).fold(reader.counters.2, usize::max);
+    for ws in workspaces.iter_mut().filter(|s| number_in(&s.id, "ws-").is_none()) {
+        next += 1;
+        let id = format!("ws-{next}");
+        for window in windows.iter_mut().filter(|w| w.workspace.as_deref() == Some(ws.id.as_str())) {
+            window.workspace = Some(id.clone());
+        }
+        ws.id = id;
+    }
+    reader.counters.2 = next;
     windows.retain(|w: &Window| !w.tabs.tabs.is_empty() || w.desk || w.lead.is_some());
     let key = string(state, "key").filter(|k| windows.iter().any(|w| w.id == *k)).map(String::from).or_else(|| windows.last().map(|w| w.id.clone()));
     let counters = reader.counters;
@@ -372,7 +377,7 @@ pub fn install(model: &mut Model, saved: SavedLayout) {
     let Ok(restored) = saved.layout.downcast::<Restored>() else { return };
     model.windows = restored.windows;
     model.workspaces = restored.workspaces;
-    model.counters = (model.counters.0.max(restored.counters.0), model.counters.1.max(restored.counters.1));
+    model.counters = (model.counters.0.max(restored.counters.0), model.counters.1.max(restored.counters.1), model.counters.2.max(restored.counters.2));
     for (desk, tabs) in restored.orphans {
         match desk.and_then(|id| model.window_index(&id)).filter(|&w| model.windows[w].lead.is_none() && model.showing(w).is_none()) {
             Some(w) => model.windows[w].tabs = tabs,

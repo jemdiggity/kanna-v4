@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn the_first_word_is_a_command() {
         let first = words(&at(""));
-        for name in ["open", "close", "markup", "list", "help", "instances", "raw"] {
+        for name in ["open", "close", "markup", "workspace", "help", "instances", "raw"] {
             assert!(first.contains(&name.to_string()), "{first:?}");
         }
     }

@@ -106,8 +106,7 @@ flowchart LR
 
 | Command | Does |
 |---|---|
-| `kanna list` | Adds a STATUS column for agent panes |
-| `kanna list --json` | Adds `status` to each agent pane |
+| `kanna workspace list --all --json` | Adds `status` to each agent pane |
 | `kanna status explain PANE` | The agent, its version, where its status came from (`source: OSC 7501` with the record, or `source: rules`), the rules file and its source, the matching rule and the text it matched |
 | `kanna status explain --file SCREEN --agent claude` | The same for a saved screen, for writing rules |
 | `kanna status update` | Check the rules site now |

@@ -397,7 +397,7 @@ mod tab_name_tests {
         web.title = Some("  ".into());
         assert_eq!(web.tab_name().as_deref(), Some("docs.rs"));
         web.title = Some("\u{1b}]0;owned\u{7}\u{1b}[2Jpage\n".into());
-        assert_eq!(web.tab_name().as_deref(), Some("]0;owned[2Jpage"), "no control characters reach a terminal through kanna list");
+        assert_eq!(web.tab_name().as_deref(), Some("]0;owned[2Jpage"), "no control characters reach a terminal through kanna workspace list");
         web.title = None;
         web.url = Some("http://[::1]:5173/".into());
         assert_eq!(web.tab_name().as_deref(), Some("::1"));

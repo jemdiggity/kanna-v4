@@ -2,7 +2,7 @@
 
 **Status:** built · **Builds on:** [tasks](tasks.md), [database](database.md), [workspaces](workspaces.md)
 
-**A task's ID is `task-` and 8 lowercase hex digits (32 bits), like `task-1dfb12c2`.** It used to be `t134`, side by side with tab IDs like `t215` in `kanna list`; now a task can't be taken for a tab. The ID is made by `kanna task new`, so a task has it before it ever starts, and it names the task's worktree and first branch. **It's shown short, `task-1dfb`**: the first 4 hex digits, more only when another open task starts the same way.
+**A task's ID is `task-` and 8 lowercase hex digits (32 bits), like `task-1dfb12c2`.** It used to be `t134`, side by side with tab IDs like `t215` in the listing; now a task can't be taken for a tab. The ID is made by `kanna task new`, so a task has it before it ever starts, and it names the task's worktree and first branch. **It's shown short, `task-1dfb`**: the first 4 hex digits, more only when another open task starts the same way.
 
 ```mermaid
 flowchart LR

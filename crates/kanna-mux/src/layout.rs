@@ -58,7 +58,6 @@ pub struct Placement {
     pub shelf: bool,
     pub backlog: bool,
     pub lead: bool,
-    pub task: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -105,6 +104,11 @@ pub trait LayoutHost {
         Value::Null
     }
 
+    fn hidden_windows(&self, panes: &Panes) -> Value {
+        let _ = panes;
+        Value::Null
+    }
+
     fn export_state(&self) -> Map;
 
     fn read_state(&self, state: &Value, panes: &HashSet<String>) -> Result<SavedLayout, KmuxError>;
@@ -147,11 +151,8 @@ impl LayoutLink for LocalLayout {
     }
 }
 
-pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>, frozen: bool, from: Option<&str>, opener: Option<&str>, shelf: bool, backlog: bool, lead: bool, task: Option<&str>) -> Value {
+pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>, frozen: bool, from: Option<&str>, opener: Option<&str>, shelf: bool, backlog: bool, lead: bool) -> Value {
     let mut at = Map::new();
-    if let Some(task) = task {
-        at.insert("task".into(), task.into());
-    }
     if frozen {
         at.insert("frozen".into(), Value::Bool(true));
     }
@@ -250,7 +251,7 @@ pub fn placement(at: &Value) -> Result<Placement, KmuxError> {
         Some(size) => size.as_f64().filter(|s| *s > 0.0 && *s < 1.0).ok_or_else(|| bad("size must be a fraction between 0 and 1"))?,
     };
     let dock = Edge::read(at.get("dock")).map_err(|_| bad("dock must be left or right"))?;
-    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock, frozen: at.get("frozen") == Some(&Value::Bool(true)), from: string(at, "from").map(String::from), opener: string(at, "opener").map(String::from), shelf: at.get("shelf") == Some(&Value::Bool(true)), backlog: at.get("backlog") == Some(&Value::Bool(true)), lead: at.get("lead") == Some(&Value::Bool(true)), task: string(at, "task").map(String::from) })
+    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock, frozen: at.get("frozen") == Some(&Value::Bool(true)), from: string(at, "from").map(String::from), opener: string(at, "opener").map(String::from), shelf: at.get("shelf") == Some(&Value::Bool(true)), backlog: at.get("backlog") == Some(&Value::Bool(true)), lead: at.get("lead") == Some(&Value::Bool(true)) })
 }
 
 fn spot(reply: &mut Map, spot: Option<Spot>, window: Option<String>) {
@@ -312,6 +313,7 @@ fn step(host: &mut dyn LayoutHost, request: &Value, panes: &Panes) -> Result<Map
             let workspaces = host.workspaces(panes);
             if !workspaces.is_null() {
                 reply.insert("workspaces".into(), workspaces);
+                reply.insert("hiddenWindows".into(), host.hidden_windows(panes));
             }
         }
         "export" => return Ok(host.export_state()),

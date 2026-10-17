@@ -98,7 +98,7 @@ sequenceDiagram
 |---|---|
 | `kanna open diff [GIT-DIFF-ARGS] [placement]` | opens a diff pane on `git diff` with those arguments, in the current folder |
 | `kanna navigate PANE diff [GIT-DIFF-ARGS]` | shows another diff in the same pane |
-| `kanna list` | shows a diff pane's folder and arguments |
+| `kanna workspace list --all --json` | shows a diff pane's folder and arguments |
 | `kanna capabilities` | lists `diff` among the pane types |
 | `kanna raw '{"cmd":"diff","args":{"pane":"p231"}}'` | the pane's latest diff, as the daemon has it: the command, its files and hunks, a serial that counts changes, and whether it's updating |
 | `kanna raw '{"cmd":"debug.diff","args":{"pane":"p231"}}'` | for tests, from the app: the command, the files (path, status, counts, folded), the rows (kind, old and new line, text), the current line, the mode, whether it's updating; `keys: "nn"` presses keys |

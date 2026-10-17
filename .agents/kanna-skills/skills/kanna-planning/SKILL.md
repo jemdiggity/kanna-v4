@@ -46,12 +46,12 @@ When the user asks you to show them something (a diff, a file, a doc, a page, a 
 
 | To show | Run |
 |---|---|
-| A diff, or a command's output | `kanna open --tab --window W --name diff --cmd 'git -c color.ui=always diff main...HEAD \| less -R'` |
-| A markdown doc | `kanna open md FILE --tab --window W` |
-| A source file | `kanna open code FILE[:LINE] --tab --window W` |
-| A page | `kanna open web URL --tab --window W` |
+| A diff, or a command's output | `kanna open --tab --name diff --cmd 'git -c color.ui=always diff main...HEAD \| less -R'` |
+| A markdown doc | `kanna open md FILE --tab` |
+| A source file | `kanna open code FILE[:LINE] --tab` |
+| A page | `kanna open web URL --tab` |
 
-- **W is your window:** the one `kanna list` shows your pane (`$KANNA_PANE`) in. Without `--window` the tab opens in the front window, which may not be yours.
+- **Run it from your own terminal, without `--window`:** the tab opens in your own window, not the front one.
 - **A tab, not a split or a new window,** so your pane keeps its size.
 - In the chat, a line saying what the tab shows.
 

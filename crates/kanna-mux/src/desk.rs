@@ -19,35 +19,11 @@ impl Model {
         (0..self.workspaces.len()).filter(|&s| self.workspaces[s].place == Where::Backlog)
     }
 
-    pub(crate) fn shelve(&mut self, pane: &str, edge: Edge, backlog: bool, frozen: bool, task: Option<&str>) {
-        let mut ws = Workspace::new(Dock { pane: pane.into(), edge, width: DOCK_WIDTH, frozen }, if backlog { Where::Backlog } else { Where::Shelf });
+    pub(crate) fn shelve(&mut self, pane: &str, edge: Edge, backlog: bool, frozen: bool) {
+        let mut ws = self.new_workspace(Dock { pane: pane.into(), edge, width: DOCK_WIDTH, frozen }, if backlog { Where::Backlog } else { Where::Shelf });
         ws.parked_at = Some(now());
         ws.tabs.focused = Some(pane.into());
         self.workspaces.insert(0, ws);
-        if let Some(task) = task {
-            self.name_workspace(0, task);
-        }
-    }
-
-    pub(crate) fn name_workspace(&mut self, s: usize, task: &str) {
-        if self.workspaces.iter().enumerate().any(|(other, ws)| other != s && ws.id == task) {
-            return;
-        }
-        let old = std::mem::replace(&mut self.workspaces[s].id, task.into());
-        self.workspaces[s].task = Some(task.into());
-        for window in &mut self.windows {
-            if window.workspace.as_deref() == Some(old.as_str()) {
-                window.workspace = Some(task.into());
-            }
-        }
-    }
-
-    pub fn name_tasks(&mut self, tasks: &[(String, String)]) {
-        for (pane, task) in tasks {
-            if let Some(s) = self.dock_ws(pane).filter(|&s| self.workspaces[s].task.as_ref() != Some(task)) {
-                self.name_workspace(s, task);
-            }
-        }
     }
 
     pub(crate) fn task_panes(&mut self, task: &str) -> Result<Vec<String>, KmuxError> {

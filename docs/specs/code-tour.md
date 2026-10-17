@@ -61,7 +61,7 @@ sequenceDiagram
 | Command | Does |
 |---|---|
 | `kanna comment FILE:LINE[-LAST] TEXT... [placement]` | comments on those lines; placement options as `open`, for a file that isn't open yet. Answers `opened p87 · fdpass.rs:20–48`, without `opened` when it used a tab already open; on a markdown file, `c3 · how-it-works.md:12 in p6` |
-| `kanna list` | shows a code pane's comment (`path`, `first`, `last`, `text`) |
+| `kanna workspace list --all --json` | shows a code pane's comment (`path`, `first`, `last`, `text`) |
 | `kanna raw '{"cmd":"debug.code","args":{"pane":"p86"}}'` | for tests: also the comment, and which lines are tinted and dimmed |
 
 ## 4. The skill

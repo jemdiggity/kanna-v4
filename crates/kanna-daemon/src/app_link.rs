@@ -208,13 +208,7 @@ impl AppLink {
         let pid = hello.get("args").and_then(|a| a.get("pid")).cloned().unwrap_or(Value::Null);
         eprintln!("kanna-daemon: the app attached (pid {pid})");
         self.lend(hello.get("args").and_then(|a| a.get("panes")));
-        let mut panes = self.core.upgrade().map_or(Value::Array(vec![]), |core| core.with_panes(pane_table));
-        let agents = self.backlog.borrow().as_ref().and_then(|b| b.upgrade()).map(|b| b.agents()).unwrap_or_default();
-        for pane in panes.as_array_mut().into_iter().flatten() {
-            if let Some((_, task)) = agents.iter().find(|(agent, _)| pane["id"] == agent.as_str()) {
-                pane["task"] = json!(task);
-            }
-        }
+        let panes = self.core.upgrade().map_or(Value::Array(vec![]), |core| core.with_panes(pane_table));
         answer(json!({ "id": id, "ok": true, "daemon": { "pid": std::process::id(), "build": self.build }, "panes": panes }));
         *self.app.borrow_mut() = Some(Connection { id: conn, out, stream, behind: Cell::new(false), cut: Cell::new(false) });
         let statuses: Vec<(String, String)> = self.core.upgrade().map_or(vec![], |core| {
@@ -232,6 +226,9 @@ impl AppLink {
         let tasks = self.backlog.borrow().as_ref().and_then(|b| b.upgrade()).map(|b| b.view());
         if let Some(tasks) = tasks {
             self.notify("backlog", tasks);
+        }
+        if let Some(core) = self.core.upgrade() {
+            core.handle(json!({ "cmd": "list" }), |_| {});
         }
         false
     }

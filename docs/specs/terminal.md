@@ -32,7 +32,7 @@ flowchart LR
     CFG["Ghostty config<br/>+ light/dark appearance"] --> S
     CFG -->|"settings"| D
     S --> U["what the user sees:<br/>clipboard, links, bell,<br/>notifications, progress"]
-    D --> L["kanna list (cwd) · kanna read"]
+    D --> L["kanna workspace list --json (cwd) · kanna read"]
     classDef kmux fill:#2f4f8f,stroke:#7fa7ff,color:#ffffff
     classDef ext fill:#6b4f2f,stroke:#e0a960,color:#ffffff
     class D,S kmux

@@ -12,7 +12,7 @@ fn with_kanna_socket_set_an_unreachable_daemon_fails_with_3_and_starts_nothing()
             command.args(["--mux", mux]);
         }
         let output = command
-            .arg("list")
+            .arg("capabilities")
             .env("KANNA_SOCKET", dir.join("nothing.sock"))
             .env("KANNA_APP", "/nonexistent/Kanna.app")
             .env_remove("KANNA_MUX")
@@ -69,7 +69,7 @@ fn serve(path: &std::path::Path, answer: fn(&serde_json::Value) -> serde_json::V
 #[test]
 fn with_the_kmux_backend_its_own_socket_variable_decides_and_is_named() {
     let dir = folder("kmux");
-    let output = kanna(&dir, &["--mux", "kmux", "list"]).env_remove("KANNA_SOCKET").env("KMUX_SOCKET", dir.join("nothing.sock")).output().unwrap();
+    let output = kanna(&dir, &["--mux", "kmux", "capabilities"]).env_remove("KANNA_SOCKET").env("KMUX_SOCKET", dir.join("nothing.sock")).output().unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(3), "{stderr}");
     assert!(stderr.contains("KMUX_SOCKET is set"), "{stderr}");
@@ -134,7 +134,7 @@ fn with_kanna_socket_set_a_command_that_needs_the_app_fails_with_6_and_starts_no
 #[test]
 fn with_nothing_running_kanna_starts_the_app_and_says_so_when_it_cant() {
     let dir = folder("dev");
-    for args in [&["list"][..], &["--mux", "kanna-dev", "list"], &["--instance", "work", "list"]] {
+    for args in [&["capabilities"][..], &["--mux", "kanna-dev", "capabilities"], &["--instance", "work", "capabilities"]] {
         let output = kanna(&dir, args).env_remove("KANNA_SOCKET").env("HOME", &dir).output().unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(3), "{args:?}: {stderr}");
