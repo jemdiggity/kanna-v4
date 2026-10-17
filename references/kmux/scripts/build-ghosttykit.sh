@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds target/ghosttykit/GhosttyKit.xcframework from the pinned Ghostty.
+# Builds target/ghosttykit/GhosttyKit.xcframework and target/ghosttykit/share
+# (Ghostty's resources) from the pinned Ghostty.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,4 +31,9 @@ while library=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:$i:Library
   fi
   i=$((i + 1))
 done
+# Ghostty's shell integration and terminfo, which build-kmux.sh puts in the app.
+rm -rf "$out/share"
+mkdir -p "$out/share/ghostty"
+cp -R "$source_dir/zig-out/share/ghostty/shell-integration" "$out/share/ghostty/"
+cp -R "$source_dir/zig-out/share/terminfo" "$out/share/"
 echo "Built $xcframework"
