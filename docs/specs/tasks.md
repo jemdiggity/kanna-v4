@@ -37,7 +37,7 @@ stateDiagram-v2
 - **One repo.** A task belongs to the repo it was made in, so it can later be sent to another machine or person with that repo.
 - **A name and a first message.** In the backlog, that's all a task is.
 - **Running and place are separate.** A task is in one place (the backlog, the Shelf, a Desk) and either **running** (its agent alive) or **stopped** (no agent; a new backlog task, or one stopped, its worktree, branch, conversation and tabs kept). `kanna task start` and `kanna task stop` change only whether it runs; Move to Shelf, Move to Backlog and pull change only where it is, except that Move to Shelf starts a stopped task.
-- **Started, it runs in its own worktree `<repo>/.kanna-worktrees/<NAME>` on branch `<NAME>`, made from the repo's checked-out commit, and an agent there that gets the first message. NAME is `task-` and the first 32 bits of a fresh random UUID in hex (`task-3f9a1c2e`), so it never collides with another worktree or branch; the agent renames the branch once it knows the work ([4](#4-naming)). The repo's `info/exclude` keeps `.kanna-worktrees/` and each worktree's `.kanna/tmp/` (an agent's scratch files, such as [code tour](code-tour.md) docs) out of git.
+- **Started, it runs in its own worktree `<repo>/.kanna-worktrees/<NAME>` on branch `<NAME>`, made from the repo's checked-out commit, and an agent there that gets the first message. NAME is the task's ID (`task-3f9a1c2e`, [task IDs](task-ids.md)), made with the task and checked against the repo's worktrees and branches; the agent renames the branch once it knows the work ([4](#4-naming)). The repo's `info/exclude` keeps `.kanna-worktrees/` and each worktree's `.kanna/tmp/` (an agent's scratch files, such as [code tour](code-tour.md) docs) out of git.
 - **Every task works in a worktree.** All development happens in one, never in the repo's own checkout.
 - **Kanna is git-based: a task needs a git repo.** In a folder that isn't one, making a task is refused; Kanna never runs `git init` itself. An agent sets the repo up with you (in a new, empty project, the planning agent does), and a repo with no commits yet works: its first task's branch starts empty (`git worktree add --orphan`), so the task's first commit is the project's. Kanna never commits for you.
 - **The Shelf holds three per repo**: the one on the Desk and two on the Shelf, running or stopped. Any number run in the backlog.
@@ -109,7 +109,7 @@ An agent not in the table starts again with its first message, its conversation 
 | `kanna task start TASK` | Run a task where it is: a backlog task gets its worktree, agent and first message and stays in the backlog; a stopped task's agent comes back, resuming its conversation |
 | `kanna task stop [TASK]` | End a task's agent and hang up its terminals, leaving it where it is with its tabs as they are (default: the one you're in) |
 | `kanna task shelve TASK [--window WINDOW]` | Move a backlog task to the Shelf (or onto that Desk), starting it if it's stopped; refused when the Shelf holds three |
-| `kanna task name [TASK] NAME` | Rename a task (default: the one you're in), running or in the backlog (`t47`); a backlog task starts with the new name |
+| `kanna task name [TASK] NAME` | Rename a task (default: the one you're in), running or in the backlog (`task-3f9a1c2e`, or a start of it: `3f9a`); a backlog task starts with the new name |
 | `kanna task list [QUERY]` | Every task: ID, name, where (a Desk, the Shelf, the backlog), state (working, idle, needs you, or stopped), repo; with QUERY, only those whose name or first message has every word ([backlog search](backlog-search.md#cli)) |
 | `kanna task defer [TASK]` | Move a task back to the backlog as it is, running or stopped (default: the one you're in) |
 | `kanna task done [TASK]` | End a task, or take it off the backlog |
@@ -145,7 +145,7 @@ flowchart TB
 
 ## 8. Open questions
 
-1. **Task IDs that travel:** backlog IDs (`t4`) are this machine's; sending tasks elsewhere will want IDs that don't clash.
+1. **Task IDs that travel:** IDs ([task IDs](task-ids.md)) are random 32 bits, checked only on this machine; sending tasks elsewhere may want longer ones.
 2. **Codex, opencode and antigravity take no session ID up front:** they resume the folder's latest session, which is the task's while each task has its own worktree. If one starts to take an ID, it moves to the ID like claude and copilot.
 3. **Codex saves its last reply a moment after showing it:** in its own terminal (`--no-daemon`) it writes the reply to its session about a second after it appears, and a stop within that second (SIGHUP, then SIGKILL a second later) loses the reply: started again, it shows the question and "Conversation interrupted". [Backlog runners](backlog-runners.md) wait for the turn to end and quit codex with its own keys; `kanna task stop` still hangs up; `real_agent_tasks` waits for the reply to be saved.
 
