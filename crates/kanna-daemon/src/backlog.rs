@@ -179,12 +179,14 @@ fn told_task(message: Option<&str>) -> String {
     format!("{}\"$KANNA_PANE\"{}", quote("You're a task's agent in Kanna (pane "), quote(&after))
 }
 
-/// How a planning agent starts: as you'd start it yourself, with its first message saying it's the planner.
-fn planner_start(program: &str) -> String {
+pub const QUIZ_ROLE: &str = "You are the Kanna quiz agent, on main: quiz me on what landed on main.";
+
+/// How an agent Kanna starts in a role starts: as you'd start it yourself, with its first message saying its role.
+pub fn started_as(program: &str, role: &str) -> String {
     let command = in_its_terminal(&unprompted(program));
     match agent(program).and_then(|a| a.prompt) {
-        Some(flag) => format!("{command} {flag} {}", quote(PLANNER_ROLE)),
-        None => format!("{command} {}", quote(PLANNER_ROLE)),
+        Some(flag) => format!("{command} {flag} {}", quote(role)),
+        None => format!("{command} {}", quote(role)),
     }
 }
 
@@ -195,7 +197,7 @@ pub fn planner_agents() -> Vec<(String, String)> {
         Ok(list) => list.split_whitespace().map(String::from).collect(),
         Err(_) => AGENTS.iter().map(|a| a.names[0].to_string()).collect(),
     };
-    programs.iter().map(|p| (program(p).to_string(), planner_start(p))).collect()
+    programs.iter().map(|p| (program(p).to_string(), started_as(p, PLANNER_ROLE))).collect()
 }
 
 /// The planning terminal's command line: it keeps a claude agent's context to `context` tokens, then runs the planner
@@ -319,7 +321,7 @@ fn in_its_terminal(agent: &str) -> String {
     }
 }
 
-fn default_agent() -> String {
+pub fn default_agent() -> String {
     std::env::var("KANNA_AGENT").ok().filter(|a| !a.trim().is_empty()).unwrap_or_else(|| "claude".into())
 }
 
@@ -1090,7 +1092,7 @@ impl Backlog {
         let script = string(args, "script").filter(|s| Path::new(s).is_file());
         let repos = crate::agents::home().join(".kanna-v4/repos");
         let cmd = planner_command(script, planning_context(&config_files(Path::new(folder))), zsh.as_deref().and_then(Path::to_str), cli().as_deref().and_then(Path::to_str), &repos, &planner_agents());
-        let open = json!({ "type": "term", "planner": true, "window": window, "cwd": folder, "cmd": cmd, "wait": false });
+        let open = json!({ "type": "term", "lead": true, "window": window, "cwd": folder, "cmd": cmd, "wait": false });
         core.handle(json!({ "cmd": "open", "args": open }), move |reply| match failed(&reply) {
             Some(error) => responder.reply(Err(error)),
             None => responder.reply(Ok(Map::from_iter([("pane".to_string(), reply.get("pane").and_then(|p| p.get("id")).cloned().unwrap_or(Value::Null)), ("window".to_string(), reply.get("window").cloned().unwrap_or(Value::Null))]))),
@@ -1584,8 +1586,8 @@ mod tests {
         assert_eq!(start("copilot"), "copilot --yolo -i 'You are the Kanna planning agent.'");
         assert_eq!(start("opencode"), "opencode --prompt 'You are the Kanna planning agent.'");
         assert_eq!(start("agy"), "agy --dangerously-skip-permissions -i 'You are the Kanna planning agent.'");
-        assert_eq!(planner_start("/opt/bin/codex"), "/opt/bin/codex --yolo --no-daemon 'You are the Kanna planning agent.'");
-        assert_eq!(planner_start("/x/mock-agent"), "/x/mock-agent 'You are the Kanna planning agent.'");
+        assert_eq!(started_as("/opt/bin/codex", PLANNER_ROLE), "/opt/bin/codex --yolo --no-daemon 'You are the Kanna planning agent.'");
+        assert_eq!(started_as("/x/mock-agent", PLANNER_ROLE), "/x/mock-agent 'You are the Kanna planning agent.'");
     }
 
     #[test]
@@ -1651,7 +1653,7 @@ mod tests {
             let mut args = vec!["--repos".to_string(), self.home.join(".kanna-v4/repos").to_string_lossy().into_owned(), "--".to_string()];
             for agent in ["claude", "codex", "copilot"] {
                 args.push(agent.to_string());
-                args.push(planner_start(agent));
+                args.push(started_as(agent, PLANNER_ROLE));
             }
             let mut child = Command::new(&script)
                 .args(&args)

@@ -57,7 +57,7 @@ pub struct Placement {
     pub opener: Option<String>,
     pub shelf: bool,
     pub backlog: bool,
-    pub planner: bool,
+    pub lead: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -140,7 +140,7 @@ impl LayoutLink for LocalLayout {
     }
 }
 
-pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>, frozen: bool, from: Option<&str>, opener: Option<&str>, shelf: bool, backlog: bool, planner: bool) -> Value {
+pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>, size: Option<f64>, new_tab: bool, dock: Option<Edge>, frozen: bool, from: Option<&str>, opener: Option<&str>, shelf: bool, backlog: bool, lead: bool) -> Value {
     let mut at = Map::new();
     if frozen {
         at.insert("frozen".into(), Value::Bool(true));
@@ -148,8 +148,8 @@ pub fn place_request(pane: &Pane, window: Option<&str>, split: Option<SplitSide>
     if backlog {
         at.insert("backlog".into(), Value::Bool(true));
     }
-    if planner {
-        at.insert("planner".into(), Value::Bool(true));
+    if lead {
+        at.insert("lead".into(), Value::Bool(true));
     }
     if shelf {
         at.insert("shelf".into(), Value::Bool(true));
@@ -240,7 +240,7 @@ pub fn placement(at: &Value) -> Result<Placement, KmuxError> {
         Some(size) => size.as_f64().filter(|s| *s > 0.0 && *s < 1.0).ok_or_else(|| bad("size must be a fraction between 0 and 1"))?,
     };
     let dock = Edge::read(at.get("dock")).map_err(|_| bad("dock must be left or right"))?;
-    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock, frozen: at.get("frozen") == Some(&Value::Bool(true)), from: string(at, "from").map(String::from), opener: string(at, "opener").map(String::from), shelf: at.get("shelf") == Some(&Value::Bool(true)), backlog: at.get("backlog") == Some(&Value::Bool(true)), planner: at.get("planner") == Some(&Value::Bool(true)) })
+    Ok(Placement { window: string(at, "window").map(String::from), split, size, new_tab: at.get("tab") == Some(&Value::Bool(true)), dock, frozen: at.get("frozen") == Some(&Value::Bool(true)), from: string(at, "from").map(String::from), opener: string(at, "opener").map(String::from), shelf: at.get("shelf") == Some(&Value::Bool(true)), backlog: at.get("backlog") == Some(&Value::Bool(true)), lead: at.get("lead") == Some(&Value::Bool(true)) })
 }
 
 fn spot(reply: &mut Map, spot: Option<Spot>, window: Option<String>) {

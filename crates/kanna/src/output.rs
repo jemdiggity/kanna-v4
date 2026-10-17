@@ -434,6 +434,7 @@ pub fn changed_skills(reply: &Value) -> Option<String> {
 
 pub fn quiz(request: &Value, reply: &Value) -> String {
     match request["action"].as_str() {
+        Some("open") => format!("{} {} in {}", if reply["opened"] == true { "opened" } else { "brought forward" }, reply["pane"].as_str().unwrap_or("?"), reply["window"].as_str().unwrap_or("?")),
         Some("start") => reply["round"].as_str().unwrap_or("?").to_string(),
         Some("answer") => format!("{} in {}", reply["answer"].as_str().unwrap_or("?"), reply["round"].as_str().unwrap_or("?")),
         _ => {

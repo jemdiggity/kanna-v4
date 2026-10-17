@@ -103,7 +103,7 @@ impl Model {
     }
 
     pub(crate) fn place_on_task(&mut self, pane: &str, from: &str) -> Option<Option<String>> {
-        if let Some(w) = self.dock_window(from) {
+        if let Some(w) = self.dock_window(from).or_else(|| self.lead_window(from).filter(|&w| !self.windows[w].desk)) {
             let t = self.make_tab(w, true);
             let window = &mut self.windows[w];
             window.tabs[t].root = Some(Node::Pane(pane.into()));
@@ -126,15 +126,14 @@ impl Model {
         Some(None)
     }
 
-    pub(crate) fn plan(&mut self, pane: &str, window: Option<&str>) -> Result<String, KmuxError> {
-        let reference = window.ok_or_else(|| bad_request("a planning agent needs its window"))?;
-        let w = self.window_index(reference).ok_or_else(|| not_found(format!("no window \"{reference}\"")))?;
+    pub(crate) fn lead(&mut self, pane: &str, window: Option<&str>) -> Result<String, KmuxError> {
+        let reference = window.ok_or_else(|| bad_request("a window's lead needs its window"))?;
+        let w = self.target_window(Some(reference))?;
         let window = &mut self.windows[w];
-        if let Some(planner) = &window.planner {
-            return Err(KmuxError::new("planned", format!("{} has a planning agent already: {}", window.id, planner.pane)));
+        if let Some(lead) = &window.lead {
+            return Err(KmuxError::new("led", format!("{} has a lead already: {}", window.id, lead.pane)));
         }
-        window.planner = Some(Dock { pane: pane.into(), edge: Edge::Left, width: DOCK_WIDTH, frozen: false });
-        window.desk = true;
+        window.lead = Some(Dock { pane: pane.into(), edge: Edge::Left, width: DOCK_WIDTH, frozen: false });
         window.settle_focus();
         Ok(window.id.clone())
     }
@@ -146,13 +145,13 @@ impl Model {
     }
 
     /// A Desk left with tabs but no task (its agent closed or undocked) becomes a plain window,
-    /// or, when it has a planning agent to show beside the Shelf, hands its tabs to a window of their own.
+    /// or, when it has a lead to show beside the Shelf, hands its tabs to a window of their own.
     pub(crate) fn clear_shelves(&mut self) {
         for w in 0..self.windows.len() {
             if !self.is_shelf(w) || self.windows[w].tabs.is_empty() {
                 continue;
             }
-            if self.windows[w].planner.is_none() {
+            if self.windows[w].lead.is_none() {
                 self.windows[w].desk = false;
                 continue;
             }
@@ -206,7 +205,7 @@ impl Model {
     fn desk_on(&self, project: &str, panes: &Panes) -> Option<usize> {
         let root = crate::core::project(Some(project));
         let on = |w: &Window| {
-            let mut folders = w.dock.iter().chain(w.planner.iter()).filter_map(|d| panes.get(&d.pane)?.cwd.as_deref());
+            let mut folders = w.dock.iter().chain(w.lead.iter()).filter_map(|d| panes.get(&d.pane)?.cwd.as_deref());
             let folder = folders.next().or(w.project.as_deref());
             folder.is_some() && crate::core::project(folder) == root
         };

@@ -270,7 +270,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         for window in windows {
             if let pane = window["dock"]?["pane"]?.string { ids.insert(pane) }
-            if let pane = window["planner"]?["pane"]?.string { ids.insert(pane) }
+            if let pane = window["lead"]?["pane"]?.string { ids.insert(pane) }
             guard case .array(let tabs)? = window["tabs"] else { continue }
             for tab in tabs {
                 guard case .array(let list)? = tab["panes"] else { continue }
@@ -375,8 +375,8 @@ final class AppController: NSObject, NSApplicationDelegate {
             guard let id = window["id"]?.string else { continue }
             let controller = controllers[id] ?? makeController(id, window)
             let docked = window["dock"]?["pane"]?.string
-            let planner = window["planner"]?["pane"]?.string
-            if let root = docked.flatMap(projectRoot) ?? planner.flatMap(projectRoot) {
+            let lead = window["lead"]?["pane"]?.string
+            if let root = docked.flatMap(projectRoot) ?? lead.flatMap(projectRoot) {
                 controller.projectRoot = root
             } else if controller.projectRoot == nil, let folder = window["project"]?.string {
                 controller.projectRoot = canonical(GitPlace.of(folder)?.main ?? folder)
@@ -393,7 +393,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             controller.running = runningTasks(in: controller.projectRoot)
             controller.project = controller.projectRoot.map(tilde) ?? projectName(mine.map(\.id))
             controller.taskTitle = docked.map { taskTitle($0, name: window["dock"]?["name"]?.string) }
-            controller.headerText = docked.map(headerText) ?? plannerHeader(planner, controller.projectRoot)
+            controller.headerText = docked.map(headerText) ?? leadHeader(window, controller.projectRoot)
             controller.render(window, panes)
             if wantsPlanner(window) { openPlanner(in: id) }
         }
@@ -440,7 +440,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         controller.shelfPage.onPull = { [weak self] task in self?.pullTask(task, into: id) }
         controller.shelfPage.onStart = { [weak self] task in self?.startTask(task, from: id) }
         controller.shelfPage.onLeaveSearch = { [weak self, weak controller] in
-            guard let self, let controller, let planner = controller.plannerShown, let view = panes.keyView(planner) else { return }
+            guard let self, let controller, let lead = controller.leadShown, let view = panes.keyView(lead) else { return }
             controller.window.makeFirstResponder(view)
         }
         controller.onBecomeKey = { [weak self, weak controller] in
