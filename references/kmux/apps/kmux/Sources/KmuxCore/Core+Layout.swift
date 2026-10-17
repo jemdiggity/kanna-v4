@@ -91,7 +91,7 @@ extension Core {
         destination.active = tab.id
         let ids = Model.paneIDs(tab.root)
         destination.focused = tab.lastFocus.flatMap { ids.contains($0) ? $0 : nil } ?? ids.first
-        model.key = destination.id
+        model.raise(destination)
         model.dropEmpty()
         onChange()
         return ["window": .string(destination.id), "tabs": .array(destination.tabs.map { .string($0.id) })]
@@ -159,7 +159,7 @@ extension Core {
         }
         window.active = tab.id
         if !used.contains(window.focused ?? "") { window.focused = used.first }
-        model.key = window.id
+        model.raise(window)
         model.dropEmpty()
         onChange()
         return ["window": .string(window.id), "layout": model.tree(tab.root)]

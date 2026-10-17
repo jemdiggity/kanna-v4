@@ -15,6 +15,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var server: SocketServer?
     private var signalSources: [DispatchSourceSignal] = []
     private var paneMenu: NSMenu?
+    private var workspaceMenu: NSMenu?
     private var testingDrag = false
     /// Started with `--bg` (or `KMUX_BG=1`, `KANNA_BG=1` in Kanna), e.g. by tests: don't take over the screen.
     private let background = CommandLine.arguments.contains("--bg") || ProcessInfo.processInfo.environment[Brand.current.variable("BG")] == "1"
@@ -84,8 +85,10 @@ final class AppController: NSObject, NSApplicationDelegate {
             guard let self, let terminal = try host.terminal(core.needPane(args["pane"]?.string).id) else { throw KmuxError("wrong_type", "not a terminal pane") }
             return ["text": .string(terminal.viewportText())]
         }
-        core.extraCommands["debug.stats"] = { _ in
-            ["pid": .number(Double(ProcessInfo.processInfo.processIdentifier)), "footprint": .number(Double(memoryFootprint()))]
+        core.extraCommands["debug.stats"] = { [weak self] _ in
+            let visible = (self?.controllers ?? [:]).filter { $0.value.window.isVisible }.keys.sorted()
+            return ["pid": .number(Double(ProcessInfo.processInfo.processIdentifier)), "footprint": .number(Double(memoryFootprint())),
+                    "visible": .array(visible.map(JSON.string))]
         }
         // iOS panes: tap at {x, y} (fractions of the screen) or press Home; replies with the screen's pixel size.
         core.extraCommands["debug.ios"] = { [weak self] args in
@@ -263,13 +266,17 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     // MARK: Model → windows
 
+    /// A hidden workspace's windows close, their panes still running, and
+    /// come back where they were when it's shown.
     private func sync() {
-        let ids = Set(core.model.windows.map(\.id))
+        let ids = Set(core.model.shownWindows.map(\.id))
         for (id, controller) in controllers where !ids.contains(id) {
+            let frame = controller.window.frame
+            core.model.window(id)?.frame = Frame(x: frame.minX, y: frame.minY, w: frame.width, h: frame.height)
             controller.window.orderOut(nil)
             controllers[id] = nil
         }
-        for state in core.model.windows {
+        for state in core.model.shownWindows {
             let controller = controllers[state.id] ?? makeController(state.id)
             controller.render(core.model, host)
         }
@@ -396,6 +403,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         if item.action == #selector(closePane) { return focusedPane.map { core.model.dockWindow($0) == nil } ?? false }
         if item.action == #selector(movePaneToNewWindow) { return focusedPane.map { core.model.dockWindow($0)?.dock?.frozen != true } ?? false }
         if item.action == #selector(showTab(_:) as (NSMenuItem) -> Void) { return (keyWindow?.tabs.count ?? 0) >= item.tag }
+        if item.action == #selector(freeWindow) { return keyWindow?.workspace != nil }
+        if item.action == #selector(assignWindow(_:)) || item.submenu === workspaceMenu { return keyWindow != nil }
         return true
     }
 
@@ -496,10 +505,27 @@ final class AppController: NSObject, NSApplicationDelegate {
         request(["cmd": "close", "args": ["window": .string(window)]])
     }
 
+    @objc func assignWindow(_ sender: NSMenuItem) {
+        guard let window = keyWindow?.id else { return }
+        if let workspace = sender.representedObject as? String {
+            return request(["cmd": "window", "args": ["action": "assign", "window": .string(window), "workspace": .string(workspace)]])
+        }
+        Task { @MainActor in
+            let made = await core.handle(["cmd": "workspace", "args": ["action": "new"]])
+            guard let workspace = made["workspace"]?["id"]?.string else { return }
+            request(["cmd": "window", "args": ["action": "assign", "window": .string(window), "workspace": .string(workspace)]])
+        }
+    }
+
+    @objc func freeWindow() {
+        guard let window = keyWindow?.id else { return }
+        request(["cmd": "window", "args": ["action": "free", "window": .string(window)]])
+    }
+
     @objc func nextWindow() { cycleWindow(1) }
     @objc func previousWindow() { cycleWindow(-1) }
     private func cycleWindow(_ step: Int) {
-        let windows = core.model.windows
+        let windows = core.model.shownWindows
         guard !windows.isEmpty else { return }
         let at = windows.firstIndex { $0.id == core.model.key } ?? 0
         let next = windows[((at + step) % windows.count + windows.count) % windows.count]
@@ -869,10 +895,17 @@ final class AppController: NSObject, NSApplicationDelegate {
             ("Close Window", #selector(closeWindow), "close_window", .shiftCmd("w")),
             ("Move Tab to New Window", #selector(moveTabToNewWindow), nil, nil),
             nil,
+            ("Free Window", #selector(freeWindow), nil, nil),
+            nil,
             ("Next Window", #selector(nextWindow), nil, .cmd("`")),
             ("Previous Window", #selector(previousWindow), nil, .shiftCmd("`")),
             nil,
         ])
+        let workspaces = NSMenu(title: "Assign Window to Workspace")
+        workspaces.delegate = self
+        workspaceMenu = workspaces
+        let free = windowMenu.indexOfItem(withTitle: "Free Window")
+        windowMenu.insertItem(withTitle: "Assign Window to Workspace", action: nil, keyEquivalent: "", at: free).submenu = workspaces
         NSApp.mainMenu = main
         NSApp.windowsMenu = windowMenu
     }
@@ -943,4 +976,21 @@ private func memoryFootprint() -> UInt64 {
         $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
     }
     return result == KERN_SUCCESS ? info.phys_footprint : 0
+}
+
+extension AppController: NSMenuDelegate {
+    /// Assign Window to Workspace: the workspaces (the key window's checked),
+    /// then a new one.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === workspaceMenu else { return }
+        menu.removeAllItems()
+        for workspace in core.model.workspaces {
+            let item = menu.addItem(withTitle: workspace.label + (workspace.hidden ? " (hidden)" : ""), action: #selector(assignWindow(_:)), keyEquivalent: "")
+            item.representedObject = workspace.id
+            item.state = keyWindow?.workspace == workspace.id ? .on : .off
+            item.target = self
+        }
+        if !core.model.workspaces.isEmpty { menu.addItem(.separator()) }
+        menu.addItem(withTitle: "New Workspace", action: #selector(assignWindow(_:)), keyEquivalent: "").target = self
+    }
 }

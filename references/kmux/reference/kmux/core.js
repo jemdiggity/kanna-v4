@@ -12,7 +12,8 @@ const hooks = {
 
 // ---------------------------------------------------------------------------
 // State
-// window := { id, tabs, active, focused, zoom, dock, x, y, w, h, z }
+// window := { id, tabs, active, focused, zoom, dock, workspace, x, y, w, h, z }   (workspace: its workspace's ID, or null: a free window)
+// workspace := { id, name, hidden }   (a named group of windows, shown or hidden together; a hidden one's windows are off screen)
 // tab    := { id, root, title, lastFocus }   (title: "Tab 1", "Tab 2"… per window until renamed)
 // node   := { t: 'pane', id } | { t: 'split', dir: 'row'|'column', kids: [{ node, size }] }
 // dock   := null | { pane, edge: 'left'|'right', width, frozen? }   (the window's docked pane, outside its tabs;
@@ -35,7 +36,7 @@ const FILES = {
 let S;
 
 function freshState() {
-  return { panes: {}, windows: [], key: null, urlEdit: null, servers: {}, n: { pane: 0, tab: 0, win: 0, req: 0, z: 0 } };
+  return { panes: {}, windows: [], workspaces: [], key: null, urlEdit: null, servers: {}, n: { pane: 0, tab: 0, win: 0, ws: 0, req: 0, z: 0 } };
 }
 
 class KErr extends Error { constructor(code, message) { super(message); this.code = code; } }
@@ -66,7 +67,23 @@ function fmtFrac(x) {
 // Windows and tabs
 // ---------------------------------------------------------------------------
 const winById = id => S.windows.find(w => w.id === id);
-const keyWin = () => winById(S.key);
+const wsById = ref => S.workspaces.find(s => s.id === ref || (s.name != null && s.name === ref));
+const wsOf = w => w?.workspace ? wsById(w.workspace) : null;
+const shown = w => !wsOf(w)?.hidden;
+const shownWindows = () => S.windows.filter(shown);
+const keyWin = () => { const w = winById(S.key); return w && shown(w) ? w : undefined; };
+const wsView = s => s ? { id: s.id, name: s.name, hidden: s.hidden } : null;
+function needWs(ref) {
+  if (!ref) throw kerr('bad_request', 'missing workspace');
+  const s = wsById(ref);
+  if (!s) throw kerr('not_found', `no workspace "${ref}"`);
+  return s;
+}
+// A hidden window's panes keep running, but nothing on it takes the keyboard.
+function refuseHidden(w) {
+  const s = wsOf(w);
+  if (s?.hidden) throw kerr('hidden', `${w.id} is ${s.id}'s, hidden: show ${s.name || s.id} to see it`);
+}
 const allTabs = () => S.windows.flatMap(w => w.tabs);
 const tabById = id => allTabs().find(t => t.id === id);
 const winOfTab = t => S.windows.find(w => w.tabs.includes(t));
@@ -77,7 +94,7 @@ function makeWindow() {
   const k = keyWin();
   let geo = k ? { x: k.x + 32, y: k.y + 32, w: k.w, h: k.h } : { x: 24, y: 18, w: W - 48, h: H - 36 };
   if (geo.x + geo.w > W || geo.y + geo.h > H) geo = { x: 24, y: 18, w: Math.min(geo.w, W - 48), h: Math.min(geo.h, H - 36) };
-  const w = { id: 'w' + (++S.n.win), tabs: [], tabCount: 0, active: null, focused: null, zoom: false, dock: null, ...geo, z: ++S.n.z };
+  const w = { id: 'w' + (++S.n.win), tabs: [], tabCount: 0, active: null, focused: null, zoom: false, dock: null, workspace: null, ...geo, z: ++S.n.z };
   S.windows.push(w);
   S.key = w.id;
   return w;
@@ -88,7 +105,7 @@ function makeTab(w, activate = true) {
   if (activate || !w.active) w.active = t.id;
   return t;
 }
-function raise(w) { w.z = ++S.n.z; S.key = w.id; }
+function raise(w) { if (shown(w)) { w.z = ++S.n.z; S.key = w.id; } }
 function targetWin(ref) {
   if (ref == null) return keyWin() || makeWindow();
   if (ref === 'new') return makeWindow();
@@ -105,7 +122,7 @@ function dropEmpty() {
     if (!ids.includes(w.focused)) w.focused = ids.includes(activeTabOf(w)?.lastFocus) ? activeTabOf(w).lastFocus : paneIds(activeTabOf(w)?.root)[0] ?? w.dock?.pane ?? null;
   }
   S.windows = S.windows.filter(w => w.tabs.length || w.dock);
-  if (!keyWin()) S.key = [...S.windows].sort((a, b) => b.z - a.z)[0]?.id ?? null;
+  if (!keyWin()) S.key = shownWindows().sort((a, b) => b.z - a.z)[0]?.id ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,8 +371,9 @@ function summary(p) {
 // saves it as the layout changes and on quit, and restores it on launch.
 // Panes keep their IDs; terminals come back as new terminals (cwd, cmd), web
 // panes reload their URL, md panes their file, iOS panes relaunch their app.
-// state := { kmux: 'state', version, key, counters: { pane, tab, window },
-//            windows: [{ id, frame?, active, focused, zoomed, tabCount, dock?: { pane, edge, width, frozen? },
+// state := { kmux: 'state', version, key, counters: { pane, tab, window, workspace },
+//            workspaces: [{ id, name, hidden }],
+//            windows: [{ id, frame?, active, focused, zoomed, tabCount, dock?: { pane, edge, width, frozen? }, workspace?,
 //                        tabs: [{ id, title, lastFocus, layout }] }],
 //            panes: [{ id, name, type, …what it shows }] }
 // layout := { pane: ID } | { split: 'row'|'column', children: [{ …layout, size }] }
@@ -378,10 +396,11 @@ function exportPane(p) {
 function exportState() {
   return {
     kmux: 'state', version: STATE_VERSION, key: S.key,
-    counters: { pane: S.n.pane, tab: S.n.tab, window: S.n.win },
+    counters: { pane: S.n.pane, tab: S.n.tab, window: S.n.win, workspace: S.n.ws },
+    workspaces: S.workspaces.map(wsView),
     windows: S.windows.map(w => ({
       id: w.id, frame: { x: w.x, y: w.y, w: w.w, h: w.h }, active: w.active, focused: w.focused, zoomed: zoomedOf(w), tabCount: w.tabCount,
-      ...(w.dock ? { dock: { ...w.dock } } : {}),
+      ...(w.dock ? { dock: { ...w.dock } } : {}), ...(w.workspace ? { workspace: w.workspace } : {}),
       tabs: w.tabs.map(t => ({ id: t.id, title: t.title, lastFocus: t.lastFocus, layout: exportNode(t.root) })),
     })),
     panes: Object.values(S.panes).map(exportPane),
@@ -404,6 +423,15 @@ function importState(st) {
   N.n.pane = Number.isInteger(saved.pane) ? saved.pane : 0;
   N.n.tab = Number.isInteger(saved.tab) ? saved.tab : 0;
   N.n.win = Number.isInteger(saved.window) ? saved.window : 0;
+  N.n.ws = Number.isInteger(saved.workspace) ? saved.workspace : 0;
+  if (st.workspaces != null && !Array.isArray(st.workspaces)) throw bad('workspaces is not a list');
+  for (const ss of st.workspaces ?? []) {
+    if (!isObj(ss) || !/^s[1-9]\d*$/.test(ss.id ?? '') || N.workspaces.some(s => s.id === ss.id)) throw bad(`workspace ${JSON.stringify(ss?.id ?? null)}`);
+    const name = str(ss.name)?.trim() || null;
+    if (name != null && N.workspaces.some(s => s.name === name)) throw bad(`workspace name ${JSON.stringify(name)} is used twice`);
+    N.workspaces.push({ id: ss.id, name, hidden: ss.hidden === true });
+    N.n.ws = Math.max(N.n.ws, num(ss.id, 's'));
+  }
   const names = new Set();
   for (const sp of st.panes) {
     if (!isObj(sp) || !/^p[1-9]\d*$/.test(sp.id ?? '') || N.panes[sp.id]) throw bad(`pane ${JSON.stringify(sp?.id ?? null)}`);
@@ -443,7 +471,8 @@ function importState(st) {
     winIds.add(sw.id);
     const f = isObj(sw.frame) ? sw.frame : {};
     const geo = ['x', 'y', 'w', 'h'].every(k => Number.isFinite(f[k])) && f.w > 0 && f.h > 0 ? { x: f.x, y: f.y, w: f.w, h: f.h } : { x: 24, y: 18, w: 600, h: 400 };
-    const w = { id: sw.id, tabs: [], tabCount: 0, active: str(sw.active), focused: str(sw.focused), zoom: false, dock: null, ...geo, z: ++N.n.z };
+    const workspace = N.workspaces.some(s => s.id === sw.workspace) ? sw.workspace : null;
+    const w = { id: sw.id, tabs: [], tabCount: 0, active: str(sw.active), focused: str(sw.focused), zoom: false, dock: null, workspace, ...geo, z: ++N.n.z };
     for (const stab of sw.tabs) {
       if (!isObj(stab) || !/^t[1-9]\d*$/.test(stab.id ?? '') || tabIds.has(stab.id)) throw bad(`tab ${JSON.stringify(stab?.id ?? null)}`);
       tabIds.add(stab.id);
@@ -482,7 +511,7 @@ function restoreState(st) {
   const N = importState(st);
   Object.values(S.panes).forEach(kill);
   // IDs are never reused while kmux runs, even across a restore.
-  N.n = { ...N.n, pane: Math.max(N.n.pane, S.n.pane), tab: Math.max(N.n.tab, S.n.tab), win: Math.max(N.n.win, S.n.win) };
+  N.n = { ...N.n, pane: Math.max(N.n.pane, S.n.pane), tab: Math.max(N.n.tab, S.n.tab), win: Math.max(N.n.win, S.n.win), ws: Math.max(N.n.ws, S.n.ws) };
   S = N;
   dropEmpty();
   Object.values(S.panes).forEach(start);
@@ -501,7 +530,7 @@ function focusPane(p) {
   raise(f.win);
 }
 
-const COMMANDS = ['capabilities', 'open', 'arrange', 'move', 'move-tab', 'rename-tab', 'resize', 'list', 'focus', 'zoom', 'close', 'restart', 'send', 'navigate'];
+const COMMANDS = ['capabilities', 'open', 'arrange', 'move', 'move-tab', 'rename-tab', 'resize', 'list', 'focus', 'zoom', 'close', 'restart', 'send', 'navigate', 'workspace', 'window'];
 
 async function handle(req) {
   const { id, cmd, args = {} } = req;
@@ -510,7 +539,7 @@ async function handle(req) {
     switch (cmd) {
       case 'capabilities':
         return ok({ mux: 'kmux', paneTypes: ['term', 'web', 'ios', 'md'], commands: COMMANDS,
-          features: ['windows', 'tabs', 'fractionalSizing', 'namedPanes', 'zoom', 'move', 'lifecycle', 'dock'] });
+          features: ['windows', 'tabs', 'fractionalSizing', 'namedPanes', 'zoom', 'move', 'lifecycle', 'dock', 'workspaces'] });
 
       case 'open': {
         const { type } = args;
@@ -540,8 +569,11 @@ async function handle(req) {
         w.focused = p.id;
         raise(w);
         start(p);
-        const res = () => ({ pane: summary(p), window: findPane(p.id)?.win.id ?? w.id, tab: findPane(p.id)?.tab?.id ?? null,
-          ...(dockOf(p.id) ? { dock: dockOf(p.id).dock.edge } : {}) });
+        const res = () => {
+          const at = findPane(p.id)?.win ?? w;
+          return { pane: summary(p), window: at.id, tab: findPane(p.id)?.tab?.id ?? null,
+            ...(dockOf(p.id) ? { dock: dockOf(p.id).dock.edge } : {}), ...(wsOf(at) ? { workspace: wsView(wsOf(at)) } : {}) };
+        };
         if (args.wait === false) return ok(res());
         await settled(p);
         if (p.state === 'failed') throw kerr('start_failed', p.error);
@@ -691,22 +723,28 @@ async function handle(req) {
         return ok({
           windows: S.windows.map(w => ({
             id: w.id, key: w.id === S.key,
+            ...(w.workspace ? { workspace: w.workspace } : {}), ...(shown(w) ? {} : { hidden: true }),
             focused: w.focused ? S.panes[w.focused].name || w.focused : null,
             zoomed: zoomedOf(w) ? S.panes[zoomedOf(w)].name || zoomedOf(w) : null,
             ...(w.dock ? { dock: dockView(w) } : {}),
             tabs: w.tabs.map(t => ({ id: t.id, title: tabTitle(t), active: t.id === w.active, layout: toTree(t.root) })),
           })),
-          panes: Object.values(S.panes).map(summary),
+          workspaces: S.workspaces.map(s => ({ ...wsView(s), windows: S.windows.filter(w => w.workspace === s.id).map(w => w.id) })),
+          panes: Object.values(S.panes).map(p => {
+            const w = findPane(p.id)?.win;
+            return { ...summary(p), ...(w?.workspace ? { workspace: w.workspace } : {}) };
+          }),
         });
 
       case 'focus': {
-        if (args.pane) focusPane(need(args.pane));
+        if (args.pane) { const p = need(args.pane); refuseHidden(findPane(p.id).win); focusPane(p); }
         else if (args.tab) {
           const t = needTab(args.tab), w = winOfTab(t), ids = paneIds(t.root);
+          refuseHidden(w);
           w.active = t.id;
           w.focused = ids.includes(t.lastFocus) ? t.lastFocus : ids[0];
           raise(w);
-        } else if (args.window) raise(targetWin(args.window));
+        } else if (args.window) { const w = targetWin(args.window); refuseHidden(w); raise(w); }
         else throw kerr('bad_request', 'focus needs a pane, tab or window');
         hooks.render();
         return ok({ window: S.key });
@@ -793,6 +831,50 @@ async function handle(req) {
         start(p);
         await settled(p);
         return ok({ pane: summary(p) });
+      }
+
+      case 'workspace': {
+        const action = args.action;
+        if (action === 'new') {
+          const name = args.name == null ? null : String(args.name).trim();
+          if (name === '') throw kerr('bad_request', 'a workspace name cannot be empty');
+          if (name != null && (wsById(name) || /^s[1-9]\d*$/.test(name))) throw kerr('name_taken', `a workspace named "${name}" already exists`);
+          const s = { id: 's' + (++S.n.ws), name, hidden: false };
+          S.workspaces.push(s);
+          hooks.render();
+          return ok({ workspace: wsView(s), windows: [] });
+        }
+        if (!['hide', 'show', 'close'].includes(action)) throw kerr('bad_request', `unknown workspace action "${action ?? ''}" (new, hide, show or close)`);
+        const s = needWs(args.workspace);
+        const windows = S.windows.filter(w => w.workspace === s.id);
+        if (action === 'close') {
+          const victims = windows.flatMap(w => [...w.tabs.flatMap(t => paneIds(t.root)), ...(w.dock ? [w.dock.pane] : [])]).map(i => S.panes[i]);
+          victims.forEach(p => { detach(p.id); kill(p); });
+          S.workspaces = S.workspaces.filter(x => x !== s);
+          for (const w of windows) w.workspace = null;
+          dropEmpty();
+          hooks.render();
+          return ok({ workspace: s.id, closed: victims.map(p => p.id) });
+        }
+        s.hidden = action === 'hide';
+        if (!s.hidden && windows.length) raise([...windows].sort((a, b) => b.z - a.z)[0]);
+        dropEmpty();
+        hooks.render();
+        return ok({ workspace: wsView(s), windows: windows.map(w => w.id) });
+      }
+
+      case 'window': {
+        if (!args.window) throw kerr('bad_request', 'window needs a window');
+        const w = winById(args.window);
+        if (!w) throw kerr('not_found', `no window "${args.window}"`);
+        const was = wsView(wsOf(w)), before = shown(w);
+        if (args.action === 'assign') w.workspace = needWs(args.workspace).id;
+        else if (args.action === 'free') w.workspace = null;
+        else throw kerr('bad_request', `unknown window action "${args.action ?? ''}" (assign or free)`);
+        if (shown(w) && !before) raise(w);
+        dropEmpty();
+        hooks.render();
+        return ok({ window: w.id, ...(wsOf(w) ? { workspace: wsView(wsOf(w)) } : {}), was, shown: shown(w) });
       }
 
       // Persistence, for tests: the state kmux would save, and restoring one as
