@@ -35,7 +35,7 @@ kanna task edit 3f9a --after 1dfb        # replaces the list
 kanna task edit 3f9a --after none        # waits for nothing
 ```
 
-- **TASK** is a task's ID (`task-1dfb12c2`, or a unique start of it, `1dfb`: [task IDs](task-ids.md)) or a running task's pane (`p158`), as `kanna task list` shows them. Kanna stores the task's ID.
+- **TASK** is a task's ID as `kanna task list` shows it (`task-1dfb`), or any unique start of it (`1dfb`: [task IDs](task-ids.md)) or a running task's pane (`p158`), as `kanna task list` shows them. Kanna stores the task's ID.
 - **A blocker must be a task that isn't Done.**
 - **`kanna task edit` changes a backlog task** that hasn't started yet.
 
@@ -46,7 +46,7 @@ kanna task edit 3f9a --after none        # waits for nothing
 | `kanna task new NAME [MSG] [--after TASK,…]` | Make a task that waits for others |
 | `kanna task edit TASK --after TASK,…\|none` | Change what a backlog task waits for |
 | `kanna task start TASK`, `kanna task shelve TASK` | Refused for a blocked task, saying what it waits for |
-| `kanna task list` | STATE is `blocked` for a blocked backlog task, and its last part says `waits for task-1dfb12c2, task-c0ffee00` |
+| `kanna task list` | STATE is `blocked` for a blocked backlog task, and its last part says `waits for task-1dfb, task-c0ff` |
 | `kanna task done TASK` | Also names the tasks that can start now because of it |
 
 ## How it's built

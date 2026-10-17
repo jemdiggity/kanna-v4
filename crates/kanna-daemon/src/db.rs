@@ -487,6 +487,13 @@ pub fn is_task_id(id: &str) -> bool {
     id.strip_prefix(TASK).is_some_and(|hex| hex.len() == 8 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
+pub fn short_id<'a>(id: &str, open: impl Iterator<Item = &'a str>) -> String {
+    let Some(hex) = id.strip_prefix(TASK).filter(|_| is_task_id(id)) else { return id.to_string() };
+    let others: Vec<&str> = open.filter(|other| *other != id).filter_map(|other| other.strip_prefix(TASK)).collect();
+    let len = (4..8).find(|&n| !others.iter().any(|other| other.get(..n) == Some(&hex[..n]))).unwrap_or(8);
+    format!("{TASK}{}", &hex[..len])
+}
+
 fn random_id() -> rusqlite::Result<String> {
     let mut bytes = [0u8; 4];
     fs::File::open("/dev/urandom").and_then(|mut random| std::io::Read::read_exact(&mut random, &mut bytes)).map_err(|e| rusqlite::Error::InvalidParameterName(format!("can't read /dev/urandom: {e}")))?;
@@ -626,6 +633,17 @@ mod tests {
         let again = Db::open(&dir);
         assert_eq!(again.tasks().unwrap().len(), rows.len(), "nothing is imported twice");
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_task_s_short_id_is_4_hex_digits_growing_only_to_stay_unique() {
+        let open = ["task-1dfb12c2", "task-1dfb9a00", "task-1dfb9b11", "task-c0ffee00"];
+        let short = |id: &str| short_id(id, open.iter().copied());
+        assert_eq!(short("task-c0ffee00"), "task-c0ff");
+        assert_eq!(short("task-1dfb12c2"), "task-1dfb1");
+        assert_eq!((short("task-1dfb9a00"), short("task-1dfb9b11")), ("task-1dfb9a".to_string(), "task-1dfb9b".to_string()));
+        assert_eq!(short("task-0decaf00"), "task-0dec", "a done task is shortened against the open ones");
+        assert_eq!(short("p12"), "p12");
     }
 
     #[test]

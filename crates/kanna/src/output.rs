@@ -280,7 +280,6 @@ fn place(reply: &Value) -> &'static str {
     if reply["place"] == "backlog" { " in the backlog" } else { "" }
 }
 
-/// Gives each Shelf and Desk task, listed by its agent's pane, its task ID from the backlog's `out`.
 pub fn name_out(reply: &mut Value, out: &Value) {
     let Some(tasks) = reply["tasks"].as_array_mut() else { return };
     for task in tasks {
@@ -288,6 +287,42 @@ pub fn name_out(reply: &mut Value, out: &Value) {
             task["task"] = known["id"].clone();
         }
     }
+}
+
+pub fn shorts(value: &Value) -> Vec<(String, String)> {
+    match value {
+        Value::Object(map) => {
+            let own = map.get("id").and_then(Value::as_str).zip(map.get("short").and_then(Value::as_str)).map(|(id, short)| (id.to_string(), short.to_string()));
+            own.into_iter().chain(map.values().flat_map(shorts)).collect()
+        }
+        Value::Array(list) => list.iter().flat_map(shorts).collect(),
+        _ => vec![],
+    }
+}
+
+pub fn shorten(value: &mut Value, shorts: &[(String, String)]) {
+    match value {
+        Value::String(text) => *text = short_text(text, shorts),
+        Value::Array(list) => list.iter_mut().for_each(|v| shorten(v, shorts)),
+        Value::Object(map) => map.iter_mut().filter(|(key, _)| !["folder", "branch", "cwd", "path", "repo"].contains(&key.as_str())).for_each(|(_, v)| shorten(v, shorts)),
+        _ => {}
+    }
+}
+
+pub fn short_text(text: &str, shorts: &[(String, String)]) -> String {
+    let mut out = text.to_string();
+    for (id, short) in shorts.iter().filter(|(id, short)| id != short) {
+        let mut from = 0;
+        while let Some(at) = out[from..].find(id.as_str()).map(|at| at + from) {
+            if out[..at].ends_with('/') {
+                from = at + id.len();
+                continue;
+            }
+            out.replace_range(at..at + id.len(), short);
+            from = at + short.len();
+        }
+    }
+    out
 }
 
 pub fn keep_matching(reply: &mut Value, query: &str) {

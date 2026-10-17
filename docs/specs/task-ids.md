@@ -2,14 +2,14 @@
 
 **Status:** built · **Builds on:** [tasks](tasks.md), [database](database.md), [workspaces](workspaces.md)
 
-**A task's ID is `task-` and 8 lowercase hex digits (32 bits), like `task-1dfb12c2`.** It used to be `t134`, side by side with tab IDs like `t215` in `kanna list`; now a task can't be taken for a tab. The ID is made by `kanna task new`, so a task has it before it ever starts, and it names the task's worktree and first branch.
+**A task's ID is `task-` and 8 lowercase hex digits (32 bits), like `task-1dfb12c2`.** It used to be `t134`, side by side with tab IDs like `t215` in `kanna list`; now a task can't be taken for a tab. The ID is made by `kanna task new`, so a task has it before it ever starts, and it names the task's worktree and first branch. **It's shown short, `task-1dfb`**: the first 4 hex digits, more only when another open task starts the same way.
 
 ```mermaid
 flowchart LR
     NEW["kanna task new"] --> ID["task-1dfb12c2<br/>(kanna.db: tasks.id)"]
     ID --> WT[".kanna-worktrees/task-1dfb12c2<br/>branch task-1dfb12c2"]
     ID --> WS["its workspace<br/>(layout.json)"]
-    ID --> LIST["kanna task list<br/>backlog, Shelf, Desk"]
+    ID --> LIST["shown short: task-1dfb<br/>kanna task list, replies, notes"]
     REF["1dfb · task-1dfb · task-1dfb12c2<br/>p353 · its agent's name"] -->|"the daemon looks it up"| ID
 ```
 
@@ -21,7 +21,14 @@ flowchart LR
 
 - **Random, checked.** The daemon picks 32 random bits and keeps them only if no task in `kanna.db` has that ID (done ones too) and the repo has no `.kanna-worktrees/<ID>` folder or `<ID>` branch. There's no counter.
 - **One name everywhere.** Starting a task makes `<repo>/.kanna-worktrees/<ID>` on branch `<ID>`; the agent renames the branch later ([tasks](tasks.md#4-naming)), the folder keeps the ID. The task's [workspace](workspaces.md) has the same ID.
-- **Shown everywhere.** `kanna task list` shows it for backlog, Shelf and Desk tasks alike: a Shelf or Desk row is no longer its agent's pane ID (`p353`). A docked pane that isn't a task still shows its pane ID.
+- **Shown short, everywhere.** `kanna task list` shows it for backlog, Shelf and Desk tasks alike: a Shelf or Desk row is no longer its agent's pane ID (`p353`). A docked pane that isn't a task still shows its pane ID.
+
+| Open tasks | Shown as |
+|---|---|
+| `task-1dfb12c2`, `task-c0ffee00` | `task-1dfb`, `task-c0ff` |
+| `task-1dfb12c2`, `task-1dfb9a00` | `task-1dfb1`, `task-1dfb9` |
+
+- **Short like git's hashes.** A task shows as `task-` and its first 4 hex digits, or as many more as it takes to differ from every other open task (backlog, Shelf, Desk), so every shown ID works as a command's TASK. The daemon makes the short form (`short` beside `id` in `backlog list`) and writes it in its own messages, such as the blocked note on the Desk; the CLI shows it in everything it prints. Full IDs stay in `--json`, `kanna.db`, `layout.json`, worktree folders and branches.
 
 ## Naming a task in a command
 

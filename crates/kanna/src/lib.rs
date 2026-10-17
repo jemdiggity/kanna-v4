@@ -145,9 +145,16 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     let mut request = request;
     let located = if command.name == "task" { locate(&mut request, &mut mux)? } else { None };
     let waiting = if command.name == "task" && request["action"] == "done" { mux.call("backlog", serde_json::json!({ "action": "list" })).ok() } else { None };
+    let (mut shorts, mut listed) = (located.as_ref().map(|(_, known)| known.clone()).unwrap_or_default(), false);
     let mut reply = match mux.call(wire(command, &request), request.clone()) {
         Ok(reply) => reply,
-        Err(failure) => return Err(explain(command, failure, &mut mux, &target)),
+        Err(mut failure) => {
+            if failure.message.contains("task-") {
+                let shorts = mux.call("backlog", json!({ "action": "list" })).map(|b| output::shorts(&b)).unwrap_or_default();
+                failure.message = output::short_text(&failure.message, &shorts);
+            }
+            return Err(explain(command, failure, &mut mux, &target));
+        }
     };
     if let (Some(waiting), Some(done)) = (waiting, request["task"].as_str()) {
         reply["freed"] = serde_json::Value::Array(output::freed(&waiting, done));
@@ -156,6 +163,8 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         if let Ok(backlog) = mux.call("backlog", serde_json::json!({ "action": "list" })) {
             reply["backlog"] = backlog["tasks"].clone();
             output::name_out(&mut reply, &backlog["out"]);
+            shorts.extend(output::shorts(&backlog));
+            listed = true;
         }
         if let Some(query) = request["query"].as_str() {
             output::keep_matching(&mut reply, query);
@@ -164,13 +173,19 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     if json_output {
         println!("{reply}");
     } else {
-        if let Some(id) = located {
+        if let Some((id, _)) = located {
             for value in [&mut request, &mut reply] {
                 if value["task"].is_string() {
                     value["task"] = json!(id);
                 }
             }
         }
+        if !listed && (request.to_string().contains("task-") || reply.to_string().contains("task-")) {
+            shorts.extend(mux.call("backlog", json!({ "action": "list" })).map(|b| output::shorts(&b)).unwrap_or_default());
+        }
+        shorts.extend(output::shorts(&reply));
+        output::shorten(&mut request, &shorts);
+        output::shorten(&mut reply, &shorts);
         let text = (command.show)(&request, &reply);
         if !text.is_empty() {
             println!("{text}");
@@ -179,8 +194,7 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Turns the TASK of a command the layout or the backlog runs into what that takes: a task's ID for the backlog, its agent's pane for the layout.
-fn locate(request: &mut Value, mux: &mut Session) -> Result<Option<String>, Failure> {
+fn locate(request: &mut Value, mux: &mut Session) -> Result<Option<(String, Vec<(String, String)>)>, Failure> {
     let action = request["action"].as_str().unwrap_or("").to_string();
     let Some(reference) = request["task"].as_str().filter(|_| ["park", "pull", "done", "name"].contains(&action.as_str())).map(String::from) else { return Ok(None) };
     let found = match mux.call("backlog", json!({ "action": "resolve", "task": reference })) {
@@ -201,7 +215,7 @@ fn locate(request: &mut Value, mux: &mut Session) -> Result<Option<String>, Fail
         (_, Some(_)) => request["task"] = json!(pane.unwrap_or(reference)),
         (_, None) => {}
     }
-    Ok(id)
+    Ok(id.map(|id| (id, found.as_ref().map(output::shorts).unwrap_or_default())))
 }
 
 /// `kanna PATH`: a word that isn't a command but is a folder brings forward its project's Desk, or opens one.

@@ -85,7 +85,7 @@ Each one changes `where`, a Desk's `shows`, or which workspace a window or pane 
 | `open --window new`, or a tab torn off, from the workspace | a new window of the workspace | on screen if the workspace is |
 | A tab torn off a free window | — | a new free window |
 | `move PANE --window W`, a tab dragged to W | the pane or tab joins W's workspace, or W if it's free | — |
-| `kanna window assign W task-1dfb12c2` | W becomes one of task-1dfb12c2's windows | W stays if task-1dfb12c2 is on a Desk, else it's hidden with task-1dfb12c2 |
+| `kanna window assign W task-1dfb` | W becomes one of task-1dfb's windows | W stays if task-1dfb is on a Desk, else it's hidden with task-1dfb |
 | `kanna window free W` | W leaves its workspace | W opens if its workspace was hidden |
 
 A pane belongs to the workspace it's in. Moving it to another workspace's window moves it to another task, so that's always a deliberate drag or `move`, never a side effect of where a task happens to be shown.
@@ -94,10 +94,10 @@ A pane belongs to the workspace it's in. Moving it to another workspace's window
 
 **The caller** is the CLI's `$KANNA_PANE`. A command that names a pane or tab acts where *that* pane or tab is. One that names nothing acts where the caller is: its workspace's Desk part, one of its windows, or a free window. `--window W` aims at W, whoever's it is; a task's pane may do that, though it rarely needs to, and the reply names W's workspace so the agent sees where its pane went.
 
-| Command | From a task's pane (task-1dfb12c2) | From a pane in a free window (w4) |
+| Command | From a task's pane (task-1dfb) | From a pane in a free window (w4) |
 |---|---|---|
 | `open` | beside the caller: as asked when on screen; a new tab when hidden | into w4, as kmux |
-| `open --window new` | a new window of task-1dfb12c2 | a new free window |
+| `open --window new` | a new window of task-1dfb | a new free window |
 | `focus PANE` / `--tab` | that pane's or tab's shown tab and focus; its window becomes key only if on screen | as kmux |
 | `focus --window W` | makes W key; for a hidden window, an error saying where it is | as kmux |
 | `zoom PANE` | that pane's zoom, on screen or not | as kmux |
@@ -111,18 +111,18 @@ Replies say which workspace and where it is. A window is named when it's on scre
 
 | Case | Reply |
 |---|---|
-| open, task-1dfb12c2 on Desk w31 | `opened p5 in task-1dfb12c2 on w31, tab t9: running` |
-| open, task-1dfb12c2 on the Shelf | `opened p5 in task-1dfb12c2 (on the Shelf), tab t9: running` |
-| open, task-1dfb12c2 in the backlog | `opened p5 in task-1dfb12c2 (in the backlog), tab t9: running` |
-| open in task-1dfb12c2's window w40, task-1dfb12c2 on the Shelf | `opened p5 in task-1dfb12c2's w40 (on the Shelf), tab t9: running` |
-| open `--window w31` from task-1dfb12c2, w31 shows task-6fe71ea3 | `opened p5 in task-6fe71ea3 on w31, tab t9: running` |
+| open, task-1dfb on Desk w31 | `opened p5 in task-1dfb on w31, tab t9: running` |
+| open, task-1dfb on the Shelf | `opened p5 in task-1dfb (on the Shelf), tab t9: running` |
+| open, task-1dfb in the backlog | `opened p5 in task-1dfb (in the backlog), tab t9: running` |
+| open in task-1dfb's window w40, task-1dfb on the Shelf | `opened p5 in task-1dfb's w40 (on the Shelf), tab t9: running` |
+| open `--window w31` from task-1dfb, w31 shows task-6fe7 | `opened p5 in task-6fe7 on w31, tab t9: running` |
 | open in a free window | `opened p5 in window w4, tab t9: running` |
 | open, no app | `opened p5, unplaced until Kanna.app opens: running` |
-| focus, task-1dfb12c2 in the backlog | `focused spec in task-1dfb12c2 (in the backlog)` |
-| focus, task-1dfb12c2 on a Desk | `focused spec in task-1dfb12c2 on w31 (key window)` |
-| zoom, hidden | `spec is zoomed in task-1dfb12c2 (on the Shelf; run again to unzoom)` |
-| comment, hidden | `opened p6 in task-1dfb12c2 (on the Shelf) · spec.md:12` |
-| assign to a task on the Shelf | `assigned w41 to task-1dfb12c2 (on the Shelf: hidden until it's pulled)` |
+| focus, task-1dfb in the backlog | `focused spec in task-1dfb (in the backlog)` |
+| focus, task-1dfb on a Desk | `focused spec in task-1dfb on w31 (key window)` |
+| zoom, hidden | `spec is zoomed in task-1dfb (on the Shelf; run again to unzoom)` |
+| comment, hidden | `opened p6 in task-1dfb (on the Shelf) · spec.md:12` |
+| assign to a task on the Shelf | `assigned w41 to task-1dfb (on the Shelf: hidden until it's pulled)` |
 | free | `w41 is free` |
 
 Layout replies carry `workspace: {id, task, where, hidden}` (`where`: `{desk}`, `"shelf"` or `"backlog"`; `hidden` unless it's on a Desk, as kmux's), or null in a free window, beside `window` and `tab`. `window` is the window's ID, or null for a hidden Desk part. The CLI writes "unplaced until Kanna.app opens" only when there's neither (the app wasn't there). `kanna list --json` has `workspaces`, and each pane's row names its workspace.

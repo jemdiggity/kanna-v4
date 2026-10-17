@@ -391,7 +391,6 @@ fn taken(repo: &Path, name: &str) -> bool {
 }
 
 /// Makes a worktree in `.kanna-worktrees/NAME` on a new branch NAME, and returns its folder and branch.
-/// NAME is the task's ID; the task's agent renames the branch once it knows what the work is.
 /// In a repo with no commits yet, the branch starts empty (an orphan), so its first commit is the project's.
 pub fn make_worktree(repo: &Path, name: &str) -> Result<(String, String), String> {
     let git = |args: &[&str]| git(repo, args);
@@ -542,7 +541,6 @@ impl Backlog {
         self.entries.borrow().iter().cloned().chain(self.running.borrow().iter().map(|r| r.entry.clone())).collect()
     }
 
-    /// The task a reference names: its ID, its agent's pane (ID or name), or a unique start of its ID, with or without `task-`.
     fn resolve(&self, reference: &str) -> Result<Option<String>, KmuxError> {
         if self.is_open(reference) {
             return Ok(Some(reference.to_string()));
@@ -558,12 +556,16 @@ impl Backlog {
                 [] => {}
                 [one] => return Ok(Some(one.id.clone())),
                 many => {
-                    let named: Vec<String> = many.iter().map(|e| e.name.as_ref().map_or(e.id.clone(), |name| format!("{} \"{name}\"", e.id))).collect();
+                    let named: Vec<String> = many.iter().map(|e| self.label(&e.id)).collect();
                     return Err(KmuxError::new("ambiguous", format!("{reference} could be {} tasks: {}; say more of its ID", many.len(), named.join(", "))));
                 }
             }
         }
         Ok(self.db.task(reference).ok().flatten().map(|row| row.id))
+    }
+
+    fn short(&self, id: &str) -> String {
+        db::short_id(id, self.open_tasks().iter().map(|e| e.id.as_str()))
     }
 
     fn pane_or(&self, reference: &str) -> String {
@@ -591,8 +593,8 @@ impl Backlog {
 
     fn label(&self, id: &str) -> String {
         match self.known(id).and_then(|e| e.name) {
-            Some(name) => format!("{id} \"{name}\""),
-            None => id.to_string(),
+            Some(name) => format!("{} \"{name}\"", self.short(id)),
+            None => self.short(id),
         }
     }
 
@@ -614,6 +616,7 @@ impl Backlog {
 
     fn described(&self, entry: &Entry) -> Value {
         let mut value = entry.to_value();
+        value["short"] = json!(self.short(&entry.id));
         value["running"] = json!(entry.held.as_deref().zip(self.core.upgrade()).is_some_and(|(pane, core)| alive(&core, pane)));
         let waits = self.waits(entry).iter().map(|id| json!({ "id": id, "name": opt(self.known(id).and_then(|e| e.name).as_deref()), "pane": opt(self.pane_of(id).as_deref()) })).collect();
         value["waits"] = Value::Array(waits);
@@ -628,10 +631,10 @@ impl Backlog {
                 for reference in list.iter().filter_map(Value::as_str) {
                     let id = self.resolve(reference)?.ok_or_else(|| not_found(reference))?;
                     if !self.is_open(&id) {
-                        return Err(bad(format!("{reference} is done already, so there's nothing to wait for")));
+                        return Err(bad(format!("{} is done already, so there's nothing to wait for", self.short(reference))));
                     }
                     if id == me || self.waits_for(&id, me) {
-                        return Err(KmuxError::new("cycle", format!("{reference} waits for {me}: they'd wait for each other")));
+                        return Err(KmuxError::new("cycle", format!("{} waits for {}: they'd wait for each other", self.short(reference), self.short(me))));
                     }
                     if !ids.contains(&id) {
                         ids.push(id);
@@ -651,7 +654,7 @@ impl Backlog {
         if !waits.is_empty() {
             let names: Vec<String> = waits.iter().map(|id| self.label(id)).collect();
             let them = if waits.len() > 1 { "they're" } else { "it's" };
-            return Err(KmuxError::new("blocked", format!("{} waits for {}: it can start once {them} done", entry.id, names.join(", "))));
+            return Err(KmuxError::new("blocked", format!("{} waits for {}: it can start once {them} done", self.short(&entry.id), names.join(", "))));
         }
         Ok(())
     }
@@ -662,7 +665,7 @@ impl Backlog {
             return Err(KmuxError::new("not_found", format!("no backlog task \"{reference}\"")));
         };
         if entry.folder.is_some() {
-            return Err(KmuxError::new("started", format!("{reference} has started: its branch is made, and nothing holds it back now")));
+            return Err(KmuxError::new("started", format!("{} has started: its branch is made, and nothing holds it back now", self.short(reference))));
         }
         entry.after = self.blockers(args, &entry.id)?.ok_or_else(|| bad("say what it waits for: after"))?;
         let change = Change::new("edited").by(who(args)).with("after", json!(entry.after));
@@ -1025,7 +1028,7 @@ impl Backlog {
         let waiting = self.entries.borrow().iter().find(|e| e.id == id).map(|e| (e.clone(), Place::Backlog, e.held.clone()));
         let running = || self.running.borrow().iter().find(|r| r.entry.id == id).map(|r| (r.entry.clone(), r.place, Some(r.pane.clone())));
         let (entry, place, pane) = waiting.or_else(running).ok_or_else(|| KmuxError::new("not_found", format!("no task \"{id}\"")))?;
-        Ok(Map::from_iter([("task".to_string(), json!({ "id": entry.id, "name": opt(entry.name.as_deref()), "place": place.as_str(), "pane": opt(pane.as_deref()) }))]))
+        Ok(Map::from_iter([("task".to_string(), json!({ "id": entry.id, "short": self.short(&entry.id), "name": opt(entry.name.as_deref()), "place": place.as_str(), "pane": opt(pane.as_deref()) }))]))
     }
 
     fn events(&self, args: &Value) -> Result<Map, KmuxError> {
@@ -1089,7 +1092,7 @@ impl Backlog {
                 value
             })
             .collect();
-        let out = self.running.borrow().iter().filter(|r| repo.is_none_or(|repo| r.entry.repo == repo)).map(|r| json!({ "id": r.entry.id, "pane": r.pane })).collect();
+        let out = self.running.borrow().iter().filter(|r| repo.is_none_or(|repo| r.entry.repo == repo)).map(|r| json!({ "id": r.entry.id, "short": self.short(&r.entry.id), "pane": r.pane })).collect();
         Map::from_iter([("tasks".to_string(), Value::Array(tasks)), ("out".to_string(), Value::Array(out))])
     }
 
@@ -1106,6 +1109,7 @@ impl Backlog {
         if let Err(error) = self.store(&entry, Place::Done, None, Some(Change::new("done").moved(Place::Backlog, Place::Done).by(who(args)))) {
             return responder.reply(Err(error));
         }
+        let short = self.short(&entry.id);
         self.take(id);
         if let Some(pane) = &entry.held {
             self.turns.borrow_mut().remove(pane);
@@ -1113,7 +1117,9 @@ impl Backlog {
         }
         self.changed();
         self.refill();
-        let value = Map::from_iter([("task".to_string(), entry.to_value())]);
+        let mut task = entry.to_value();
+        task["short"] = json!(short);
+        let value = Map::from_iter([("task".to_string(), task)]);
         match (entry.held, self.core.upgrade()) {
             (Some(pane), Some(core)) if core.pane(&pane).is_some() => core.handle(json!({ "cmd": "close", "args": { "task": pane } }), move |_| responder.reply(Ok(value))),
             _ => responder.reply(Ok(value)),
@@ -1986,7 +1992,8 @@ mod tests {
         assert_eq!(backlog.pane_or("task-c0ffee00"), "p7");
         let (code, message) = found("task-1d").unwrap_err();
         assert_eq!(code, "ambiguous");
-        assert!(message.contains("task-1dfb12c2 \"One\"") && message.contains("task-1d0e44aa \"Two\""), "{message}");
+        assert!(message.contains("task-1dfb \"One\"") && message.contains("task-1d0e \"Two\""), "{message}");
+        assert_eq!(backlog.short("task-c0ffee00"), "task-c0ff");
         assert_eq!(found("task-"), Ok(None));
         assert_eq!(found("beef"), Ok(None));
         assert_eq!(found("t134"), Ok(None), "an old ID names nothing");

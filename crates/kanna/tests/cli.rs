@@ -517,7 +517,7 @@ fn a_backlog_task_is_renamed_and_starts_with_its_new_name() {
     let id = added["task"]["id"].as_str().unwrap().to_string();
     assert!(id.len() == 13 && id.starts_with("task-") && id[5..].bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{id}");
     let short = &id[5..9];
-    assert_eq!(daemon.kanna(&["task", "name", short, "New name"]).ok(), format!("named {id} \"New name\""), "a start of its ID, without task-");
+    assert_eq!(daemon.kanna(&["task", "name", short, "New name"]).ok(), format!("named task-{short} \"New name\""), "a start of its ID, without task-, and shown as its first 4 hex digits");
     let listed = daemon.kanna(&["--json", "task", "list"]).json()["backlog"][0].clone();
     assert_eq!((listed["name"].clone(), listed["message"].clone()), (json!("New name"), json!("say hi")));
     daemon.kanna(&["task", "name", "t9", "x"]).fails(4, "t9");
@@ -528,7 +528,7 @@ fn a_backlog_task_is_renamed_and_starts_with_its_new_name() {
     assert!(folder.as_str().is_some_and(|f| f.ends_with(&format!(".kanna-worktrees/{id}"))), "its worktree is named after it: {folder}");
     let pane = started["pane"].as_str().unwrap().to_string();
     wait_for("the started task's pane", || daemon.kanna(&["--json", "list"]).json()["panes"].as_array().unwrap().iter().any(|p| p["id"] == pane.as_str() && p["name"] == "New name"));
-    assert_eq!(daemon.kanna(&["task", "name", &id, "Newer name"]).ok(), format!("named {id} \"Newer name\""));
+    assert_eq!(daemon.kanna(&["task", "name", &id, "Newer name"]).ok(), format!("named task-{short} \"Newer name\""));
     assert!(daemon.kanna(&["--json", "list"]).json()["panes"].as_array().unwrap().iter().any(|p| p["id"] == pane.as_str() && p["name"] == "Newer name"));
     assert_eq!(daemon.kanna(&["--json", "task", "list"]).json()["backlog"][0]["name"], json!("Newer name"));
 }
