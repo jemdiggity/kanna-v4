@@ -18,6 +18,7 @@ done
 case "$channel" in production|staging|dev) export KANNA_CHANNEL="$channel" ;; *) usage ;; esac
 echo "==> Channel: $KANNA_CHANNEL"
 . "$scripts/env.sh"
+kanna_targets "$repo_root" || exit 1
 macos_target="$(kanna_macos_target "$repo_root")"
 echo "==> macOS deployment target: $macos_target"
 host="$(kanna_host_triple)"
@@ -59,3 +60,4 @@ fi
 
 echo "==> Swift app and ${arch_dir#"$repo_root/"}/Kanna.app (scripts/build-kanna-app.sh)"
 "$scripts/build-kanna-app.sh" "$KANNA_CHANNEL" --arch "$(kanna_triple_arch "$triple")"
+kanna_targets_offline "$repo_root" || echo "==> Couldn't sync target/.offline: a build with the volume unplugged starts cold" >&2

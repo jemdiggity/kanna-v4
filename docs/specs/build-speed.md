@@ -24,6 +24,8 @@ flowchart LR
     K -->|"APFS clone, workspace-state paths rewritten"| K2
 ```
 
+With build outputs on another volume ([build targets](build-targets.md)), a worktree clones from the main checkout's copy there.
+
 | Borrowed | When | How | Saves |
 |---|---|---|---|
 | Ghostty's source (`kanna_ghostty_source`) | the worktree builds Ghostty itself (another arch, or main's builds are stale) and the main checkout's `ghostty-source` is clean at the pinned commit | used where it is, read-only | cloning the fork |

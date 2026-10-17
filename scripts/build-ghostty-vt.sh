@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$repo_root/scripts/env.sh"
+kanna_targets "$repo_root" || exit 1
 source_dir="$(kanna_ghostty_source "$repo_root")"
 zig="$(kanna_zig "$repo_root")"
 
