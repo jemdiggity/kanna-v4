@@ -98,6 +98,8 @@ Each one changes `where`, a Desk's `shows`, or which workspace a window or pane 
 | `open --window new`, or a tab torn off, from the workspace | a new window of the workspace | on screen if the workspace is |
 | A tab torn off a free window | — | a new free window |
 | `move PANE --window W`, a tab dragged to W | the pane or tab joins W's workspace, or W if it's free | — |
+| `move-window W --task t135` | W becomes one of t135's windows | W stays if t135 is on a Desk, else closes with it |
+| `move-window W --free` | W leaves its workspace | W opens if its workspace was hidden |
 
 A pane belongs to the workspace it's in. Moving it to another workspace's window moves it to another task, so that's always a deliberate drag or `move`, never a side effect of where a task happens to be shown.
 
@@ -114,6 +116,7 @@ A pane belongs to the workspace it's in. Moving it to another workspace's window
 | `zoom PANE` | that pane's zoom, on screen or not | as today |
 | `comment` | the markdown pane it opens or finds is beside the caller | in w4 |
 | `move` | `--window W` into W | as today |
+| `move-window W --task T` / `--free` | moves W into T's workspace, or frees it ([4](#4-kinds-of-window-and-the-planning-terminal)) | the same |
 | `close` | a pane, a tab, or `--window W` (and its panes) | as today |
 | `list` | Desks and what they show, free windows, then each Shelf and backlog workspace with its windows and tabs | the same |
 
@@ -132,6 +135,8 @@ Replies say which workspace and where it is. A window is named when it's on scre
 | focus, t135 on a Desk | `focused spec (key window w31)` | `focused spec in t135 on w31 (key window)` |
 | zoom, hidden | `spec is zoomed (run again to unzoom)` | `spec is zoomed in t135 (on the Shelf; run again to unzoom)` |
 | comment, hidden | `opened p6 · spec.md:12` | `opened p6 in t135 (on the Shelf) · spec.md:12` |
+| move-window to a task on the Shelf | — | `moved w41 to t135 (on the Shelf: hidden until it's pulled)` |
+| move-window, free | — | `w41 is free` |
 
 Layout replies carry `workspace: {id, task, where}` (`where`: `{desk}`, `"shelf"` or `"backlog"`), or null in a free window, beside the `window` and `tab` they have today. `window` is the window's ID, or null for a hidden Desk part. The CLI writes "unplaced until Kanna.app opens" only when there's neither (the app wasn't there). `kanna list --json` gains `workspaces`, and each pane's row names its workspace.
 
@@ -140,6 +145,7 @@ Layout replies carry `workspace: {id, task, where}` (`where`: `{desk}`, `"shelf"
 - **A Desk** is a project's window: it shows its lead (the planning terminal) and the Shelf, or one workspace's Desk part. It holds no tabs of its own: a pane opened onto the Shelf gets a new window, as today ([zoom](zoom.md), [planning agent](planning-agent.md)). Its ID names the place.
 - **A workspace's window** belongs to that workspace: its ID stays with it through park and pull, and it's on screen only while the workspace is on a Desk.
 - **A free window** belongs to no workspace: nothing parks, pulls or docks there. It behaves as kmux's window, so kmux's protocol cases see the same windows as today.
+- **A window moves between workspaces, or becomes free,** with `kanna move-window W --task T` or `--free`, and from the Window menu (Move Window to Task, listing the project's started tasks, and Make Window Free; [menus](menus.md)). It's a `command` step like `move-tab`. Refused: a Desk (`desk`: a Desk is a place, not a task's), a window with a lead (`lead`: a Quiz window stays its agent's), and a task with no workspace yet (`not_started`: "t138 hasn't started").
 - **The planning terminal never moves.** It's its Desk's, not a task's: park and pull swap the workspace beside it, and `move` still refuses it.
 
 ## 5. Saved state
@@ -193,9 +199,10 @@ flowchart LR
 - **One `Tabs`** (tabs, shown tab, focus, zoom) is what a free window, a workspace's Desk part and each of its windows hold. Tab and pane ops are written once on it, so a hidden workspace is no longer a second code path.
 - **Out of desk.rs:** every `parked` lookup and copy. `focus_parked`, `focus_parked_tab`, the parked half of `place_on_task` and of `zoom`, and `detach_parked` go. `park_window` and the body of `pull` shrink to changing `where` and `shows`. `Window.backlog` and `parked_at` move to the workspace.
 - **Out of owner.rs:** `view` lists the windows on screen (Desks, free windows, and the windows of workspaces on a Desk), each with its `workspace`; `shelf` and `held` read workspaces by `where`, and `held` includes their windows' panes. A window leaving or joining the view closes or opens as any window does today, so the Swift app only learns the `workspace` field.
-- **kanna CLI:** `output.rs` `opened`, `focused`, `zoomed`, `commented`, `moved` write the replies in [3](#3-commands-target-and-reply); `crates/kanna/tests/cli.rs` checks them.
-- **kanna-mux tests:** the owner tests on parked and held tasks (`a_task_parks_onto_the_shelf…`, `a_task_held_in_the_backlog…` ×2, `a_task_parks_and_pulls_with_its_zoom…`, `a_parked_task_whose_agent_is_gone…`, `a_pull_onto_a_desk_with_a_task…`) check workspace IDs and `where` instead of `parked` records. New ones: a task's `open` lands in its own workspace after another task is pulled onto its old Desk; a workspace's window closes on park and opens at its frame on pull; `open --window new` from a task's pane makes its window; replies name the workspace; a version-1 file loads and saves as version 2 (`tests/restore.rs`). `protocol_cases` (kmux's) pass unchanged.
-- **e2e:** `backlog_runners` (the presenting task) checks the new focus and open replies from a held task, and that its tabs are still in `t8`'s workspace after another task is pulled onto the Desk. `desk_shelf`, `move_to_backlog`, `backlog_and_back`, `shelf_zoom` and `layout_restored` read workspaces from `kanna list --json`; `desk_shelf` also parks and pulls a task with a window of its own.
+- **kanna CLI:** `output.rs` `opened`, `focused`, `zoomed`, `commented`, `moved` write the replies in [3](#3-commands-target-and-reply); `move-window` is a new command in `commands.rs`; `crates/kanna/tests/cli.rs` checks them.
+- **The app:** the Window menu's two items send `move-window` to the layout like Move Tab to New Window.
+- **kanna-mux tests:** the owner tests on parked and held tasks (`a_task_parks_onto_the_shelf…`, `a_task_held_in_the_backlog…` ×2, `a_task_parks_and_pulls_with_its_zoom…`, `a_parked_task_whose_agent_is_gone…`, `a_pull_onto_a_desk_with_a_task…`) check workspace IDs and `where` instead of `parked` records. New ones: a task's `open` lands in its own workspace after another task is pulled onto its old Desk; a workspace's window closes on park and opens at its frame on pull; `open --window new` from a task's pane makes its window; `move-window` moves a window into a hidden workspace (it closes) and frees one (it opens), and refuses a Desk; replies name the workspace; a version-1 file loads and saves as version 2 (`tests/restore.rs`). `protocol_cases` (kmux's) pass unchanged.
+- **e2e:** `backlog_runners` (the presenting task) checks the new focus and open replies from a held task, and that its tabs are still in `t8`'s workspace after another task is pulled onto the Desk. `desk_shelf`, `move_to_backlog`, `backlog_and_back`, `shelf_zoom` and `layout_restored` read workspaces from `kanna list --json`; `desk_shelf` also parks and pulls a task with a window of its own, and moves a free window into the task and back out with `move-window`.
 - **Skills:** `kanna-tasks` already says to open without `--window`. It gains one line: the reply names your task and where it is.
 
 ## 7. The branches waiting for review
@@ -210,7 +217,7 @@ flowchart LR
 3. **A window isn't a workspace.** A workspace can have several windows; a window is a Desk, a workspace's, or free.
 4. **t135** ("Off-screen open and focus replies name the right window"), a backlog task made by the agent of 'Presentations focus the first tab' for the two misleading replies, is covered by [3](#3-commands-target-and-reply) and comes off the backlog when the build task is made.
 5. **Open: a workspace's windows while it's off the Desk.** *Recommend* they close with it and come back at their frames when it's pulled, so the screen shows one task at a time per project. The other choice leaves them open while the task is on the Shelf.
-6. **Open: how a window joins or leaves a workspace.** *Recommend* only by birth: a window made from a task's pane or torn off its tabs is the task's, and one made from a free window is free, with no command to adopt or free a window until one's needed. Moving every tab out of a window still empties and closes it, as today.
+6. **A window joins or leaves a workspace** by birth (one made from a task's pane or torn off its tabs is the task's; one made from a free window is free) or by `move-window` and the Window menu ([4](#4-kinds-of-window-and-the-planning-terminal)).
 
 ## 9. Glossary
 
