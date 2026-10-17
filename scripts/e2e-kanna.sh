@@ -753,6 +753,24 @@ resize_arrange() {
   check test "$(kanna list --json | field panes)" == "[]"
 }
 
+scenario move_to_window M4
+move_to_window() {
+  start_daemon && start_app || return 1
+  kanna open --name doc >/dev/null && kanna open --name mine --split right >/dev/null || return 1
+  kanna open --name user --window new >/dev/null && kanna open --name open --split right >/dev/null || return 1
+  kanna move mine --window w2 >/dev/null || return 1
+  check test "$(win w2 tabs.0.layout)" == '{"children": [{"pane": "user", "size": "1/2"}, {"pane": "open", "size": "1/2"}], "split": "row"}' || return 1
+  check test "$(win w2 tabs.1.layout)" == '{"pane": "mine"}' || return 1
+  check test "$(win w2 tabs.1.active)" == True || return 1
+  check test "$(win w2 focused)" == mine || return 1
+  check test "$(win w1 tabs.0.layout)" == '{"pane": "doc"}' || return 1
+  kanna move mine --window w2 >/dev/null || return 1
+  check test "$(win w2 tabs | count)" == 2 || return 1
+  kanna move open --window w2 >/dev/null || return 1
+  check test "$(win w2 tabs.0.layout)" == '{"pane": "user"}' || return 1
+  check test "$(win w2 tabs.2.layout)" == '{"pane": "open"}'
+}
+
 scenario drag_panes_tabs M4
 drag_panes_tabs() {
   start_daemon && start_app || return 1

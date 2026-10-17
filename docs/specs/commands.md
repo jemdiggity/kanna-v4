@@ -21,7 +21,7 @@ Every command, option, output and error is kmux's CLI's, except where [the CLI's
 | | `kanna read PANE [--lines N]` | Print a terminal pane's screen as text; with `--lines`, its last N lines, counting scrollback. Kanna's. |
 | | `kanna screenshot [PANE\|--window WINDOW] [-o FILE] [--force]` | Save a PNG of a pane or a window and print its path ([screenshot](screenshot.md)). Kanna's. |
 | | `kanna resize PANE SIZE` | Change one pane's size. |
-| | `kanna move PANE --to OTHER [--side SIDE]` / `--tab TAB\|new` / `--window WINDOW\|new` | Move a pane beside another, swap two, or move it to another tab or window. |
+| | `kanna move PANE --to OTHER [--side SIDE]` / `--tab TAB\|new` / `--window WINDOW\|new` | Move a pane beside another, swap two, or move it to another tab or window. `--window` puts it in a new tab at the end of that window, focused, as `--tab new --window` does; to its own window, a pane alone in its tab stays where it is and one in a split leaves it for a new tab. |
 | | `kanna navigate PANE URL\|FILE\|--back\|--forward` | Point a web pane at a new URL (or move through its history), or a markdown pane at another `.md` file. |
 | Tabs and windows | `kanna arrange LAYOUT` | Rearrange existing panes in one go. Today LAYOUT is kmux's JSON tree; the [layout expression](arranging-panes.md#2-the-layout-expression) is planned. |
 | | `kanna rename-tab TAB TITLE` | Rename a tab; it keeps that name instead of following its pane's ([tab names](tab-names.md)). |

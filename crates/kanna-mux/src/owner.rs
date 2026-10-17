@@ -1117,6 +1117,35 @@ mod tests {
     }
 
     #[test]
+    fn a_move_to_a_window_makes_a_new_focused_tab_there_and_to_its_own_window_splits_it_out() {
+        let (mut owner, _) = LayoutOwner::open(None, false);
+        owner.handle(&json!({ "call": "attach", "panes": [] }));
+        let mv = |owner: &mut LayoutOwner, args: Value| owner.handle(&json!({ "call": "serve", "request": { "op": "command", "cmd": "move", "args": args } }));
+        let tabs = |owner: &LayoutOwner, w: usize| {
+            let view = Value::Object(owner.view());
+            let window = &view["windows"][w];
+            (window["tabs"].as_array().unwrap().iter().map(|t| t["panes"].clone()).collect::<Vec<_>>(), window["tab"].clone(), window["focused"].clone())
+        };
+        place(&mut owner, "p1", json!({}));
+        place(&mut owner, "p2", json!({ "from": "p1" }));
+        place(&mut owner, "p3", json!({ "window": "new" }));
+        place(&mut owner, "p4", json!({ "from": "p3" }));
+        assert_eq!(mv(&mut owner, json!({ "pane": "p2", "window": "w2" }))["ok"], true);
+        assert_eq!(tabs(&owner, 1), (vec![json!(["p3", "p4"]), json!(["p2"])], json!("t3"), json!("p2")), "a new tab at the end of the window, focused, not a split of its active tab");
+        assert_eq!(tabs(&owner, 0).0, vec![json!(["p1"])], "the pane left behind keeps the whole tab");
+        assert_eq!(owner.view()["key"], "w2");
+        let before = Value::Object(owner.view());
+        assert_eq!(mv(&mut owner, json!({ "pane": "p2", "window": "w2" }))["ok"], true);
+        assert_eq!(Value::Object(owner.view()), before, "a pane alone in its tab, moved to its own window, stays as it is");
+        assert_eq!(mv(&mut owner, json!({ "pane": "p4", "window": "w2" }))["ok"], true);
+        assert_eq!(tabs(&owner, 1), (vec![json!(["p3"]), json!(["p2"]), json!(["p4"])], json!("t4"), json!("p4")), "a pane in a split, moved to its own window, leaves it for a new tab");
+        assert_eq!(mv(&mut owner, json!({ "pane": "p4", "tab": "t2" }))["ok"], true);
+        assert_eq!(tabs(&owner, 1).0, vec![json!(["p3", "p4"]), json!(["p2"])], "--tab still joins that tab");
+        assert_eq!(mv(&mut owner, json!({ "pane": "p1", "to": "p2", "side": "left" }))["ok"], true);
+        assert_eq!(tabs(&owner, 0).0, vec![json!(["p3", "p4"]), json!(["p1", "p2"])], "--to still goes beside the pane");
+    }
+
+    #[test]
     fn pruning_drops_empty_splits() {
         let live: HashSet<String> = ["p2".to_string()].into_iter().collect();
         let node = json!({ "split": "row", "children": [{ "pane": "p1" }, { "split": "column", "children": [{ "pane": "p2" }, { "pane": "p3" }] }] });

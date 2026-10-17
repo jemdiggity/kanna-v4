@@ -158,9 +158,10 @@ fn every_command_works_through_the_daemon_and_the_app() {
     let opened = daemon.kanna(&["open", "--window", "new", "--name", "d", "--no-wait"]).ok();
     assert!(opened.starts_with("opened p4 (d) in window w2, tab t3: "), "{opened}");
     assert_eq!(daemon.kanna(&["focus", "--window", "w1"]).ok(), "key window is now w1");
-    assert_eq!(daemon.kanna(&["move", "c", "--window", "w2"]).ok(), "d:1/2 | c:1/2");
+    assert_eq!(daemon.kanna(&["move", "c", "--window", "w2"]).ok(), "c");
+    assert_eq!(daemon.kanna(&["move", "d", "--to", "c", "--side", "left"]).ok(), "d:1/2 | c:1/2");
     assert_eq!(daemon.kanna(&["move", "c", "--tab", "new", "--window", "w2"]).ok(), "c");
-    assert_eq!(daemon.kanna(&["move-tab", "t4", "--window", "new"]).ok(), "w3: t4");
+    assert_eq!(daemon.kanna(&["move-tab", "t5", "--window", "new"]).ok(), "w3: t5");
 
     daemon.kanna(&["send", "a", "echo", "SENT-$((40+2))"]).ok();
     wait_for("the sent line", || daemon.kanna(&["read", "a"]).ok().contains("SENT-42"));
@@ -180,7 +181,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     let doc = daemon.dir.join("doc.md");
     std::fs::write(&doc, "# hi").unwrap();
     let opened = daemon.kanna(&["open", "md", "doc.md", "--name", "doc", "--tab"]).ok();
-    assert_eq!(opened, "opened p6 (doc) in window w1, tab t5: running");
+    assert_eq!(opened, "opened p6 (doc) in window w1, tab t6: running");
     assert_eq!(daemon.kanna(&["list", "--json"]).json()["panes"][5]["path"], json!(doc.to_string_lossy()));
     assert!(daemon.kanna(&["list", "--json"]).json()["panes"][5].get("markup").is_none());
     assert_eq!(daemon.kanna(&["markup", "doc"]).ok(), "comments on in p6 (doc)");
@@ -200,7 +201,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["raw", r#"{"cmd":"list"}"#]).json()["panes"].as_array().unwrap().len(), 6);
 
     assert_eq!(daemon.kanna(&["close", "--window", "w3"]).ok(), "closed window w3 (panes p3)");
-    assert_eq!(daemon.kanna(&["close", "--tab", "t5"]).ok(), "closed tab t5 (panes p6)");
+    assert_eq!(daemon.kanna(&["close", "--tab", "t6"]).ok(), "closed tab t6 (panes p6)");
     assert_eq!(daemon.kanna(&["close", "site"]).ok(), "closed p5");
     let reply = daemon.kanna(&["--json", "close", "d"]).json();
     assert_eq!(reply, json!({ "closed": ["p4"] }));

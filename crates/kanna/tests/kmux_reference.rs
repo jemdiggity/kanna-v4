@@ -27,6 +27,8 @@ const EXTENDED: &[(&str, &str)] = &[
     ("move", "notes"),
 ];
 
+const OPTIONS_DIFFER: &[(&str, &str)] = &[("move", "--window WINDOW|new")];
+
 const CODE_PANES: &[(&str, &str)] = &[("open", "summary"), ("navigate", "summary")];
 
 fn from_kmux(text: &str) -> String {
@@ -108,6 +110,20 @@ fn kanna_has_every_kmux_command_in_kmux_order() {
     assert_eq!(kanna::commands::GROUPS, commands::GROUPS);
 }
 
+fn same_options<'a>(command: &str, options: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+    options.iter().filter(|(option, _)| !OPTIONS_DIFFER.contains(&(command, *option))).copied().collect()
+}
+
+#[test]
+fn options_kanna_documents_differently_are_still_kmuxs_and_differ() {
+    for (name, option) in OPTIONS_DIFFER {
+        let theirs = commands::find(name).unwrap().options.iter().find(|(o, _)| o == option);
+        let ours = kanna::commands::find(name).unwrap().options.iter().find(|(o, _)| o == option);
+        let (Some(theirs), Some(ours)) = (theirs, ours) else { panic!("{name} {option}: kmux or kanna no longer has it") };
+        assert_ne!(from_kanna(ours.1), from_kmux(theirs.1), "{name} {option}: kanna documents it as kmux does now");
+    }
+}
+
 #[test]
 fn every_command_is_documented_as_kmux_documents_it() {
     for theirs in commands::COMMANDS {
@@ -116,7 +132,7 @@ fn every_command_is_documented_as_kmux_documents_it() {
             ("summary", theirs.summary.to_string(), ours.summary.to_string()),
             ("usage", theirs.usage.to_string(), ours.usage.to_string()),
             ("notes", theirs.notes.to_string(), ours.notes.to_string()),
-            ("options", format!("{:?}", theirs.options), format!("{:?}", ours.options)),
+            ("options", format!("{:?}", same_options(theirs.name, theirs.options)), format!("{:?}", same_options(theirs.name, ours.options))),
             ("examples", format!("{:?}", theirs.examples), format!("{:?}", &ours.examples[..ours.examples.len().min(theirs.examples.len())])),
         ];
         for (field, kmux, kanna) in fields {
