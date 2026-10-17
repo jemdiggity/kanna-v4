@@ -2,13 +2,13 @@ use crate::db::{self, Change, Db, Place, Row};
 use crate::Event;
 use kanna_mux::json::{json, num, opt, string, Map, Value};
 use kanna_detect::{Quit, Status, Turn, TURN_SETTLE};
-use kanna_mux::{project, CoreHandle, KmuxError, Pane, PaneState, Responder, WeakCore, TASKS_PER_PROJECT};
+use kanna_mux::{project, CoreHandle, KmuxError, Pane, PaneState, Responder, TaskBook, WeakCore, TASKS_PER_PROJECT};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -33,6 +33,7 @@ pub struct Entry {
     pub held: Option<String>,
     pub after: Vec<String>,
     pub stopped: Option<String>,
+    pub workspace: Option<String>,
 }
 
 impl Entry {
@@ -50,6 +51,7 @@ impl Entry {
             "held": opt(self.held.as_deref()),
             "after": self.after,
             "stopped": opt(self.stopped.as_deref()),
+            "workspace": opt(self.workspace.as_deref()),
         })
     }
 
@@ -69,6 +71,7 @@ impl Entry {
                 "session": opt(self.session.as_deref()),
                 "after": self.after,
                 "stopped": opt(self.stopped.as_deref()),
+                "workspace": opt(self.workspace.as_deref()),
             }),
         }
     }
@@ -88,6 +91,7 @@ impl Entry {
             held: row.pane.clone().filter(|_| row.place == Place::Backlog),
             after: row.doc.get("after").and_then(Value::as_array).map_or(vec![], |ids| ids.iter().filter_map(Value::as_str).map(String::from).collect()),
             stopped: text("stopped").filter(|_| row.place == Place::Backlog),
+            workspace: text("workspace"),
         }
     }
 
@@ -485,6 +489,24 @@ pub struct Backlog {
     pub on_change: RefCell<Option<Box<dyn Fn(Value)>>>,
 }
 
+struct Book(Weak<Backlog>);
+
+impl TaskBook for Book {
+    fn workspace_of(&self, reference: &str) -> Option<Result<String, KmuxError>> {
+        self.0.upgrade()?.workspace_of(reference)
+    }
+
+    fn task_of(&self, workspace: &str) -> Option<(String, Option<String>)> {
+        self.0.upgrade()?.task_in(workspace)
+    }
+
+    fn sync(&self, workspaces: &[Value]) {
+        if let Some(backlog) = self.0.upgrade() {
+            backlog.sync_workspaces(workspaces);
+        }
+    }
+}
+
 impl Backlog {
     pub fn open(db: Rc<Db>, state_dir: &Path, core: WeakCore, events: Sender<Event>) -> Backlog {
         let rows = db.tasks().unwrap_or_else(|error| {
@@ -531,10 +553,48 @@ impl Backlog {
         json!({ "tasks": Value::Array(tasks) })
     }
 
-    pub fn agents(&self) -> Vec<(String, String)> {
-        let running: Vec<(String, String)> = self.running.borrow().iter().map(|r| (r.pane.clone(), r.entry.id.clone())).collect();
-        let held: Vec<(String, String)> = self.entries.borrow().iter().filter_map(|e| Some((e.held.clone()?, e.id.clone()))).collect();
-        running.into_iter().chain(held).collect()
+    fn workspace_of(&self, reference: &str) -> Option<Result<String, KmuxError>> {
+        if reference.starts_with("ws-") || self.core.upgrade().is_some_and(|core| core.pane(reference).is_some()) {
+            return None;
+        }
+        match self.resolve(reference) {
+            Err(error) => Some(Err(error)),
+            Ok(None) => None,
+            Ok(Some(id)) => Some(
+                self.open_tasks().into_iter().find(|e| e.id == id).and_then(|e| e.workspace).ok_or_else(|| KmuxError::new("not_started", format!("{} hasn't started, so it has no workspace yet", self.short(&id)))),
+            ),
+        }
+    }
+
+    fn task_in(&self, workspace: &str) -> Option<(String, Option<String>)> {
+        let named = |e: &Entry| (e.id.clone(), e.name.clone());
+        let running = self.running.try_borrow().ok()?.iter().find(|r| r.entry.workspace.as_deref() == Some(workspace)).map(|r| named(&r.entry));
+        running.or_else(|| self.entries.try_borrow().ok()?.iter().find(|e| e.workspace.as_deref() == Some(workspace)).map(named))
+    }
+
+    fn sync_workspaces(&self, workspaces: &[Value]) {
+        let of = |pane: &str| workspaces.iter().find(|w| w["dock"]["id"] == pane).and_then(|w| string(w, "id")).map(String::from);
+        let mut moved = vec![];
+        if let Ok(mut running) = self.running.try_borrow_mut() {
+            for r in running.iter_mut() {
+                if let Some(ws) = of(&r.pane).filter(|ws| r.entry.workspace.as_ref() != Some(ws)) {
+                    r.entry.workspace = Some(ws);
+                    moved.push((r.entry.clone(), r.place, r.pane.clone()));
+                }
+            }
+        }
+        if let Ok(mut entries) = self.entries.try_borrow_mut() {
+            for e in entries.iter_mut() {
+                let Some(pane) = e.held.clone() else { continue };
+                if let Some(ws) = of(&pane).filter(|ws| e.workspace.as_ref() != Some(ws)) {
+                    e.workspace = Some(ws);
+                    moved.push((e.clone(), Place::Backlog, pane));
+                }
+            }
+        }
+        for (entry, place, pane) in moved {
+            let _ = self.store(&entry, place, Some(&pane), None);
+        }
     }
 
     fn open_tasks(&self) -> Vec<Entry> {
@@ -987,6 +1047,7 @@ impl Backlog {
     }
 
     pub fn install(self: &Rc<Self>, core: &CoreHandle) {
+        core.set_tasks(Rc::new(Book(Rc::downgrade(self))));
         let this = Rc::downgrade(self);
         core.add_command(
             "backlog",
@@ -1414,6 +1475,7 @@ impl Backlog {
             }
             let pane = reply.get("pane").and_then(|p| string(p, "id")).unwrap_or("").to_string();
             let mut ran = entry.clone();
+            ran.workspace = reply.get("workspace").and_then(|w| string(w, "id")).map(String::from).or(ran.workspace);
             ran.folder = Some(folder.clone());
             ran.session = ran.session.or(session);
             let renamed = this.entries.borrow().iter().find(|e| e.id == ran.id).map(|e| e.name.clone()).filter(|now| *now != ran.name);
@@ -1912,7 +1974,7 @@ mod tests {
 
     #[test]
     fn entries_round_trip_through_the_db() {
-        let entry = Entry { id: "task-0000c0de".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into(), folder: Some("/r/.kanna-worktrees/task-0000c0de".into()), session: Some("s".into()), held: Some("p3".into()), after: vec!["task-00000002".into()], stopped: Some("needs-you".into()) };
+        let entry = Entry { id: "task-0000c0de".into(), name: Some("Fix it".into()), message: None, repo: "/r".into(), by: Some("p2".into()), made_at: 5.0, agent: "codex".into(), folder: Some("/r/.kanna-worktrees/task-0000c0de".into()), session: Some("s".into()), held: Some("p3".into()), after: vec!["task-00000002".into()], stopped: Some("needs-you".into()), workspace: None };
         assert_eq!(Entry::from_row(&entry.row(Place::Backlog, Some("p3"))), entry);
         assert_eq!(Entry::from_row(&entry.row(Place::Shelf, Some("p3"))).held, None, "a task on the Shelf isn't held");
         assert_eq!(Entry::from_row(&entry.row(Place::Shelf, Some("p3"))).stopped, None, "nor stopped by the backlog");
@@ -1997,6 +2059,33 @@ mod tests {
         assert_eq!(found("task-"), Ok(None));
         assert_eq!(found("beef"), Ok(None));
         assert_eq!(found("t134"), Ok(None), "an old ID names nothing");
+        fs::remove_dir_all(&state).unwrap();
+    }
+
+    #[test]
+    fn a_task_names_its_workspace_and_follows_it_by_its_agent_s_pane() {
+        let state = std::env::temp_dir().join(format!("kanna-workspace-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&state);
+        fs::create_dir_all(&state).unwrap();
+        let core = kanna_mux::Core::default();
+        let backlog = Backlog::open(Rc::new(Db::open(&state)), &state, core.weak(), std::sync::mpsc::channel().0);
+        let task = |id: &str, name: &str| Entry { id: id.into(), name: Some(name.into()), repo: "/r".into(), agent: "claude".into(), ..Default::default() };
+        backlog.store(&task("task-1dfb12c2", "Waiting"), Place::Backlog, None, None).unwrap();
+        backlog.entries.borrow_mut().push(task("task-1dfb12c2", "Waiting"));
+        let out = task("task-c0ffee00", "Out");
+        backlog.store(&out, Place::Shelf, Some("p7"), None).unwrap();
+        backlog.running.borrow_mut().push(Running { pane: "p7".into(), entry: out, place: Place::Shelf });
+        let of = |reference: &str| backlog.workspace_of(reference).map(|r| r.map_err(|e| (e.code, e.message)));
+        assert_eq!(of("ws-3"), None, "a workspace's own ID goes to the layout as it is");
+        assert_eq!(of("c0ff"), Some(Err(("not_started".into(), "task-c0ff hasn't started, so it has no workspace yet".into()))));
+        assert_eq!(backlog.task_in("ws-3"), None);
+        backlog.sync_workspaces(&[json!({ "id": "ws-3", "dock": { "id": "p7", "pane": "Out" } }), json!({ "id": "ws-4", "dock": { "id": "p9" } })]);
+        assert_eq!(of("task-c0ffee00"), Some(Ok("ws-3".into())));
+        assert_eq!(backlog.task_in("ws-3"), Some(("task-c0ffee00".into(), Some("Out".into()))));
+        assert_eq!(backlog.task_in("ws-4"), None, "a workspace with no task's agent docked has no task");
+        assert_eq!(of("task-1dfb"), Some(Err(("not_started".into(), "task-1dfb hasn't started, so it has no workspace yet".into()))));
+        let again = Backlog::open(Rc::new(Db::open(&state)), &state, core.weak(), std::sync::mpsc::channel().0);
+        assert_eq!(again.task_in("ws-3"), Some(("task-c0ffee00".into(), Some("Out".into()))), "the task's workspace survives a restart");
         fs::remove_dir_all(&state).unwrap();
     }
 

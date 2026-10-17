@@ -33,6 +33,14 @@ pub trait PaneHost {
     }
 }
 
+pub trait TaskBook {
+    fn workspace_of(&self, reference: &str) -> Option<Result<String, KmuxError>>;
+    fn task_of(&self, workspace: &str) -> Option<(String, Option<String>)>;
+    fn sync(&self, workspaces: &[Value]) {
+        let _ = workspaces;
+    }
+}
+
 pub type CommandHandler = Rc<dyn Fn(Value, Responder)>;
 
 pub type PrefixHandler = Rc<dyn Fn(&str, Value, Responder)>;
@@ -82,6 +90,7 @@ struct Inner {
     on_change: RefCell<Option<Rc<dyn Fn()>>>,
     extra: RefCell<HashMap<String, CommandHandler>>,
     prefixes: RefCell<Vec<(String, PrefixHandler)>>,
+    tasks: RefCell<Option<Rc<dyn TaskBook>>>,
     waiters: RefCell<HashMap<String, Vec<Rc<Signal>>>>,
 }
 
@@ -127,6 +136,7 @@ impl Core {
             on_change: RefCell::new(None),
             extra: RefCell::new(HashMap::new()),
             prefixes: RefCell::new(vec![]),
+            tasks: RefCell::new(None),
             waiters: RefCell::new(HashMap::new()),
         })))
     }
@@ -202,6 +212,44 @@ impl CoreHandle {
 
     pub fn add_command(&self, name: &str, handler: CommandHandler) {
         self.0.extra.borrow_mut().insert(name.into(), handler);
+    }
+
+    pub fn set_tasks(&self, book: Rc<dyn TaskBook>) {
+        *self.0.tasks.borrow_mut() = Some(book);
+    }
+
+    fn book(&self) -> Option<Rc<dyn TaskBook>> {
+        self.0.tasks.borrow().clone()
+    }
+
+    fn name_tasks(&self, reply: &mut Map) {
+        let Some(book) = self.book() else { return };
+        let name = |ws: &mut Value| {
+            if let Some((task, name)) = ws.get("id").and_then(Value::as_str).and_then(|id| book.task_of(id)) {
+                ws["task"] = task.into();
+                if let Some(name) = name {
+                    ws["name"] = name.into();
+                }
+            }
+        };
+        for key in ["workspace", "was"] {
+            if let Some(ws) = reply.get_mut(key).filter(|w| w.is_object()) {
+                name(ws);
+            }
+        }
+        for ws in reply.get_mut("workspaces").and_then(Value::as_array_mut).into_iter().flatten() {
+            name(ws);
+        }
+    }
+
+    fn task_workspace(&self, args: &mut Value) -> Result<(), KmuxError> {
+        let Some(reference) = string(args, "workspace").map(String::from) else { return Ok(()) };
+        match self.book().and_then(|book| book.workspace_of(&reference)) {
+            Some(Ok(workspace)) => args["workspace"] = workspace.into(),
+            Some(Err(error)) => return Err(error),
+            None => {}
+        }
+        Ok(())
     }
 
     pub fn add_prefix(&self, prefix: &str, handler: PrefixHandler) {
@@ -457,12 +505,16 @@ impl CoreHandle {
             None => Err(bad_request("missing cmd")),
             Some(cmd) => {
                 let cmd = cmd.to_string();
-                let args = request.get("args").cloned().unwrap_or_else(|| json!({}));
-                self.run(&cmd, args).await
+                let mut args = request.get("args").cloned().unwrap_or_else(|| json!({}));
+                match if cmd == "window" { self.task_workspace(&mut args) } else { Ok(()) } {
+                    Ok(()) => self.run(&cmd, args).await,
+                    Err(error) => Err(error),
+                }
             }
         };
         match result {
             Ok(mut reply) => {
+                self.name_tasks(&mut reply);
                 reply.insert("id".into(), id);
                 reply.insert("ok".into(), Value::Bool(true));
                 Value::Object(reply)
@@ -546,6 +598,10 @@ impl CoreHandle {
         let mut layout = self.layout(json!({ "op": "windows" })).await?;
         let windows = layout.remove("windows").unwrap_or(Value::Array(vec![]));
         let workspaces = layout.remove("workspaces");
+        let hidden = layout.remove("hiddenWindows");
+        if let (Some(book), Some(Value::Array(all))) = (self.book(), &workspaces) {
+            book.sync(all);
+        }
         let s = self.state();
         let of = |id: &str| workspaces.as_ref().and_then(Value::as_array).and_then(|all| all.iter().find(|ws| ws["panes"].as_array().is_some_and(|p| p.iter().any(|p| p == id)))).map(|ws| ws["id"].clone());
         let panes = s.panes.iter().map(|pane| {
@@ -558,6 +614,9 @@ impl CoreHandle {
         let mut out = reply([("windows", windows), ("panes", Value::Array(panes.collect()))]);
         if let Some(workspaces) = workspaces {
             out.insert("workspaces".into(), workspaces);
+        }
+        if let Some(hidden) = hidden {
+            out.insert("hiddenWindows".into(), hidden);
         }
         Ok(out)
     }
@@ -666,10 +725,6 @@ impl CoreHandle {
         if shelf && (dock.is_none() || args.get("window").is_some()) {
             return Err(bad_request("shelf and backlog are for a docked pane, without a window"));
         }
-        let task = string(args, "task");
-        if task.is_some() && dock.is_none() {
-            return Err(bad_request("task is for a docked pane: the task's agent"));
-        }
         let lead = is_true(args, "lead");
         if lead && (kind != PaneType::Term || dock.is_some() || split.is_some() || size.is_some() || new_tab || string(args, "window").is_none()) {
             return Err(bad_request("a window's lead is a terminal in a window, with no dock, split, size or tab"));
@@ -694,7 +749,7 @@ impl CoreHandle {
             None if kind == PaneType::Term && dock.is_none() && !lead => self.task_folder(opener.as_deref(), string(args, "window")).await,
             None => None,
         };
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), opener.as_deref(), shelf, backlog, lead, task)).await?;
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), opener.as_deref(), shelf, backlog, lead)).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();

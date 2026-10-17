@@ -47,10 +47,10 @@ A bare `cargo build` or `swift build` misses steps, so start with `scripts/build
 
 ```sh
 scripts/run-kanna.sh              # open this checkout's Kanna (in a worktree, that worktree's own Kanna Dev)
-scripts/run-kanna.sh list         # its CLI against it, even from a terminal in another Kanna
+scripts/run-kanna.sh workspace list --all  # its CLI against it, even from a terminal in another Kanna
 kanna open --name server --cmd "npm run dev" --split right --size 1/3
 kanna open md docs/kanna-spec.md --tab
-kanna list
+kanna workspace list
 kanna help
 ```
 

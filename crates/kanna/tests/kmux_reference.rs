@@ -17,7 +17,9 @@ use serde_json::{json, Value};
 
 const KANNA_ONLY: &[&str] = &["read", "screenshot", "send-key", "status", "agents", "markup", "comment", "rename-pane", "task", "quiz"];
 
-const KMUX_ONLY: &[&str] = &["workspace"];
+const KMUX_ONLY: &[&str] = &[];
+
+const SOME_ACTIONS: &[(&str, &[&str])] = &[("workspace", &["list"])];
 
 const FOR_TASKS: &[&str] = &["window"];
 
@@ -27,7 +29,6 @@ const EXTENDED: &[(&str, &str)] = &[
     ("open", "examples"),
     ("navigate", "usage"),
     ("send", "notes"),
-    ("list", "notes"),
     ("move", "notes"),
 ];
 
@@ -118,6 +119,20 @@ fn same_options<'a>(command: &str, options: &[(&'a str, &'a str)]) -> Vec<(&'a s
     options.iter().filter(|(option, _)| !OPTIONS_DIFFER.contains(&(command, *option))).copied().collect()
 }
 
+fn usage_lines(usage: &str) -> Vec<String> {
+    usage.lines().map(|line| line.trim_start_matches("usage: ").trim().to_string()).collect()
+}
+
+#[test]
+fn commands_kanna_has_some_actions_of_are_kmuxs_for_those_actions() {
+    for (name, actions) in SOME_ACTIONS {
+        let (theirs, ours) = (commands::find(name).unwrap(), kanna::commands::find(name).unwrap());
+        assert_eq!((ours.group, from_kanna(&format!("{:?}", ours.options))), (theirs.group, from_kmux(&format!("{:?}", theirs.options))), "{name}");
+        let kept: Vec<String> = usage_lines(&from_kmux(theirs.usage)).into_iter().filter(|line| actions.iter().any(|a| line.starts_with(&format!("kanna {name} {a}")))).collect();
+        assert_eq!(usage_lines(ours.usage), kept, "{name}: kanna's usage is kmux's for {actions:?}");
+    }
+}
+
 #[test]
 fn options_kanna_documents_differently_are_still_kmuxs_and_differ() {
     for (name, option) in OPTIONS_DIFFER {
@@ -148,7 +163,7 @@ fn commands_kanna_documents_for_tasks_are_kmuxs_and_differ() {
 
 #[test]
 fn every_command_is_documented_as_kmux_documents_it() {
-    for theirs in commands::COMMANDS.iter().filter(|c| !KMUX_ONLY.contains(&c.name) && !FOR_TASKS.contains(&c.name)) {
+    for theirs in commands::COMMANDS.iter().filter(|c| !KMUX_ONLY.contains(&c.name) && !FOR_TASKS.contains(&c.name) && !SOME_ACTIONS.iter().any(|(n, _)| *n == c.name)) {
         let ours = kanna::commands::find(theirs.name).unwrap();
         let fields = [
             ("summary", theirs.summary.to_string(), ours.summary.to_string()),
@@ -173,7 +188,8 @@ fn every_command_is_documented_as_kmux_documents_it() {
 
 #[test]
 fn every_kmux_example_and_request_parses_the_same() {
-    let mut lines: Vec<String> = commands::COMMANDS.iter().filter(|c| !KMUX_ONLY.contains(&c.name)).flat_map(|c| c.examples.iter().map(|(e, _)| e.to_string())).collect();
+    let kept = |c: &commands::Command, example: &str| SOME_ACTIONS.iter().find(|(n, _)| *n == c.name).is_none_or(|(n, actions)| actions.iter().any(|a| example.starts_with(&format!("kmux {n} {a}"))));
+    let mut lines: Vec<String> = commands::COMMANDS.iter().filter(|c| !KMUX_ONLY.contains(&c.name)).flat_map(|c| c.examples.iter().filter(|(e, _)| kept(c, e)).map(|(e, _)| e.to_string())).collect();
     lines.extend(
         [
             "kmux open",
@@ -201,7 +217,7 @@ fn every_kmux_example_and_request_parses_the_same() {
             "kmux open ios --app com.apple.Preferences --device 'iPhone 16'",
             "kmux resize logs 25%",
             "kmux arrange '{\"split\":\"column\",\"children\":[{\"pane\":\"a\"}]}' --window w1",
-            "kmux list --json",
+            "kmux workspace list --all --json",
             "kmux capabilities",
             "kmux open --dock right --cmd claude",
             "kmux open --dock --frozen --cmd claude",
@@ -252,7 +268,6 @@ fn usage_errors_are_kmux_errors() {
         "kmux move-tab",
         "kmux move-tab t1 --index x",
         "kmux open --name",
-        "kmux list extra",
         "kmux capabilities extra",
         "kmux open --dock --split right",
         "kmux open --dock left --tab",
@@ -280,25 +295,6 @@ fn an_unknown_pane_type_lists_code_and_diff_panes_too() {
 fn replies_print_as_kmux_prints_them() {
     let pane = json!({ "id": "p3", "name": "logs", "type": "term", "state": "running", "cmd": "tail -f a.log" });
     let layout = json!({ "split": "row", "children": [{ "pane": "p1", "size": "2/3" }, { "pane": "logs", "size": "1/3" }] });
-    let list = json!({
-        "windows": [
-            { "id": "w1", "key": true, "focused": "logs", "zoomed": "logs", "tabs": [
-                { "id": "t1", "title": "Tab 1", "active": true, "layout": layout },
-                { "id": "t2", "title": "web", "active": false, "layout": { "pane": "site" } }
-            ] },
-            { "id": "w2", "key": false, "dock": { "pane": "doc", "edge": "right", "width": "1/3" },
-              "tabs": [{ "id": "t3", "title": "Tab 1", "active": true, "layout": { "pane": "p9" } }] },
-            { "id": "w3", "key": false, "focused": "phone", "dock": { "pane": "phone", "edge": "left", "width": "2/5" }, "tabs": [] }
-        ],
-        "panes": [
-            { "id": "p1", "type": "term", "state": "running" },
-            pane,
-            { "id": "p4", "name": "done", "type": "term", "state": "exited", "exitCode": 3, "cmd": "exit 3" },
-            { "id": "site", "type": "web", "state": "failed", "error": "a very long error that goes on and on and on and on and on and on and on\nsecond line", "url": "http://localhost:3000" },
-            { "id": "p6", "name": "phone", "type": "ios", "state": "starting", "app": "com.apple.Preferences", "device": "iPhone 16" },
-            { "id": "p7", "name": "doc", "type": "md", "state": "running", "path": "/tmp/a.md" }
-        ]
-    });
     let cases: Vec<(&str, Value, Value)> = vec![
         ("open", json!({ "type": "term" }), json!({ "pane": pane, "window": "w1", "tab": "t1" })),
         ("open", json!({ "type": "term" }), json!({ "pane": { "id": "p5", "state": "failed", "error": "No such file" }, "window": "w1", "tab": "t1" })),
@@ -322,8 +318,6 @@ fn replies_print_as_kmux_prints_them() {
         ("open", json!({ "type": "term", "dock": "left" }), json!({ "pane": pane, "window": "w1", "tab": null, "dock": "left" })),
         ("move", json!({ "pane": "logs", "dock": "right" }), json!({ "window": "w1", "dock": { "pane": "logs", "edge": "right", "width": "2/5" } })),
         ("resize", json!({ "pane": "logs", "size": "1/4" }), json!({ "window": "w1", "dock": { "pane": "logs", "edge": "left", "width": "1/4" } })),
-        ("list", json!({}), list),
-        ("list", json!({}), json!({ "windows": [], "panes": [] })),
         ("capabilities", json!({}), json!({ "mux": "kmux", "paneTypes": ["term", "web"], "commands": ["capabilities", "list"] })),
         ("window", json!({ "action": "free", "window": "w2" }), json!({ "window": "w2", "was": null, "shown": true })),
         ("window", json!({ "action": "free", "window": "w2" }), json!({ "window": "w2", "was": { "id": "s1", "hidden": false }, "shown": true })),

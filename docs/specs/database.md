@@ -36,7 +36,7 @@ flowchart LR
 | `place` | text | `backlog`, `shelf`, `desk` or `done` |
 | `pane` | text | its agent's pane, while it has one |
 | `made_at` | real | when it was made |
-| `doc` | JSON | name, first message, by, agent, worktree folder, session, … |
+| `doc` | JSON | name, first message, by, agent, worktree folder, session, its workspace (`ws-3`, [workspace list](workspace-list.md)), … |
 
 **task_events**: one row per change of a task's place or state.
 

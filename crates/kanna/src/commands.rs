@@ -264,10 +264,10 @@ pub static COMMANDS: &[Command] = &[
         summary: "Rename a tab. (In the app: double-click the tab.)",
         usage: "kanna rename-tab TAB TITLE...",
         options: &[],
-        notes: "TAB is a tab ID such as t1 (see `kanna list`). Everything after TAB is the title.",
+        notes: "TAB is a tab ID such as t1 (see `kanna workspace list --all`). Everything after TAB is the title.",
         examples: &[("kanna rename-tab t1 servers", "Call tab t1 \"servers\".")],
         parse: |args| {
-            let tab = args.positional().ok_or_else(|| usage("rename-tab", "missing TAB (an ID like t1; see `kanna list`)"))?;
+            let tab = args.positional().ok_or_else(|| usage("rename-tab", "missing TAB (an ID like t1; see `kanna workspace list --all`)"))?;
             let title = args.rest().ok_or_else(|| usage("rename-tab", "missing TITLE"))?;
             Ok(json!({ "tab": tab, "title": title }))
         },
@@ -296,6 +296,21 @@ pub static COMMANDS: &[Command] = &[
         show: output::tabs,
     },
     Command {
+        name: "workspace",
+        group: "Tabs and windows",
+        summary: "Show your workspace as it will be seen: its dock, tabs and panes, which tab is shown, the focus and the zoom.",
+        usage: "kanna workspace list [--all]",
+        options: &[("--all", "Every window, workspace and pane, not just your own.")],
+        notes: "Your workspace is the one your terminal ($KANNA_PANE) is in, on a Desk, on the Shelf or in the backlog: its ID (ws-3), its task, where it is, its docked pane, the focused pane (and whether it's zoomed), its tabs with `*` on the shown one, and its own windows. From a pane in a window that's no workspace's, it's that window. Layouts are written as `a:2/3 | b` (side by side) and `a / b` (stacked).\nWith --all: every window and what it shows, every workspace, free windows' tabs, and panes in no window. With Kanna.app closed there are no windows, and the terminals, which keep running, are listed alone. --json prints the reply: your own windows, workspace and panes, or with --all all of them.",
+        examples: &[
+            ("kanna workspace list", "See your workspace as the user will when they pull your task."),
+            ("kanna workspace list --all", "See every window, workspace and pane."),
+            ("kanna workspace list --all --json", "The same, as JSON."),
+        ],
+        parse: parse_workspace,
+        show: output::workspace,
+    },
+    Command {
         name: "window",
         group: "Tabs and windows",
         summary: "Make a window one of a task's, so it shows and hides with the task, or free it.",
@@ -312,7 +327,7 @@ pub static COMMANDS: &[Command] = &[
         summary: "Give a pane a name, change it, or clear it.",
         usage: "kanna rename-pane PANE NAME",
         options: &[],
-        notes: "PANE is the pane's current name or its ID (see `kanna list`). An empty NAME (\"\") clears the name, so the pane goes by its ID. No two panes share a name, and a name can't be another pane's ID.",
+        notes: "PANE is the pane's current name or its ID (see `kanna workspace list --all`). An empty NAME (\"\") clears the name, so the pane goes by its ID. No two panes share a name, and a name can't be another pane's ID.",
         examples: &[("kanna rename-pane p3 server", "Call pane p3 \"server\"."), ("kanna rename-pane server \"\"", "Clear the name; refer to it as p3 again.")],
         parse: |args| {
             let pane = args.positional().ok_or_else(|| usage("rename-pane", "missing PANE"))?;
@@ -484,17 +499,6 @@ pub static COMMANDS: &[Command] = &[
         show: |_, reply| output::pane_state(reply),
     },
     Command {
-        name: "list",
-        group: "Information",
-        summary: "Show windows, tabs, layouts and panes, with their IDs.",
-        usage: "kanna list",
-        options: &[],
-        notes: "Layouts are written as `a:2/3 | b` (side by side) and `a / b` (stacked). `*` marks the key window, the active tab and the focused pane. A window's docked pane has its own line: `dock: p1 (agent)  left 2/5`, with `frozen` after a frozen one.\nWith Kanna.app closed there are no windows, and the terminals, which keep running, are listed alone.",
-        examples: &[("kanna list", "See everything that is open."), ("kanna list --json", "The same, as JSON.")],
-        parse: |_| Ok(json!({})),
-        show: |_, reply| output::list(reply),
-    },
-    Command {
         name: "capabilities",
         group: "Information",
         summary: "Show what the running Kanna supports: pane types and commands.",
@@ -514,7 +518,7 @@ pub static COMMANDS: &[Command] = &[
             ("--file SCREEN", "A saved screen: text (as `kanna read` prints it) or a corpus case (JSON with rows, title, progress and cliVersion)."),
             ("--agent AGENT", "Whose rules judge the saved screen: claude, codex, …"),
         ],
-        notes: "An agent pane's status (working, needs-you, idle, exited) is in `kanna list`. explain shows the agent and its version, where its status came from (the agent's own OSC 7501 report, with the record, which wins when there is one, or the rules), the rules file and where it came from, the rule that matched and the text it matched.\nRules: bundled in Kanna, from the rules site (checked every 30 minutes), or your own in ~/.config/kanna/agent-rules/<agent>.json, which always wins and reloads when you save it.",
+        notes: "An agent pane's status (working, needs-you, idle, exited) is in `kanna task list`, and in `kanna workspace list --all --json`. explain shows the agent and its version, where its status came from (the agent's own OSC 7501 report, with the record, which wins when there is one, or the rules), the rules file and where it came from, the rule that matched and the text it matched.\nRules: bundled in Kanna, from the rules site (checked every 30 minutes), or your own in ~/.config/kanna/agent-rules/<agent>.json, which always wins and reloads when you save it.",
         examples: &[
             ("kanna status explain p3", "Why p3's agent shows the status it does."),
             ("kanna status explain --file screen.txt --agent claude", "How Claude's rules judge a saved screen."),
@@ -807,9 +811,23 @@ fn from_caller(out: &mut Map<String, Value>) {
     }
 }
 
+fn parse_workspace(args: &mut Argv) -> Result<Value, Failure> {
+    let action = args.positional().ok_or_else(|| usage("workspace", "say list"))?;
+    if action != "list" {
+        return Err(usage("workspace", &format!("unknown action \"{action}\": list")));
+    }
+    if args.flag("--all") {
+        return Ok(json!({ "action": "list", "all": true }));
+    }
+    Ok(match std::env::var("KANNA_PANE").ok().filter(|p| !p.is_empty()) {
+        Some(pane) => json!({ "action": "list", "pane": pane }),
+        None => json!({ "action": "list" }),
+    })
+}
+
 fn parse_window(args: &mut Argv) -> Result<Value, Failure> {
     let action = args.positional().ok_or_else(|| usage("window", "say assign or free"))?;
-    let window = args.positional().ok_or_else(|| usage("window", "missing WINDOW (an ID like w4; see `kanna list`)"))?;
+    let window = args.positional().ok_or_else(|| usage("window", "missing WINDOW (an ID like w4; see `kanna workspace list --all`)"))?;
     match action.as_str() {
         "assign" => {
             let task = args.positional().ok_or_else(|| usage("window", "missing TASK (an ID like task-1dfb; see `kanna task list`)"))?;
@@ -946,13 +964,20 @@ fn distance(a: &str, b: &str) -> usize {
     row[b.len()]
 }
 
+pub fn sent_as(name: &str) -> &str {
+    match name {
+        "workspace" => "list",
+        name => name,
+    }
+}
+
 pub fn usage(command: &str, problem: &str) -> Failure {
     let usage = find(command).map(|c| c.usage).unwrap_or("");
     fail(exit::USAGE, format!("{command}: {problem}\nusage: {usage}\nmore: kanna help {command}"))
 }
 
 fn pane(args: &mut Argv, command: &str) -> Result<String, Failure> {
-    args.positional().ok_or_else(|| usage(command, "missing PANE (a pane name, or an ID like p1; see `kanna list`)"))
+    args.positional().ok_or_else(|| usage(command, "missing PANE (a pane name, or an ID like p1; see `kanna workspace list --all`)"))
 }
 
 fn parse_screenshot(args: &mut Argv) -> Result<Value, Failure> {

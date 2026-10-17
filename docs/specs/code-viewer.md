@@ -81,7 +81,7 @@ sequenceDiagram
 |---|---|
 | `kanna open code FILE[:LINE] [placement]` | opens a code pane at that line |
 | `kanna navigate PANE FILE[:LINE]` | shows that file and line in the pane; `back`, `forward` as for markdown |
-| `kanna list` | shows a code pane's file and line |
+| `kanna workspace list --all --json` | shows a code pane's file and line |
 | `kanna raw '{"cmd":"debug.code","args":{"pane":"p86"}}'` | for tests: the text, the top line, the pinned scopes with each one's marks (selection, find matches, current, comment, dimmed, changed, flashing), and each line's highlight spans by capture name; `select: [line, column, length]` selects text |
 
 The pane's record in `layout.json` is `{type: "code", path, line, zoom}`, so it comes back after a relaunch where it was.

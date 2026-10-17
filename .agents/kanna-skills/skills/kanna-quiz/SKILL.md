@@ -80,7 +80,7 @@ Write each question just before you ask it:
 
 - Say what they knew: "You knew 4 of 5 about today's changes." Then one line per question: ✓ or ✗, its topic, and its file and line. Only this round: never a total, a trend or past rounds; the history is for picking questions, not a score.
 - Ask: close this window, or another round? Another round is a new `kanna quiz start`, and picks new topics from the same commits, or older ones once those run out.
-- To close: close your own window (`kanna close --window WINDOW`, the one `kanna list` shows your pane in); the tabs you opened close with it.
+- To close: close your own window (`kanna close --window WINDOW`, the one `kanna workspace list` names first); the tabs you opened close with it.
 
 Kanna keeps every round and answer (in its database, through `kanna quiz`), so misses come back and the next round starts from what's new since this one.
 
@@ -95,7 +95,7 @@ Run the `kanna` on your PATH, from this terminal: its `KANNA_*` variables tell K
 | `kanna open md FILE` | Show a markdown file (with mermaid diagrams) in a tab beside you |
 | `kanna close PANE` | Close a pane you opened |
 | `kanna focus PANE` | Bring a pane forward |
-| `kanna list` | Windows, tabs and panes, with their IDs |
+| `kanna workspace list` | Your window: its tabs and panes, with their IDs, what's focused and zoomed (`--all`: every window, workspace and pane) |
 | `kanna quiz start [--json DOC]` | Start a round on main's commit; prints its ID (`r12`) |
 | `kanna quiz answer ROUND --kind KIND --file FILE:LINE --right\|--wrong [--again ANSWER] [--json DOC]` | Record an answer; prints its ID (`a7`) |
 | `kanna quiz history [--misses] [--json]` | This repo's rounds and answers, newest first; `--misses`: the misses not asked again |

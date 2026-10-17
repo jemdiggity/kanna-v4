@@ -61,7 +61,7 @@ flowchart LR
 | ⌘] / ⌘[, ⇧⌘] / ⇧⌘[ | Next or Previous Pane or Tab; with zoom on, the pane they land on fills the window |
 | `kanna zoom PANE` | Focus PANE and turn its window's zoom on, or off if it's on |
 | `kanna focus PANE` | Focus PANE; with zoom on, it fills the window |
-| `kanna list` | Each window's `zoomed` pane: its focused pane while the zoom of what's showing (a task or the Shelf view) is on |
+| `kanna workspace list` | Each window's and workspace's `zoomed` pane: its focused pane while the zoom of what's showing (a task or the Shelf view) is on |
 
 ## 4. How it's built
 

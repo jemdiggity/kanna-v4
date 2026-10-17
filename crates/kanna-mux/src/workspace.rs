@@ -38,7 +38,6 @@ impl Where {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Workspace {
     pub id: String,
-    pub task: Option<String>,
     pub dock: Dock,
     pub tabs: Tabs,
     pub place: Where,
@@ -46,8 +45,8 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub(crate) fn new(dock: Dock, place: Where) -> Workspace {
-        Workspace { id: dock.pane.clone(), task: None, dock, tabs: Tabs::default(), place, parked_at: None }
+    pub(crate) fn new(id: String, dock: Dock, place: Where) -> Workspace {
+        Workspace { id, dock, tabs: Tabs::default(), place, parked_at: None }
     }
 
     pub fn shown(&self) -> bool {
@@ -55,6 +54,6 @@ impl Workspace {
     }
 
     pub fn summary(&self) -> Value {
-        json!({ "id": self.id, "task": self.task, "where": self.place.to_json(), "hidden": !matches!(self.place, Where::Desk(_)) })
+        json!({ "id": self.id, "where": self.place.to_json(), "hidden": !matches!(self.place, Where::Desk(_)) })
     }
 }

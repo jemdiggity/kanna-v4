@@ -130,6 +130,9 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
     if request.get("local").is_some() {
         return threads::run(&request, json_output);
     }
+    if command.name == "workspace" && request["all"] != true && request["pane"].is_null() {
+        return Err(commands::usage("workspace", "outside a Kanna terminal there's no workspace of yours: add --all"));
+    }
     let mut mux = Session::connect(&target, env)?;
     if command.name == "comment" && request["doc"] == true {
         return threads::comment(&request, &mut mux, json_output);
@@ -169,6 +172,9 @@ pub fn run(args: Vec<String>, env: Env) -> Result<(), Failure> {
         if let Some(query) = request["query"].as_str() {
             output::keep_matching(&mut reply, query);
         }
+    }
+    if let (true, Some(pane)) = (command.name == "workspace", request["pane"].as_str()) {
+        reply = output::scoped(&reply, pane).ok_or_else(|| fail(exit::NOT_FOUND, format!("no pane \"{pane}\": your terminal isn't one of this Kanna's")))?;
     }
     if json_output {
         println!("{reply}");
@@ -237,7 +243,7 @@ fn lookup(name: &str) -> Result<&'static Command, Failure> {
 
 fn explain(command: &Command, mut failure: Failure, mux: &mut Session, target: &Target) -> Failure {
     match failure.code {
-        exit::NOT_FOUND => failure.message += "\nRun `kanna list` to see pane names and IDs, tabs (t1, …) and windows (w1, …).",
+        exit::NOT_FOUND => failure.message += "\nRun `kanna workspace list --all` to see pane names and IDs, tabs (t1, …) and windows (w1, …).",
         exit::UNSUPPORTED => {
             let supported = mux.call("capabilities", json!({})).map(|c| output::join(&c["commands"])).unwrap_or_default();
             failure.message = format!("the running {} doesn't support `{}` yet. It supports: {supported}", target.name(), command.name);
@@ -256,6 +262,7 @@ fn wire(command: &Command, request: &Value) -> &'static str {
         "task" if request["action"] == "done" => "close",
         "task" if request["action"] == "name" && request.get("task").is_some() => "backlog",
         "task" if request["action"] == "name" => "rename-pane",
+        "workspace" => "list",
         name => name,
     }
 }
@@ -271,7 +278,7 @@ fn unsupported_mark(target: &Target) -> String {
 
 fn mark(command: &Command, supported: Option<&[String]>, target: &Target) -> String {
     match supported {
-        Some(names) if !names.iter().any(|n| n == command.name) => unsupported_mark(target),
+        Some(names) if !names.iter().any(|n| n == commands::sent_as(command.name)) => unsupported_mark(target),
         _ => String::new(),
     }
 }
@@ -320,7 +327,7 @@ examples:\n  \
       Which instances are running, and which one commands go to.\n  \
   kanna --instance test open --name probe --cmd \"sh\"\n      \
       Start (or use) a scratch instance named test, apart from the Kanna you work in.\n  \
-  KANNA_INSTANCE=test kanna list\n      \
+  KANNA_INSTANCE=test kanna workspace list --all\n      \
       The same choice, for every command in a test script.\n  \
   kanna instances prune\n      \
       Clean up after worktrees you've removed.";
@@ -442,13 +449,13 @@ fn overview(target: &Target) -> String {
     out += &format!(
         "\nReferring to things:\n  \
          PANE    a pane's name (set with `open --name`) or its ID, e.g. p1\n  \
-         TAB     a tab ID, e.g. t1;  WINDOW  a window ID, e.g. w1  (all shown by `kanna list`)\n  \
+         TAB     a tab ID, e.g. t1;  WINDOW  a window ID, e.g. w1  (all shown by `kanna workspace list --all`)\n  \
          FRACTION  1/3, 25% or 0.25\n\
          \n\
          Quick start:\n  \
          kanna open --name server --cmd \"npm run dev\"\n  \
          kanna open --name logs --split right --size 1/3 --cmd \"tail -f app.log\"\n  \
-         kanna list\n  \
+         kanna workspace list --all\n  \
          kanna read server\n  \
          kanna open --window new --name scratch      (a new window)\n\
          \n\
@@ -517,7 +524,7 @@ pub fn describe(supported: Option<&[String]>) -> Value {
             "name": c.name,
             "group": c.group,
             "summary": c.summary,
-            "supported": supported.map(|names| names.iter().any(|n| n == c.name)),
+            "supported": supported.map(|names| names.iter().any(|n| n == commands::sent_as(c.name))),
             "usage": c.usage,
             "options": c.options.iter().map(|(flag, text)| json!({ "flag": flag, "description": text })).collect::<Vec<_>>(),
             "notes": c.notes,
@@ -689,7 +696,7 @@ mod tests {
             ("kanna open md", "need a file"),
             ("kanna open notes.md", "kanna open md notes.md"),
             ("kanna navigate site --back x", "one of URL"),
-            ("kanna lsit", "Did you mean: list"),
+            ("kanna workspce list", "Did you mean: workspace"),
             ("kanna rename t1 x", "Did you mean: rename-tab"),
             ("kanna read", "missing PANE"),
             ("kanna send-key", "missing PANE"),
@@ -726,31 +733,32 @@ mod tests {
 
     #[test]
     fn docked_panes_print_on_their_own_line() {
+        let all = json!({ "action": "list", "all": true });
         let reply = json!({
-            "windows": [{ "id": "w1", "key": true, "focused": "agent", "dock": { "pane": "agent", "edge": "left", "width": "2/5" },
-                          "tabs": [{ "id": "t1", "title": "Tab 1", "active": true, "layout": { "pane": "p2" } }] }],
+            "windows": [{ "id": "w1", "key": true, "desk": true, "focused": "agent", "shows": "ws-1", "tabs": [{ "id": "t1", "title": "Tab 1", "active": true, "layout": { "pane": "p2" } }] }],
+            "workspaces": [{ "id": "ws-1", "where": { "desk": "w1" }, "dock": { "pane": "agent", "id": "p1", "edge": "left", "width": "2/5", "frozen": true }, "focused": "agent",
+                             "tabs": [{ "id": "t1", "title": "Tab 1", "active": true, "layout": { "pane": "p2" } }], "windows": [], "panes": ["p2", "p1"] }],
             "panes": [{ "id": "p1", "name": "agent", "type": "term", "state": "running", "cmd": "claude" }, { "id": "p2", "name": null, "type": "term", "state": "running" }]
         });
-        let text = output::list(&reply);
-        assert!(text.contains("\n  dock: p1 (agent)  left 2/5\n  *t1 \"Tab 1\"  p2"), "{text}");
+        let text = output::workspace(&all, &reply);
+        assert!(text.contains("\nws-1, on Desk w1\n  dock: p1 (agent)  left 2/5  frozen\n  focus: agent\n  *t1 \"Tab 1\"  p2"), "{text}");
         let opened = json!({ "pane": { "id": "p1", "name": "agent", "state": "running" }, "window": "w1", "tab": null, "dock": "left" });
         assert_eq!(output::opened(&json!({}), &opened), "opened p1 (agent) docked left in window w1: running");
         assert_eq!(output::opened(&json!({ "frozen": true }), &opened), "opened p1 (agent) docked left, frozen, in window w1: running");
-        let frozen = json!({ "windows": [{ "id": "w1", "dock": { "pane": "agent", "edge": "left", "width": "2/5", "frozen": true }, "tabs": [] }],
-                             "panes": [{ "id": "p1", "name": "agent", "type": "term", "state": "running" }] });
-        assert!(output::list(&frozen).contains("\n  dock: p1 (agent)  left 2/5  frozen"), "{}", output::list(&frozen));
         let moved = json!({ "window": "w1", "dock": { "pane": "agent", "edge": "right", "width": "1/3" } });
         assert_eq!(output::moved(&moved), "agent is docked right in w1 (width 1/3)");
     }
 
     #[test]
-    fn with_the_app_closed_open_and_list_say_so() {
+    fn with_the_app_closed_open_and_workspace_list_say_so() {
         let opened = output::opened(&json!({}), &json!({ "pane": { "id": "p3", "name": "logs", "state": "running" }, "window": null, "tab": null }));
         assert_eq!(opened, "opened p3 (logs), unplaced until Kanna.app opens: running");
-        let list = output::list(&json!({ "windows": [], "panes": [{ "id": "p1", "type": "term", "state": "running" }] }));
-        assert!(list.starts_with("no windows: Kanna.app isn't open"), "{list}");
-        assert!(list.contains("p1    -     term  running  (shell)"), "{list}");
-        assert_eq!(output::list(&json!({ "windows": [], "panes": [] })), "no windows (open one with `kanna open`)");
+        let all = json!({ "action": "list", "all": true });
+        let list = output::workspace(&all, &json!({ "windows": [], "panes": [{ "id": "p1", "type": "term", "state": "running" }] }));
+        assert_eq!(list, "no windows: Kanna.app isn't open (these terminals keep running)\n\nUnplaced panes\np1");
+        assert_eq!(output::workspace(&all, &json!({ "windows": [], "panes": [] })), "no windows (open one with `kanna open`)");
+        let alone = output::scoped(&json!({ "windows": [], "panes": [{ "id": "p1", "name": "logs", "type": "term" }] }), "p1").unwrap();
+        assert_eq!(output::workspace(&json!({ "action": "list", "pane": "p1" }), &alone), "p1 (logs) isn't in a window or a workspace");
     }
 
     #[test]
@@ -773,7 +781,7 @@ mod tests {
         assert_eq!(parse("kanna quiz open --agent codex").unwrap().1, json!({ "action": "open", "repo": repo.trim_end_matches("/.git"), "agent": "codex" }));
         assert_eq!(parse("kanna quiz open").unwrap().1, json!({ "action": "open", "repo": repo.trim_end_matches("/.git") }));
         assert!(refused("kanna quiz start --agent codex").contains("--agent is for quiz open"));
-        assert!(refused("kanna list --json '{}'").contains("--json DOC"));
+        assert!(refused("kanna capabilities --json '{}'").contains("--json DOC"));
     }
 
     #[test]

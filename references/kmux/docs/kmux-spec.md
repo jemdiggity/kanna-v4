@@ -212,8 +212,8 @@ A **workspace** is a named group of windows, shown or hidden together. A window 
 ```mermaid
 flowchart LR
     APP["kmux"] --> F["w1<br/>free"]
-    APP --> S1["s1 checkout<br/>shown"]
-    APP --> S2["s2<br/>hidden"]
+    APP --> S1["ws-1 checkout<br/>shown"]
+    APP --> S2["ws-2<br/>hidden"]
     S1 --> W2["w2"]
     S1 --> W3["w3"]
     S2 --> W4["w4<br/>off screen, panes running"]
@@ -221,24 +221,32 @@ flowchart LR
 
 | Rule | |
 |------|---|
-| IDs | `s1`, `s2`, … never reused, with an optional name (unique, and not like an ID). A workspace is referred to by either. |
+| IDs | `ws-1`, `ws-2`, … never reused, with an optional name (unique, and not like an ID). A workspace is referred to by either. A state saved with the older `s1` IDs still loads, keeping them. |
 | Making one | `workspace new [NAME]` makes an empty workspace; `window assign W S` puts a window in it, and `window free W` takes it out (Window → Assign Window to Workspace and Free Window). A window made by `open --window new`, `move --window new` or `move-tab --window new` is free. |
 | Hidden | A hidden workspace's windows never take the keyboard: none is the key window (hiding the key window's workspace makes another window key), and `focus` on one of them, a tab or a pane in it is refused (`hidden`). `open`, `move` and `move-tab` with `window` still reach a hidden window, without showing it. A window assigned to a hidden workspace hides; freed, it's on screen again. |
 | Shown | `workspace show` opens its windows where they were, and makes its last window key. |
 | Closing | `workspace close` closes its windows and everything in them, and the workspace. A workspace whose windows all close stays until it's closed. |
-| Replies | A window in a workspace is named with it: `open` adds `workspace: { id, name, hidden }`, the CLI says `opened p5 in s1's w2 (hidden), tab t9: running`. `list` adds each window's `workspace` (and `hidden: true`), each pane's `workspace`, and the `workspaces` with their windows; the CLI lists free windows first, then each workspace with its own. |
+| Replies | A window in a workspace is named with it: `open` adds `workspace: { id, name, hidden }`, the CLI says `opened p5 in ws-1's w2 (hidden), tab t9: running`. `list` adds each window's `workspace` (and `hidden: true`), each pane's `workspace`, and the `workspaces` with their windows. |
+| Listing | `kmux workspace list` shows your own: the window your terminal (`$KMUX_PANE`) is in, or its workspace with all its windows, and their panes. `--all` shows free windows first, then each workspace with its own; `--json` prints the `list` reply, cut to yours without `--all`. There's no `kmux list`. |
 
 ```text
 $ kmux workspace new checkout
-made s1 (checkout): put windows in it with `kmux window assign WINDOW s1`
+made ws-1 (checkout): put windows in it with `kmux window assign WINDOW ws-1`
 $ kmux window assign w2 checkout
-assigned w2 to s1
+assigned w2 to ws-1
 $ kmux workspace hide checkout
-hid s1 (checkout): w2 off screen, their panes still running
+hid ws-1 (checkout): w2 off screen, their panes still running
 $ kmux open --window w2 --tab
-opened p6 in s1's w2 (hidden), tab t5: running
+opened p6 in ws-1's w2 (hidden), tab t5: running
 $ kmux workspace show checkout
-showed s1 (checkout): w2
+showed ws-1 (checkout): w2
+$ kmux workspace list --all
+*w1
+  *t1 "Tab 1"  p1
+workspace ws-1 (checkout)
+ w2
+  *t5 "Tab 1"  p6
+…
 ```
 
 ---
@@ -420,7 +428,7 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 | `start_failed` | The pane went to **failed**. The message says why. |
 | `docked` | `close` on a docked pane (`docked: it closes with its window`), `arrange` naming one, or `move` beside one. |
 | `frozen` | `move` on a frozen docked pane, or a `move` or `open` that would land on it or in its dock. |
-| `hidden` | `focus` on a hidden workspace's window, or a tab or pane in it (`w2 is s1's, hidden: show checkout to see it`). |
+| `hidden` | `focus` on a hidden workspace's window, or a tab or pane in it (`w2 is ws-1's, hidden: show checkout to see it`). |
 
 ### 7.4 The `kmux` CLI
 
@@ -428,7 +436,7 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 
 - `kmux` or `kmux help` lists every command with a one-line summary. `kmux help COMMAND` (or `COMMAND --help`) shows usage, options and examples. `kmux commands --json` describes everything for scripts.
 - If kmux is running, help marks the commands it doesn't support with `[not in the running kmux]`. Help never starts kmux.
-- Mistakes say what to do next: a "did you mean", the usage line, or `kmux list` to find names and IDs.
+- Mistakes say what to do next: a "did you mean", the usage line, or `kmux workspace list --all` to find names and IDs.
 - `--instance NAME` picks an instance. Without it, the CLI uses `$KMUX_SOCKET`, then `$KMUX_INSTANCE`, then the default. `kmux instances` lists the running instances.
 - Commands start kmux if it isn't running: in front, or behind other windows with `--bg`.
 - Exit codes: 0 ok, 1 failed, 2 bad usage, 3 kmux not reachable, 4 not found, 5 not supported by the running kmux.
@@ -468,7 +476,7 @@ $ kmux instances
 | Repos | kmux (app, CLI, model, spec) and kanna are separate repos. kanna depends on kmux's `kmux-client` crate. |
 | Instances | Several at once, one socket each ([3.4](#34-instances)). |
 | Events | **None for now.** Clients that need to notice changes poll `list`. Events would let a client react straight away (a server pane exited, a command sent with `send` finished, a page moved) and can be added later. |
-| Pane identity | No pane names on hover. Panes stay chromeless; `kmux list` shows names. |
+| Pane identity | No pane names on hover. Panes stay chromeless; `kmux workspace list` shows names. |
 | Persistence | **Layouts come back after kmux restarts**: windows, tabs, splits and sizes, pane names, and what each pane shows. kmux owns its terminals, so they come back as **new** terminals, started again in their working directory with their command; their output and processes are gone. Web panes reload their URL and iOS panes relaunch their app. Keeping processes alive across app or machine restarts is kanna's job, not kmux's. **Status:** built. Saved per instance as `state-<instance>.json` beside its socket, half a second after each change and on quit, and only restored if kmux wrote it ([3.6](#36-persistence)). Panes keep their IDs. Not yet: a terminal's scrollback, web and md back/forward history, scroll positions. |
 | Reload, not Restart | ⌘R is **Reload**, for web panes only: the page's own reload, so the pane stays on the page it's on. Nothing restarts a pane from a key or menu: in a terminal it would end an agent or a shell's program without asking, and an agent restarted with its first command (`claude --session-id ID 'first message'`) can refuse to start once its session has a conversation. Restarting a pane is `restart`, which is deliberate; a client that starts agents should make a pane's command the one that resumes its agent once it has started. |
 | Web navigation | Back/forward history is **off by default** for web panes and turned on per pane with `history` (`--history` in the CLI). Markdown panes always keep it (it's only file paths, so cheap). There are no history shortcuts, because ⌘[ and ⌘] move between panes and ⌘← ⌘→ would be taken from terminals. |

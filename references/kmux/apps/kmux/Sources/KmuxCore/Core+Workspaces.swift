@@ -15,7 +15,7 @@ extension Core {
         if action == "new" {
             let name = args["name"].flatMap { $0 == .null ? nil : ($0.string ?? "").trimmingCharacters(in: .whitespaces) }
             if name == "" { throw KmuxError("bad_request", "a workspace name cannot be empty") }
-            if let name, model.workspace(name) != nil || name.range(of: "^s[1-9][0-9]*$", options: .regularExpression) != nil {
+            if let name, model.workspace(name) != nil || name.range(of: "^(ws-|s)[1-9][0-9]*$", options: .regularExpression) != nil {
                 throw KmuxError("name_taken", "a workspace named \"\(name)\" already exists")
             }
             let workspace = model.makeWorkspace(name: name)

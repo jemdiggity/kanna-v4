@@ -63,7 +63,7 @@ The right side needs nothing new: the window's own tabs already are a group of t
 | `kanna move PANE --dock [left\|right]` | Move the docked pane to the other edge, or to another window (`--window`); any other pane is refused, as a docked pane is a running [task](tasks.md) |
 | `kanna move PANE --tab` | Undock it into a new tab (kmux's own `move`, now also accepting the docked pane) |
 | `kanna resize PANE …` | On the docked pane, sets its width |
-| `kanna list` | Shows the window's docked pane on its own line: `dock: p1 (agent)  left 2/5`, with `frozen` after a frozen one |
+| `kanna workspace list` | Shows the workspace's docked pane on its own line: `dock: p1 (agent)  left 2/5`, with `frozen` after a frozen one |
 
 `kanna arrange` arranges the shown tab, as now; the docked pane isn't part of the expression.
 

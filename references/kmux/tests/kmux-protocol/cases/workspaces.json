@@ -4,8 +4,8 @@
     "steps": [
       { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } }, "expect": { "ok": true, "window": "w1", "workspace": null } },
       { "send": { "cmd": "window", "args": { "action": "free", "window": "w1" } }, "expect": { "ok": true, "window": "w1", "workspace": null, "was": null, "shown": true } },
-      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w9", "workspace": "s1" } }, "expect": { "ok": false, "error": { "code": "not_found" } } },
-      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w1", "workspace": "s9" } }, "expect": { "ok": false } },
+      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w9", "workspace": "ws-1" } }, "expect": { "ok": false, "error": { "code": "not_found" } } },
+      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w1", "workspace": "ws-9" } }, "expect": { "ok": false } },
       { "send": { "cmd": "window", "args": { "action": "nope", "window": "w1" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
       { "send": { "cmd": "window", "args": { "action": "free" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": true, "workspace": null, "hidden": null } ], "panes": [ { "name": "a", "workspace": null } ] } }
@@ -14,17 +14,17 @@
   {
     "name": "workspace new makes an empty workspace, with a name or without; names are taken once",
     "steps": [
-      { "send": { "cmd": "workspace", "args": { "action": "new", "name": "checkout" } }, "expect": { "ok": true, "workspace": { "id": "s1", "name": "checkout", "hidden": false }, "windows": [] } },
-      { "send": { "cmd": "workspace", "args": { "action": "new" } }, "expect": { "ok": true, "workspace": { "id": "s2", "name": null, "hidden": false } } },
+      { "send": { "cmd": "workspace", "args": { "action": "new", "name": "checkout" } }, "expect": { "ok": true, "workspace": { "id": "ws-1", "name": "checkout", "hidden": false }, "windows": [] } },
+      { "send": { "cmd": "workspace", "args": { "action": "new" } }, "expect": { "ok": true, "workspace": { "id": "ws-2", "name": null, "hidden": false } } },
       { "send": { "cmd": "workspace", "args": { "action": "new", "name": "checkout" } }, "expect": { "ok": false, "error": { "code": "name_taken" } } },
-      { "send": { "cmd": "workspace", "args": { "action": "new", "name": "s7" } }, "expect": { "ok": false, "error": { "code": "name_taken" } } },
+      { "send": { "cmd": "workspace", "args": { "action": "new", "name": "ws-7" } }, "expect": { "ok": false, "error": { "code": "name_taken" } } },
       { "send": { "cmd": "workspace", "args": { "action": "new", "name": " " } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
-      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "s9" } }, "expect": { "ok": false, "error": { "code": "not_found" } } },
+      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "ws-9" } }, "expect": { "ok": false, "error": { "code": "not_found" } } },
       { "send": { "cmd": "workspace", "args": { "action": "hide" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
-      { "send": { "cmd": "workspace", "args": { "action": "nope", "workspace": "s1" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
+      { "send": { "cmd": "workspace", "args": { "action": "nope", "workspace": "ws-1" } }, "expect": { "ok": false, "error": { "code": "bad_request" } } },
       { "send": { "cmd": "list" }, "expect": { "windows": [], "workspaces": [
-        { "id": "s1", "name": "checkout", "hidden": false, "windows": [] },
-        { "id": "s2", "name": null, "hidden": false, "windows": [] }
+        { "id": "ws-1", "name": "checkout", "hidden": false, "windows": [] },
+        { "id": "ws-2", "name": null, "hidden": false, "windows": [] }
       ] } }
     ]
   },
@@ -36,37 +36,37 @@
       { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "split": "right" } } },
       { "send": { "cmd": "workspace", "args": { "action": "new", "name": "checkout" } } },
       { "send": { "cmd": "window", "args": { "action": "assign", "window": "w2", "workspace": "checkout" } }, "expect": { "ok": true, "window": "w2",
-        "workspace": { "id": "s1", "name": "checkout", "hidden": false }, "was": null, "shown": true } },
+        "workspace": { "id": "ws-1", "name": "checkout", "hidden": false }, "was": null, "shown": true } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "d", "split": "down" } }, "expect": { "ok": true, "window": "w2", "tab": "t2",
-        "workspace": { "id": "s1", "name": "checkout", "hidden": false } } },
-      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "s1" } }, "expect": { "ok": true,
-        "workspace": { "id": "s1", "name": "checkout", "hidden": true }, "windows": ["w2"] } },
+        "workspace": { "id": "ws-1", "name": "checkout", "hidden": false } } },
+      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "ws-1" } }, "expect": { "ok": true,
+        "workspace": { "id": "ws-1", "name": "checkout", "hidden": true }, "windows": ["w2"] } },
       { "send": { "cmd": "list" }, "expect": {
         "windows": [
           { "id": "w1", "key": true, "workspace": null, "hidden": null },
-          { "id": "w2", "key": false, "workspace": "s1", "hidden": true, "focused": "d" }
+          { "id": "w2", "key": false, "workspace": "ws-1", "hidden": true, "focused": "d" }
         ],
-        "workspaces": [ { "id": "s1", "name": "checkout", "hidden": true, "windows": ["w2"] } ],
+        "workspaces": [ { "id": "ws-1", "name": "checkout", "hidden": true, "windows": ["w2"] } ],
         "panes": [
           { "name": "a", "state": "running", "workspace": null },
-          { "name": "b", "state": "running", "workspace": "s1" },
-          { "name": "c", "state": "running", "workspace": "s1" },
-          { "name": "d", "state": "running", "workspace": "s1" }
+          { "name": "b", "state": "running", "workspace": "ws-1" },
+          { "name": "c", "state": "running", "workspace": "ws-1" },
+          { "name": "d", "state": "running", "workspace": "ws-1" }
         ]
       } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "e" } }, "expect": { "ok": true, "window": "w1", "tab": "t1", "workspace": null } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "f", "window": "w2", "tab": true } }, "expect": { "ok": true, "window": "w2", "tab": "t3",
-        "workspace": { "id": "s1", "hidden": true } } },
+        "workspace": { "id": "ws-1", "hidden": true } } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": true }, { "id": "w2", "key": false, "focused": "f" } ] } },
       { "send": { "cmd": "focus", "args": { "window": "w2" } }, "expect": { "ok": false, "error": { "code": "hidden" } } },
       { "send": { "cmd": "focus", "args": { "pane": "d" } }, "expect": { "ok": false, "error": { "code": "hidden" } } },
       { "send": { "cmd": "focus", "args": { "tab": "t3" } }, "expect": { "ok": false, "error": { "code": "hidden" } } },
       { "send": { "cmd": "workspace", "args": { "action": "show", "workspace": "checkout" } }, "expect": { "ok": true,
-        "workspace": { "id": "s1", "hidden": false }, "windows": ["w2"] } },
+        "workspace": { "id": "ws-1", "hidden": false }, "windows": ["w2"] } },
       { "send": { "cmd": "list" }, "expect": {
         "windows": [
           { "id": "w1", "key": false, "workspace": null },
-          { "id": "w2", "key": true, "workspace": "s1", "hidden": null, "focused": "f", "tabs": [
+          { "id": "w2", "key": true, "workspace": "ws-1", "hidden": null, "focused": "f", "tabs": [
             { "id": "t2", "active": false, "layout": { "split": "row", "children": [ { "pane": "b", "size": "1/2" }, { "split": "column", "size": "1/2", "children": [ { "pane": "c", "size": "1/2" }, { "pane": "d", "size": "1/2" } ] } ] } },
             { "id": "t3", "active": true, "layout": { "pane": "f" } }
           ] }
@@ -81,14 +81,14 @@
       { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "window": "new" } } },
       { "send": { "cmd": "workspace", "args": { "action": "new" } } },
-      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "s1" } }, "expect": { "ok": true, "windows": [] } },
-      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w2", "workspace": "s1" } }, "expect": { "ok": true, "window": "w2",
-        "workspace": { "id": "s1", "hidden": true }, "was": null, "shown": false } },
+      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "ws-1" } }, "expect": { "ok": true, "windows": [] } },
+      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w2", "workspace": "ws-1" } }, "expect": { "ok": true, "window": "w2",
+        "workspace": { "id": "ws-1", "hidden": true }, "was": null, "shown": false } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": true }, { "id": "w2", "key": false, "hidden": true } ] } },
       { "send": { "cmd": "window", "args": { "action": "free", "window": "w2" } }, "expect": { "ok": true, "window": "w2", "workspace": null,
-        "was": { "id": "s1", "hidden": true }, "shown": true } },
+        "was": { "id": "ws-1", "hidden": true }, "shown": true } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": false }, { "id": "w2", "key": true, "workspace": null, "hidden": null } ],
-        "workspaces": [ { "id": "s1", "windows": [] } ] } }
+        "workspaces": [ { "id": "ws-1", "windows": [] } ] } }
     ]
   },
   {
@@ -96,8 +96,8 @@
     "steps": [
       { "send": { "cmd": "open", "args": { "type": "term", "name": "a" } } },
       { "send": { "cmd": "workspace", "args": { "action": "new" } } },
-      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w1", "workspace": "s1" } } },
-      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "s1" } } },
+      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w1", "workspace": "ws-1" } } },
+      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "ws-1" } } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": false, "hidden": true } ] } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "b" } }, "expect": { "ok": true, "window": "w2", "workspace": null } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": false }, { "id": "w2", "key": true } ] } }
@@ -110,11 +110,11 @@
       { "send": { "cmd": "open", "args": { "type": "term", "name": "b", "window": "new" } } },
       { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "tab": true } } },
       { "send": { "cmd": "workspace", "args": { "action": "new", "name": "checkout" } } },
-      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w2", "workspace": "s1" } } },
-      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "s1" } } },
-      { "send": { "cmd": "workspace", "args": { "action": "close", "workspace": "checkout" } }, "expect": { "ok": true, "workspace": "s1", "closed": ["p2", "p3"] } },
+      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w2", "workspace": "ws-1" } } },
+      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "ws-1" } } },
+      { "send": { "cmd": "workspace", "args": { "action": "close", "workspace": "checkout" } }, "expect": { "ok": true, "workspace": "ws-1", "closed": ["p2", "p3"] } },
       { "send": { "cmd": "list" }, "expect": { "windows": [ { "id": "w1", "key": true } ], "workspaces": [], "panes": [ { "name": "a" } ] } },
-      { "send": { "cmd": "workspace", "args": { "action": "show", "workspace": "s1" } }, "expect": { "ok": false, "error": { "code": "not_found" } } }
+      { "send": { "cmd": "workspace", "args": { "action": "show", "workspace": "ws-1" } }, "expect": { "ok": false, "error": { "code": "not_found" } } }
     ]
   },
   {
@@ -125,25 +125,25 @@
       { "send": { "cmd": "open", "args": { "type": "term", "name": "c", "window": "new" } } },
       { "send": { "cmd": "workspace", "args": { "action": "new", "name": "checkout" } } },
       { "send": { "cmd": "workspace", "args": { "action": "new" } } },
-      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w2", "workspace": "s1" } } },
-      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w3", "workspace": "s2" } } },
-      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "s2" } } },
+      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w2", "workspace": "ws-1" } } },
+      { "send": { "cmd": "window", "args": { "action": "assign", "window": "w3", "workspace": "ws-2" } } },
+      { "send": { "cmd": "workspace", "args": { "action": "hide", "workspace": "ws-2" } } },
       { "send": { "cmd": "debug.saveState" }, "expect": { "ok": true, "state": {
         "version": 1, "key": "w2", "counters": { "workspace": 2 },
-        "workspaces": [ { "id": "s1", "name": "checkout", "hidden": false }, { "id": "s2", "name": null, "hidden": true } ],
-        "windows": [ { "id": "w1", "workspace": null }, { "id": "w2", "workspace": "s1" }, { "id": "w3", "workspace": "s2" } ]
+        "workspaces": [ { "id": "ws-1", "name": "checkout", "hidden": false }, { "id": "ws-2", "name": null, "hidden": true } ],
+        "windows": [ { "id": "w1", "workspace": null }, { "id": "w2", "workspace": "ws-1" }, { "id": "w3", "workspace": "ws-2" } ]
       } } },
-      { "send": { "cmd": "workspace", "args": { "action": "close", "workspace": "s1" } } },
+      { "send": { "cmd": "workspace", "args": { "action": "close", "workspace": "ws-1" } } },
       { "send": { "cmd": "debug.restoreState" }, "expect": { "ok": true, "windows": ["w1", "w2", "w3"], "panes": ["p1", "p2", "p3"] } },
       { "send": { "cmd": "list" }, "expect": {
         "windows": [
           { "id": "w1", "key": false, "workspace": null },
-          { "id": "w2", "key": true, "workspace": "s1", "hidden": null },
-          { "id": "w3", "key": false, "workspace": "s2", "hidden": true }
+          { "id": "w2", "key": true, "workspace": "ws-1", "hidden": null },
+          { "id": "w3", "key": false, "workspace": "ws-2", "hidden": true }
         ],
-        "workspaces": [ { "id": "s1", "name": "checkout", "hidden": false, "windows": ["w2"] }, { "id": "s2", "name": null, "hidden": true, "windows": ["w3"] } ]
+        "workspaces": [ { "id": "ws-1", "name": "checkout", "hidden": false, "windows": ["w2"] }, { "id": "ws-2", "name": null, "hidden": true, "windows": ["w3"] } ]
       } },
-      { "send": { "cmd": "workspace", "args": { "action": "new" } }, "expect": { "ok": true, "workspace": { "id": "s3" } } }
+      { "send": { "cmd": "workspace", "args": { "action": "new" } }, "expect": { "ok": true, "workspace": { "id": "ws-3" } } }
     ]
   }
 ]

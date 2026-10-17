@@ -65,7 +65,8 @@ When the work is done, before you end your turn, set up your window to show the 
 1. **Open what explains the change best,** as tabs ([Show it in a tab](#show-it-in-a-tab)): the spec you changed (`kanna open md`), the mockup (`kanna open web`), comments on the key code (`kanna comment`, as the `kanna-explain` skill says), a diagram in a doc in `.kanna/tmp/`, the diff (`git -c color.ui=always diff main...HEAD | less -R` in a terminal tab).
 2. **Show and focus the most important tab** (`kanna focus PANE`), and zoom it if one pane says it all (`kanna zoom PANE`).
 3. **Close tabs that don't help** (`kanna close PANE`): scratch shells, finished builds.
-4. **End your turn with a short summary in the chat:** what changed, why, what's in the tabs, and what's left for the user (merge, a decision, a check).
+4. **Check it with `kanna workspace list`:** your workspace's tabs and panes, the shown tab, what's focused and zoomed, as the user will see it.
+5. **End your turn with a short summary in the chat:** what changed, why, what's in the tabs, and what's left for the user (merge, a decision, a check).
 
 **Nothing worth a tab** (a small fix, a question in words)? Close your tabs and zoom your own pane (`kanna zoom $KANNA_PANE`), so your summary is what the user sees.
 

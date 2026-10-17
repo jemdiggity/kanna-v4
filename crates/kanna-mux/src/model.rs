@@ -108,14 +108,14 @@ pub struct Model {
     pub(crate) workspaces: Vec<Workspace>,
     pub key: Option<String>,
     pub(crate) used: Vec<String>,
-    pub(crate) counters: (usize, usize),
+    pub(crate) counters: (usize, usize, usize),
     pub(crate) orphans: Vec<(Tabs, bool)>,
     pub pane_is_wide: Box<dyn Fn(&str) -> bool + Send>,
 }
 
 impl Default for Model {
     fn default() -> Model {
-        Model { windows: vec![], workspaces: vec![], key: None, used: vec![], counters: (0, 0), orphans: vec![], pane_is_wide: Box::new(|_| true) }
+        Model { windows: vec![], workspaces: vec![], key: None, used: vec![], counters: (0, 0, 0), orphans: vec![], pane_is_wide: Box::new(|_| true) }
     }
 }
 
@@ -468,6 +468,11 @@ impl Model {
         }
     }
 
+    pub(crate) fn new_workspace(&mut self, dock: Dock, place: Where) -> Workspace {
+        self.counters.2 += 1;
+        Workspace::new(format!("ws-{}", self.counters.2), dock, place)
+    }
+
     pub(crate) fn make_window(&mut self) -> usize {
         self.counters.1 += 1;
         let window = Window::new(format!("w{}", self.counters.1));
@@ -544,7 +549,8 @@ impl Model {
         let tabs = if window.desk { Tabs::default() } else { std::mem::take(&mut window.tabs) };
         window.desk = true;
         window.workspace = None;
-        let mut ws = Workspace::new(Dock { pane: id.into(), edge, width: DOCK_WIDTH, frozen }, Where::Desk(window.id.clone()));
+        let place = Where::Desk(window.id.clone());
+        let mut ws = self.new_workspace(Dock { pane: id.into(), edge, width: DOCK_WIDTH, frozen }, place);
         ws.tabs = tabs;
         self.workspaces.insert(0, ws);
         0
@@ -1041,7 +1047,7 @@ impl Model {
         match string(args, "action").unwrap_or("") {
             "assign" => {
                 let task = string(args, "workspace").ok_or_else(|| bad_request("assign needs a workspace: a task's ID or its agent's pane"))?;
-                let s = self.find_workspace(task, panes).ok_or_else(|| KmuxError::new("not_started", format!("{task} hasn't started, so it has no workspace yet")))?;
+                let s = self.find_workspace(task, panes).ok_or_else(|| not_found(format!("no workspace \"{task}\"")))?;
                 self.windows[w].workspace = Some(self.workspaces[s].id.clone());
             }
             "free" => self.windows[w].workspace = None,
@@ -1058,7 +1064,7 @@ impl Model {
     }
 
     pub(crate) fn find_workspace(&self, reference: &str, panes: &Panes) -> Option<usize> {
-        if let Some(s) = self.workspaces.iter().position(|s| s.id == reference || s.task.as_deref() == Some(reference)) {
+        if let Some(s) = self.ws_index(reference) {
             return Some(s);
         }
         let id = panes.need(Some(reference)).ok()?.id.clone();
@@ -1140,7 +1146,7 @@ impl LayoutHost for Model {
             return self.lead(pane, at.window.as_deref()).map(Some);
         }
         if let (true, Some(edge)) = (at.shelf, at.dock) {
-            self.shelve(pane, edge, at.backlog, at.frozen, at.task.as_deref());
+            self.shelve(pane, edge, at.backlog, at.frozen);
             return Ok(None);
         }
         if let Some(edge) = at.dock {
@@ -1148,9 +1154,6 @@ impl LayoutHost for Model {
             self.refuse_frozen(Some(w), panes)?;
             self.refuse_led(Some(w), panes)?;
             let s = self.dock(pane, w, edge, at.frozen);
-            if let Some(task) = &at.task {
-                self.name_workspace(s, task);
-            }
             self.workspaces[s].tabs.focused = Some(pane.into());
             let key = self.windows[w].id.clone();
             self.set_key(Some(key.clone()));
@@ -1281,6 +1284,10 @@ impl LayoutHost for Model {
         Value::Array(self.visible_windows().into_iter().map(|w| self.list_window(w, panes)).collect())
     }
 
+    fn hidden_windows(&self, panes: &Panes) -> Value {
+        Value::Array((0..self.windows.len()).filter(|&w| !self.visible(w)).map(|w| self.list_window(w, panes)).collect())
+    }
+
     fn workspaces(&self, panes: &Panes) -> Value {
         Value::Array(
             self.workspaces
@@ -1289,7 +1296,16 @@ impl LayoutHost for Model {
                 .map(|(s, ws)| {
                     let mut out = ws.summary();
                     out["dock"] = self.dock_view(s, panes);
-                    out["tabs"] = Value::Array(ws.tabs.tabs.iter().map(|t| crate::json::json!({ "id": t.id, "title": t.title, "panes": t.panes().iter().map(|p| panes.display(p)).collect::<Vec<_>>() })).collect());
+                    out["dock"]["id"] = ws.dock.pane.clone().into();
+                    out["tabs"] = Value::Array(
+                        ws.tabs
+                            .tabs
+                            .iter()
+                            .map(|t| crate::json::json!({ "id": t.id, "title": t.title, "active": ws.tabs.active.as_ref() == Some(&t.id), "layout": self.tree(t.root.as_ref(), None, panes), "panes": t.panes().iter().map(|p| panes.display(p)).collect::<Vec<_>>() }))
+                            .collect(),
+                    );
+                    out["focused"] = ws.tabs.focused.as_ref().map_or(Value::Null, |p| panes.display(p).into());
+                    out["zoomed"] = ws.tabs.zoomed().map_or(Value::Null, |p| panes.display(p).into());
                     out["windows"] = Value::Array(self.workspace_windows(&ws.id).iter().map(|w| Value::String(w.id.clone())).collect());
                     out["panes"] = Value::Array(self.workspace_panes(s).iter().map(|p| Value::String(p.clone())).collect());
                     out
