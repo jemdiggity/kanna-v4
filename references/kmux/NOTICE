@@ -1,5 +1,6 @@
 kmux includes code adapted from Ghostty (https://github.com/ghostty-org/ghostty):
-apps/kmux/Sources/Kmux/Terminal/*.swift. Ghostty's licence follows.
+apps/kmux/Sources/Kmux/Terminal/*.swift. The app also bundles Ghostty's shell
+integration and terminfo. Ghostty's licence follows.
 
 MIT License
 
