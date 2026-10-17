@@ -190,7 +190,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["markup", "doc", "--off"]).ok(), "comments off in p6 (doc)");
 
     let capabilities = daemon.kanna(&["capabilities"]).ok();
-    assert!(capabilities.starts_with("pane types: term, web, ios, md, code, diff\ncommands: agents, arrange, backlog, capabilities, close, comment, diff, focus, list, markup, move, move-tab, navigate, open, quiz, read, rename-pane, rename-tab, resize, restart, screenshot, send, send-key, status, task, zoom"), "{capabilities}");
+    assert!(capabilities.starts_with("pane types: term, web, ios, md, code, diff\ncommands: agents, arrange, backlog, capabilities, close, comment, diff, focus, list, markup, move, move-tab, navigate, open, quiz, read, rename-pane, rename-tab, resize, restart, screenshot, send, send-key, status, task, window, zoom"), "{capabilities}");
     assert!(capabilities.ends_with("Kanna.app: attached"), "{capabilities}");
     let raw = daemon.kanna(&["raw", r#"{"cmd":"debug.anything","args":{"pane":"a"}}"#]).json();
     assert_eq!(raw, json!({ "cmd": "debug.anything", "args": { "pane": "p1" } }));
@@ -208,7 +208,7 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(layout(&daemon, 0, 0), "a:2/3 | b:1/3");
 
     let opened = daemon.kanna(&["open", "--window", "new", "--dock", "--name", "agent", "--no-wait"]).ok();
-    assert!(opened.starts_with("opened p7 (agent) docked left in window w4"), "{opened}");
+    assert!(opened.starts_with("opened p7 (agent) docked left in p7 on w4"), "{opened}");
     daemon.kanna(&["open", "--window", "w4", "--name", "notes", "--no-wait"]).ok();
     assert_eq!(daemon.kanna(&["task", "list"]).ok(), "TASK  NAME   WHERE    STATE\np7    agent  Desk w4  running");
     assert_eq!(daemon.kanna(&["task", "park", "notes"]).ok(), "parked p7; w4 is an empty Desk");
@@ -222,7 +222,24 @@ fn every_command_works_through_the_daemon_and_the_app() {
     assert_eq!(daemon.kanna(&["focus", "--window", "w1"]).ok(), "key window is now w1");
     assert_eq!(daemon.kanna(&["task", "pull", "agent"]).ok(), "p7 is on w4; brought it forward");
     daemon.kanna(&["task", "pull"]).fails(2, "task: pull needs a TASK (see `kanna task list`)");
-    daemon.kanna(&["task", "pull", "a"]).fails(4, "a is not in a task: its window has no docked pane");
+    daemon.kanna(&["task", "pull", "a"]).fails(4, "a is not in a task: it's in no task's workspace");
+
+    daemon.kanna(&["open", "--window", "new", "--name", "side", "--no-wait"]).ok();
+    assert_eq!(daemon.kanna(&["window", "assign", "w5", "agent"]).ok(), "assigned w5 to p7 (on w4)");
+    assert_eq!(daemon.kanna(&["task", "park", "agent"]).ok(), "parked p7; w4 is an empty Desk");
+    let hidden = daemon.kanna(&["open", "--window", "w5", "--tab", "--name", "more", "--no-wait"]).ok();
+    assert!(hidden.starts_with("opened p10 (more) in p7's w5 (on the Shelf), tab "), "{hidden}");
+    assert_eq!(daemon.kanna(&["focus", "more"]).ok(), "focused more in p7's w5 (on the Shelf)");
+    assert_eq!(daemon.kanna(&["zoom", "agent"]).ok(), "agent is zoomed in p7 (on the Shelf; run again to unzoom)");
+    daemon.kanna(&["focus", "--window", "w5"]).fails(1, "w5 is p7's, on the Shelf: pull p7 to see it");
+    assert!(!daemon.kanna(&["list"]).ok().contains("*w5"), "a task's window is hidden with it");
+    assert!(daemon.kanna(&["list"]).ok().contains(" p7 (on the Shelf)  dock: agent\n   t7 \"notes\"  notes\n   w5 (hidden)"), "{}", daemon.kanna(&["list"]).ok());
+    assert_eq!(daemon.kanna(&["--json", "list"]).json()["workspaces"][0]["id"], "p7");
+    assert_eq!(daemon.kanna(&["window", "free", "w5"]).ok(), "w5 is free (out of p7, and open again)");
+    assert_eq!(daemon.kanna(&["window", "free", "w5"]).ok(), "w5 is free");
+    daemon.kanna(&["window", "assign", "w4", "agent"]).fails(1, "w4 is a Desk: a Desk is a place, not a task's");
+    daemon.kanna(&["window", "assign", "w5", "t99"]).fails(1, "t99 hasn't started, so it has no workspace yet");
+    daemon.kanna(&["window", "move", "w5"]).fails(2, "window: unknown action \"move\": assign or free");
 }
 
 #[test]
@@ -333,11 +350,11 @@ fn help_never_starts_anything_and_marks_what_the_running_kanna_lacks() {
     assert!(kanna_at(&dir, Some(&nowhere), &["raw", "--help"]).ok().starts_with("usage: kanna raw REQUEST"));
     kanna_at(&dir, Some(&nowhere), &["help", "nope"]).fails(2, "unknown command \"nope\"");
     let commands = kanna_at(&dir, Some(&nowhere), &["commands"]).ok();
-    assert_eq!(commands.lines().count(), 24);
+    assert_eq!(commands.lines().count(), 25);
     assert!(commands.starts_with("open          Open a terminal"), "{commands}");
     let described = kanna_at(&dir, Some(&nowhere), &["commands", "--json"]).json();
     assert_eq!(described["running"], false);
-    assert_eq!(described["commands"].as_array().unwrap().len(), 24);
+    assert_eq!(described["commands"].as_array().unwrap().len(), 25);
     assert_eq!(described["exitCodes"]["6"], "needs Kanna.app, which isn't attached and wasn't started");
     assert!(described["globalOptions"].as_array().unwrap().iter().any(|o| o["flag"] == "--"));
 

@@ -100,13 +100,59 @@ extension AppController {
             ("New Window", #selector(newWindow), nil, nil),
             ("Close Window", #selector(closeWindow), "close_window", .shiftCmd("w")),
             ("Move Tab to New Window", #selector(moveTabToNewWindow), nil, nil),
+            ("Free Window", #selector(freeWindow), nil, nil),
             nil,
             ("Next Window", #selector(nextWindow), nil, .cmd("`")),
             ("Previous Window", #selector(previousWindow), nil, .shiftCmd("`")),
             nil,
         ])
+        if let at = windowMenu.items.firstIndex(where: { $0.title == "Free Window" }) {
+            let assign = windowMenu.insertItem(withTitle: "Assign Window to Task", action: nil, keyEquivalent: "", at: at)
+            assign.submenu = NSMenu(title: assign.title)
+            assign.submenu?.delegate = self
+        }
         NSApp.mainMenu = main
         NSApp.windowsMenu = windowMenu
+    }
+
+    var startedTasks: [(pane: String, title: String)] {
+        let root = keyWindow?["id"]?.string.flatMap { controllers[$0]?.projectRoot }
+        let desks = windows.compactMap { window in window["dock"]?["pane"]?.string.map { ($0, window["dock"]?["name"]?.string) } }
+        let shelf = shelfEntries.compactMap { entry in entry["task"]?.string.map { ($0, entry["name"]?.string) } }
+        let held = backlog.filter { $0["running"]?.bool == true }.compactMap { entry in entry["held"]?.string.map { ($0, entry["name"]?.string) } }
+        return (desks + shelf + held).filter { root == nil || projectRoot($0.0) == root }.map { (pane: $0.0, title: taskTitle($0.0, name: $0.1)) }
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let window = keyWindow
+        let reason: String? = window == nil ? "No window" : window?["desk"]?.bool == true ? "A Desk isn't a task's" : window?["lead"]?["pane"]?.string != nil ? "This window has its own agent" : nil
+        let tasks = reason == nil ? startedTasks : []
+        if tasks.isEmpty {
+            menu.addItem(withTitle: reason ?? "No started tasks", action: nil, keyEquivalent: "").isEnabled = false
+            return
+        }
+        let current = window?["workspace"]?.string
+        for task in tasks {
+            let item = menu.addItem(withTitle: task.title, action: #selector(assignWindow(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = task.pane
+            item.state = workspaceOf(task.pane) == current && current != nil ? .on : .off
+        }
+    }
+
+    private func workspaceOf(_ pane: String) -> String? {
+        shelfEntries.first { $0["task"]?.string == pane }?["workspace"]?.string ?? windows.first { $0["dock"]?["pane"]?.string == pane }?["shows"]?.string
+    }
+
+    @objc func assignWindow(_ item: NSMenuItem) {
+        guard let window = keyWindow?["id"]?.string, let task = item.representedObject as? String else { return }
+        layoutCommand("window", ["action": "assign", "window": .string(window), "workspace": .string(task)])
+    }
+
+    @objc func freeWindow() {
+        guard let window = keyWindow?["id"]?.string else { return }
+        layoutCommand("window", ["action": "free", "window": .string(window)])
     }
 
     func choose(menuItem title: String) throws {
@@ -215,6 +261,7 @@ extension AppController {
         case #selector(closeFocusedPane): return focusedPane.map { !docked($0) } ?? false
         case #selector(nextTab), #selector(previousTab), #selector(moveTabToNewWindow), #selector(closeWindow): return keyWindow != nil
         case #selector(nextWindow), #selector(previousWindow): return windows.count > 1
+        case #selector(freeWindow): return keyWindow?["workspace"]?.string != nil
         case #selector(newTabInKeyWindow), #selector(splitRight), #selector(splitDown), #selector(webRight), #selector(webDown),
              #selector(iosRight), #selector(iosDown), #selector(markdownRight), #selector(markdownDown): return !onShelf
         case #selector(parkTask):

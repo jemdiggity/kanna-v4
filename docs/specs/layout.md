@@ -4,7 +4,7 @@
 
 The app owns the layout (windows, tabs, splits, focus, zoom, the docked pane, Desk and Shelf) and saves it; the daemon owns the terminals ([architecture](architecture.md#2-what-the-daemon-keeps-what-the-app-keeps)).
 
-**Planned:** [workspaces](workspaces.md): each task gets a workspace (its Desk part and windows of its own) that a Desk shows, instead of its tabs, focus and zoom being copied into a window and out to `parked`; `layout.json` goes to version 2.
+Each task has a [workspace](workspaces.md): its Desk part (agent and tabs) and windows of its own, which a Desk shows; replies name the workspace a pane is in.
 
 ## Contents
 
@@ -53,22 +53,22 @@ Why this and not kmux's Swift model copied into the app:
 
 | Step (`op`) | Used by | The app answers | With no app attached, the daemon answers |
 |---|---|---|---|
-| `place {pane, at}` | `open` (`at` holds only the `split`, `size`, `tab`, `window`, `dock` given) | places it: `{window, tab}`, and `dock` (its edge) for a docked pane, whose `tab` is null | with no `at`: `{window: null, tab: null}`, unplaced; with one: `no_app` |
+| `place {pane, at}` | `open` (`at` holds only the `split`, `size`, `tab`, `window`, `dock` given) | places it: `{window, tab, workspace}`, and `dock` (its edge) for a docked pane, whose `tab` is null; `window` is null for a hidden Desk part | with no `at`: `{window: null, tab: null}`, unplaced; with one: `no_app` |
 | `location {pane}` | `open`, once the pane has started; `close` of a pane, which a docked one refuses ([docked pane](docked-pane.md)) | `{window, tab}`, and `dock` as `place` | `{window: null, tab: null}` |
-| `command {cmd, args}` | `focus`, `zoom`, `rename-tab`, `move`, `move-tab`, `resize`, `arrange` | the command's reply, as kmux | `no_app` |
+| `command {cmd, args}` | `focus`, `zoom`, `rename-tab`, `move`, `move-tab`, `resize`, `arrange`, and Kanna's `task` and `window` | the command's reply, as kmux, with the `workspace` it acted in | `no_app` |
 | `panes-in {tab}` / `{window}` | `close --tab`, `close --window` | the panes there | `no_app` |
 | `remove {ids, tidy}` | `close`, `debug.restoreState` | removes them (and closes emptied tabs and windows) | nothing to do |
-| `windows` | `list`, `debug.restoreState` | kmux's `windows` | `[]` |
-| `export`, `check {state, ids}`, `install {state, ids}` | `debug.saveState`, `debug.restoreState` | as kmux | `no_app` |
+| `windows` | `list`, `debug.restoreState` | kmux's `windows` (those on screen), and `workspaces` | `[]` |
+| `export`, `check {state, ids}`, `install {state, ids}` | `debug.saveState`, `debug.restoreState` | as kmux: its state, version 1, with a Desk carrying what it shows and hidden workspaces `parked` | `no_app` |
 
 - **With the app attached** every layout command is the app's; `close` closes the terminals in the daemon and then has the app remove them.
 - **If the app goes away mid-step**, the step gets the no-app answer: an unplaced `open` still opens its terminal, a placed one fails.
 
 ## 3. Saving and restoring
 
-**Saving.** The app saves its layout in kmux's state file format (`kmux: "state"`, `version: 1`, windows with their frames, tabs, splits, focus, zoom, the panes it places by ID, name and type) to `layout.json` in its state folder: `$KANNA_STATE_DIR`, or the daemon socket's folder. As kmux: half a second after a change and on quit, only when something changed, written atomically (a new file, then renamed) with mode 0600; `--fresh` (or `KANNA_FRESH=1`) starts without it, `KANNA_NO_STATE=1` neither reads nor writes one.
+**Saving.** The app saves its layout in kmux's state file format, Kanna's version 2 of it (`kmux: "state"`, `version: 2`: Desks and free windows with their frames, tabs, splits, focus and zoom, then each workspace with its Desk part and its own windows, [workspaces](workspaces.md#5-saved-state); the panes it places by ID, name and type) to `layout.json` in its state folder: `$KANNA_STATE_DIR`, or the daemon socket's folder. As kmux: half a second after a change and on quit, only when something changed, written atomically (a new file, then renamed) with mode 0600; `--fresh` (or `KANNA_FRESH=1`) starts without it, `KANNA_NO_STATE=1` neither reads nor writes one.
 
-**Restoring.** On launch the app reads the file (one it can't trust, or of another version, is moved aside as `layout.json.bad`). When the daemon accepts its hello, the reply lists the daemon's terminals; the app drops every pane the daemon no longer has (closing emptied splits, tabs and windows), places every terminal it doesn't know as `open` would (beside the focused pane), opens every window where it was, and attaches each terminal it shows. A reconnect to a restarted daemon does the same with the layout in memory. Nothing is saved until the saved layout has been installed, so an app that never reached its daemon doesn't overwrite it.
+**Restoring.** On launch the app reads the file (one it can't trust, or of a version other than 1 or 2, is moved aside as `layout.json.bad`; a version 1 file loads, and is saved as version 2). When the daemon accepts its hello, the reply lists the daemon's terminals; the app drops every pane the daemon no longer has (closing emptied splits, tabs and windows), places every terminal it doesn't know as `open` would (beside the focused pane), opens every window where it was, and attaches each terminal it shows. A reconnect to a restarted daemon does the same with the layout in memory. Nothing is saved until the saved layout has been installed, so an app that never reached its daemon doesn't overwrite it.
 
 ## 4. With the app closed
 

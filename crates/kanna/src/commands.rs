@@ -296,6 +296,17 @@ pub static COMMANDS: &[Command] = &[
         show: output::tabs,
     },
     Command {
+        name: "window",
+        group: "Tabs and windows",
+        summary: "Make a window one of a task's, so it shows and hides with the task, or free it.",
+        usage: "kanna window assign WINDOW TASK\n       kanna window free WINDOW",
+        options: &[],
+        notes: "A task's windows are on screen while the task is on a Desk; on the Shelf or in the backlog they close, their panes still running, and they open again at their frames when it's pulled. A window opened from a task's pane (`kanna open --window new`) or torn off its tabs is the task's already; one made anywhere else is free. TASK is a task's ID (t135) or its agent's pane. A Desk, a window with a lead (the Quiz window) and a task that hasn't started are refused. In the app: Window → Assign Window to Task and Free Window.",
+        examples: &[("kanna window assign w4 t135", "Make w4 one of t135's windows."), ("kanna window free w4", "Take w4 out of its task; it stays open.")],
+        parse: parse_window,
+        show: output::window,
+    },
+    Command {
         name: "rename-pane",
         group: "Panes",
         summary: "Give a pane a name, change it, or clear it.",
@@ -788,11 +799,24 @@ fn repo_here() -> Result<String, Failure> {
 }
 
 fn from_caller(out: &mut Map<String, Value>) {
-    if ["window", "dock"].iter().any(|k| out.contains_key(*k)) {
+    if out.contains_key("dock") {
         return;
     }
     if let Some(pane) = std::env::var("KANNA_PANE").ok().filter(|pane| !pane.is_empty()) {
         out.insert("from".into(), json!(pane));
+    }
+}
+
+fn parse_window(args: &mut Argv) -> Result<Value, Failure> {
+    let action = args.positional().ok_or_else(|| usage("window", "say assign or free"))?;
+    let window = args.positional().ok_or_else(|| usage("window", "missing WINDOW (an ID like w4; see `kanna list`)"))?;
+    match action.as_str() {
+        "assign" => {
+            let task = args.positional().ok_or_else(|| usage("window", "missing TASK (an ID like t135; see `kanna task list`)"))?;
+            Ok(json!({ "action": "assign", "window": window, "workspace": task }))
+        }
+        "free" => Ok(json!({ "action": "free", "window": window })),
+        other => Err(usage("window", &format!("unknown action \"{other}\": assign or free"))),
     }
 }
 

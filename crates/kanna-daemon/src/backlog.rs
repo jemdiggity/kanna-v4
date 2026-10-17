@@ -542,6 +542,12 @@ impl Backlog {
         json!({ "tasks": Value::Array(tasks) })
     }
 
+    pub fn agents(&self) -> Vec<(String, String)> {
+        let running: Vec<(String, String)> = self.running.borrow().iter().map(|r| (r.pane.clone(), r.entry.id.clone())).collect();
+        let held: Vec<(String, String)> = self.entries.borrow().iter().filter_map(|e| Some((e.held.clone()?, e.id.clone()))).collect();
+        running.into_iter().chain(held).collect()
+    }
+
     fn resolve(&self, reference: &str) -> Option<String> {
         if self.entries.borrow().iter().any(|e| e.id == reference) {
             return Some(reference.to_string());
@@ -1355,7 +1361,7 @@ impl Backlog {
         let name = entry.name.clone().filter(|n| core.pane(n).is_none());
         let session = (agent(&entry.agent).is_some_and(|a| a.named.is_some()) && entry.folder.is_none()).then(uuid).and_then(Result::ok);
         let place = if backlog { "backlog" } else { "shelf" };
-        let mut args = json!({ "type": "term", "dock": "left", "frozen": true, place: true, "cwd": folder, "cmd": entry.command(session.as_deref()), "wait": false });
+        let mut args = json!({ "type": "term", "dock": "left", "frozen": true, place: true, "task": entry.id, "cwd": folder, "cmd": entry.command(session.as_deref()), "wait": false });
         if let Some(name) = &name {
             args["name"] = json!(name);
         }

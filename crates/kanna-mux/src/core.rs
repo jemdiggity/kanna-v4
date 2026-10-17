@@ -543,9 +543,23 @@ impl CoreHandle {
     }
 
     async fn list(&self) -> Result<Map, KmuxError> {
-        let windows = self.layout(json!({ "op": "windows" })).await?.remove("windows").unwrap_or(Value::Array(vec![]));
+        let mut layout = self.layout(json!({ "op": "windows" })).await?;
+        let windows = layout.remove("windows").unwrap_or(Value::Array(vec![]));
+        let workspaces = layout.remove("workspaces");
         let s = self.state();
-        Ok(reply([("windows", windows), ("panes", Value::Array(s.panes.iter().map(Pane::summary).collect()))]))
+        let of = |id: &str| workspaces.as_ref().and_then(Value::as_array).and_then(|all| all.iter().find(|ws| ws["panes"].as_array().is_some_and(|p| p.iter().any(|p| p == id)))).map(|ws| ws["id"].clone());
+        let panes = s.panes.iter().map(|pane| {
+            let mut row = pane.summary();
+            if let Some(ws) = of(&pane.id) {
+                row["workspace"] = ws;
+            }
+            row
+        });
+        let mut out = reply([("windows", windows), ("panes", Value::Array(panes.collect()))]);
+        if let Some(workspaces) = workspaces {
+            out.insert("workspaces".into(), workspaces);
+        }
+        Ok(out)
     }
 
     fn start_pane(&self, id: &str) {
@@ -652,6 +666,10 @@ impl CoreHandle {
         if shelf && (dock.is_none() || args.get("window").is_some()) {
             return Err(bad_request("shelf and backlog are for a docked pane, without a window"));
         }
+        let task = string(args, "task");
+        if task.is_some() && dock.is_none() {
+            return Err(bad_request("task is for a docked pane: the task's agent"));
+        }
         let lead = is_true(args, "lead");
         if lead && (kind != PaneType::Term || dock.is_some() || split.is_some() || size.is_some() || new_tab || string(args, "window").is_none()) {
             return Err(bad_request("a window's lead is a terminal in a window, with no dock, split, size or tab"));
@@ -669,14 +687,14 @@ impl CoreHandle {
         }
         let id = self.state().panes.next_id();
         let placeless = !new_tab && !lead && dock.is_none() && split.is_none() && size.is_none() && args.get("window").is_none();
-        let opener = string(args, "from").filter(|_| !lead && dock.is_none() && args.get("window").is_none()).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
+        let opener = string(args, "from").filter(|_| !lead && dock.is_none()).and_then(|from| self.state().panes.pane(from).map(|p| p.id.clone()));
         let from = opener.clone().filter(|_| placeless);
         let cwd = match string(args, "cwd") {
             Some(cwd) => Some(cwd.to_string()),
             None if kind == PaneType::Term && dock.is_none() && !lead => self.task_folder(opener.as_deref(), string(args, "window")).await,
             None => None,
         };
-        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), opener.as_deref(), shelf, backlog, lead)).await?;
+        let placed = self.layout(place_request(&Pane::new(&id, name.clone(), kind), string(args, "window"), split, size, new_tab, dock, frozen, from.as_deref(), opener.as_deref(), shelf, backlog, lead, task)).await?;
         let placed = Value::Object(placed);
         {
             let mut s = self.state();
@@ -808,7 +826,7 @@ impl CoreHandle {
                 open["comment"] = comment.to_json();
                 let mut reply = self.open(&open).await?;
                 let id = reply.get("pane").and_then(|p| string(p, "id")).unwrap_or_default().to_string();
-                let location = json!({ "window": reply.remove("window").unwrap_or(Value::Null), "tab": reply.remove("tab").unwrap_or(Value::Null) });
+                let location = json!({ "window": reply.remove("window").unwrap_or(Value::Null), "tab": reply.remove("tab").unwrap_or(Value::Null), "workspace": reply.remove("workspace").unwrap_or(Value::Null) });
                 (id, location, false)
             }
         };
@@ -816,6 +834,9 @@ impl CoreHandle {
         let mut out = reply([("pane", self.summary(&id, &snapshot)), ("first", num(first as f64)), ("last", num(last as f64)), ("opened", Value::Bool(!was_open))]);
         for key in ["window", "tab"] {
             out.insert(key.into(), location.get(key).cloned().unwrap_or(Value::Null));
+        }
+        if let Some(workspace) = location.get("workspace").filter(|w| !w.is_null()) {
+            out.insert("workspace".into(), workspace.clone());
         }
         Ok(out)
     }
@@ -1168,6 +1189,9 @@ fn opened(summary: Value, location: &Value, placed: &Value) -> Map {
     let mut out = reply([("pane", summary), ("window", window), ("tab", location["tab"].clone())]);
     if let Some(edge) = location.get("dock").filter(|d| !d.is_null()) {
         out.insert("dock".into(), edge.clone());
+    }
+    if let Some(workspace) = location.get("workspace").or_else(|| placed.get("workspace")).filter(|w| !w.is_null()) {
+        out.insert("workspace".into(), workspace.clone());
     }
     out
 }

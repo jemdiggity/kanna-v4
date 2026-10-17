@@ -1,6 +1,6 @@
 # Workspaces
 
-**Status:** planned · **Builds on:** [layout](layout.md), [Desk](desk.md), [tasks](tasks.md), [presenting](presenting.md)
+**Status:** built · **Builds on:** [layout](layout.md), [Desk](desk.md), [tasks](tasks.md), [presenting](presenting.md)
 
 A task is a unit of work. Its **workspace** is how it's presented: its agent docked beside its tabs, with the shown tab, focus and zoom, plus any windows of its own. A Desk window shows one workspace at a time. Park, pull, hold and shelve change which Desk shows which workspace, and a workspace's windows are on screen only while it's on a Desk. A command from a task's pane goes to its own workspace, wherever that is, and the reply names the task and where it is.
 
@@ -125,14 +125,14 @@ Replies say which workspace and where it is. A window is named when it's on scre
 | assign to a task on the Shelf | `assigned w41 to t135 (on the Shelf: hidden until it's pulled)` |
 | free | `w41 is free` |
 
-Layout replies carry `workspace: {id, task, where}` (`where`: `{desk}`, `"shelf"` or `"backlog"`), or null in a free window, beside `window` and `tab`. `window` is the window's ID, or null for a hidden Desk part. The CLI writes "unplaced until Kanna.app opens" only when there's neither (the app wasn't there). `kanna list --json` has `workspaces`, and each pane's row names its workspace.
+Layout replies carry `workspace: {id, task, where, hidden}` (`where`: `{desk}`, `"shelf"` or `"backlog"`; `hidden` unless it's on a Desk, as kmux's), or null in a free window, beside `window` and `tab`. `window` is the window's ID, or null for a hidden Desk part. The CLI writes "unplaced until Kanna.app opens" only when there's neither (the app wasn't there). `kanna list --json` has `workspaces`, and each pane's row names its workspace.
 
 ## 4. Kinds of window, and the planning terminal
 
 - **A Desk** is a project's window: it shows its lead (the planning terminal) and the Shelf, or one workspace's Desk part. It holds no tabs of its own: a pane opened onto the Shelf gets a new window ([zoom](zoom.md), [planning agent](planning-agent.md)). Its ID names the place.
 - **A workspace's window** belongs to that workspace: its ID stays with it through park and pull, and it's visible only while the workspace is on a Desk.
 - **A free window** belongs to no workspace: nothing parks, pulls or docks there. It behaves as kmux's window, so kmux's protocol cases pass on it.
-- **A window joins or leaves a workspace** when it's made (one made from a task's pane or torn off its tabs is the task's; one made from a free window is free), or with `kanna window assign W TASK` and `kanna window free W`, and the Window menu's Assign Window to Task (the project's started tasks) and Free Window ([menus](menus.md)). Both are a `command` step, as `move-tab` is. Refused: a Desk (`desk`: a Desk is a place, not a task's), a window with a lead (`lead`: a Quiz window stays its agent's), and a task with no workspace yet (`not_started`: "t138 hasn't started").
+- **A window joins or leaves a workspace** when it's made (one made from a task's pane or torn off its tabs is the task's; one made from a free window is free), or with `kanna window assign W TASK` and `kanna window free W`, and the Window menu's Assign Window to Task (the project's started tasks) and Free Window ([menus](menus.md)). Both are kmux's `window` command, a `command` step as `move-tab` is, with the task (or its agent's pane) as the `workspace`. Refused: a Desk (`desk`: a Desk is a place, not a task's), a window with a lead (`lead`: a Quiz window stays its agent's), and a task with no workspace yet (`not_started`: "t138 hasn't started").
 - **The planning terminal never moves.** It's its Desk's, not a task's: park and pull swap the workspace beside it, and `move` refuses it.
 
 ## 5. Saved state
@@ -156,6 +156,7 @@ Layout replies carry `workspace: {id, task, where}` (`where`: `{desk}`, `"shelf"
 - **Version 1 loads.** A window with a dock becomes a Desk showing a workspace made of its dock and tabs (`planner` → `lead`). Any other Desk stays a Desk; every other window is free. Each `parked` entry becomes a workspace on the Shelf, or in the backlog when `backlog` is set. The next save writes version 2.
 - **Task IDs come from the daemon.** A version-1 file only knows agent pane IDs (`p367`). The daemon's hello reply lists its terminals and adds `task: "t135"` to each task's agent pane (from `tasks.pane` in `kanna.db`); the app names each workspace by its task. A docked pane with no task keeps its pane ID as the workspace's ID until it's closed.
 - **New workspaces get the ID in `place`:** the daemon's `open --dock --frozen` for a task sends `at: {dock, shelf | backlog, task: "t135"}`.
+- **kmux's debug state stays kmux's version 1.** `debug.saveState` writes a Desk with what it shows inline and each hidden workspace in `parked`, and a workspace's window names it (`workspace`), so kmux's protocol cases pass and `debug.restoreState` reads it back.
 - **The daemon's own state stays as it is.** `kanna.db` keeps `tasks.pane` (the agent) and `place`; `terminals.json` keeps the terminals. The layout's `where` is what's shown, and the db's `place` is the task's history ([database](database.md)).
 
 ## 6. Code and tests
@@ -167,18 +168,19 @@ flowchart TB
     D["desk.rs<br/>park · pull · hold · release · desk<br/>change where and shows"]
     M["model.rs<br/>Desks, free windows, workspaces;<br/>commands find the Tabs a pane is in"]
     O["owner.rs view<br/>visible windows · shelf · held"]
-    M --> D & WS & T
+    S["saved.rs<br/>layout.json v2 · kmux's v1"]
+    M --> D & WS & T & S
     WS --> T
     O --> M
     classDef ours fill:#2f6f4f,stroke:#6fcf97,color:#ffffff
-    class T,WS,D,M,O ours
+    class T,WS,D,M,O,S ours
 ```
 
 - **One `Tabs`** (tabs, shown tab, focus, zoom) is what a free window, a workspace's Desk part and each of its windows hold. Tab and pane ops are written once on it, whether it's visible or not.
-- **desk.rs** keeps the task actions only: each changes `where` and a Desk's `shows`. The `parked` list and its lookups (`focus_parked`, `focus_parked_tab`, `detach_parked`, `settle_shelf`, the parked halves of `place_on_task` and `zoom`) are gone, as are `Window.backlog` and `parked_at`, which become the workspace's.
+- **desk.rs** keeps the task actions only: each changes `where`, and a Desk shows the workspace whose `where` is that Desk. A window is one of a workspace's by its `workspace` field. Tab and pane ops find the `Tabs` a pane is in (a window's or a workspace's Desk part), shown or not.
 - **owner.rs** `view` lists the visible windows (Desks, free windows, and the windows of workspaces on a Desk), each with its `workspace`; `shelf` and `held` read workspaces by `where`, and `held` includes their windows' panes. A window that leaves or joins the view closes or opens as any window does, so the Swift app only learns the `workspace` field and the two Window menu items.
 - **kanna CLI:** `output.rs` writes the replies in [3](#3-commands-target-and-reply); `window assign` and `window free` are new in `commands.rs`; `crates/kanna/tests/cli.rs` checks them.
-- **kanna-mux tests:** the owner tests on parked and held tasks (`a_task_parks_onto_the_shelf…`, `a_task_held_in_the_backlog…` ×2, `a_task_parks_and_pulls_with_its_zoom…`, `a_parked_task_whose_agent_is_gone…`, `a_pull_onto_a_desk_with_a_task…`) check workspace IDs and `where`. New: a task's `open` lands in its own workspace after another task is pulled onto its old Desk; a workspace's window is hidden on park and opens at its frame on pull; `open --window new` from a task's pane makes its window; `window assign` hides a window in a hidden workspace and `window free` shows it, and both refuse a Desk; replies name the workspace; a version-1 file loads and saves as version 2 (`tests/restore.rs`). `protocol_cases` (kmux's) pass.
+- **kanna-mux tests:** the owner tests on parked and held tasks (`a_task_parks_onto_the_shelf…`, `a_task_held_in_the_backlog…` ×2, `a_task_parks_and_pulls_with_its_zoom…`, `a_parked_task_whose_agent_is_gone…`, `a_pull_onto_a_desk_with_a_task…`) check workspace IDs and `where`. New: a task's `open` lands in its own workspace after another task is pulled onto its old Desk; a workspace's window is hidden on park and opens at its frame on pull; `open --window new` from a task's pane makes its window; `window assign` hides a window in a hidden workspace and `window free` shows it, and both refuse a Desk; replies name the workspace; a task is named by the ID the daemon's hello gives it; a version-1 file loads and saves as version 2. `protocol_cases` (kmux's) pass, natively and behind `LayoutOwner`.
 - **e2e:** `backlog_runners` (the presenting task) checks the focus and open replies from a held task, and that its tabs are still in `t8`'s workspace after another task is pulled onto the Desk. `desk_shelf`, `move_to_backlog`, `backlog_and_back`, `shelf_zoom` and `layout_restored` read workspaces from `kanna list --json`; `desk_shelf` also parks and pulls a task with a window of its own, and assigns a free window to the task and frees it.
 - **Skills:** `kanna-tasks` says to open without `--window`, and that the reply names your task and where it is.
 
@@ -189,13 +191,24 @@ flowchart TB
 
 ## 8. Backport to kmux
 
-kmux gets workspaces without Kanna's Desk, Shelf and tasks, by its own task once Kanna's are built, through [the kmux subtree](kmux-subtree.md) (kmux files only, a kmux branch and PR).
+kmux has workspaces without Kanna's Desk, Shelf and tasks, through [the kmux subtree](kmux-subtree.md) (kmux files only, a kmux branch and PR); [kmux's spec, 3.8](../../references/kmux/docs/kmux-spec.md#38-workspaces) has the rules.
+
+```mermaid
+flowchart LR
+    KW["kmux: workspace new / hide / show / close"] --> S["s1 checkout<br/>{ id, name, hidden }"]
+    KA["kmux and Kanna: window assign W S / free W"] --> S
+    S --> W2["w2"]
+    S --> W3["w3 (hidden with s1)"]
+    T["Kanna: tasks make, park and pull"] --> TW["t135<br/>{ id, task, where, hidden }"]
+    KA --> TW
+```
 
 - **A kmux workspace** is a named group of windows, shown or hidden, with kmux's own IDs (`s1`, as `w1`, `t1`, `p1`). It has no Desk part: that's Kanna's.
-- **Commands:** `workspace new [NAME]`, `workspace hide S`, `workspace show S` (its windows at their frames), `workspace close S` (its windows and panes), `window assign W S`, `window free W`; `list` groups windows by workspace. The app's Window menu has Assign Window to Workspace and Free Window, as Kanna's.
-- **The same caller rules and replies** as [3](#3-commands-target-and-reply), with "(hidden)" for a hidden workspace: `opened p5 in s1's w40 (hidden), tab t9: running`.
-- **Saved state:** kmux's state file gains `workspaces` (`id`, `name`, `hidden`), and each window its `workspace`.
-- **In Kanna,** a task's workspace is a kmux workspace whose ID is the task's, plus its Desk part; the Shelf and the backlog are both hidden to kmux. Kanna passes kmux's new protocol cases for `window assign`, `window free`, hidden windows and replies, and its runner skips `workspace new`, `hide`, `show` and `close` by name, since tasks do those ([kmux is the reference model](kmux-reference.md)).
+- **Commands:** `workspace new [NAME]`, `workspace hide S`, `workspace show S` (its windows at their frames, its last one key), `workspace close S` (its windows and panes), `window assign W S`, `window free W`; `kmux list` lists free windows, then each workspace with its own. The app's Window menu has Assign Window to Workspace (the workspaces, and New Workspace) and Free Window, as Kanna's.
+- **No caller rules:** kmux has no caller, so `open` still goes to the key window or `--window`, and a new window is free. A hidden window is never the key window, and `focus` on it is refused (`hidden`), as in Kanna.
+- **Replies** name the workspace as `{id, name, hidden}`: `opened p5 in s1's w40 (hidden), tab t9: running`.
+- **Saved state:** kmux's state file, still version 1, gains `workspaces` (`id`, `name`, `hidden`) and each window its `workspace`.
+- **In Kanna,** a task's workspace is a kmux workspace whose ID is the task's, plus its Desk part; the Shelf and the backlog are both hidden to kmux, so its replies say `hidden` too. Kanna's `window` takes kmux's `workspace` (a task's ID or its agent's pane) and passes kmux's `window` case; the cases that make workspaces with `workspace` are skipped, since Kanna has no `workspace` command (tasks do that), as the runner skips any case needing a command Kanna lacks ([kmux is the reference model](kmux-reference.md)). The CLI check counts `workspace` as kmux's own and `window` as documented for tasks.
 
 ## 9. Decisions
 
@@ -206,6 +219,7 @@ kmux gets workspaces without Kanna's Desk, Shelf and tasks, by its own task once
 5. **A window can be assigned to a task's workspace or freed** (`kanna window assign`, `kanna window free`, and the Window menu).
 6. **kmux gets workspaces too** ([8](#8-backport-to-kmux)), after Kanna's are built.
 7. **Backlog task t135** ("Off-screen open and focus replies name the right window") is covered by [3](#3-commands-target-and-reply) and comes off the backlog when the build task is made.
+8. **kmux gets workspaces without caller rules** ([8](#8-backport-to-kmux)): it has no caller, so its `open` keeps going to the key window; only workspaces, hidden windows and replies are backported.
 
 ## 10. Glossary
 

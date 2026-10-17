@@ -4,7 +4,7 @@ import KannaMarkdown
 import KannaStatus
 
 @MainActor
-final class AppController: NSObject, NSApplicationDelegate {
+final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var runtime: GhosttyRuntime!
     private var terminals: ExternalIOBackend!
     let commands = Commands()
