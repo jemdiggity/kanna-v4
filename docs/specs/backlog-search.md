@@ -2,7 +2,7 @@
 
 **Status:** built · **Mockup:** [`references/mockups/desk.html`](../../references/mockups/desk.html) (Simulate: a long backlog, then ⌘F; or `#empty&long&q=shelf`) · **Builds on:** [tasks](tasks.md#3-the-backlog), [Desk](desk.md)
 
-Find a backlog task by typing part of its name or first message, and start it from the keyboard.
+Find a backlog task by typing part of its name or first message, and start it from the keyboard. A task's ID is `task-` and 8 hex digits ([task IDs](task-ids.md)); `kanna task list` shows it for every task, and commands take any unique start of it.
 
 ![Searching the backlog for "shelf": two of twelve tasks, the first selected](backlog-search.png)
 

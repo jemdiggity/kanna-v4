@@ -19,7 +19,7 @@ If you've been told you're the Kanna planning agent, you're a window's **plannin
 
 ## Name your branch
 
-A task works in a worktree of its own (`.kanna-worktrees/task-3f9a1c2e`) on a branch with a random name (`task-3f9a1c2e`). In a new project the branch has no commits yet: your first commit is the project's first. Once you know the work, rename the branch, from the worktree:
+A task works in a worktree of its own named after its ID (`.kanna-worktrees/task-3f9a1c2e`), on a branch of that name (`task-3f9a1c2e`). In a new project the branch has no commits yet: your first commit is the project's first. Once you know the work, rename the branch, from the worktree:
 
 ```sh
 git branch -m fix-login-redirect
@@ -40,7 +40,7 @@ kanna task new "Add rate limiting" "Add rate limiting to the login endpoint: ...
 - **The first message stands alone.** The agent that gets it starts fresh in its own worktree and hasn't seen this conversation: say what to do, why, where (files, functions), and how to know it's done.
 - **Its first message can't change.** Only a backlog task's name can (`kanna task name TASK NAME`). To change what it says, make a new task and take the old one off with `kanna task done TASK`.
 - **It starts by itself.** Backlog tasks run unattended, a few at a time (`backlog.runners`, 3 by default), oldest first, so write a first message an agent can do in one go: settle the open decisions with the user before you make it, name the files and how to test it, and say what to do when stuck. When it needs the user, it asks and ends its turn: Kanna stops it there, and the user resumes it on the Shelf.
-- **Say what it waits for.** If it can't start until other tasks are done (it builds on their merged work), add `--after TASK,...` (IDs from `kanna task list`, yours too: your pane works). It's **blocked**: it can't start until those tasks are done, and its backlog row shows it so. It starts from main, so it gets their work only once they're merged and done.
+- **Say what it waits for.** If it can't start until other tasks are done (it builds on their merged work), add `--after TASK,...` (IDs from `kanna task list`, like `task-3f9a`; yours too: your pane works). It's **blocked**: it can't start until those tasks are done, and its backlog row shows it so. It starts from main, so it gets their work only once they're merged and done.
 - **Start or shelve one only when the user asks, or shelve when there's room.** `kanna task shelve` puts it on the Shelf if the project has fewer than three tasks out (the Desk's and the Shelf's); otherwise leave it in the backlog, unless the user asks, and then make room by deferring a Shelf task they're not using. `kanna task start` runs it in the backlog instead, with no limit.
 
 ## Show it in a tab

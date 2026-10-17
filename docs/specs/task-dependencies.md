@@ -11,7 +11,7 @@ A task can wait for other tasks: it's **blocked**, and can't start until they're
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> blocked: kanna task new --after t4
+    [*] --> blocked: kanna task new --after 1dfb
     blocked --> startable: its last blocker is Done
     startable --> blocked: kanna task edit --after t9
     blocked --> startable: kanna task edit --after none
@@ -30,12 +30,12 @@ stateDiagram-v2
 Only the planning agent, an agent, or you in a terminal set them, with the CLI. The app only shows them.
 
 ```sh
-kanna task new "Release notes for 0.9" "…" --after t8,t12
-kanna task edit t14 --after t8          # replaces the list
-kanna task edit t14 --after none        # waits for nothing
+kanna task new "Release notes for 0.9" "…" --after 1dfb,c0ff
+kanna task edit 3f9a --after 1dfb        # replaces the list
+kanna task edit 3f9a --after none        # waits for nothing
 ```
 
-- **TASK** is a task's ID (`t12`) or a running task's pane (`p158`), as `kanna task list` shows them. Kanna stores the task's ID.
+- **TASK** is a task's ID as `kanna task list` shows it (`task-1dfb`), or any unique start of it (`1dfb`: [task IDs](task-ids.md)) or a running task's pane (`p158`), as `kanna task list` shows them. Kanna stores the task's ID.
 - **A blocker must be a task that isn't Done.**
 - **`kanna task edit` changes a backlog task** that hasn't started yet.
 
@@ -46,7 +46,7 @@ kanna task edit t14 --after none        # waits for nothing
 | `kanna task new NAME [MSG] [--after TASK,…]` | Make a task that waits for others |
 | `kanna task edit TASK --after TASK,…\|none` | Change what a backlog task waits for |
 | `kanna task start TASK`, `kanna task shelve TASK` | Refused for a blocked task, saying what it waits for |
-| `kanna task list` | STATE is `blocked` for a blocked backlog task, and its last part says `waits for t8, t12` |
+| `kanna task list` | STATE is `blocked` for a blocked backlog task, and its last part says `waits for task-1dfb, task-c0ff` |
 | `kanna task done TASK` | Also names the tasks that can start now because of it |
 
 ## How it's built
