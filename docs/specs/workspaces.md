@@ -13,8 +13,9 @@ A task is a unit of work. Its **workspace** is how it's presented: its agent doc
 5. [Saved state](#5-saved-state)
 6. [Code and tests](#6-code-and-tests)
 7. [The branches waiting for review](#7-the-branches-waiting-for-review)
-8. [Decisions](#8-decisions)
-9. [Glossary](#9-glossary)
+8. [Backport to kmux](#8-backport-to-kmux)
+9. [Decisions](#9-decisions)
+10. [Glossary](#10-glossary)
 
 ## 1. The model
 
@@ -186,16 +187,27 @@ flowchart TB
 - **Quiz window docks its agent** (`quiz-window-docked`) renames `planner` to `lead` and lets a window that isn't a Desk have one (the Quiz window). That fits: a lead is a window's, never a workspace's, so a Quiz window is a free window with a lead. Land it first; this spec says `lead` throughout.
 - **Move to a window makes a new tab** (`move-window-new-tab`): `move PANE --window W` makes a new tab at the end of W, which is in W's workspace, or W if it's free. No conflict.
 
-## 8. Decisions
+## 8. Backport to kmux
+
+kmux gets workspaces without Kanna's Desk, Shelf and tasks, by its own task once Kanna's are built, through [the kmux subtree](kmux-subtree.md) (kmux files only, a kmux branch and PR).
+
+- **A kmux workspace** is a named group of windows, shown or hidden, with kmux's own IDs (`s1`, as `w1`, `t1`, `p1`). It has no Desk part: that's Kanna's.
+- **Commands:** `workspace new [NAME]`, `workspace hide S`, `workspace show S` (its windows at their frames), `workspace close S` (its windows and panes), `window assign W S`, `window free W`; `list` groups windows by workspace. The app's Window menu has Assign Window to Workspace and Free Window, as Kanna's.
+- **The same caller rules and replies** as [3](#3-commands-target-and-reply), with "(hidden)" for a hidden workspace: `opened p5 in s1's w40 (hidden), tab t9: running`.
+- **Saved state:** kmux's state file gains `workspaces` (`id`, `name`, `hidden`), and each window its `workspace`.
+- **In Kanna,** a task's workspace is a kmux workspace whose ID is the task's, plus its Desk part; the Shelf and the backlog are both hidden to kmux. Kanna passes kmux's new protocol cases for `window assign`, `window free`, hidden windows and replies, and its runner skips `workspace new`, `hide`, `show` and `close` by name, since tasks do those ([kmux is the reference model](kmux-reference.md)).
+
+## 9. Decisions
 
 1. **The name is workspace.** A task is the unit of work; its workspace is its presentation. The Shelf and the backlog hold tasks, and each started task's workspace goes with it, hidden; the Shelf draws its cards as it does now.
 2. **A task's pane may open into another window** with `--window W`. It's rare, not wrong; the reply names where it landed.
 3. **A window isn't a workspace.** A workspace can have several windows; a window is a Desk, a workspace's, or free.
 4. **Off the Desk, a whole workspace is hidden,** its windows included, and pulled, they come back at their frames.
 5. **A window can be assigned to a task's workspace or freed** (`kanna window assign`, `kanna window free`, and the Window menu).
-6. **Backlog task t135** ("Off-screen open and focus replies name the right window") is covered by [3](#3-commands-target-and-reply) and comes off the backlog when the build task is made.
+6. **kmux gets workspaces too** ([8](#8-backport-to-kmux)), after Kanna's are built.
+7. **Backlog task t135** ("Off-screen open and focus replies name the right window") is covered by [3](#3-commands-target-and-reply) and comes off the backlog when the build task is made.
 
-## 9. Glossary
+## 10. Glossary
 
 | Term | Meaning |
 |---|---|
