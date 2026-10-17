@@ -29,13 +29,64 @@ fn brief(text: &str) -> String {
     if line.chars().count() > 60 { format!("{}…", line.chars().take(59).collect::<String>()) } else { line.to_string() }
 }
 
-pub fn opened(request: &Value, reply: &Value) -> String {
+/// Where a reply's window is: `window w1`, or `s1's w2` in a workspace, with
+/// `(hidden)` after a hidden one.
+fn place(reply: &Value) -> String {
     let window = reply["window"].as_str().unwrap_or("?");
+    let workspace = &reply["workspace"];
+    match workspace["id"].as_str() {
+        Some(id) if workspace["hidden"] == true => format!("{id}'s {window} (hidden)"),
+        Some(id) => format!("{id}'s {window}"),
+        None => format!("window {window}"),
+    }
+}
+
+pub fn opened(request: &Value, reply: &Value) -> String {
+    let place = place(reply);
     if let Some(edge) = reply["dock"].as_str() {
         let frozen = if request["frozen"] == true { ", frozen," } else { "" };
-        return format!("opened {} docked {edge}{frozen} in window {window}: {}", label(&reply["pane"]), state(&reply["pane"]));
+        return format!("opened {} docked {edge}{frozen} in {place}: {}", label(&reply["pane"]), state(&reply["pane"]));
     }
-    format!("opened {} in window {window}, tab {}: {}", label(&reply["pane"]), reply["tab"].as_str().unwrap_or("?"), state(&reply["pane"]))
+    format!("opened {} in {place}, tab {}: {}", label(&reply["pane"]), reply["tab"].as_str().unwrap_or("?"), state(&reply["pane"]))
+}
+
+fn workspace_label(workspace: &Value) -> String {
+    let id = workspace["id"].as_str().unwrap_or("?");
+    match workspace["name"].as_str() {
+        Some(name) => format!("{id} ({name})"),
+        None => id.to_string(),
+    }
+}
+
+pub fn workspace(args: &Value, reply: &Value) -> String {
+    let windows = join(&reply["windows"]);
+    let label = workspace_label(&reply["workspace"]);
+    match args["action"].as_str() {
+        Some("new") => {
+            let id = reply["workspace"]["id"].as_str().unwrap_or("?");
+            format!("made {label}: put windows in it with `kmux window assign WINDOW {id}`")
+        }
+        Some("close") => match join(&reply["closed"]) {
+            none if none.is_empty() => format!("closed {} (it had no panes)", reply["workspace"].as_str().unwrap_or("?")),
+            panes => format!("closed {} (panes {panes})", reply["workspace"].as_str().unwrap_or("?")),
+        },
+        action if windows.is_empty() => format!("{label} has no windows to {}", action.unwrap_or("?")),
+        Some("hide") => format!("hid {label}: {windows} off screen, their panes still running"),
+        _ => format!("showed {label}: {windows}"),
+    }
+}
+
+pub fn window(args: &Value, reply: &Value) -> String {
+    let window = reply["window"].as_str().unwrap_or("?");
+    if args["action"] == "assign" {
+        let id = reply["workspace"]["id"].as_str().unwrap_or("?");
+        return if reply["shown"] == true { format!("assigned {window} to {id}") } else { format!("assigned {window} to {id} (hidden: it opens again when {id} is shown)") };
+    }
+    match (reply["was"]["id"].as_str(), reply["was"]["hidden"] == true) {
+        (Some(was), true) => format!("{window} is free (out of {was}, and open again)"),
+        (Some(was), false) => format!("{window} is free (out of {was})"),
+        (None, _) => format!("{window} is free"),
+    }
 }
 
 pub fn moved(reply: &Value) -> String {
@@ -106,41 +157,58 @@ fn sized(text: String, node: &Value) -> String {
     }
 }
 
+fn window_lines(window: &Value, reply: &Value, out: &mut Vec<String>) {
+    let mut line = format!("{}{}", if window["key"] == true { "*" } else { " " }, window["id"].as_str().unwrap_or("?"));
+    if let Some(focused) = window["focused"].as_str() {
+        line += &format!("  focused: {focused}");
+    }
+    if let Some(zoomed) = window["zoomed"].as_str() {
+        line += &format!("  zoomed: {zoomed}");
+    }
+    out.push(line);
+    let dock = &window["dock"];
+    if let Some(name) = dock["pane"].as_str() {
+        let pane = reply["panes"].as_array().and_then(|panes| panes.iter().find(|p| p["name"] == name || p["id"] == name));
+        out.push(format!(
+            "  dock: {}  {} {}{}",
+            pane.map(label).unwrap_or_else(|| name.to_string()),
+            dock["edge"].as_str().unwrap_or("?"),
+            dock["width"].as_str().unwrap_or("?"),
+            if dock["frozen"] == true { "  frozen" } else { "" }
+        ));
+    }
+    for tab in window["tabs"].as_array().into_iter().flatten() {
+        out.push(format!(
+            "  {}{} \"{}\"  {}",
+            if tab["active"] == true { "*" } else { " " },
+            tab["id"].as_str().unwrap_or("?"),
+            tab["title"].as_str().unwrap_or(""),
+            expression(&tab["layout"], true)
+        ));
+    }
+}
+
 pub fn list(reply: &Value) -> String {
     let empty = vec![];
     let windows = reply["windows"].as_array().unwrap_or(&empty);
-    if windows.is_empty() {
+    let workspaces = reply["workspaces"].as_array().unwrap_or(&empty);
+    if windows.is_empty() && workspaces.is_empty() {
         return "no windows (open one with `kmux open`)".into();
     }
     let mut out = Vec::new();
-    for window in windows {
-        let mut line = format!("{}{}", if window["key"] == true { "*" } else { " " }, window["id"].as_str().unwrap_or("?"));
-        if let Some(focused) = window["focused"].as_str() {
-            line += &format!("  focused: {focused}");
-        }
-        if let Some(zoomed) = window["zoomed"].as_str() {
-            line += &format!("  zoomed: {zoomed}");
-        }
-        out.push(line);
-        let dock = &window["dock"];
-        if let Some(name) = dock["pane"].as_str() {
-            let pane = reply["panes"].as_array().and_then(|panes| panes.iter().find(|p| p["name"] == name || p["id"] == name));
-            out.push(format!(
-                "  dock: {}  {} {}{}",
-                pane.map(label).unwrap_or_else(|| name.to_string()),
-                dock["edge"].as_str().unwrap_or("?"),
-                dock["width"].as_str().unwrap_or("?"),
-                if dock["frozen"] == true { "  frozen" } else { "" }
-            ));
-        }
-        for tab in window["tabs"].as_array().unwrap_or(&empty) {
-            out.push(format!(
-                "  {}{} \"{}\"  {}",
-                if tab["active"] == true { "*" } else { " " },
-                tab["id"].as_str().unwrap_or("?"),
-                tab["title"].as_str().unwrap_or(""),
-                expression(&tab["layout"], true)
-            ));
+    for window in windows.iter().filter(|w| w["workspace"].is_null()) {
+        window_lines(window, reply, &mut out);
+    }
+    for workspace in workspaces {
+        let mine: Vec<&Value> = windows.iter().filter(|w| w["workspace"] == workspace["id"]).collect();
+        out.push(format!(
+            "workspace {}{}{}",
+            workspace_label(workspace),
+            if workspace["hidden"] == true { "  hidden" } else { "" },
+            if mine.is_empty() { "  no windows" } else { "" }
+        ));
+        for window in mine {
+            window_lines(window, reply, &mut out);
         }
     }
     out.push(String::new());

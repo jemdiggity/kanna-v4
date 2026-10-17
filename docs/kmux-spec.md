@@ -1,6 +1,6 @@
 # kmux — Specification
 
-> **Status:** v0.7 · **Last updated:** 2026-10-14
+> **Status:** v0.8 · **Last updated:** 2026-10-17
 >
 > **Reference model:** [`reference/kmux/index.html`](../reference/kmux/index.html). Open it in a browser and try it.
 > The model is the source of truth for kmux's design and behaviour. This document summarises what the model shows and lists what it doesn't answer yet. If the two disagree, the model wins, and this document should be fixed.
@@ -159,7 +159,7 @@ flowchart LR
 - **Products that keep terminals alive:** kmux itself never keeps a process across a restart. A product built on kmux can: its build names a **terminal wrapper** (`KMUX_TERMINAL_WRAPPER` in `scripts/build-kmux.sh`, a program inside the app). kmux then runs every terminal through it, `WRAPPER` for a shell or `WRAPPER -- $SHELL -c CMD` for a command, and a restored terminal gets `KMUX_RESTORED=1` (`KANNA_RESTORED` in Kanna), so the wrapper can reattach a session that outlived the app instead of starting a new one. kmux knows nothing else about it. Kanna's keeper works this way.
 - **Where:** one file per instance, next to its socket: `~/Library/Application Support/kmux/state-default.json` (`state-work.json` for an instance named `work`). A kmux on a socket elsewhere (`$KMUX_SOCKET`, as tests use) keeps it beside that socket: `/tmp/x.sock` → `/tmp/x.state.json`. Other brands use their own folder (Kanna: `…/kanna/`).
 - **When:** half a second after a change, and when kmux quits (⌘Q, SIGTERM, SIGINT or SIGHUP). Writes are atomic: a temporary file, flushed, then renamed over the old one.
-- **Format:** JSON with a `version` (now 1): the windows (with frames, and a `dock` `{ pane, edge, width, frozen? }` when they have one), their tabs and layout trees (pane IDs, exact sizes), focus and zoom, and the panes. A file without `dock` loads as before. A terminal also has a `session`, reserved for re-attaching hosted terminals later and unused for now.
+- **Format:** JSON with a `version` (now 1): the workspaces (`{ id, name, hidden }`), the windows (with frames, a `dock` `{ pane, edge, width, frozen? }` when they have one, and a `workspace` when they're in one), their tabs and layout trees (pane IDs, exact sizes), focus and zoom, and the panes. A file without `dock`, `workspaces` or `workspace` loads as before. A terminal also has a `session`, reserved for re-attaching hosted terminals later and unused for now.
 - **Only kmux's own file:** restoring runs terminal commands again, so kmux restores a file only if it is a regular file (not a link), owned by the user, readable and writable by no one else (mode 0600), in a folder no other user can write to. kmux never restores from a path a client gives it.
 - **Never in the way:** a file that fails these checks, isn't valid, or has another version is moved aside to `….json.bad`, and kmux starts with a new window. So does a file with no windows left.
 - **Starting fresh:** `--fresh` (on the app or the CLI, or `KMUX_FRESH=1`) opens a new window instead; the saved layout is replaced at the next save. `KMUX_NO_STATE=1` turns saving and restoring off (for tests on shared sockets).
@@ -203,6 +203,42 @@ opened p4 (agent) docked left in window w1: running
 $ kmux move agent --dock right
 agent is docked right in w1 (width 2/5)
 $ kmux move agent --tab
+```
+
+### 3.8 Workspaces
+
+A **workspace** is a named group of windows, shown or hidden together. A window is in one workspace or none (a **free** window, as every window is until it's assigned). Hidden, a workspace's windows are off screen, their panes still running; shown, they open again where they were.
+
+```mermaid
+flowchart LR
+    APP["kmux"] --> F["w1<br/>free"]
+    APP --> S1["s1 checkout<br/>shown"]
+    APP --> S2["s2<br/>hidden"]
+    S1 --> W2["w2"]
+    S1 --> W3["w3"]
+    S2 --> W4["w4<br/>off screen, panes running"]
+```
+
+| Rule | |
+|------|---|
+| IDs | `s1`, `s2`, … never reused, with an optional name (unique, and not like an ID). A workspace is referred to by either. |
+| Making one | `workspace new [NAME]` makes an empty workspace; `window assign W S` puts a window in it, and `window free W` takes it out (Window → Assign Window to Workspace and Free Window). A window made by `open --window new`, `move --window new` or `move-tab --window new` is free. |
+| Hidden | A hidden workspace's windows never take the keyboard: none is the key window (hiding the key window's workspace makes another window key), and `focus` on one of them, a tab or a pane in it is refused (`hidden`). `open`, `move` and `move-tab` with `window` still reach a hidden window, without showing it. A window assigned to a hidden workspace hides; freed, it's on screen again. |
+| Shown | `workspace show` opens its windows where they were, and makes its last window key. |
+| Closing | `workspace close` closes its windows and everything in them, and the workspace. A workspace whose windows all close stays until it's closed. |
+| Replies | A window in a workspace is named with it: `open` adds `workspace: { id, name, hidden }`, the CLI says `opened p5 in s1's w2 (hidden), tab t9: running`. `list` adds each window's `workspace` (and `hidden: true`), each pane's `workspace`, and the `workspaces` with their windows; the CLI lists free windows first, then each workspace with its own. |
+
+```text
+$ kmux workspace new checkout
+made s1 (checkout): put windows in it with `kmux window assign WINDOW s1`
+$ kmux window assign w2 checkout
+assigned w2 to s1
+$ kmux workspace hide checkout
+hid s1 (checkout): w2 off screen, their panes still running
+$ kmux open --window w2 --tab
+opened p6 in s1's w2 (hidden), tab t5: running
+$ kmux workspace show checkout
+showed s1 (checkout): w2
 ```
 
 ---
@@ -280,6 +316,8 @@ The menu bar has **Edit**, **Pane**, **View** and **Window** menus. Right-clicki
 | Close window | ⇧⌘W | Window menu, red title-bar button |
 | Next / previous window | ⌘\` / ⇧⌘\` | Window menu, or pick a window from the list in the Window menu |
 | Move tab to new window | — | Window menu, tab right-click |
+| Assign the key window to a workspace, or to a new one ([3.8](#38-workspaces)) | — | Window menu, **Assign Window to Workspace** |
+| Free the key window from its workspace | — | Window menu, **Free Window** |
 | New instance | — | kmux menu ([3.4](#34-instances)) |
 
 ![The pane menu, opened by right-clicking a pane](img/kmux/pane-menu.png)
@@ -343,14 +381,16 @@ Each request is `{ id, cmd, args }`. Each reply is `{ id, ok: true, … }` or `{
 | `cmd` | `args` | Notes |
 |-------|--------|-------|
 | `capabilities` | — | The instance name, pane types, features and the commands this kmux supports. |
-| `open` | `type`, `url` / `cmd` / `cwd` / `path` / `app` / `device`, `history?` (web only, default off), `name?`, `split?` (`right` / `down` / `auto`), `size?`, `tab?`, `window?`, `wait?`, `dock?` (`left` / `right`), `frozen?` (with `dock`) | See [3.2](#32-sizes). The reply includes the pane's window and tab. With `dock`, the pane becomes the window's docked pane ([3.7](#37-docked-pane)); `split`, `size` and `tab` don't go with it, and the reply has `tab: null` and `dock`. With `frozen`, the docked pane is frozen. |
+| `open` | `type`, `url` / `cmd` / `cwd` / `path` / `app` / `device`, `history?` (web only, default off), `name?`, `split?` (`right` / `down` / `auto`), `size?`, `tab?`, `window?`, `wait?`, `dock?` (`left` / `right`), `frozen?` (with `dock`) | See [3.2](#32-sizes). The reply includes the pane's window and tab, and its `workspace` when the window is in one. With `dock`, the pane becomes the window's docked pane ([3.7](#37-docked-pane)); `split`, `size` and `tab` don't go with it, and the reply has `tab: null` and `dock`. With `frozen`, the docked pane is frozen. |
 | `arrange` | `layout` (tree), `window?` | See [3.3](#33-arrange). |
 | `move` | `pane`, plus one of: `to` + `side` (`left` / `right` / `top` / `bottom` / `swap`); `tab` (ID, or `new` with optional `window`); `window` (ID or `new`); `dock` (`left` / `right`, with optional `window`) | See [section 6](#6-moving-windows-tabs-and-panes). Moving to a window adds the pane to that window's active tab. `dock` docks the pane in its own window (or `window`), or moves the docked pane to that edge; the reply has `dock` instead of `tab` and `layout`. Moving the docked pane anywhere else undocks it. A frozen docked pane doesn't move, and nothing moves onto it or into its dock (`frozen`). |
 | `move-tab` | `tab`, `window?`, `index?` | Reorders a tab or moves it to another window, or to a new one. |
+| `workspace` | `action`: `new` (with `name?`), or `hide`, `show` or `close` with `workspace` (ID or name) | See [3.8](#38-workspaces). Replies with the `workspace` `{ id, name, hidden }` and its `windows`; `close` with the workspace's ID and the panes `closed`. |
+| `window` | `action`: `assign` (with `window` and `workspace`) or `free` (with `window`) | Puts a window in a workspace or frees it. Replies with the `window`, its `workspace` (none when free), the one it `was` in (or null) and whether it's `shown`. |
 | `rename-tab` | `tab`, `title` | The title can't be empty. |
 | `resize` | `pane`, `size` | Fails if the pane fills its tab. On the docked pane, sets its width. |
-| `list` | — | Windows (with the key window marked, each window's focused and zoomed pane, and its `dock`: `{ pane, edge, width }`, with `frozen: true` for a frozen one, when it has one), their tabs and layout trees, and all panes. |
-| `focus` | one of `pane`, `tab`, `window` | Brings it to the front and makes its window key. With zoom on, the pane it focuses is the one shown. |
+| `list` | — | Windows (with the key window marked, each window's focused and zoomed pane, its `dock`: `{ pane, edge, width }`, with `frozen: true` for a frozen one, when it has one, and its `workspace` and `hidden: true` when it's in one), their tabs and layout trees, the `workspaces` (`{ id, name, hidden, windows }`), and all panes (each with its `workspace`). |
+| `focus` | one of `pane`, `tab`, `window` | Brings it to the front and makes its window key. With zoom on, the pane it focuses is the one shown. A hidden window, or a tab or pane in one, is refused (`hidden`). |
 | `zoom` | `pane` | Focuses the pane and turns its window's zoom on, or off if that pane is already the one zoomed. |
 | `close` | one of `pane`, `tab`, `window` | Closes it and everything inside it. A window's docked pane closes only with the window. |
 | `restart` | `pane` | |
@@ -373,13 +413,14 @@ A size can be written as a fraction (`"1/3"`), a percentage (`"25%"`) or a decim
 | `code` | When |
 |--------|------|
 | `bad_request` | Unknown command or argument, invalid fraction, or resizing a pane that fills its tab. |
-| `not_found` | Unknown pane, tab or window. |
-| `name_taken` | Pane name already in use. |
+| `not_found` | Unknown pane, tab, window or workspace. |
+| `name_taken` | Pane or workspace name already in use. |
 | `wrong_type` | `send` to a non-terminal pane, or `navigate` to a terminal or iOS pane. |
 | `layout_invalid` | Malformed tree, a pane listed twice, or sizes adding up to more than 1. |
 | `start_failed` | The pane went to **failed**. The message says why. |
 | `docked` | `close` on a docked pane (`docked: it closes with its window`), `arrange` naming one, or `move` beside one. |
 | `frozen` | `move` on a frozen docked pane, or a `move` or `open` that would land on it or in its dock. |
+| `hidden` | `focus` on a hidden workspace's window, or a tab or pane in it (`w2 is s1's, hidden: show checkout to see it`). |
 
 ### 7.4 The `kmux` CLI
 
@@ -438,6 +479,7 @@ $ kmux instances
 | Model and app in sync | The protocol cases in `tests/kmux-protocol/` run against both the reference model and the native core. |
 | Multiple windows | Required. Modelled in [3.1](#31-structure), [section 6](#6-moving-windows-tabs-and-panes) and [section 7](#7-control-protocol). |
 | Docked pane | **One per window, outside its tabs** ([3.7](#37-docked-pane)), built in kmux first for Kanna's Desk (the [kanna spec](../../kanna-v4/docs/specs/docked-pane.md)). It is a window field, `dock { pane, edge, width }`, not a special tab, so tabs, `move-tab` and `arrange` work as before. Refusals use one error code, `docked`. Docking where a pane is already docked sends the old one to a new tab, not shown, so nothing closes. `resize` on it sets the width. kmux's app draws windows from the core directly, so there are no layout steps to send: Kanna's `window.dock`, `window.undock` and `window.dock_width` correspond to `move … dock`, a move that undocks, and `resize`. |
+| Workspaces | **Named groups of windows, shown or hidden together** ([3.8](#38-workspaces)), from Kanna's tasks, whose windows go with them to the Shelf (the [kanna spec](../../kanna-v4/docs/specs/workspaces.md)). A workspace is a window field, `workspace`, plus a list of `{ id, name, hidden }`; a window isn't one, and there's no workspace that holds tabs. Hidden windows keep their panes running and their frames, and never take the keyboard. kmux has no caller: `open` still goes to the key window or `--window`, and new windows are free. |
 | Frozen docked pane | **A flag on the dock, set when it opens** (`open --dock --frozen`), for a client whose docked pane is what the window is for: Kanna's tasks, whose agent is the docked pane. Nothing unfreezes it, so a client can rely on it; it doesn't move, and nothing takes its place. Refusals use their own code, `frozen`. |
 
 ### 8.2 Open
@@ -474,6 +516,8 @@ Web panes' memory isn't counted: WebKit runs each page in its own process.
 | **Layout tree** | The nested splits and panes in a tab. |
 | **Zoom** | A window's mode that shows only its focused pane. |
 | **Docked pane** | A window's one pane outside its tabs, along its left or right edge ([3.7](#37-docked-pane)). |
+| **Workspace** | A named group of windows, shown or hidden together ([3.8](#38-workspaces)). |
+| **Free window** | A window in no workspace. |
 | **Tabs' side** | The rest of a window with a docked pane: the tab bar and the shown tab. |
 | **Control protocol** | The JSON requests that other programs use to drive kmux. |
 | **State file** | Where an instance saves its layout to restore it when it starts again ([3.6](#36-persistence)). |

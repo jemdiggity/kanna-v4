@@ -245,6 +245,32 @@ pub static COMMANDS: &[Command] = &[
         show: |_, reply| format!("{}: {}", reply["window"].as_str().unwrap_or("?"), output::join(&reply["tabs"])),
     },
     Command {
+        name: "workspace",
+        group: "Tabs and windows",
+        summary: "Make, hide, show or close a workspace: a named group of windows, shown or hidden together.",
+        usage: "kmux workspace new [NAME]\n       kmux workspace hide WORKSPACE\n       kmux workspace show WORKSPACE\n       kmux workspace close WORKSPACE",
+        options: &[],
+        notes: "WORKSPACE is a workspace's ID (s1) or its name. A new workspace has no windows; put some in with `kmux window assign`. Hidden, its windows close, their panes still running, and nothing on them takes the keyboard (`kmux focus` refuses); shown, they open again where they were. Closing a workspace closes its windows and everything in them. `kmux list` shows free windows first, then each workspace with its windows: `workspace s1 (checkout)`, with `hidden` after a hidden one.",
+        examples: &[
+            ("kmux workspace new checkout", "Make a workspace named checkout."),
+            ("kmux workspace hide checkout", "Put its windows away; what runs in them keeps running."),
+            ("kmux workspace show checkout", "Bring them back where they were."),
+        ],
+        parse: parse_workspace,
+        show: output::workspace,
+    },
+    Command {
+        name: "window",
+        group: "Tabs and windows",
+        summary: "Put a window in a workspace, so it shows and hides with it, or free it.",
+        usage: "kmux window assign WINDOW WORKSPACE\n       kmux window free WINDOW",
+        options: &[],
+        notes: "A window is in one workspace, or none (a free window). Put in a hidden workspace, it closes with the workspace's other windows; freed, it's on screen again. In the app: Window → Assign Window to Workspace and Free Window.",
+        examples: &[("kmux window assign w2 checkout", "Make w2 one of checkout's windows."), ("kmux window free w2", "Take w2 out of its workspace; it stays open.")],
+        parse: parse_window,
+        show: output::window,
+    },
+    Command {
         name: "navigate",
         group: "Panes",
         summary: "Point a web pane at a new URL (or go back or forward), or a markdown pane at another file.",
@@ -364,6 +390,34 @@ fn absolute(path: &str) -> String {
     }
     std::env::current_dir().map(|dir| dir.join(path)).ok().and_then(|p| std::fs::canonicalize(&p).ok().or(Some(p)))
         .map(|p| p.to_string_lossy().into()).unwrap_or_else(|| path.to_string_lossy().into())
+}
+
+fn parse_workspace(args: &mut Args) -> Result<Value, Failure> {
+    let action = args.positional().ok_or_else(|| usage("workspace", "say new, hide, show or close"))?;
+    match action.as_str() {
+        "new" => Ok(match args.positional() {
+            Some(name) => json!({ "action": "new", "name": name }),
+            None => json!({ "action": "new" }),
+        }),
+        "hide" | "show" | "close" => {
+            let workspace = args.positional().ok_or_else(|| usage("workspace", "missing WORKSPACE (an ID like s1, or its name; see `kmux list`)"))?;
+            Ok(json!({ "action": action, "workspace": workspace }))
+        }
+        other => Err(usage("workspace", &format!("unknown action \"{other}\": new, hide, show or close"))),
+    }
+}
+
+fn parse_window(args: &mut Args) -> Result<Value, Failure> {
+    let action = args.positional().ok_or_else(|| usage("window", "say assign or free"))?;
+    let window = args.positional().ok_or_else(|| usage("window", "missing WINDOW (an ID like w2; see `kmux list`)"))?;
+    match action.as_str() {
+        "assign" => {
+            let workspace = args.positional().ok_or_else(|| usage("window", "missing WORKSPACE (an ID like s1, or its name; see `kmux list`)"))?;
+            Ok(json!({ "action": "assign", "window": window, "workspace": workspace }))
+        }
+        "free" => Ok(json!({ "action": "free", "window": window })),
+        other => Err(usage("window", &format!("unknown action \"{other}\": assign or free"))),
+    }
 }
 
 fn parse_open(args: &mut Args) -> Result<Value, Failure> {

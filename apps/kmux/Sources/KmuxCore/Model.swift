@@ -82,6 +82,8 @@ public final class Window {
     /// the layout so a restored window comes back in place.
     public var frame: Frame?
     public var dock: Dock?
+    /// The ID of the workspace the window is in, or nil: a free window.
+    public var workspace: String?
     /// Tabs are named "Tab 1", "Tab 2", … in the order the window made them.
     var tabCount = 0
 
@@ -96,6 +98,21 @@ public final class Window {
         guard let dock else { return ids }
         return dock.edge == .left ? [dock.pane] + ids : ids + [dock.pane]
     }
+}
+
+/// A named group of windows, shown or hidden together. A hidden workspace's
+/// windows are off screen, their panes still running.
+public final class Workspace {
+    public let id: String
+    public var name: String?
+    public var hidden = false
+
+    init(id: String, name: String?) {
+        self.id = id
+        self.name = name
+    }
+
+    public var label: String { name ?? id }
 }
 
 public struct Dock: Sendable, Equatable {
@@ -138,14 +155,42 @@ public final class Model {
     public private(set) var panes: [String: Pane] = [:]
     public private(set) var paneOrder: [String] = []
     public private(set) var windows: [Window] = []
+    public private(set) var workspaces: [Workspace] = []
     public var key: String?
-    private var counters = (pane: 0, tab: 0, window: 0)
+    private var counters = (pane: 0, tab: 0, window: 0, workspace: 0)
 
     public init() {}
 
-    public var keyWindow: Window? { windows.first { $0.id == key } }
+    /// The key window: always one on screen.
+    public var keyWindow: Window? { windows.first { $0.id == key && isShown($0) } }
 
     public func window(_ id: String) -> Window? { windows.first { $0.id == id } }
+
+    public func workspace(_ ref: String) -> Workspace? { workspaces.first { $0.id == ref } ?? workspaces.first { $0.name == ref } }
+
+    public func workspace(of window: Window) -> Workspace? { window.workspace.flatMap { id in workspaces.first { $0.id == id } } }
+
+    /// Whether a window is on screen: it's free, or its workspace isn't hidden.
+    public func isShown(_ window: Window) -> Bool { workspace(of: window)?.hidden != true }
+
+    public var shownWindows: [Window] { windows.filter(isShown) }
+
+    /// Makes a window key, if it's on screen.
+    func raise(_ window: Window) {
+        if isShown(window) { key = window.id }
+    }
+
+    func makeWorkspace(name: String?) -> Workspace {
+        counters.workspace += 1
+        let workspace = Workspace(id: "s\(counters.workspace)", name: name)
+        workspaces.append(workspace)
+        return workspace
+    }
+
+    func forget(_ workspace: Workspace) {
+        workspaces.removeAll { $0 === workspace }
+        for window in windows where window.workspace == workspace.id { window.workspace = nil }
+    }
 
     public func pane(_ ref: String) -> Pane? {
         panes[ref] ?? paneOrder.lazy.compactMap { self.panes[$0] }.first { $0.name == ref }
@@ -181,15 +226,17 @@ public final class Model {
 
     /// Replaces everything with a restored layout. IDs are never reused while
     /// kmux runs, so the counters only move forward.
-    func install(panes: [Pane], windows: [Window], key: String?, counters: (pane: Int, tab: Int, window: Int)) {
+    func install(panes: [Pane], windows: [Window], workspaces: [Workspace], key: String?, counters: (pane: Int, tab: Int, window: Int, workspace: Int)) {
         self.panes = Dictionary(uniqueKeysWithValues: panes.map { ($0.id, $0) })
         paneOrder = panes.map(\.id)
         self.windows = windows
+        self.workspaces = workspaces
         self.key = key
-        self.counters = (max(self.counters.pane, counters.pane), max(self.counters.tab, counters.tab), max(self.counters.window, counters.window))
+        self.counters = (max(self.counters.pane, counters.pane), max(self.counters.tab, counters.tab), max(self.counters.window, counters.window),
+                         max(self.counters.workspace, counters.workspace))
     }
 
-    var savedCounters: (pane: Int, tab: Int, window: Int) { counters }
+    var savedCounters: (pane: Int, tab: Int, window: Int, workspace: Int) { counters }
 
     func forget(_ pane: Pane) {
         panes[pane.id] = nil
@@ -330,7 +377,7 @@ public final class Model {
             }
         }
         windows.removeAll { $0.tabs.isEmpty && $0.dock == nil }
-        if keyWindow == nil { key = windows.last?.id }
+        if keyWindow == nil { key = shownWindows.last?.id }
     }
 
     // MARK: Views for the protocol
@@ -351,6 +398,10 @@ public final class Model {
         var out: [String: JSON] = ["pane": .string(panes[dock.pane]?.name ?? dock.pane), "edge": .string(dock.edge.rawValue), "width": .string(Fraction.format(dock.width))]
         if dock.frozen { out["frozen"] = true }
         return .object(out)
+    }
+
+    public func workspaceView(_ workspace: Workspace) -> JSON {
+        ["id": .string(workspace.id), "name": workspace.name.map(JSON.string) ?? .null, "hidden": .bool(workspace.hidden)]
     }
 
     public func summary(_ pane: Pane) -> JSON {

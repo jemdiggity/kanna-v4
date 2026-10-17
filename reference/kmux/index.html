@@ -324,12 +324,22 @@ function toRequest(line) {
     case 'restart': case 'zoom': needPos(1, 'a pane'); return { cmd, args: { pane: pos[0] } };
     case 'send': needPos(2, 'a pane and text'); return { cmd, args: { pane: pos[0], text: pos.slice(1).join(' ') } };
     case 'navigate': needPos(2, 'a pane and a URL'); return { cmd, args: { pane: pos[0], url: pos[1] } };
+    case 'workspace': {
+      needPos(1, 'new, hide, show or close');
+      if (pos[0] === 'new') return { cmd, args: { action: 'new', ...(pos[1] ? { name: pos[1] } : {}) } };
+      needPos(2, 'a workspace');
+      return { cmd, args: { action: pos[0], workspace: pos[1] } };
+    }
+    case 'window':
+      needPos(2, 'assign or free, and a window');
+      if (pos[0] === 'assign') { needPos(3, 'a workspace'); return { cmd, args: { action: 'assign', window: pos[1], workspace: pos[2] } }; }
+      return { cmd, args: { action: pos[0], window: pos[1] } };
     case undefined: throw usage('empty command');
     default: throw usage(`unknown command "${cmd}" (type help)`);
   }
 }
 
-const EXIT = { bad_request: 2, layout_invalid: 2, not_found: 4, name_taken: 1, wrong_type: 1, start_failed: 1 };
+const EXIT = { bad_request: 2, layout_invalid: 2, not_found: 4, name_taken: 1, wrong_type: 1, start_failed: 1, hidden: 1 };
 const HELP = `commands (the "kanna" prefix is optional; raw JSON requests work too):
   open term [--cmd CMD] [--cwd DIR]        open web URL        open ios --app APP [--device NAME]
       shared: --name N  --split [right|down]  --size 1/3  --tab  --window WIN|new  --no-wait  --dock [left|right]
@@ -339,6 +349,7 @@ const HELP = `commands (the "kanna" prefix is optional; raw JSON requests work t
   move PANE --dock [left|right]  (dock it, or move the docked pane to the other edge; --to-tab new undocks it)
   move-tab TAB [--to-window WIN|new] [--index N]
   focus PANE | --tab TAB | --window WIN            close PANE | --tab TAB | --window WIN
+  workspace new [NAME] | hide WS | show WS | close WS      window assign WIN WS | free WIN
   resize PANE 1/3    zoom PANE    restart PANE    send PANE TEXT    navigate PANE URL    list    mux`;
 
 // ---------------------------------------------------------------------------
@@ -396,12 +407,12 @@ function render() {
   const a = document.activeElement;
   const keep = a && a.dataset && a.dataset.keep;
   desk.innerHTML = '';
-  if (!S.windows.length) {
+  if (!shownWindows().length) {
     desk.append(h('div', { class: 'desktop-empty' }, 'No windows.', h('div', {},
       ['term', 'web', 'ios', 'md'].map(type => h('button', { onclick: () => ui({ cmd: 'open', args: { ...defaultsFor(type), window: 'new' } }) }, `new ${type} window`)))));
     return;
   }
-  for (const w of S.windows) desk.append(renderWindow(w));
+  for (const w of shownWindows()) desk.append(renderWindow(w));
   desk.querySelectorAll('.term-body').forEach(b => { b.scrollTop = b.scrollHeight; });
   const want = S.urlEdit ? 'url:' + S.urlEdit : tabEdit ? 'tab:' + tabEdit.id : keep;
   if (want) {
@@ -660,8 +671,17 @@ const windowMenu = () => [
   ['Next window', () => cycleWin(1), '⌘`'],
   ['Previous window', () => cycleWin(-1), '⇧⌘`'],
   ['Move tab to new window', () => keyWin() && ui({ cmd: 'move-tab', args: { tab: keyWin().active, window: 'new' } })],
-  ...(S.windows.length ? ['-'] : []),
-  ...S.windows.map(w => [`${w.id === S.key ? '✓ ' : '   '}${w.id} — ${tabTitle(activeTabOf(w))}`, () => ui({ cmd: 'focus', args: { window: w.id } })]),
+  '-',
+  ...S.workspaces.map(s => [`Assign window to ${s.name || s.id}${keyWin()?.workspace === s.id ? ' ✓' : ''}`,
+    () => keyWin() && ui({ cmd: 'window', args: { action: 'assign', window: S.key, workspace: s.id } })]),
+  ['Assign window to a new workspace', async () => {
+    if (!keyWin()) return;
+    const made = await ui({ cmd: 'workspace', args: { action: 'new' } });
+    if (made.ok) await ui({ cmd: 'window', args: { action: 'assign', window: S.key, workspace: made.workspace.id } });
+  }],
+  ...(keyWin()?.workspace ? [['Free window', () => ui({ cmd: 'window', args: { action: 'free', window: S.key } })]] : []),
+  ...(shownWindows().length ? ['-'] : []),
+  ...shownWindows().map(w => [`${w.id === S.key ? '✓ ' : '   '}${w.id} — ${tabTitle(activeTabOf(w))}`, () => ui({ cmd: 'focus', args: { window: w.id } })]),
 ];
 
 function renderPane(p, w) {
@@ -861,10 +881,11 @@ async function cyclePane(d) {
   focusInput(next);
 }
 async function cycleWin(d) {
-  const n = S.windows.length;
+  const windows = shownWindows();
+  const n = windows.length;
   if (n < 2) return;
-  const i = S.windows.findIndex(w => w.id === S.key);
-  const next = S.windows[(i + d + n) % n];
+  const i = windows.findIndex(w => w.id === S.key);
+  const next = windows[(i + d + n) % n];
   await ui({ cmd: 'focus', args: { window: next.id } });
   focusInput(next.focused);
 }

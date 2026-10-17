@@ -399,6 +399,12 @@ mod tests {
             ("kmux move agent --tab", json!({ "pane": "agent", "tab": "new" })),
             ("kmux move agent --tab t3", json!({ "pane": "agent", "tab": "t3" })),
             ("kmux move agent --tab --window w2", json!({ "pane": "agent", "tab": "new", "window": "w2" })),
+            ("kmux workspace new", json!({ "action": "new" })),
+            ("kmux workspace new checkout", json!({ "action": "new", "name": "checkout" })),
+            ("kmux workspace hide s1", json!({ "action": "hide", "workspace": "s1" })),
+            ("kmux workspace close checkout", json!({ "action": "close", "workspace": "checkout" })),
+            ("kmux window assign w2 s1", json!({ "action": "assign", "window": "w2", "workspace": "s1" })),
+            ("kmux window free w2", json!({ "action": "free", "window": "w2" })),
         ];
         for (line, expected) in cases {
             let (_, request) = parse(line).unwrap_or_else(|f| panic!("{line}: {}", f.message));
@@ -426,6 +432,11 @@ mod tests {
             ("kmux move agent --dock --tab", "--dock goes on its own"),
             ("kmux move agent --dock --to b", "--dock goes on its own"),
             ("kmux open --frozen", "--frozen goes with --dock"),
+            ("kmux workspace", "say new, hide, show or close"),
+            ("kmux workspace hide", "missing WORKSPACE"),
+            ("kmux workspace park s1", "unknown action \"park\""),
+            ("kmux window assign w2", "missing WORKSPACE"),
+            ("kmux window free", "missing WINDOW"),
         ] {
             let failure = parse(line).expect_err(line);
             assert_eq!(failure.code, exit::USAGE, "{line}");
@@ -459,5 +470,38 @@ mod tests {
         assert!(output::list(&frozen).contains("\n  dock: p1 (agent)  left 2/5  frozen"), "{}", output::list(&frozen));
         let moved = json!({ "window": "w1", "dock": { "pane": "agent", "edge": "right", "width": "1/3" } });
         assert_eq!(output::moved(&moved), "agent is docked right in w1 (width 1/3)");
+    }
+
+    #[test]
+    fn windows_print_by_workspace() {
+        let tab = |id: &str, pane: &str| json!([{ "id": id, "title": "Tab 1", "active": true, "layout": { "pane": pane } }]);
+        let reply = json!({
+            "windows": [
+                { "id": "w1", "key": true, "tabs": tab("t1", "a") },
+                { "id": "w2", "key": false, "workspace": "s1", "hidden": true, "tabs": tab("t2", "b") },
+                { "id": "w3", "key": false, "tabs": tab("t3", "c") }
+            ],
+            "workspaces": [
+                { "id": "s1", "name": "checkout", "hidden": true, "windows": ["w2"] },
+                { "id": "s2", "name": null, "hidden": false, "windows": [] }
+            ],
+            "panes": []
+        });
+        let text = output::list(&reply);
+        assert!(text.starts_with("*w1\n  *t1 \"Tab 1\"  a\n w3\n  *t3 \"Tab 1\"  c\nworkspace s1 (checkout)  hidden\n w2\n  *t2 \"Tab 1\"  b\nworkspace s2  no windows\n"), "{text}");
+        let pane = json!({ "id": "p5", "name": null, "state": "running" });
+        let hidden = json!({ "pane": pane, "window": "w2", "tab": "t9", "workspace": { "id": "s1", "name": "checkout", "hidden": true } });
+        assert_eq!(output::opened(&json!({}), &hidden), "opened p5 in s1's w2 (hidden), tab t9: running");
+        let shown = json!({ "pane": pane, "window": "w2", "tab": "t9", "workspace": { "id": "s1", "name": "checkout", "hidden": false } });
+        assert_eq!(output::opened(&json!({}), &shown), "opened p5 in s1's w2, tab t9: running");
+        let assign = json!({ "action": "assign" });
+        assert_eq!(output::window(&assign, &json!({ "window": "w2", "workspace": { "id": "s1", "hidden": true }, "shown": false })),
+                   "assigned w2 to s1 (hidden: it opens again when s1 is shown)");
+        assert_eq!(output::window(&json!({ "action": "free" }), &json!({ "window": "w2", "was": { "id": "s1", "hidden": true }, "shown": true })),
+                   "w2 is free (out of s1, and open again)");
+        assert_eq!(output::workspace(&json!({ "action": "hide" }), &json!({ "workspace": { "id": "s1", "name": "checkout", "hidden": true }, "windows": ["w2"] })),
+                   "hid s1 (checkout): w2 off screen, their panes still running");
+        assert_eq!(output::workspace(&json!({ "action": "close" }), &json!({ "workspace": "s1", "closed": [] })), "closed s1 (it had no panes)");
+        assert_eq!(output::workspace(&json!({ "action": "close" }), &json!({ "workspace": "s1", "closed": ["p2", "p3"] })), "closed s1 (panes p2, p3)");
     }
 }
