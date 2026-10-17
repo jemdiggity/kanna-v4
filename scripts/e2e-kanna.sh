@@ -1996,10 +1996,11 @@ sys.exit(0 if ok else 1)'
   raw "{\"id\":1,\"cmd\":\"debug.code\",\"args\":{\"pane\":\"$id\",\"reveal\":400}}" >/dev/null
   raw "{\"id\":1,\"cmd\":\"debug.code\",\"args\":{\"pane\":\"$id\",\"pick\":198}}" >/dev/null
   check wait_for 5 eval 'fits $id' || { fits $id; return 1; }
-  said="$(kanna comment "$backlog:473" "$long")" || return 1
-  [[ "$said" == "opened p"*" · backlog.rs:473" ]] || { echo "said: $said"; return 1; }
+  local blank=$(( $(grep -n '^fn gone() -> KmuxError' "$backlog" | cut -d: -f1) - 1 ))
+  said="$(kanna comment "$backlog:$blank" "$long")" || return 1
+  [[ "$said" == "opened p"*" · backlog.rs:$blank" ]] || { echo "said: $said"; return 1; }
   other="$(awk '{print $2}' <<<"$said")"
-  check wait_for 5 eval '[[ "$(code $other comment_first)" == 473 && "$(code $other scopes)" -gt 0 ]]' || return 1
+  check wait_for 5 eval '[[ "$(code $other comment_first)" == $blank && "$(code $other scopes)" -gt 0 ]]' || return 1
   sleep 0.5
   check wait_for 5 eval 'fits $other' || { fits $other; return 1; }
   check wait_for 5 eval '[[ "$(code $other comment_box_visible)" == 1 ]]' || return 1
