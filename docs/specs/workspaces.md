@@ -2,7 +2,7 @@
 
 **Status:** planned · **Builds on:** [layout](layout.md), [Desk](desk.md), [tasks](tasks.md), [presenting](presenting.md) · **Folds in:** backlog task t135 (off-screen replies)
 
-A **workspace** is what a window shows: a task's agent docked beside its tabs, with the shown tab, focus and zoom. Today a task has no such object. On a Desk its parts are fields of the window; parked or held they're copied out into a `Window`-shaped record with the agent pane's ID. So a window ID like `w31` names a place, not a task. A command aimed at a window hits whichever task is shown there (an agent's diff tab landed in another task's workspace that way), and a reply about an off-screen task names the key window or says the app isn't open.
+A task is a unit of work; its **workspace** is how it's presented: its agent docked beside its tabs, with the shown tab, focus and zoom. A window shows a workspace. Today a task has no such object. On a Desk its parts are fields of the window; parked or held they're copied out into a `Window`-shaped record with the agent pane's ID. So a window ID like `w31` names a place, not a task. A command aimed at a window hits whichever task is shown there (an agent's diff tab landed in another task's workspace that way), and a reply about an off-screen task names the key window or says the app isn't open.
 
 With workspaces, a window *shows* one workspace. Park, pull, hold and shelve change which window shows which, and copy nothing. A command from a task's pane goes to its own workspace, wherever that is, and the reply names the task and where it is. `--window` only ever means a place.
 
@@ -94,7 +94,7 @@ A pane belongs to the workspace it's in. Moving it to another window moves it to
 
 ## 3. Commands: target and reply
 
-**The caller** is the CLI's `$KANNA_PANE` (today's `opener`). Its workspace is the one it's in. A command that names a pane or tab acts on *that* pane's workspace. One that names nothing acts on the caller's. `--window W` is a place: W's shown workspace.
+**The caller** is the CLI's `$KANNA_PANE` (today's `opener`). Its workspace is the one it's in. A command that names a pane or tab acts on *that* pane's workspace. One that names nothing acts on the caller's. `--window W` is a place: W's shown workspace. A task's pane may aim there too, though it rarely needs to; the reply then names the other workspace, so the agent sees where its pane went.
 
 | Command | From a task's pane (t135) | From a plain pane (in w4) |
 |---|---|---|
@@ -103,7 +103,7 @@ A pane belongs to the workspace it's in. Moving it to another window moves it to
 | `focus --window W` | makes W key; changes no workspace | as today |
 | `zoom PANE` | that pane's workspace's zoom, shown or not | as today |
 | `comment` | the markdown pane it opens or finds is in t135 | in w4 |
-| `move` | `--window W` into W's shown workspace ([questions](#8-questions) 2) | as today |
+| `move` | `--window W` into W's shown workspace | as today |
 | `close` | a pane, a tab, or `--window W` (W and the workspace it shows) | as today |
 | `list` | every window and what it shows, then each Shelf and backlog workspace with its tabs | the same |
 
@@ -114,6 +114,7 @@ Replies say which workspace, and where it is. The window is named only when one 
 | open, t135 shown in w31 | `opened p5 in window w31, tab t9: running` | `opened p5 in t135 on w31, tab t9: running` |
 | open, t135 on the Shelf | `opened p5, unplaced until Kanna.app opens: running` | `opened p5 in t135 (on the Shelf), tab t9: running` |
 | open, t135 in the backlog | the same | `opened p5 in t135 (in the backlog), tab t9: running` |
+| open `--window w31`, from t135, w31 shows t140 | `opened p5 in window w31, tab t9: running` | `opened p5 in t140 on w31, tab t9: running` |
 | open, no app | `opened p5, unplaced until Kanna.app opens: running` | unchanged |
 | focus, t135 held | `focused spec (key window w31)` | `focused spec in t135 (in the backlog)` |
 | focus, t135 shown | `focused spec (key window w31)` | `focused spec in t135 on w31 (key window)` |
@@ -185,19 +186,19 @@ flowchart LR
 - **Quiz window docks its agent** (`quiz-window-docked`) renames `planner` to `lead` and lets a plain window have one (the Quiz window). That fits: the lead lives in the window's home workspace, so a Quiz window is a plain window whose home has a lead and tabs. Land it first. This spec then says `lead` throughout, and version 1's `planner` loads as `lead`.
 - **Move to a window makes a new tab** (`move-window-new-tab`): `move PANE --window W` makes a new tab at the end of W. With workspaces that tab is in W's shown workspace. No conflict: it changes `move_pane`'s destination, and this spec changes how W resolves to a workspace.
 
-## 8. Questions
+## 8. Decisions and questions
 
-1. **The name.** "Workspace" vs "desk set" or "task layout". *Recommend* workspace: it names a thing, not a place, and it's the word the note that raised this uses.
-2. **`--window W` from a task's pane, when W shows another task.** Today that lands in the other task, which is the original bug. *Recommend* refusing it (`not_yours`: "w31 shows t140; your task t135 is on the Shelf: leave out --window"), except `--window new`. A plain pane can still aim anywhere.
-3. **What a plain window is.** *Recommend* a window that shows only its home workspace, as in [4](#4-plain-windows-and-the-planning-terminal), not a workspace without a task that could be parked. Parking a plain window would make the Shelf hold things that aren't tasks.
-4. **Whether the Shelf shows workspaces.** *Recommend* the Shelf holds them (it's a `where`) and draws the cards it draws today: a task's name, state and tab names. No live previews.
-5. **t135.** *Recommend* taking it off the backlog (`kanna task done t135`) when the build task is made, since its replies are [3](#3-commands-target-and-reply)'s.
+1. **The name is workspace.** A task is the unit of work; its workspace is its presentation. The Shelf and the backlog hold tasks, and each started task's workspace goes with it, hidden; the Shelf draws the cards it draws today.
+2. **A task's pane may open into another window** with `--window W`. It's rare, not wrong. The reply names the workspace it landed in.
+3. **t135** ("Off-screen open and focus replies name the right window"), a backlog task made by the agent of 'Presentations focus the first tab' for the two misleading replies, is covered by [3](#3-commands-target-and-reply) and comes off the backlog when the build task is made.
+4. **Open: does a plain window have a workspace?** A plain window is one that isn't a Desk (`kanna open --window new`, a torn-off tab): no task docks there. *Recommend* yes, its home workspace: every window then shows a workspace, so the tab, focus and zoom code is one path. The other choice keeps tabs on plain windows and puts workspaces only on tasks, which keeps two paths, as today.
 
 ## 9. Glossary
 
 | Term | Meaning |
 |---|---|
-| **Workspace** | A task's agent dock, tabs, shown tab, focus and zoom, with the task's ID; or a window's home |
+| **Task** | A unit of work: one agent in one repo ([tasks](tasks.md)) |
+| **Workspace** | How a task is presented: its agent dock, tabs, shown tab, focus and zoom, with the task's ID; or a window's home |
 | **Home workspace** | A window's own workspace, with the window's ID; holds a Desk's lead, or a plain window's tabs |
 | **Shows** | The one workspace a window draws |
 | **Where** | A workspace's place: shown in a window, on the Shelf, or in the backlog |
